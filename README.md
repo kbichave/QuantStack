@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.jpg" alt="QuantStack Logo" width="200"/>
+  <img src="logo.png" alt="QuantStack Logo" width="200"/>
 </p>
 
 <h1 align="center">QuantStack</h1>
@@ -39,13 +39,7 @@ QuantStack/
 │   ├── quant_arena/             # Historical backtesting simulation
 │   ├── quant_pod/               # Multi-agent trading system (CrewAI)
 │   └── etrade_mcp/              # E-Trade MCP server
-├── configs/                     # Configuration files
-│   ├── quantcore/               # QuantCore configs
-│   └── quant_pod/               # Quant Pod configs
 ├── scripts/                     # Utility scripts
-│   ├── data/                    # Data fetching scripts
-│   ├── pipelines/               # Pipeline runners
-│   └── models/                  # Model training scripts
 ├── examples/                    # Example applications
 ├── tests/                       # Test suite
 └── docs/                        # Documentation
@@ -126,55 +120,97 @@ pip install -e ".[all]"
 ### Basic Usage
 
 ```python
-import quantcore as qc
+import pandas as pd
+import numpy as np
+from quantcore.features.factory import MultiTimeframeFeatureFactory
+from quantcore.backtesting.engine import BacktestEngine, BacktestConfig
+from quantcore.equity.strategies import MeanReversionStrategy
+from quantcore.config.timeframes import Timeframe
 
-# Load data
-manager = qc.DataManager()
-data = manager.fetch("AAPL", timeframe=qc.Timeframe.DAILY)
+# Prepare sample OHLCV data (replace with your actual data)
+dates = pd.date_range('2023-01-01', periods=252, freq='D')
+ohlcv_data = pd.DataFrame({
+    'open': 100 + np.cumsum(np.random.randn(252) * 0.5),
+    'high': 100 + np.cumsum(np.random.randn(252) * 0.5) + np.abs(np.random.randn(252) * 0.3),
+    'low': 100 + np.cumsum(np.random.randn(252) * 0.5) - np.abs(np.random.randn(252) * 0.3),
+    'close': 100 + np.cumsum(np.random.randn(252) * 0.5),
+    'volume': np.random.randint(1000000, 5000000, 252)
+}, index=dates)
+
+# Ensure high >= close >= low and high >= open >= low
+ohlcv_data['high'] = ohlcv_data[['open', 'close', 'high']].max(axis=1)
+ohlcv_data['low'] = ohlcv_data[['open', 'close', 'low']].min(axis=1)
 
 # Compute features
-factory = qc.FeatureFactory(timeframe=qc.Timeframe.DAILY)
-features = factory.compute_all(data)
-
-# Run backtest
-result = qc.run_backtest(
-    data=features,
-    strategy=qc.MeanReversionStrategy(zscore_threshold=2.0),
-    initial_capital=100_000,
+factory = MultiTimeframeFeatureFactory()
+features = factory.compute_all_timeframes(
+    data={Timeframe.D1: ohlcv_data}
 )
 
-print(f"Sharpe Ratio: {result['sharpe_ratio']:.2f}")
-print(f"Max Drawdown: {result['max_drawdown']:.1f}%")
-print(f"Win Rate: {result['win_rate']:.1f}%")
+# Generate signals using strategy
+strategy = MeanReversionStrategy(zscore_threshold=2.0)
+signals = strategy.generate_signals(features[Timeframe.D1])
+
+# Prepare signal DataFrame for backtest
+signal_df = pd.DataFrame({
+    'signal': signals,
+    'signal_direction': signals.map({1: 'LONG', -1: 'SHORT', 0: 'NONE'})
+}, index=features[Timeframe.D1].index)
+
+# Run backtest
+config = BacktestConfig(initial_capital=100_000)
+engine = BacktestEngine(config)
+result = engine.run(signal_df, ohlcv_data)
+
+print(f"Sharpe Ratio: {result.sharpe_ratio:.2f}")
+print(f"Max Drawdown: {result.max_drawdown:.2f}%")
+print(f"Win Rate: {result.win_rate:.1f}%")
 ```
 
 ### Example: WTI-Brent Spread Trading
 
 ```python
-import quantcore as qc
-from quantcore.research import stat_tests, alpha_decay
+import pandas as pd
+import numpy as np
+from quantcore.research import stat_tests
+from quantcore.research.alpha_decay import AlphaDecayAnalyzer
 
-# Fetch commodity data
-wti = manager.fetch("CL=F", timeframe=qc.Timeframe.DAILY)
-brent = manager.fetch("BZ=F", timeframe=qc.Timeframe.DAILY)
+# Prepare sample WTI and Brent price data (replace with your actual data)
+dates = pd.date_range('2023-01-01', periods=252, freq='D')
+wti_close = 70 + np.cumsum(np.random.randn(252) * 0.5)
+brent_close = 72 + np.cumsum(np.random.randn(252) * 0.5)
+
+# Align indices (important for spread calculation)
+wti_series = pd.Series(wti_close, index=dates)
+brent_series = pd.Series(brent_close, index=dates)
 
 # Compute spread
-spread = wti["close"] - brent["close"]
+spread = wti_series - brent_series
 
 # Test for mean reversion (stationarity)
 adf_result = stat_tests.adf_test(spread)
 print(f"ADF p-value: {adf_result.p_value:.4f}")  # < 0.05 = stationary
 
-# Analyze alpha decay
-decay = alpha_decay.compute_decay_curve(signal=spread_zscore, returns=returns)
-print(f"Half-life: {decay['half_life']} bars")
+# Compute spread z-score for decay analysis
+spread_mean = spread.rolling(20).mean()
+spread_std = spread.rolling(20).std()
+spread_zscore = (spread - spread_mean) / spread_std
 
-# Run spread strategy backtest
-result = qc.run_backtest(
-    data=spread_df,
-    strategy=SpreadMeanReversion(entry_zscore=2.0, exit_zscore=0.0),
-    params={"position_size": 1000, "spread_cost": 0.05}
-)
+# Compute returns for decay analysis
+# AlphaDecayAnalyzer compares signal[t] to returns[t+lag] (forward returns)
+# Use percentage change for returns (standard for financial analysis)
+returns = spread.pct_change()
+
+# Align indices (remove NaN values from rolling calculations and returns)
+common_idx = spread_zscore.dropna().index.intersection(returns.dropna().index)
+spread_zscore_aligned = spread_zscore.loc[common_idx]
+returns_aligned = returns.loc[common_idx]
+
+# Analyze alpha decay
+analyzer = AlphaDecayAnalyzer(max_lag=20)
+decay_result = analyzer.analyze(signal=spread_zscore_aligned, returns=returns_aligned)
+print(f"Half-life: {decay_result.half_life:.1f} periods")
+print(f"Optimal holding period: {decay_result.optimal_holding_period} periods")
 ```
 
 ## Module Maturity

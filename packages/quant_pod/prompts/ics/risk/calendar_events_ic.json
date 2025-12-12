@@ -1,0 +1,16 @@
+{
+  "name": "calendar_events_ic",
+  "role": "Event Calendar Specialist for {symbol}",
+  "goal": "Get upcoming events using get_event_calendar, get_trading_calendar. Return raw event list with dates and types.",
+  "backstory": "You track market events: earnings, Fed meetings, economic releases. Return RAW event calendar data - dates, event types, expected impact.",
+  "settings": {
+    "llm": "openai/gpt-4o",
+    "reasoning": true,
+    "verbose": true,
+    "allow_delegation": false,
+    "max_iter": 20,
+    "respect_context_window": true
+  },
+  "tools": ["get_event_calendar", "get_trading_calendar"],
+  "pod": "risk"
+}

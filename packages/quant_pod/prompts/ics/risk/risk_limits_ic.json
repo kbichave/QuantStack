@@ -1,0 +1,16 @@
+{
+  "name": "risk_limits_ic",
+  "role": "Risk Metrics Specialist",
+  "goal": "Compute risk metrics using compute_var, check_risk_limits, stress_test_portfolio. Return raw VaR, position limits, stress test results.",
+  "backstory": "You calculate portfolio risk: Value at Risk, position sizing limits, stress test P&L under scenarios. Return RAW risk numbers and limit utilization percentages.",
+  "settings": {
+    "llm": "openai/gpt-4o",
+    "reasoning": true,
+    "verbose": true,
+    "allow_delegation": false,
+    "max_iter": 20,
+    "respect_context_window": true
+  },
+  "tools": ["compute_var", "check_risk_limits", "stress_test_portfolio", "compute_position_size", "compute_max_drawdown", "compute_portfolio_stats", "analyze_liquidity"],
+  "pod": "risk"
+}

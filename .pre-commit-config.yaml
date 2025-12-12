@@ -1,0 +1,96 @@
+# Copyright 2024 QuantCore Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+# Pre-commit hooks for code quality
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+default_language_version:
+  python: python3.10
+
+repos:
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: debug-statements
+
+  # Ruff - Fast Python linter and formatter
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.9
+    hooks:
+      # Linter
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        types_or: [python, pyi]
+      # Formatter
+      - id: ruff-format
+        types_or: [python, pyi]
+
+  # Type checking with MyPy
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        args: [--config-file=pyproject.toml]
+        additional_dependencies:
+          - pandas-stubs>=2.0.0
+          - types-requests>=2.31.0
+          - types-python-dateutil>=2.8.0
+          - pydantic>=2.0.0
+        pass_filenames: false
+        entry: mypy src/quantcore
+
+  # Security scanning
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.6
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml, -r, src/quantcore]
+        additional_dependencies: ["bandit[toml]"]
+
+  # Check for common Python security issues
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
+    rev: v1.3.2
+    hooks:
+      - id: python-safety-dependencies-check
+        files: pyproject.toml
+
+  # Spell checking in code comments and docstrings
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.2.6
+    hooks:
+      - id: codespell
+        args: [--skip, "*.json,*.csv,*.yaml,*.yml,*.lock"]
+        types_or: [python, markdown, rst]
+
+  # Check for TODO/FIXME comments (warning only)
+  - repo: local
+    hooks:
+      - id: check-todos
+        name: Check TODO/FIXME comments
+        entry: bash -c 'grep -rn "TODO\|FIXME\|XXX\|HACK" src/ --include="*.py" || true'
+        language: system
+        pass_filenames: false
+        verbose: true
+
+ci:
+  autofix_commit_msg: "style: auto-fix by pre-commit hooks"
+  autofix_prs: true
+  autoupdate_commit_msg: "chore: update pre-commit hooks"
+  autoupdate_schedule: monthly
+  skip: [mypy]  # Skip mypy in CI (run separately for better caching)
+

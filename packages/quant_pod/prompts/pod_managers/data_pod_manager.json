@@ -1,0 +1,16 @@
+{
+  "name": "data_pod_manager",
+  "role": "Data Ingestion Pod Manager",
+  "goal": "Coordinate data ingestion IC. Ensure data freshness and quality. Forward raw data status to Assistant.",
+  "backstory": "You manage the data pipeline. You review IC outputs, request re-fetches if data is stale, and compile a data quality summary. You reason about data completeness before forwarding to Assistant.",
+  "settings": {
+    "llm": "openai/gpt-4o",
+    "reasoning": true,
+    "verbose": true,
+    "allow_delegation": true,
+    "max_iter": 20,
+    "respect_context_window": true
+  },
+  "managed_ics": ["data_ingestion_ic"],
+  "tools": []
+}

@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+.claude/
+.cursor/
+*.swp
+*.swo
+*~
+
+# Data
+!src/quantcore/data/
+data/
+*.duckdb
+*.db
+
+# Logs
+logs/
+*.log
+
+# Reports
+reports/
+
+# Models
+!src/quantcore/models/
+models/
+*.pkl
+*.joblib
+
+# Environment
+.env
+.env.local
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+.ruff_cache/
+htmlcov/
+
+# Plan files
+*.plan.md
+
+# Generated documentation
+docs/crewai_docs_md/
+docs/alphavantage_api.md
+
+
+# Paper trading state (local only)
+paper_trading/*.json

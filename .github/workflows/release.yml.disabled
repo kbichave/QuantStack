@@ -1,0 +1,206 @@
+# Copyright 2024 QuantCore Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., v0.1.0)"
+        required: true
+        type: string
+
+env:
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  # ==========================================================================
+  # Validate Release
+  # ==========================================================================
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Releasing version: ${VERSION}"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version format: $VERSION"
+            echo "Expected format: vX.Y.Z"
+            exit 1
+          fi
+
+  # ==========================================================================
+  # Run Tests
+  # ==========================================================================
+  test:
+    name: Test
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,ml]"
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+  # ==========================================================================
+  # Build Package
+  # ==========================================================================
+  build:
+    name: Build Package
+    needs: [validate, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check package
+        run: twine check dist/*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # ==========================================================================
+  # Publish to PyPI
+  # ==========================================================================
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/quantcore/
+    permissions:
+      id-token: write  # Required for trusted publishing
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          verbose: true
+
+  # ==========================================================================
+  # Create GitHub Release
+  # ==========================================================================
+  github-release:
+    name: Create GitHub Release
+    needs: [validate, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          VERSION_NUM="${VERSION#v}"
+
+          # Extract changelog for this version
+          if [ -f CHANGELOG.md ]; then
+            # Extract section between this version and the next
+            CHANGELOG=$(sed -n "/## \[${VERSION_NUM}\]/,/## \[/p" CHANGELOG.md | sed '$d')
+            if [ -z "$CHANGELOG" ]; then
+              CHANGELOG="Release ${VERSION}"
+            fi
+          else
+            CHANGELOG="Release ${VERSION}"
+          fi
+
+          # Save to file for multiline support
+          echo "$CHANGELOG" > changelog_section.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.validate.outputs.version }}
+          name: QuantCore ${{ needs.validate.outputs.version }}
+          body_path: changelog_section.md
+          files: dist/*
+          draft: false
+          prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ==========================================================================
+  # Publish Documentation
+  # ==========================================================================
+  publish-docs:
+    name: Publish Documentation
+    needs: [validate, publish-pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[docs]"
+
+      - name: Build and deploy documentation
+        run: mkdocs gh-deploy --force
+        continue-on-error: true  # Allow failures until docs are set up
+

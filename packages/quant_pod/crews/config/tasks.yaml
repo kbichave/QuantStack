@@ -1,0 +1,434 @@
+# Copyright 2024 QuantPod Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+# ============================================================================
+# CrewAI Task Definitions - Hierarchical Trading System
+# ============================================================================
+#
+# Flow: IC Tasks → Pod Manager Tasks → Assistant Synthesis → SuperTrader Decision
+#
+# - IC tasks fetch raw data/metrics using MCP tools
+# - Pod Manager tasks compile IC outputs and request additional info
+# - Assistant task synthesizes all pod outputs into 1-pager
+# - SuperTrader task makes final decision from 1-pager only
+#
+# All tasks use reasoning-enabled agents. NO FALLBACKS.
+# ============================================================================
+
+# ============================================================================
+# IC TASKS - Raw Data Gathering
+# ============================================================================
+
+fetch_data_task:
+  description: >
+    Fetch market data for {symbol} using MCP tools.
+    
+    Use fetch_market_data or load_market_data to get OHLCV data.
+    Check data freshness and coverage.
+    
+    Return RAW output:
+    - Data rows fetched
+    - Date range (start to end)
+    - Any gaps or staleness issues
+    - Data quality score (good/limited/stale)
+  expected_output: >
+    Raw data status with row count, date range, and quality assessment.
+    No interpretation - just facts about the data.
+  agent: data_ingestion_ic
+
+snapshot_task:
+  description: >
+    Get market snapshot for {symbol} using get_symbol_snapshot.
+    
+    Current Regime Context: {regime}
+    
+    Return RAW snapshot:
+    - Current price (open, high, low, close)
+    - Volume (today vs average)
+    - Key indicator values (RSI, MACD, ATR)
+    - Recent price action summary
+  expected_output: >
+    Raw snapshot with current OHLC, volume, and indicator values.
+    Bulleted list of metrics - no bias or recommendations.
+  agent: market_snapshot_ic
+
+regime_task:
+  description: >
+    Detect regime for {symbol} using get_market_regime_snapshot.
+    
+    Return RAW regime data:
+    - Trend regime (trending/ranging/unknown)
+    - Volatility regime (high/normal/low)
+    - ADX value and interpretation threshold
+    - ATR percentile vs 6-month range
+    - Regime confidence score (0-1)
+  expected_output: >
+    Raw regime classification with numeric metrics.
+    Example: "Regime: trending, Vol: normal, ADX: 28.5, ATR%ile: 65, Conf: 0.75"
+  agent: regime_detector_ic
+
+trend_momentum_task:
+  description: >
+    Compute trend and momentum indicators for {symbol}.
+    
+    Use compute_indicators with indicators: RSI, MACD, ADX, SMA, EMA.
+    
+    Return RAW metrics:
+    - RSI(14) value
+    - MACD line, signal, histogram
+    - ADX(14) value
+    - SMA(20), SMA(50), EMA(20) values
+    - MA crossover status
+  expected_output: >
+    Raw indicator values as bulleted list.
+    Example:
+    - RSI(14): 58.3
+    - MACD: 1.25, Signal: 0.89, Histogram: 0.36 (bullish)
+    - ADX(14): 26.7 (trending)
+    - SMA(20): 472.50, SMA(50): 468.25 (price above both)
+  agent: trend_momentum_ic
+
+volatility_task:
+  description: >
+    Compute volatility metrics for {symbol}.
+    
+    Use compute_indicators and compute_var tools.
+    
+    Return RAW metrics:
+    - ATR(14) value and daily range estimate
+    - Bollinger Band width
+    - Historical volatility percentile
+    - VaR(95) if applicable
+  expected_output: >
+    Raw volatility metrics as bulleted list.
+    Example:
+    - ATR(14): 3.25 (daily range ~$6.50)
+    - BB Width: 4.2% (normal)
+    - Vol Percentile: 45th (below average)
+  agent: volatility_ic
+
+structure_task:
+  description: >
+    Identify price levels for {symbol} using analyze_volume_profile.
+    
+    Return RAW levels:
+    - Support levels (with volume context)
+    - Resistance levels (with volume context)
+    - POC (Point of Control) from volume profile
+    - Recent swing high/low
+  expected_output: >
+    Raw price levels as bulleted list with prices.
+    Example:
+    - Support: 468.50 (high volume), 465.00 (swing low)
+    - Resistance: 478.25 (high volume), 482.00 (prior high)
+    - POC: 473.50 (max volume node)
+  agent: structure_levels_ic
+
+statarb_task:
+  description: >
+    Run statistical tests for {symbol} using run_adf_test, compute_information_coefficient.
+    
+    Return RAW test results:
+    - ADF test statistic and p-value
+    - Stationarity conclusion
+    - Information Coefficient if signal available
+    - Z-score of current price vs mean
+  expected_output: >
+    Raw statistical test results.
+    Example:
+    - ADF: stat=-3.2, p=0.02 (stationary at 5%)
+    - IC: 0.08 (weak predictive power)
+    - Z-score: -0.5 (near mean)
+  agent: statarb_ic
+
+options_task:
+  description: >
+    Compute options metrics for {symbol} using price_option, compute_greeks, compute_implied_vol.
+    
+    Return RAW options data:
+    - ATM implied volatility
+    - IV percentile vs 1-year range
+    - Put/call skew observation
+    - Key Greeks if position exists
+  expected_output: >
+    Raw options metrics.
+    Example:
+    - ATM IV: 18.5%
+    - IV Percentile: 35th (low)
+    - Skew: puts slightly bid (1.02 ratio)
+  agent: options_vol_ic
+
+risk_limits_task:
+  description: >
+    Compute risk metrics using compute_var, check_risk_limits, stress_test_portfolio.
+    
+    Portfolio State: {portfolio}
+    
+    Return RAW risk data:
+    - Daily VaR(95) in dollars
+    - Position limit utilization
+    - Stress test worst-case P&L
+    - Any limit breaches
+  expected_output: >
+    Raw risk metrics.
+    Example:
+    - VaR(95): $2,500 daily
+    - Position Limit: 45% utilized
+    - Stress (-10% SPY): -$8,200
+    - Breaches: None
+  agent: risk_limits_ic
+
+events_task:
+  description: >
+    Get upcoming events using get_event_calendar.
+    
+    Return RAW event list:
+    - Earnings dates for {symbol}
+    - Fed/FOMC dates
+    - Economic releases (CPI, NFP, etc.)
+    - Days to next major event
+  expected_output: >
+    Raw event calendar.
+    Example:
+    - AAPL Earnings: 2024-01-25
+    - FOMC: 2024-01-31
+    - NFP: 2024-02-02
+    - Next major event in 5 days
+  agent: calendar_events_ic
+
+# ============================================================================
+# POD MANAGER TASKS - Compilation & Coordination
+# ============================================================================
+
+data_pod_compile_task:
+  description: >
+    Review data ingestion IC output. Ensure data quality is sufficient.
+    Request re-fetch if stale. Forward raw data status to Assistant.
+    
+    IC Output Context (provided via context).
+    
+    Your job:
+    1. Review data quality assessment
+    2. Flag any issues (gaps, staleness)
+    3. Compile brief data status summary
+  expected_output: >
+    Data Pod Summary:
+    - Data Status: [good/limited/stale]
+    - Coverage: [date range]
+    - Issues: [any gaps or concerns]
+    - Ready for analysis: [yes/no]
+  agent: data_pod_manager
+  context:
+    - fetch_data_task
+
+market_monitor_compile_task:
+  description: >
+    Review snapshot and regime IC outputs. Cross-check consistency.
+    Forward consolidated market state to Assistant.
+    
+    IC Output Context (provided via context).
+    
+    Your job:
+    1. Review snapshot metrics
+    2. Review regime classification
+    3. Check for consistency between snapshot and regime
+    4. Compile market state summary
+  expected_output: >
+    Market Monitor Pod Summary:
+    - Current Price: [price]
+    - Regime: [trend/vol with confidence]
+    - Key Metrics: [RSI, ADX, ATR highlights]
+    - State Assessment: [brief market state]
+  agent: market_monitor_pod_manager
+  context:
+    - snapshot_task
+    - regime_task
+
+technicals_compile_task:
+  description: >
+    Review trend, momentum, volatility, and structure IC outputs.
+    Identify technical consensus and conflicts.
+    Forward consolidated technicals to Assistant.
+    
+    IC Output Context (provided via context).
+    
+    Your job:
+    1. Review all technical metrics
+    2. Identify bullish/bearish/neutral signals
+    3. Note any conflicting indicators
+    4. Compile technical summary with key levels
+  expected_output: >
+    Technicals Pod Summary:
+    - Trend: [direction with ADX/MA context]
+    - Momentum: [RSI/MACD state]
+    - Volatility: [ATR/BB state]
+    - Key Levels: [support/resistance]
+    - Technical Consensus: [bullish/bearish/neutral with conviction]
+    - Conflicts: [any divergences or mixed signals]
+  agent: technicals_pod_manager
+  context:
+    - trend_momentum_task
+    - volatility_task
+    - structure_task
+
+quant_compile_task:
+  description: >
+    Review statistical and options IC outputs.
+    Assess quantitative signal quality.
+    Forward consolidated quant findings to Assistant.
+    
+    IC Output Context (provided via context).
+    
+    Your job:
+    1. Review stat test results
+    2. Review options metrics
+    3. Assess signal quality and statistical significance
+    4. Compile quant summary
+  expected_output: >
+    Quant Pod Summary:
+    - Statistical Tests: [ADF/IC results]
+    - Mean Reversion: [z-score, stationarity]
+    - Options/Vol: [IV percentile, skew]
+    - Signal Quality: [strong/weak/none]
+    - Quant Takeaway: [brief conclusion]
+  agent: quant_pod_manager
+  context:
+    - statarb_task
+    - options_task
+
+risk_compile_task:
+  description: >
+    Review risk limits and events IC outputs.
+    Assess risk constraints and upcoming catalysts.
+    Forward consolidated risk picture to Assistant.
+    
+    IC Output Context (provided via context).
+    
+    Your job:
+    1. Review VaR and position limits
+    2. Review stress test results
+    3. Review upcoming events
+    4. Flag any risk concerns or constraints
+  expected_output: >
+    Risk Pod Summary:
+    - VaR: [daily VaR]
+    - Limits: [utilization and headroom]
+    - Stress Test: [worst-case]
+    - Events: [next major events and dates]
+    - Risk Constraints: [any limits or event risks to note]
+  agent: risk_pod_manager
+  context:
+    - risk_limits_task
+    - events_task
+
+# ============================================================================
+# ASSISTANT TASK - Synthesis
+# ============================================================================
+
+assistant_synthesis_task:
+  description: >
+    Synthesize all Pod Manager outputs into a 1-page market conditions brief.
+    
+    Symbol: {symbol}
+    Date: {current_date}
+    
+    Pod Manager Outputs (provided via context):
+    - Data Pod: data quality status
+    - Market Monitor Pod: regime and snapshot
+    - Technicals Pod: trend/momentum/vol/structure
+    - Quant Pod: statistical and options findings
+    - Risk Pod: constraints and events
+    
+    Your job:
+    1. Review all pod summaries
+    2. Identify key themes and consensus
+    3. Resolve or flag conflicting signals
+    4. Produce a clear 1-page brief for SuperTrader
+    
+    The brief should be actionable intelligence, not raw data.
+    Include conviction level and key decision factors.
+  expected_output: >
+    ═══════════════════════════════════════════════════════════════
+    MARKET CONDITIONS BRIEF - {symbol}
+    Date: {current_date}
+    ═══════════════════════════════════════════════════════════════
+    
+    REGIME: [trending/ranging] | [high/normal/low vol] | Confidence: [X%]
+    
+    TECHNICAL PICTURE:
+    - Trend: [description]
+    - Momentum: [description]
+    - Key Levels: Support [X], Resistance [Y]
+    
+    QUANTITATIVE SIGNALS:
+    - [Any stat signals or "No significant quant signals"]
+    
+    RISK ENVIRONMENT:
+    - VaR: [daily]
+    - Events: [upcoming catalysts]
+    - Constraints: [any limits]
+    
+    SYNTHESIS:
+    - Consensus View: [bullish/bearish/neutral]
+    - Conviction: [high/medium/low]
+    - Key Factors: [1-2 sentence summary]
+    - Conflicts/Concerns: [any issues to note]
+    
+    ═══════════════════════════════════════════════════════════════
+  agent: trading_assistant
+  context:
+    - data_pod_compile_task
+    - market_monitor_compile_task
+    - technicals_compile_task
+    - quant_compile_task
+    - risk_compile_task
+
+# ============================================================================
+# SUPER TRADER TASK - Final Decision
+# ============================================================================
+
+trade_decision_task:
+  description: >
+    Review the Assistant's Market Conditions Brief and make a trading decision.
+    
+    Symbol: {symbol}
+    Portfolio State: {portfolio}
+    Historical Context: {historical_context}
+    
+    Assistant's Brief (provided via context).
+    
+    Your decision framework:
+    1. Assess regime alignment - is this a good environment for trading?
+    2. Evaluate technical consensus and conviction level
+    3. Consider risk constraints and upcoming events
+    4. Make a conscious decision: BUY, SELL, or HOLD
+    5. If acting, determine: size, entry type, stop, target
+    
+    NO FALLBACKS - make a reasoned decision or explicitly pass.
+    Document your reasoning clearly.
+  expected_output: >
+    ═══════════════════════════════════════════════════════════════
+    TRADE DECISION - {symbol}
+    ═══════════════════════════════════════════════════════════════
+    
+    DECISION: [BUY / SELL / HOLD]
+    CONFIDENCE: [0-100%]
+    
+    EXECUTION (if BUY/SELL):
+    - Position Size: [full/half/quarter]
+    - Entry Type: [market/limit at X]
+    - Stop Loss: [price]
+    - Take Profit: [price]
+    - Holding Period: [intraday/swing/position]
+    
+    REASONING:
+    [2-3 sentences explaining the decision based on the brief]
+    
+    SIGNALS USED:
+    - [List key factors from the brief that drove the decision]
+    
+    ═══════════════════════════════════════════════════════════════
+  agent: super_trader
+  context:
+    - assistant_synthesis_task
+  output_file: output/trade_decision.json

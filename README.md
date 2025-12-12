@@ -30,6 +30,8 @@ QuantStack is a comprehensive quantitative trading platform composed of:
 
 Together they provide end-to-end research, simulation, and agent-driven execution.
 
+> **Data Provider**: Currently supports [AlphaVantage](https://www.alphavantage.co/) as the primary data source. Additional data providers planned for future releases.
+
 ## Repository Structure
 
 ```

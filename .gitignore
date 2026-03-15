@@ -58,6 +58,9 @@ models/
 .env
 .env.local
 
+# MCP server config (contains machine-specific absolute paths)
+.mcp.json
+
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb

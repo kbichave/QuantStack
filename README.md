@@ -30,7 +30,7 @@ QuantStack is a comprehensive quantitative trading platform composed of:
 
 Together they provide end-to-end research, simulation, and agent-driven execution.
 
-> **Data Provider**: Currently supports [AlphaVantage](https://www.alphavantage.co/) as the primary data source. Additional data providers planned for future releases.
+> **Data Providers**: Alpaca (primary), Polygon (fallback), Alpha Vantage (free-tier fallback). Provider priority is configurable via `DATA_PROVIDER_PRIORITY` env var. See `.env.example` for setup.
 
 ## Repository Structure
 
@@ -40,12 +40,18 @@ QuantStack/
 │   ├── quantcore/               # Core quantitative trading library
 │   ├── quant_arena/             # Historical backtesting simulation
 │   ├── quant_pod/               # Multi-agent trading system (CrewAI)
-│   └── etrade_mcp/              # E-Trade MCP server
+│   ├── alpaca_mcp/              # Alpaca broker MCP server
+│   ├── ibkr_mcp/                # Interactive Brokers MCP server
+│   └── etrade_mcp/              # eTrade MCP server
 ├── scripts/                     # Utility scripts
 ├── examples/                    # Example applications
 ├── tests/                       # Test suite
-└── docs/                        # Documentation
-    └── architecture/            # Architecture docs
+├── docs/                        # Documentation
+│   ├── architecture/            # Architecture docs
+│   └── guides/                  # Setup and operational guides
+├── .mcp.json                    # MCP server config for Claude Code
+├── Dockerfile                   # Container image
+└── docker-compose.yml           # Multi-service deployment
 ```
 
 ## Features
@@ -96,6 +102,19 @@ QuantStack/
 - Implied volatility solver
 - **Note**: Single-option pricing only; portfolio Greeks aggregation not yet implemented
 
+### Multi-Broker Execution
+- **Alpaca** — US equities, paper account free (`alpaca-mcp`)
+- **Interactive Brokers** — equities + options via IB Gateway/TWS (`ibkr-mcp`)
+- **eTrade** — equities + multi-leg options via OAuth 1.0a (`etrade-mcp`)
+- **PaperBroker** — internal simulation (no credentials required, always available)
+- `SmartOrderRouter` selects the best execution venue automatically
+
+### Audit & Risk
+- Every agent decision logged with context snapshots (DuckDB audit trail)
+- Hard-coded `RiskGate`: position size, daily loss halt, ADV liquidity filter
+- `KillSwitch`: emergency halt via sentinel file, survives process restarts
+- Signal degradation detection (`AlphaMonitor`) with Discord alerting
+
 ## Quick Start
 
 ### Installation
@@ -112,6 +131,11 @@ cd QuantStack
 
 # Install with uv (recommended) - creates .venv automatically
 uv sync --all-extras
+
+# Install only specific broker extras
+uv sync --extra alpaca    # Alpaca SDK
+uv sync --extra ibkr      # ib_insync for Interactive Brokers
+uv sync --extra polygon   # Polygon.io data provider
 
 # Alternative: pip install (not recommended)
 pip install -e ".[all]"
@@ -226,6 +250,11 @@ print(f"Optimal holding period: {decay_result.optimal_holding_period} periods")
 | `validation` | Stable | Leakage detection, CV |
 | `microstructure` | Stable | LOB, impact models |
 | `options` | Stable | Single-option pricing |
+| `execution` | Stable | RiskGate, SmartOrderRouter, TCA, kill switch |
+| `quant_pod.execution` | Stable | PaperBroker, TickExecutor, SignalCache |
+| `quant_pod.audit` | Stable | DecisionLog, AlphaMonitor |
+| `alpaca_mcp` | Stable | Requires `uv sync --extra alpaca` |
+| `ibkr_mcp` | Stable | Requires IB Gateway + `uv sync --extra ibkr` |
 | `rl` | **Experimental** | See [RL README](packages/quantcore/rl/README.md) |
 
 ## Comparison with Alternatives
@@ -243,13 +272,29 @@ print(f"Optimal holding period: {decay_result.optimal_holding_period} periods")
 ## Documentation
 
 - **[Architecture Overview](docs/architecture/README.md)** - System design and components
+- **[QuantPod Architecture](docs/architecture/quant_pod.md)** - Agent hierarchy, execution layer, DuckDB state
+- **[MCP Servers](docs/architecture/mcp_servers.md)** - quantcore-mcp, quantpod-mcp, alpaca-mcp, ibkr-mcp, etrade-mcp
 - **[Quick Start Guide](docs/guides/quickstart.md)** - Get up and running
+- **[Execution Setup](docs/guides/execution_setup.md)** - Broker config, risk limits, kill switch
+- **[Deployment Guide](docs/guides/deployment.md)** - Docker, CI/CD, data paths
 - **[API Reference](docs/api/index.md)** - Module documentation
 - **[Contributing Guide](docs/guides/contributing.md)** - How to contribute
 
 ## Development
 
 This project uses **[uv](https://github.com/astral-sh/uv)** for all development tasks. The `uv.lock` file ensures reproducible builds across all environments.
+
+### CLI Entry Points
+
+| Command | Description |
+|---------|-------------|
+| `quantcore-mcp` | QuantCore MCP server (indicators, backtesting, options) |
+| `quantpod-mcp` | QuantPod MCP server (portfolio, strategies, execution) |
+| `alpaca-mcp` | Alpaca broker MCP server |
+| `ibkr-mcp` | Interactive Brokers MCP server |
+| `etrade-mcp` | eTrade MCP server |
+| `quantpod-api` | QuantPod REST API server |
+| `quantpod-monitor` | Intraday monitoring loop |
 
 ```bash
 # Clone repository

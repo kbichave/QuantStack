@@ -1,398 +1,323 @@
-# QuantPod Multi-Agent Architecture
+# QuantPod Architecture
 
-QuantPod is a CrewAI-based multi-agent trading system designed for 24/7 market monitoring and intelligent trade execution.
+QuantPod is a CrewAI-based multi-agent trading system. The crew produces a `DailyBrief`; Claude Code (acting as portfolio manager) receives it via MCP and makes the final trade decision.
 
-## Overview
+---
 
-QuantPod orchestrates specialized AI agents that collaborate to:
-- Monitor market conditions across multiple timeframes
-- Analyze technical and fundamental data
-- Manage risk and position sizing
-- Execute trades with optimal timing
-
-## Package Structure
+## System Overview
 
 ```
-packages/quant_pod/
-├── crews/              # Agent crew definitions and assembly
-│   ├── assembler.py    # Dynamic crew construction
-│   ├── registry.py     # Agent and task registry
-│   ├── schemas.py      # Pydantic schemas for crew config
-│   ├── tools.py        # Crew-specific tools
-│   └── trading_crew.py # Main trading crew implementation
-├── flows/              # Orchestrated workflows
-│   └── trading_day_flow.py  # Daily trading flow
-├── knowledge/          # Persistent knowledge storage
-│   ├── models.py       # Knowledge data models
-│   ├── policy_store.py # Trading policy storage
-│   └── store.py        # Knowledge store implementation
-├── memory/             # Agent communication
-│   ├── blackboard.py   # Blackboard pattern implementation
-│   └── mem0_client.py  # Mem0 integration
-├── prompts/            # Agent prompts and instructions
-│   ├── assistant/      # Trading assistant prompts
-│   ├── ics/            # Individual contributor prompts
-│   ├── pod_managers/   # Pod manager prompts
-│   └── supertrader/    # Super trader prompts
-└── tools/              # MCP bridge and utilities
-    ├── alphavantage_tools.py
-    ├── knowledge_tools.py
-    ├── mcp_bridge.py   # Bridge to QuantCore MCP
-    └── memory_tools.py
+┌─────────────────────────────────────────────────────┐
+│                  CLAUDE CODE (You)                   │
+│  Portfolio Manager · Strategy Researcher · Architect │
+└──────────────────────┬──────────────────────────────┘
+                       │ MCP: run_analysis → DailyBrief
+┌──────────────────────▼──────────────────────────────┐
+│            QuantPod MCP Server                       │
+│  packages/quant_pod/mcp/server.py                    │
+└──────────────────────┬──────────────────────────────┘
+                       │
+            ┌──────────┴──────────┐
+            ▼                     ▼
+┌───────────────┐      ┌───────────────────────┐
+│ TradingCrew   │      │  QuantCore MCP         │
+│ (stop_at_     │      │  (40+ quant tools)     │
+│  assistant)   │      │  packages/quantcore/   │
+└───────┬───────┘      │  mcp/server.py         │
+        │              └───────────────────────┘
+        │ DailyBrief
+        ▼
+┌───────────────────────────────────────────┐
+│              Execution Layer               │
+│  RiskGate → SmartOrderRouter → Broker     │
+│  KillSwitch · SignalCache · TickExecutor  │
+│  packages/quant_pod/execution/            │
+└───────────────────────────────────────────┘
 ```
 
-## Agent Hierarchy
+---
 
-QuantPod uses a hierarchical agent structure:
+## TradingCrew — Agent Hierarchy
+
+The crew runs with `stop_at_assistant=True`. Layer 3 (Trading Assistant) is the final crew output; Claude Code is Layer 4.
+
+### Layer 1 — Individual Contributors (13 agents, async)
+
+| IC | Pod | Role |
+|----|-----|------|
+| `data_ingestion_ic` | data | Fetch OHLCV data |
+| `market_snapshot_ic` | market_monitor | Current price/volume snapshot |
+| `regime_detector_ic` | market_monitor | ADX/ATR regime classification (no LLM) |
+| `trend_momentum_ic` | technicals | RSI, MACD, ADX, SMA |
+| `volatility_ic` | technicals | ATR, Bollinger Bands, VaR |
+| `structure_levels_ic` | technicals | Support/resistance levels |
+| `statarb_ic` | quant | ADF test, information coefficient |
+| `options_vol_ic` | quant | IV, Greeks, skew |
+| `risk_limits_ic` | risk | VaR, stress tests, limit checks |
+| `calendar_events_ic` | risk | Earnings, FOMC, economic releases |
+| `news_sentiment_ic` | alpha_signals | Alpha Vantage news + sentiment |
+| `options_flow_ic` | alpha_signals | Unusual option activity (UOA detection) |
+| `fundamentals_ic` | alpha_signals | P/E, debt ratios, earnings quality |
+
+### Layer 2 — Pod Managers (6 agents)
+
+`data_pod_manager`, `market_monitor_pod_manager`, `technicals_pod_manager`, `quant_pod_manager`, `risk_pod_manager`, `alpha_signals_pod_manager`
+
+### Layer 3 — Trading Assistant
+
+Synthesizes all pod outputs into a `DailyBrief` (Pydantic model). Crew stops here.
+
+### Layer 4 — Claude Code
+
+Receives the `DailyBrief` via `run_analysis` MCP tool. Makes the trade decision.
+
+---
+
+## Regime Detection
+
+`regime_detector_ic` is deterministic — uses indicators, not LLMs.
+
+- **ADX (14-period)**: > 25 = trending, < 20 = ranging, 20–25 = transition
+- **ATR percentile**: < 25th = low vol, 75–90th = high, > 90th = extreme
+
+Output: `{trend_regime, volatility_regime, adx, atr, atr_percentile, confidence}`
+
+### Regime-Adaptive Crew Config
+
+`packages/quant_pod/crews/regime_config.py` maps regimes to crew configuration:
+
+| Regime | Active ICs | Behaviour |
+|--------|------------|-----------|
+| `trending` + `normal` vol | Full suite (13 ICs) | Standard analysis |
+| `ranging` + `low` vol | Subset (7 ICs, skip trend/momentum) | Faster, simpler |
+| Any + `extreme` vol | Full suite + elevated risk thresholds | Tighter limits |
+| `unknown` | Full suite | Paper mode only |
+
+---
+
+## Execution Layer
+
+`packages/quant_pod/execution/` — 12 modules, all receiving a single DuckDB connection via dependency injection.
+
+### Execution Path
 
 ```
-                    ┌─────────────────┐
-                    │  Super Trader   │
-                    │   (Orchestrator)│
-                    └────────┬────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        │                    │                    │
-        ▼                    ▼                    ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│ Market Monitor│   │   Quant Pod   │   │   Risk Pod    │
-│  Pod Manager  │   │    Manager    │   │    Manager    │
-└───────┬───────┘   └───────┬───────┘   └───────┬───────┘
-        │                   │                   │
-        ▼                   ▼                   ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐
-│  ICs (Agents) │   │  ICs (Agents) │   │  ICs (Agents) │
-│ - Regime      │   │ - StatArb     │   │ - Risk Limits │
-│ - Snapshot    │   │ - Options Vol │   │ - Calendar    │
-└───────────────┘   └───────────────┘   └───────────────┘
+TradingDayFlow.run()
+    │
+    ├─ 1. KillSwitch.check()
+    │      sentinel file at ~/.quant_pod/KILL_SWITCH_ACTIVE
+    │
+    ├─ 2. TradingCrew.kickoff() → DailyBrief
+    │
+    ├─ 3. RiskGate.check()
+    │      enforces: position size, daily loss, liquidity, restricted list
+    │
+    ├─ 4. Signal → SignalCache (TTL: 15 min default)
+    │      DuckDB-backed for crash recovery
+    │
+    ├─ 5. TickExecutor reads cache → SmartOrderRouter
+    │
+    └─ 6. SmartOrderRouter → PaperBroker | Alpaca | IBKR | eTrade
+               selection: best spread + latency + commission
 ```
 
-### Agent Types
+### Module Reference
 
-**Super Trader**
-- Top-level orchestrator
-- Makes final trading decisions
-- Synthesizes inputs from all pods
+| Module | Responsibility |
+|--------|---------------|
+| `portfolio_state.py` | Open positions and cash; source of truth |
+| `risk_gate.py` | Hard position/loss/liquidity limits — code-enforced |
+| `kill_switch.py` | Emergency halt via sentinel file; survives restarts |
+| `risk_state.py` | In-memory hot-path mirror for TickExecutor |
+| `signal_cache.py` | TTL-gated signal store (minute analyst → tick executor) |
+| `tick_executor.py` | Real-time order submission loop |
+| `smart_order_router.py` | Best-execution routing across brokers |
+| `paper_broker.py` | Internal fill simulation with slippage/commission |
+| `broker_factory.py` | Selects PaperBroker or live broker based on env |
+| `order_lifecycle.py` | Order state machine (submitted → filled/rejected) |
+| `microstructure_pipeline.py` | Bid-ask estimation, micro-features |
 
-**Pod Managers**
-- Coordinate specialized agent groups
-- Aggregate IC outputs
-- Report to Super Trader
+---
 
-**Individual Contributors (ICs)**
-- Specialized analysis agents
-- Focus on specific signals/metrics
-- Report to Pod Managers
+## Dependency Injection (TradingContext)
 
-## Pods and Their ICs
-
-### Market Monitor Pod
-Tracks market conditions and regime changes.
-
-| IC Agent | Responsibility |
-|----------|---------------|
-| Market Snapshot IC | Current prices, breadth, sentiment |
-| Regime Detector IC | Bull/bear/sideways classification |
-
-### Technicals Pod
-Technical analysis across timeframes.
-
-| IC Agent | Responsibility |
-|----------|---------------|
-| Structure Levels IC | Support/resistance identification |
-| Trend Momentum IC | Trend strength and direction |
-| Volatility IC | Vol regime and expansion/contraction |
-
-### Quant Pod
-Quantitative signal generation.
-
-| IC Agent | Responsibility |
-|----------|---------------|
-| StatArb IC | Statistical arbitrage signals |
-| Options Vol IC | Volatility surface analysis |
-
-### Risk Pod
-Risk management and controls.
-
-| IC Agent | Responsibility |
-|----------|---------------|
-| Risk Limits IC | Position and exposure limits |
-| Calendar Events IC | Earnings, FOMC, economic releases |
-
-### Data Pod
-Data ingestion and quality.
-
-| IC Agent | Responsibility |
-|----------|---------------|
-| Data Ingestion IC | Market data fetching and validation |
-
-## Crews
-
-Crews are task-oriented groupings of agents:
+`packages/quant_pod/context.py` is the single wiring point. All services share one DuckDB connection.
 
 ```python
-from quant_pod.crews import TradingCrew
+from quant_pod.context import create_trading_context
 
-# Create a trading crew
-crew = TradingCrew(
-    llm_model="gpt-4",
-    verbose=True
-)
+# Production — persistent DB
+ctx = create_trading_context()
 
-# Execute daily analysis
-result = crew.kickoff(
-    inputs={
-        "symbols": ["SPY", "QQQ"],
-        "date": "2024-01-15"
-    }
-)
+# Tests — fully isolated, zero file-system side-effects
+ctx = create_trading_context(db_path=":memory:")
+
+# ctx fields:
+#   db           — raw DuckDB connection
+#   portfolio    — PortfolioState
+#   risk_gate    — RiskGate
+#   risk_state   — RiskState (hot-path mirror)
+#   signal_cache — SignalCache
+#   kill_switch  — KillSwitch
+#   broker       — PaperBroker (or EtradeBroker when USE_REAL_TRADING=true)
+#   audit        — DecisionLog
+#   blackboard   — Blackboard (DuckDB-backed agent memory)
+#   session_id   — UUID threaded through all logs
 ```
 
-### Crew Assembly
+---
 
-The `CrewAssembler` dynamically constructs crews based on configuration:
+## State Management (DuckDB)
+
+Single consolidated database at `~/.quant_pod/trader.duckdb` (default). All services share one connection for ACID cross-service transactions.
+
+| Table | Owner | Description |
+|-------|-------|-------------|
+| `positions` | `PortfolioState` | Open positions and cash balance |
+| `cash_balance` | `PortfolioState` | Current cash |
+| `closed_trades` | `PortfolioState` | Realized P&L with session tracking |
+| `fills` | `PaperBroker` | Order execution with slippage/commission |
+| `decision_events` | `DecisionLog` | Every agent decision with context snapshots |
+| `agent_memory` | `Blackboard` | Structured agent memory (indexed by symbol/session) |
+| `signal_state` | `SignalCache` | TTL-gated signals for crash recovery |
+| `strategies` | MCP server | Strategy registry (draft → forward_testing → live) |
+| `regime_strategy_matrix` | MCP server | Regime → allocation weights |
+| `agent_skills` | `SkillTracker` | IC prediction accuracy |
+| `calibration_records` | `Calibration` | Stated confidence vs actual P&L |
+| `system_state` | `KillSwitch` | Kill switch and halt flags |
+
+**Why DuckDB over files?** ACID transactions prevent partial state on crash. Indexed queries replace O(n) full-file reads. JSON-structured content prevents prompt injection.
+
+---
+
+## Blackboard (Agent Memory)
+
+The `Blackboard` class (`packages/quant_pod/memory/blackboard.py`) is a drop-in replacement for the old markdown file. The public API is unchanged; the backing store is `agent_memory` in DuckDB.
 
 ```python
-from quant_pod.crews import CrewAssembler
+from quant_pod.memory.blackboard import Blackboard
 
-assembler = CrewAssembler()
-crew = assembler.build(
-    agents=["market_snapshot", "regime_detector", "risk_limits"],
-    tasks=["morning_scan", "risk_check"]
+board = Blackboard(conn=conn, session_id=session_id)
+
+# Write structured entry
+board.write(
+    agent="regime_detector_ic",
+    symbol="SPY",
+    category="regime",
+    content={"trend": "trending_up", "volatility": "normal", "adx": 31.2}
+)
+
+# Read latest entries for a symbol
+entries = board.read(symbol="SPY", limit=10)
+
+# Read by agent
+entries = board.read(agent="regime_detector_ic")
+```
+
+---
+
+## Audit Trail
+
+`packages/quant_pod/audit/decision_log.py` logs every agent decision and execution event:
+
+```python
+audit.log(
+    event_type="ic_analysis",
+    agent_name="trend_momentum_ic",
+    symbol="SPY",
+    action="LONG_SIGNAL",
+    confidence=0.78,
+    output_summary="RSI 58, MACD bullish crossover, ADX 32",
+    market_data_snapshot=snapshot_dict,
+    portfolio_snapshot=portfolio_dict,
 )
 ```
+
+Query via MCP: `get_audit_trail(symbol="SPY", limit=20)` or `get_recent_decisions()`.
+
+---
+
+## New Agents
+
+### `portfolio_optimizer_agent.py`
+
+Mean-variance optimizer. Converts per-symbol signals (from all pod managers) into MV-optimal capital weights. Uses the current portfolio state to compute efficient frontier weights subject to the risk gate's position limits.
+
+### `microstructure_signal_agent.py`
+
+Bid-ask spread estimation, order book depth features, and intraday momentum microstructure signals. Used by `alpha_signals_pod_manager` alongside fundamentals and news.
+
+---
 
 ## Flows
 
-Flows orchestrate multi-step trading workflows:
+### `TradingDayFlow` (updated)
 
-```python
-from quant_pod.flows import TradingDayFlow
+New constructor parameters:
+- `signal_cache: Optional[SignalCache]` — async signal handoff to TickExecutor
+- `signal_ttl_seconds: int = 900` — TTL for signals in SignalCache
 
-flow = TradingDayFlow()
+New behaviour per run:
+1. Kill switch check
+2. Inject portfolio state into agent context (agents know current positions)
+3. Run TradingCrew → DailyBrief
+4. Derive regime-adaptive crew config
+5. RiskGate check
+6. Publish to SignalCache or execute directly
+7. TCA engine records arrival prices + implementation shortfall
+8. RL online adapter provides post-trade feedback (shadow mode)
 
-# Run the complete trading day workflow
-await flow.run(
-    pre_market=True,
-    intraday_interval=15,  # minutes
-    post_market=True
-)
-```
+### `IntraDayMonitorFlow` (new)
 
-### Trading Day Flow
+Intraday monitoring loop. Start with: `quantpod-monitor`
 
-```
-Pre-Market (6:00 AM)
-    │
-    ▼
-┌─────────────────┐
-│ Market Snapshot │ ──► Overnight gaps, futures, global markets
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│ Calendar Check  │ ──► Earnings, economic releases
-└────────┬────────┘
-         │
-         ▼
-Market Open (9:30 AM)
-         │
-         ▼
-┌─────────────────┐
-│ Intraday Loop   │ ◄──┐
-│ (every 15 min)  │    │
-│ - Tech Analysis │    │
-│ - Risk Monitor  │    │
-│ - Signal Gen    │ ───┘
-└────────┬────────┘
-         │
-         ▼
-Market Close (4:00 PM)
-         │
-         ▼
-┌─────────────────┐
-│ Post-Market     │ ──► P&L reconciliation, journal
-└─────────────────┘
-```
+Watches open positions every N minutes, checks risk limits, triggers stop-loss exits or partial reductions when thresholds are breached.
 
-## Knowledge Store
+### `StrategyValidationFlow` (new)
 
-Persistent storage for trading insights and learned policies:
+Validates a registered strategy against out-of-sample data before promotion from `forward_testing` to `live`.
 
-```python
-from quant_pod.knowledge import KnowledgeStore, Policy
+---
 
-store = KnowledgeStore(db_path="knowledge.db")
-
-# Store a trading insight
-store.add_insight(
-    symbol="AAPL",
-    insight_type="support_level",
-    value=175.50,
-    confidence=0.85
-)
-
-# Store a learned policy
-policy = Policy(
-    name="earnings_avoidance",
-    rule="Reduce position size 50% 2 days before earnings",
-    effectiveness=0.72
-)
-store.add_policy(policy)
-```
-
-## Memory (Blackboard Pattern)
-
-Agents communicate via a shared blackboard:
-
-```python
-from quant_pod.memory import Blackboard
-
-board = Blackboard()
-
-# Agent writes to blackboard
-board.write(
-    key="regime",
-    value="bullish",
-    source="regime_detector_ic",
-    timestamp=datetime.now()
-)
-
-# Another agent reads
-regime = board.read("regime")
-```
-
-### Memory Integration (Mem0)
-
-Long-term memory via Mem0 for persistent agent learning:
-
-```python
-from quant_pod.memory import Mem0Client
-
-mem = Mem0Client()
-
-# Store interaction memory
-mem.add(
-    messages=[
-        {"role": "user", "content": "What's the current SPY regime?"},
-        {"role": "assistant", "content": "Bullish with momentum divergence"}
-    ],
-    user_id="trading_system"
-)
-
-# Retrieve relevant memories
-memories = mem.search("SPY regime analysis", limit=5)
-```
-
-## Tools
-
-### MCP Bridge
-
-Connects agents to QuantCore capabilities via MCP:
-
-```python
-from quant_pod.tools import MCPBridge
-
-bridge = MCPBridge(server_url="http://localhost:8080")
-
-# Call QuantCore indicators
-rsi = await bridge.call(
-    tool="compute_indicator",
-    params={"symbol": "SPY", "indicator": "RSI", "period": 14}
-)
-```
-
-### Alpha Vantage Tools
-
-Direct market data access:
-
-```python
-from quant_pod.tools import AlphaVantageTools
-
-av = AlphaVantageTools(api_key="your_key")
-
-# Get real-time quote
-quote = av.get_quote("AAPL")
-
-# Get news sentiment
-sentiment = av.get_news_sentiment("AAPL")
-```
-
-## Prompt Engineering
-
-Agent prompts are stored as paired JSON + Markdown files:
+## Directory Structure
 
 ```
-prompts/
-├── ics/
-│   └── market_monitor/
-│       ├── regime_detector_ic.json   # Structured config
-│       └── regime_detector_ic.md     # Detailed instructions
-```
-
-**JSON Config Example:**
-```json
-{
-  "name": "Regime Detector IC",
-  "role": "Market regime classification specialist",
-  "goal": "Identify current market regime (bull/bear/sideways)",
-  "backstory": "Expert in regime switching models..."
-}
-```
-
-**Markdown Instructions:**
-```markdown
-# Regime Detector IC
-
-## Objective
-Classify the current market regime using multiple indicators.
-
-## Methodology
-1. Analyze trend direction (200 EMA)
-2. Measure momentum (RSI, MACD)
-3. Assess volatility regime (VIX levels)
-...
-```
-
-## Configuration
-
-QuantPod now ships its runtime configuration inside the package:
-
-- Agent prompts live under `packages/quant_pod/prompts/`
-- Task definitions live in `packages/quant_pod/crews/config/tasks.yaml`
-- Schedules and trading parameters are encoded in the crews/flows code (no external YAML required)
-
-To customize, copy those files into your own config path and point your runner/CLI to the overrides.
-
-## Integration with QuantCore
-
-QuantPod leverages QuantCore for quantitative analysis:
-
-```python
-# Agent using QuantCore via MCP
-class TechAnalysisIC(Agent):
-    def analyze(self, symbol: str):
-        # Get indicators from QuantCore
-        indicators = self.mcp_bridge.call(
-            "compute_all_indicators",
-            {"symbol": symbol, "timeframe": "4h"}
-        )
-        
-        # Get regime from QuantCore
-        regime = self.mcp_bridge.call(
-            "detect_regime",
-            {"returns": indicators["returns"]}
-        )
-        
-        return self.synthesize(indicators, regime)
-```
-
-## Deployment
-
-```bash
-# Start QuantPod daemon
-quant-pod-daemon  # uses packaged defaults unless you pass --config
-
-# Run single analysis
-quant-pod analyze --symbols SPY,QQQ --verbose
+packages/quant_pod/
+├── agents/
+│   ├── regime_detector.py          ADX/ATR regime (real indicators)
+│   ├── portfolio_optimizer_agent.py  MV-optimal weights
+│   └── microstructure_signal_agent.py  Bid-ask, depth features
+├── api/                            FastAPI REST server (quantpod-api)
+├── audit/
+│   ├── decision_log.py             Structured event logging
+│   └── models.py                   Pydantic event schemas
+├── context.py                      TradingContext DI container
+├── crews/
+│   ├── config/tasks.yaml           Task definitions
+│   ├── decoder_crew.py             Phase 4: reverse-engineer strategies
+│   ├── regime_config.py            Regime → IC selection + thresholds
+│   ├── registry.py
+│   ├── schemas.py                  DailyBrief + all crew schemas
+│   └── trading_crew.py             Main 13-IC crew
+├── db.py                           DuckDB schema + migrations
+├── execution/                      12-module execution layer
+├── flows/
+│   ├── intraday_monitor_flow.py    Intraday monitoring
+│   ├── strategy_validation_flow.py  OOS validation
+│   └── trading_day_flow.py         Main daily flow
+├── guardrails/                     Risk rule enforcement
+├── knowledge/store.py              Portfolio snapshot time-series
+├── learning/
+│   ├── calibration.py              Stated confidence vs P&L tracking
+│   └── skill_tracker.py            IC prediction accuracy
+├── memory/blackboard.py            DuckDB-backed agent memory
+├── mcp/server.py                   30+ MCP tools (Phases 1–6)
+├── monitoring/
+│   ├── alpha_monitor.py            Signal quality degradation
+│   ├── degradation_detector.py     IS vs OOS divergence
+│   └── metrics.py                  Sharpe, drawdown, consistency
+└── tools/
+    ├── discord/                    Discord MCP bridge
+    ├── etrade/                     eTrade auth/client/models
+    └── options_flow_tools.py       UOA detection tools
 ```

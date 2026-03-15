@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "quantpod": {
+      "type": "stdio",
+      "command": "/path/to/your/repo/.venv/bin/python",
+      "args": ["-m", "quant_pod.mcp.server"],
+      "cwd": "/path/to/your/repo",
+      "env": {
+        "PYTHONPATH": "/path/to/your/repo/packages"
+      }
+    },
+    "quantcore": {
+      "type": "stdio",
+      "command": "/path/to/your/repo/.venv/bin/python",
+      "args": ["-m", "quantcore.mcp.server"],
+      "cwd": "/path/to/your/repo",
+      "env": {
+        "PYTHONPATH": "/path/to/your/repo/packages"
+      }
+    }
+  }
+}

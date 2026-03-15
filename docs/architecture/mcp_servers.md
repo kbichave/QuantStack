@@ -1,429 +1,276 @@
 # MCP Servers Architecture
 
-This document describes the Model Context Protocol (MCP) servers that expose QuantCore capabilities and brokerage integrations to AI agents.
+QuantStack exposes trading functionality through five MCP servers. Each server is a separate process; Claude Code (or any MCP client) connects to all of them via `.mcp.json`.
 
-## Overview
+## Server Overview
 
-MCP (Model Context Protocol) is a standard for exposing tools and resources to AI systems. QuantCore provides two MCP servers:
+| Server | CLI command | Package | Purpose |
+|--------|-------------|---------|---------|
+| `quantcore-mcp` | `quantcore-mcp` | `packages/quantcore/mcp/` | 40+ quant tools: indicators, backtesting, options, RL |
+| `quantpod-mcp` | `quantpod-mcp` | `packages/quant_pod/mcp/` | Portfolio management, strategy registry, execution, learning loop |
+| `alpaca-mcp` | `alpaca-mcp` | `packages/alpaca_mcp/` | Alpaca data + order execution |
+| `ibkr-mcp` | `ibkr-mcp` | `packages/ibkr_mcp/` | Interactive Brokers data + order execution |
+| `etrade-mcp` | `etrade-mcp` | `packages/etrade_mcp/` | eTrade data + order execution |
 
-1. **quantcore-mcp**: Exposes quantitative analysis tools
-2. **etrade-mcp**: Provides E-Trade brokerage integration
+All broker MCP servers are optional — QuantPod falls back to its internal `PaperBroker` when none are available.
+
+---
 
 ## quantcore-mcp
 
-The QuantCore MCP server exposes technical indicators, backtesting, and analysis capabilities.
+Exposes the full QuantCore library as MCP tools. Used by QuantPod agents internally and directly by Claude Code for research.
 
-### Location
-
-```
-packages/quantcore/mcp/
-├── __init__.py
-└── server.py
-```
-
-### Starting the Server
+### Start
 
 ```bash
-# Via CLI entry point
 quantcore-mcp
-
-# Or directly
 python -m quantcore.mcp.server
 ```
 
-### Available Tools
+### Tool Categories
 
-#### Technical Indicators
+| Category | Key tools |
+|----------|-----------|
+| Data | `fetch_market_data`, `load_market_data`, `list_stored_symbols` |
+| Indicators | `compute_technical_indicators`, `compute_all_features`, `list_available_indicators` |
+| Backtesting | `run_backtest`, `get_backtest_metrics`, `run_walkforward`, `run_purged_cv` |
+| Research | `run_adf_test`, `compute_alpha_decay`, `compute_information_coefficient` |
+| Risk | `compute_var`, `check_risk_limits`, `stress_test_portfolio`, `compute_position_size` |
+| Options | `price_option`, `price_american_option`, `compute_greeks`, `compute_implied_vol`, `compute_option_chain` |
+| Microstructure | `get_order_book_snapshot`, `analyze_liquidity`, `analyze_volume_profile` |
+| RL | `get_rl_recommendation` |
+| Regime | `get_market_regime_snapshot` |
+| ML | `detect_leakage`, `check_lookahead_bias`, `validate_signal`, `diagnose_signal` |
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `compute_indicator` | Compute single indicator | symbol, indicator, period, timeframe |
-| `compute_all_indicators` | Compute all 200+ indicators | symbol, timeframe |
-| `get_market_structure` | Support/resistance levels | symbol, timeframe |
-| `detect_swing_points` | Swing high/low detection | symbol, lookback |
+---
 
-**Example Usage:**
-```json
-{
-  "tool": "compute_indicator",
-  "params": {
-    "symbol": "SPY",
-    "indicator": "RSI",
-    "period": 14,
-    "timeframe": "1h"
-  }
-}
+## quantpod-mcp
+
+The primary interface for Claude Code. Manages the full trade lifecycle: analysis → strategy → backtest → execution → learning.
+
+### Start
+
+```bash
+quantpod-mcp
+python -m quant_pod.mcp.server
 ```
 
-#### Backtesting
+### Tool Phases
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `run_backtest` | Execute strategy backtest | strategy, symbol, start_date, end_date |
-| `get_backtest_metrics` | Retrieve performance metrics | backtest_id |
-| `compare_strategies` | Compare multiple strategies | strategies[], symbol, date_range |
+**Phase 1 — Analysis**
+- `run_analysis` — run TradingCrew, return DailyBrief
+- `get_portfolio_state` — positions, cash, P&L
+- `get_regime` — ADX/ATR regime classification for a symbol
+- `get_recent_decisions` — audit trail query
+- `get_system_status` — kill switch, risk halt, broker mode
 
-**Example Usage:**
-```json
-{
-  "tool": "run_backtest",
-  "params": {
-    "strategy": "mean_reversion",
-    "symbol": "SPY",
-    "start_date": "2023-01-01",
-    "end_date": "2023-12-31",
-    "params": {
-      "zscore_threshold": 2.0
-    }
-  }
-}
+**Phase 2 — Strategy & Backtesting**
+- `register_strategy`, `list_strategies`, `get_strategy`, `update_strategy`
+- `run_backtest`, `run_walkforward`
+
+**Phase 3 — Execution**
+- `execute_trade`, `close_position`, `cancel_order`, `get_fills`
+- `get_risk_metrics`, `get_audit_trail`
+
+**Phase 4 — Decoder**
+- `decode_strategy` — reverse-engineer strategy from signals
+- `decode_from_trades` — decode from system's own trade history
+
+**Phase 5 — Meta Orchestration**
+- `run_multi_analysis` — multiple symbols sequentially
+- `get_regime_strategies`, `set_regime_allocation`
+- `resolve_portfolio_conflicts`
+
+**Phase 6 — Learning Loop**
+- `get_rl_status`, `get_rl_recommendation`
+- `promote_strategy`, `retire_strategy`
+- `get_strategy_performance`, `validate_strategy`
+- `update_regime_matrix_from_performance`
+
+---
+
+## alpaca-mcp
+
+Market data and order execution via Alpaca. Paper account is free.
+
+### Start
+
+```bash
+ALPACA_API_KEY=... ALPACA_SECRET_KEY=... alpaca-mcp
 ```
 
-#### Regime Detection
+### Tools
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `detect_regime` | Classify market regime | symbol, method |
-| `get_regime_history` | Historical regime changes | symbol, start_date, end_date |
+| Tool | Description |
+|------|-------------|
+| `get_auth_status` | Check connectivity and paper/live mode |
+| `get_account` | Account summary |
+| `get_balance` | Cash, buying power, portfolio value |
+| `get_positions` | Open positions with P&L |
+| `get_quote` | Real-time quotes (up to 50 symbols) |
+| `get_bars` | Historical OHLCV (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w) |
+| `preview_order` | Estimate cost without submitting |
+| `place_order` | Submit market, limit, stop, stop_limit order |
+| `cancel_order` | Cancel by Alpaca order UUID |
+| `get_orders` | Order history by status |
+| `get_option_chains` | Options chain (requires Alpaca Options subscription) |
 
-#### Risk Analysis
+### Auth
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `calculate_var` | Value at Risk | portfolio, confidence, horizon |
-| `stress_test` | Stress test portfolio | portfolio, scenarios |
-| `position_size` | Optimal position sizing | signal, risk_pct, method |
-
-#### Options
-
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `price_option` | Black-Scholes pricing | S, K, T, r, sigma, option_type |
-| `compute_greeks` | Option Greeks | S, K, T, r, sigma |
-| `implied_vol` | IV from market price | S, K, T, r, market_price, option_type |
-
-### Resources
-
-The MCP server exposes these resources:
-
-| Resource URI | Description |
-|--------------|-------------|
-| `quantcore://indicators/list` | List of available indicators |
-| `quantcore://strategies/list` | Available strategy templates |
-| `quantcore://data/{symbol}` | Historical data for symbol |
-
-### Server Configuration
-
-```python
-# packages/quantcore/mcp/server.py
-from fastmcp import FastMCP
-
-mcp = FastMCP("quantcore")
-
-@mcp.tool()
-def compute_indicator(
-    symbol: str,
-    indicator: str,
-    period: int = 14,
-    timeframe: str = "daily"
-) -> dict:
-    """Compute a technical indicator for a symbol."""
-    # Implementation
-    ...
-
-@mcp.resource("quantcore://indicators/list")
-def list_indicators() -> list[str]:
-    """List all available indicators."""
-    return INDICATOR_REGISTRY.keys()
+```bash
+ALPACA_API_KEY=your_key        # required
+ALPACA_SECRET_KEY=your_secret  # required
+ALPACA_PAPER=true              # false = live endpoint
 ```
+
+See [alpaca_mcp README](../../packages/alpaca_mcp/README.md) for full setup.
+
+---
+
+## ibkr-mcp
+
+Market data and order execution via Interactive Brokers. Requires IB Gateway or TWS running locally.
+
+### Start
+
+```bash
+# Start IB Gateway first, then:
+IBKR_PORT=4001 ibkr-mcp
+```
+
+The server starts in degraded mode if IB Gateway is unreachable. Use `connect_gateway` tool to reconnect after the gateway starts.
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `get_connection_status` | Check IB Gateway connection |
+| `connect_gateway` | Explicitly connect (or reconnect) |
+| `get_accounts` | List managed accounts |
+| `get_balance` | Net liquidation, cash, buying power, margin |
+| `get_positions` | Open positions with P&L |
+| `get_quote` | Real-time snapshot (up to 20 symbols) |
+| `get_historical_bars` | OHLCV history via `reqHistoricalData` |
+| `get_option_chains` | Expirations and strikes |
+| `place_order` | Market or limit equity order |
+| `cancel_order` | Cancel by IB order ID |
+| `get_orders` | Open and completed orders |
+
+### Auth
+
+```bash
+IBKR_HOST=127.0.0.1   # default
+IBKR_PORT=4001         # 4001=IB Gateway, 7497=TWS
+IBKR_CLIENT_ID=1       # unique per simultaneous connection
+```
+
+See [ibkr_mcp README](../../packages/ibkr_mcp/README.md) for port reference and firewall notes.
+
+---
 
 ## etrade-mcp
 
-The E-Trade MCP server provides brokerage integration for live trading.
+Account management and order execution via eTrade. Uses OAuth 1.0a. Always start with sandbox mode.
 
-### Location
-
-```
-packages/etrade_mcp/
-├── __init__.py
-├── auth.py         # OAuth authentication
-├── client.py       # E-Trade API client
-├── models.py       # Pydantic models
-└── server.py       # MCP server
-```
-
-### Starting the Server
+### Start
 
 ```bash
-# Via CLI entry point
-etrade-mcp
-
-# With custom port
-etrade-mcp --port 8081
+ETRADE_CONSUMER_KEY=... ETRADE_CONSUMER_SECRET=... etrade-mcp
+# Add --production flag to switch to live API
 ```
 
-### Authentication
+After starting, complete OAuth via the `etrade_authorize` MCP tool (three-step flow).
 
-E-Trade uses OAuth 1.0a. The MCP server handles authentication:
+### Tools
 
-```python
-# First-time setup (interactive)
-etrade-mcp --setup
+| Tool | Description |
+|------|-------------|
+| `etrade_authorize` | Start or complete OAuth flow |
+| `etrade_refresh_token` | Renew token (expires at midnight ET) |
+| `get_auth_status` | Auth state and sandbox mode |
+| `get_accounts` | List accounts → accountIdKey |
+| `get_account_balance` | Cash, margin, buying power |
+| `get_positions` | Open positions |
+| `get_quote` | Real-time quotes (up to 25 symbols) |
+| `get_option_expiry_dates` | Available expirations |
+| `get_option_chains` | Full chain with Greeks |
+| `preview_order` | Cost estimate — call before place_order |
+| `place_order` | Equity or single-leg option order |
+| `place_spread_order` | Multi-leg option spread |
+| `cancel_order` | Cancel open order |
+| `get_orders` | Order history by status |
 
-# This will:
-# 1. Open browser for E-Trade authorization
-# 2. Store tokens in ~/.etrade/credentials.json
-# 3. Auto-refresh tokens when needed
+### Auth
+
+```bash
+ETRADE_CONSUMER_KEY=your_key     # required
+ETRADE_CONSUMER_SECRET=your_secret  # required
+ETRADE_SANDBOX=true              # false = production API
 ```
 
-### Available Tools
+See [etrade_mcp README](../../packages/etrade_mcp/README.md) for OAuth flow details.
 
-#### Account Operations
+---
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `get_accounts` | List all accounts | - |
-| `get_balance` | Account balance | account_id |
-| `get_positions` | Current positions | account_id |
-| `get_orders` | Order history | account_id, status |
+## SmartOrderRouter
 
-**Example Usage:**
-```json
-{
-  "tool": "get_positions",
-  "params": {
-    "account_id": "12345678"
-  }
-}
-```
+`packages/quantcore/execution/smart_order_router.py` selects the execution venue for each order. Used by `TradingDayFlow` when `USE_REAL_TRADING=true`.
 
-#### Trading
+**Routing priority:**
+1. Alpaca — if `ALPACA_API_KEY` is set and server is reachable
+2. IBKR — if `IBKR_HOST` is set and gateway is connected
+3. eTrade — if `ETRADE_CONSUMER_KEY` is set and authenticated
+4. PaperBroker — always available fallback
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `place_order` | Submit order | account_id, symbol, side, quantity, order_type, limit_price |
-| `cancel_order` | Cancel order | account_id, order_id |
-| `modify_order` | Modify existing order | account_id, order_id, new_params |
+The router evaluates spread, latency, and commission across available venues and routes to the best option.
 
-**Example Usage:**
-```json
-{
-  "tool": "place_order",
-  "params": {
-    "account_id": "12345678",
-    "symbol": "AAPL",
-    "side": "buy",
-    "quantity": 100,
-    "order_type": "limit",
-    "limit_price": 175.50
-  }
-}
-```
+---
 
-#### Market Data
+## .mcp.json Configuration
 
-| Tool | Description | Parameters |
-|------|-------------|------------|
-| `get_quote` | Real-time quote | symbol |
-| `get_option_chain` | Options chain | symbol, expiration |
-
-### Order Types Supported
-
-- Market
-- Limit
-- Stop
-- Stop Limit
-- Trailing Stop
-
-### Models
-
-```python
-# packages/etrade_mcp/models.py
-from pydantic import BaseModel
-
-class Order(BaseModel):
-    symbol: str
-    side: Literal["buy", "sell"]
-    quantity: int
-    order_type: Literal["market", "limit", "stop", "stop_limit"]
-    limit_price: float | None = None
-    stop_price: float | None = None
-    time_in_force: Literal["day", "gtc"] = "day"
-
-class Position(BaseModel):
-    symbol: str
-    quantity: int
-    cost_basis: float
-    market_value: float
-    unrealized_pnl: float
-    unrealized_pnl_pct: float
-
-class AccountBalance(BaseModel):
-    account_id: str
-    cash_balance: float
-    buying_power: float
-    portfolio_value: float
-    margin_used: float
-```
-
-### Server Implementation
-
-```python
-# packages/etrade_mcp/server.py
-from fastmcp import FastMCP
-from etrade_mcp.client import ETradeClient
-from etrade_mcp.models import Order
-
-mcp = FastMCP("etrade")
-client = ETradeClient()
-
-@mcp.tool()
-def place_order(
-    account_id: str,
-    symbol: str,
-    side: str,
-    quantity: int,
-    order_type: str = "market",
-    limit_price: float | None = None
-) -> dict:
-    """Place a trade order."""
-    order = Order(
-        symbol=symbol,
-        side=side,
-        quantity=quantity,
-        order_type=order_type,
-        limit_price=limit_price
-    )
-    return client.place_order(account_id, order)
-
-@mcp.tool()
-def get_positions(account_id: str) -> list[dict]:
-    """Get current positions for an account."""
-    positions = client.get_positions(account_id)
-    return [p.model_dump() for p in positions]
-```
-
-## Using MCP Servers with AI Agents
-
-### From QuantPod
-
-```python
-from quant_pod.tools import MCPBridge
-
-# Connect to QuantCore MCP
-qc_bridge = MCPBridge(server="quantcore-mcp")
-
-# Get indicators
-indicators = await qc_bridge.call(
-    "compute_all_indicators",
-    {"symbol": "SPY", "timeframe": "4h"}
-)
-
-# Connect to E-Trade MCP
-et_bridge = MCPBridge(server="etrade-mcp")
-
-# Check positions
-positions = await et_bridge.call(
-    "get_positions",
-    {"account_id": "12345678"}
-)
-```
-
-### From Claude/Cursor
-
-The MCP servers can be used directly with Claude or Cursor AI:
+The repo ships with `.mcp.json`. Claude Code reads this file to discover available MCP servers.
 
 ```json
-// .cursor/mcp.json or claude_desktop_config.json
 {
   "mcpServers": {
     "quantcore": {
-      "command": "quantcore-mcp",
-      "args": []
+      "command": "quantcore-mcp"
+    },
+    "quantpod": {
+      "command": "quantpod-mcp"
+    },
+    "alpaca": {
+      "command": "alpaca-mcp",
+      "env": {
+        "ALPACA_API_KEY": "${ALPACA_API_KEY}",
+        "ALPACA_SECRET_KEY": "${ALPACA_SECRET_KEY}",
+        "ALPACA_PAPER": "true"
+      }
+    },
+    "ibkr": {
+      "command": "ibkr-mcp",
+      "env": {
+        "IBKR_HOST": "127.0.0.1",
+        "IBKR_PORT": "4001"
+      }
     },
     "etrade": {
       "command": "etrade-mcp",
-      "args": ["--port", "8081"]
+      "env": {
+        "ETRADE_CONSUMER_KEY": "${ETRADE_CONSUMER_KEY}",
+        "ETRADE_CONSUMER_SECRET": "${ETRADE_CONSUMER_SECRET}",
+        "ETRADE_SANDBOX": "true"
+      }
     }
   }
 }
 ```
 
-## Security Considerations
+---
 
-### E-Trade MCP
+## Security
 
-- OAuth tokens stored encrypted at rest
-- Tokens auto-expire and refresh
-- Rate limiting enforced
-- Paper trading mode available for testing
-
-```bash
-# Run in paper trading mode
-etrade-mcp --paper-trading
-```
-
-### Network Security
-
-```bash
-# Bind to localhost only (default)
-quantcore-mcp --host 127.0.0.1
-
-# With authentication token
-quantcore-mcp --auth-token $MCP_AUTH_TOKEN
-```
-
-## Extending MCP Servers
-
-### Adding New Tools
-
-```python
-# In packages/quantcore/mcp/server.py
-
-@mcp.tool()
-def my_custom_tool(param1: str, param2: int) -> dict:
-    """Description of what this tool does."""
-    # Implementation
-    result = process(param1, param2)
-    return {"status": "success", "data": result}
-```
-
-### Adding New Resources
-
-```python
-@mcp.resource("quantcore://custom/{resource_id}")
-def get_custom_resource(resource_id: str) -> dict:
-    """Retrieve custom resource."""
-    return load_resource(resource_id)
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**quantcore-mcp won't start:**
-```bash
-# Check dependencies
-pip install -e ".[mcp]"
-
-# Verbose mode
-quantcore-mcp --verbose
-```
-
-**E-Trade authentication fails:**
-```bash
-# Re-authenticate
-etrade-mcp --setup --force
-
-# Check token expiry
-etrade-mcp --check-auth
-```
-
-**Connection refused:**
-```bash
-# Check if server is running
-curl http://localhost:8080/health
-
-# Check port availability
-lsof -i :8080
-```
+- All broker servers default to paper/sandbox mode. Live trading requires explicit opt-in via env vars (`ALPACA_PAPER=false`, `ETRADE_SANDBOX=false`, `USE_REAL_TRADING=true`).
+- MCP servers bind to `127.0.0.1` only. Do not expose them to the public internet.
+- eTrade OAuth tokens expire at midnight Eastern. Refresh with `etrade_refresh_token` before then.
+- The `RiskGate` enforces hard limits on every order regardless of which broker is used.

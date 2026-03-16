@@ -103,6 +103,23 @@ All runtime state lives in a single ACID-safe DuckDB file. No scattered pickle f
 | `strategies` | Strategy registry |
 | `regime_strategy_matrix` | Regime → allocation weights |
 
+### Multi-process access model
+
+DuckDB enforces one write connection per file across OS processes.
+
+| Process | Connection type | Function |
+|---------|----------------|---------|
+| **MCP server** | Write (owner) | `open_db()` — runs migrations, holds lock |
+| **FastAPI server** | Read-only | `open_db_readonly()` — GET endpoints only |
+| **Scripts / scheduler** | Read-only | `open_db_readonly()` |
+
+**Lock conflict handling** (`packages/quant_pod/db.py`):
+- *Stale lock* (owning process died): retries for 10 s, then raises with a `.wal` cleanup hint
+- *Live conflict* (owner is alive): raises `RuntimeError` immediately with `kill <PID>` command
+- *Degraded mode*: if the MCP server encounters a lock on startup, it falls back to an in-memory
+  context. Analysis tools (`run_analysis`, `get_regime`) still work; portfolio/execution tools
+  return `{"success": false, "degraded_mode": true}`
+
 ## Regime Detection
 
 `regime_detector_ic` uses real ADX and ATR indicators — no LLMs, no stubs:

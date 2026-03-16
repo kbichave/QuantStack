@@ -110,10 +110,12 @@ class PortfolioState:
         initial_cash: float = 100_000.0,
         # Legacy parameter kept for backward compatibility — ignored when conn is provided
         db_path: str | None = None,
+        read_only: bool = False,
     ):
         # RLock (reentrant) because upsert_position() calls get_position() under the lock
         self._lock = RLock()
         self._initial_cash = initial_cash
+        self._read_only = read_only
 
         if conn is not None:
             # Injected connection (preferred — supports consolidated DB and in-memory tests)
@@ -127,7 +129,10 @@ class PortfolioState:
             self._conn = open_db(db_path)
             run_migrations(self._conn)
 
-        self._seed_cash()
+        # Skip seeding on read-only connections — the write owner seeds on first run,
+        # and DDL/INSERT would raise duckdb.InvalidInputException on a read-only conn.
+        if not self._read_only:
+            self._seed_cash()
         logger.info("PortfolioState initialized")
 
     # -------------------------------------------------------------------------
@@ -579,7 +584,7 @@ def get_portfolio_state(
     # Legacy parameter — ignored when conn is provided
     db_path: str | None = None,
 ) -> PortfolioState:
-    """Get the singleton PortfolioState instance."""
+    """Get the singleton PortfolioState instance (write connection)."""
     global _portfolio_state
     if _portfolio_state is None:
         if conn is None:
@@ -589,3 +594,28 @@ def get_portfolio_state(
             run_migrations(conn)
         _portfolio_state = PortfolioState(conn=conn, initial_cash=initial_cash)
     return _portfolio_state
+
+
+# Read-only singleton — for processes that must not compete for the write lock
+# (e.g. the FastAPI server's GET endpoints).
+_portfolio_state_ro: PortfolioState | None = None
+
+
+def get_portfolio_state_readonly() -> PortfolioState:
+    """
+    Get a read-only PortfolioState singleton.
+
+    Use this in processes (FastAPI, scripts) that run alongside the MCP server
+    and only need to READ portfolio data.  The returned instance cannot execute
+    writes (upsert_position, adjust_cash, etc.) — those calls will raise a
+    duckdb.InvalidInputException at runtime.
+
+    Raises:
+        FileNotFoundError: if trader.duckdb doesn't exist yet (MCP server not started).
+    """
+    global _portfolio_state_ro
+    if _portfolio_state_ro is None:
+        from quant_pod.db import open_db_readonly
+
+        _portfolio_state_ro = PortfolioState(conn=open_db_readonly(), read_only=True)
+    return _portfolio_state_ro

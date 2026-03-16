@@ -44,11 +44,15 @@ from fastapi.responses import PlainTextResponse
 from loguru import logger
 from pydantic import BaseModel
 
-from quant_pod.audit.decision_log import extract_indicator_attributions, get_decision_log
+from quant_pod.audit.decision_log import (
+    extract_indicator_attributions,
+    get_decision_log,
+    get_decision_log_readonly,
+)
 from quant_pod.audit.models import AuditQuery
 from quant_pod.execution.broker_factory import get_broker, get_broker_mode
 from quant_pod.execution.kill_switch import get_kill_switch
-from quant_pod.execution.portfolio_state import get_portfolio_state
+from quant_pod.execution.portfolio_state import get_portfolio_state, get_portfolio_state_readonly
 from quant_pod.learning.calibration import get_calibration_tracker
 from quant_pod.monitoring.metrics import (
     get_metrics_content_type,
@@ -110,7 +114,7 @@ class ResetRequest(BaseModel):
 def health() -> dict[str, Any]:
     """Health check — returns service status and kill switch state."""
     kill = get_kill_switch()
-    portfolio = get_portfolio_state()
+    portfolio = get_portfolio_state_readonly()
     snapshot = portfolio.get_snapshot()
 
     return {
@@ -127,7 +131,7 @@ def health() -> dict[str, Any]:
 @app.get("/portfolio")
 def get_portfolio() -> dict[str, Any]:
     """Current portfolio snapshot."""
-    portfolio = get_portfolio_state()
+    portfolio = get_portfolio_state_readonly()
     snapshot = portfolio.get_snapshot()
     return snapshot.model_dump()
 
@@ -135,7 +139,7 @@ def get_portfolio() -> dict[str, Any]:
 @app.get("/portfolio/positions")
 def get_positions() -> list[dict[str, Any]]:
     """Current open positions."""
-    portfolio = get_portfolio_state()
+    portfolio = get_portfolio_state_readonly()
     return [p.model_dump() for p in portfolio.get_positions()]
 
 
@@ -219,7 +223,7 @@ def get_audit(
     limit: int = Query(default=50, le=500),
 ) -> list[dict[str, Any]]:
     """Recent audit log entries."""
-    log = get_decision_log()
+    log = get_decision_log_readonly()
     events = log.query(
         AuditQuery(
             symbol=symbol,
@@ -247,7 +251,7 @@ def get_audit(
 @app.get("/audit/{event_id}/trace")
 def get_audit_trace(event_id: str) -> list[dict[str, Any]]:
     """Full decision trace for a specific event."""
-    log = get_decision_log()
+    log = get_decision_log_readonly()
     trace = log.get_decision_trace(event_id)
     if not trace:
         raise HTTPException(status_code=404, detail=f"Event {event_id} not found")
@@ -264,7 +268,7 @@ def get_audit_attribution(event_id: str) -> dict[str, Any]:
       - Derived attributions from the market_data_snapshot (as fallback)
       - IC dissent signals (ICs that disagreed with the consensus)
     """
-    log = get_decision_log()
+    log = get_decision_log_readonly()
     log.query(AuditQuery(limit=1))  # Query by event_id directly
     # query() doesn't filter by event_id, so fetch via trace (single-element trace = the event itself)
     trace = log.get_decision_trace(event_id)
@@ -295,7 +299,7 @@ def get_audit_attribution(event_id: str) -> dict[str, Any]:
 @app.get("/audit/session/{session_id}/summary")
 def get_session_summary(session_id: str) -> dict[str, Any]:
     """High-level summary of a trading session."""
-    log = get_decision_log()
+    log = get_decision_log_readonly()
     return log.get_session_summary(session_id)
 
 
@@ -438,7 +442,7 @@ def get_heartbeat() -> dict[str, Any]:
 
     Status: "ok" | "stale" | "never_seen"
     """
-    log = get_decision_log()
+    log = get_decision_log_readonly()
     now = datetime.now()
     max_silence_hours = 25  # One session = one trading day + buffer
 
@@ -499,7 +503,7 @@ def get_pnl_dashboard() -> dict[str, Any]:
       - total_equity: cash + positions_value
       - recent_trades: last 10 closed trades with P&L
     """
-    portfolio = get_portfolio_state()
+    portfolio = get_portfolio_state_readonly()
     snapshot = portfolio.get_snapshot()
     positions = portfolio.get_positions()
 
@@ -549,7 +553,7 @@ def get_anomalies() -> dict[str, Any]:
     """
     anomalies: list[dict[str, Any]] = []
     broker = get_broker()
-    log = get_decision_log()
+    log = get_decision_log_readonly()
     now = datetime.now()
 
     # ---- 1. Order size anomalies ----------------------------------------
@@ -579,7 +583,7 @@ def get_anomalies() -> dict[str, Any]:
                 )
 
     # ---- 2. Win rate degradation (uses ClosedTrade records, not fills) -----
-    portfolio = get_portfolio_state()
+    portfolio = get_portfolio_state_readonly()
     recent_closed = portfolio.conn.execute(
         "SELECT realized_pnl FROM closed_trades ORDER BY closed_at DESC LIMIT 20"
     ).fetchall()
@@ -989,7 +993,7 @@ def prometheus_metrics() -> str:
     Also updates NAV and daily P&L gauges on each scrape so they stay current
     without requiring a dedicated background task.
     """
-    portfolio = get_portfolio_state()
+    portfolio = get_portfolio_state_readonly()
     snap = portfolio.get_snapshot()
     record_nav(snap.total_equity)
     record_daily_pnl(snap.daily_pnl)

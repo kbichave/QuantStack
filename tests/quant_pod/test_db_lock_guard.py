@@ -1,0 +1,214 @@
+# Copyright 2024 QuantPod Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Tests for DuckDB lock-guard logic in packages/quant_pod/db.py.
+
+All file-backed tests use pytest's tmp_path fixture — no test touches
+~/.quant_pod/trader.duckdb.  Tests that exercise _connect_with_lock_guard
+mock duckdb.connect and _is_process_alive so they run instantly without
+spawning real competing processes.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from unittest.mock import MagicMock, patch
+
+import duckdb
+import pytest
+
+from quant_pod.db import (
+    _connect_with_lock_guard,
+    _is_process_alive,
+    open_db,
+    open_db_readonly,
+    reset_connection,
+    reset_connection_readonly,
+)
+
+# ---------------------------------------------------------------------------
+# _is_process_alive
+# ---------------------------------------------------------------------------
+
+
+class TestIsProcessAlive:
+    def test_current_process_alive(self):
+        """The current process must always be alive."""
+        import os
+
+        assert _is_process_alive(os.getpid()) is True
+
+    def test_dead_pid_returns_false(self):
+        """After a process exits, its PID should not be alive."""
+        proc = subprocess.Popen(["true"])
+        proc.wait()
+        assert not _is_process_alive(proc.pid)
+
+    def test_permission_error_treated_as_alive(self):
+        """PermissionError from os.kill means the process exists (owned by another user)."""
+        import os
+
+        with patch.object(os, "kill", side_effect=PermissionError):
+            assert _is_process_alive(99999) is True
+
+
+# ---------------------------------------------------------------------------
+# _connect_with_lock_guard
+# ---------------------------------------------------------------------------
+
+
+def _lock_exc(pid: int) -> duckdb.IOException:
+    """Build a realistic DuckDB lock IOException for a given PID."""
+    return duckdb.IOException(
+        f"IO Error: Could not set lock on file '/tmp/test.duckdb': "
+        f"Conflicting lock is held in /usr/bin/python3 (PID {pid}) by user testuser."
+    )
+
+
+class TestConnectWithLockGuard:
+    def test_opens_clean_db(self, tmp_path):
+        """No lock conflict → returns a valid DuckDB connection."""
+        path = str(tmp_path / "test.duckdb")
+        conn = _connect_with_lock_guard(path)
+        assert conn is not None
+        conn.close()
+
+    def test_stale_lock_retries_and_succeeds(self):
+        """
+        PID is dead (stale lock) → retries until duckdb.connect succeeds.
+        Verify that connect is called more than once.
+        """
+        dead_pid = 99999
+        good_conn = MagicMock()
+        side_effects = [
+            _lock_exc(dead_pid),
+            _lock_exc(dead_pid),
+            good_conn,  # third attempt succeeds
+        ]
+
+        with (
+            patch("quant_pod.db.duckdb.connect", side_effect=side_effects) as mock_connect,
+            patch("quant_pod.db._is_process_alive", return_value=False),
+        ):
+            result = _connect_with_lock_guard("/fake/path.duckdb")
+
+        assert result is good_conn
+        assert mock_connect.call_count == 3
+
+    def test_live_conflict_raises_immediately(self):
+        """
+        PID is alive → raises RuntimeError immediately with the kill command.
+        Must NOT retry (call_count == 1).
+        """
+        live_pid = 12345
+        exc = _lock_exc(live_pid)
+
+        with (
+            patch("quant_pod.db.duckdb.connect", side_effect=exc) as mock_connect,
+            patch("quant_pod.db._is_process_alive", return_value=True),
+        ):
+            with pytest.raises(RuntimeError, match=f"kill {live_pid}"):
+                _connect_with_lock_guard("/fake/path.duckdb")
+
+        assert mock_connect.call_count == 1
+
+    def test_stale_lock_deadline_exceeded_raises(self):
+        """
+        PID is dead but lock never clears within the deadline → RuntimeError
+        with 'Stale lock' in the message, NOT the 'kill PID' message.
+        """
+        dead_pid = 77777
+
+        def always_lock(_path, **_kw):
+            raise _lock_exc(dead_pid)
+
+        import time as _time
+
+        # Make monotonic always return a value past the deadline on first check
+        original_monotonic = _time.monotonic
+        with (
+            patch("quant_pod.db.duckdb.connect", side_effect=always_lock),
+            patch("quant_pod.db._is_process_alive", return_value=False),
+            patch(
+                "quant_pod.db.time.monotonic",
+                side_effect=[0.0, 999.0],  # first call sets deadline, second is past it
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Stale lock"):
+                _connect_with_lock_guard("/fake/path.duckdb")
+
+    def test_unrelated_ioexception_propagates(self):
+        """Non-lock IOException (e.g. 'Disk full') must propagate unchanged."""
+        exc = duckdb.IOException("IO Error: No space left on device")
+
+        with patch("quant_pod.db.duckdb.connect", side_effect=exc):
+            with pytest.raises(duckdb.IOException, match="No space left"):
+                _connect_with_lock_guard("/fake/path.duckdb")
+
+    def test_no_pid_in_lock_message_propagates(self):
+        """
+        'Conflicting lock' message without a PID (unexpected DuckDB format)
+        should propagate the original exception, not wrap it.
+        """
+        exc = duckdb.IOException("IO Error: Conflicting lock is held")
+
+        with patch("quant_pod.db.duckdb.connect", side_effect=exc):
+            with pytest.raises(duckdb.IOException):
+                _connect_with_lock_guard("/fake/path.duckdb")
+
+
+# ---------------------------------------------------------------------------
+# open_db_readonly
+# ---------------------------------------------------------------------------
+
+
+class TestOpenDbReadonly:
+    def teardown_method(self):
+        """Reset the read-only singleton after each test."""
+        reset_connection_readonly()
+
+    def test_raises_if_file_missing(self, tmp_path):
+        """open_db_readonly raises FileNotFoundError when the DB doesn't exist."""
+        path = str(tmp_path / "nonexistent.duckdb")
+        with pytest.raises(FileNotFoundError, match="DB not found"):
+            open_db_readonly(path)
+
+    def test_succeeds_when_file_exists(self, tmp_path):
+        """
+        Read-only connection opens successfully when the DB exists.
+        SELECT works; CREATE TABLE must raise (read-only enforcement).
+        """
+        path = str(tmp_path / "test.duckdb")
+
+        # Create the DB with a write connection first (schema owner)
+        write_conn = duckdb.connect(path)
+        write_conn.execute("CREATE TABLE foo (id INTEGER)")
+        write_conn.close()
+
+        # Now open read-only
+        ro_conn = open_db_readonly(path)
+        assert ro_conn is not None
+
+        # Reads work
+        result = ro_conn.execute("SELECT COUNT(*) FROM foo").fetchone()
+        assert result is not None
+
+        # Writes must fail
+        with pytest.raises(Exception):
+            ro_conn.execute("INSERT INTO foo VALUES (1)")
+
+    def test_memory_path_returns_writable_connection(self):
+        """
+        open_db_readonly(':memory:') falls back to the regular write connection
+        so test code that calls this function behaves identically to production.
+        """
+        try:
+            conn = open_db_readonly(":memory:")
+            # Must support DDL (write connection)
+            conn.execute("CREATE TABLE test_rw (x INTEGER)")
+            conn.execute("INSERT INTO test_rw VALUES (42)")
+            result = conn.execute("SELECT x FROM test_rw").fetchone()
+            assert result == (42,)
+        finally:
+            reset_connection()

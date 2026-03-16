@@ -34,6 +34,12 @@ from quant_pod.execution.broker_factory import get_broker_mode
 
 _ctx: TradingContext | None = None
 
+# When the DB write lock is held by another process, the server starts in
+# degraded mode using an in-memory context.  Tools that need persistent DB
+# state return a structured error; analysis tools (no DB dependency) work normally.
+_degraded_mode: bool = False
+_degraded_reason: str = ""
+
 # ---------------------------------------------------------------------------
 # IC Output Cache — keyed "{symbol}::{ic_name}", 30-minute TTL.
 # Populated by run_analysis after every full crew run, and by run_ic/run_pod.
@@ -86,6 +92,45 @@ def _require_ctx() -> TradingContext:
     return _ctx
 
 
+def _require_live_db() -> TradingContext:
+    """
+    Get the trading context, raising if in degraded mode (DB locked).
+
+    Call this from any tool that reads or writes persistent DB state
+    (portfolio, fills, audit trail, strategies, regime matrix).
+
+    Tools that are purely computational — run_analysis, get_regime,
+    get_system_status — should call _require_ctx() instead so they
+    continue to work even when the write lock is held by another process.
+    """
+    if _degraded_mode:
+        raise RuntimeError(
+            f"QuantPod is running in degraded mode — the persistent DB is locked. "
+            f"Portfolio state and trade execution are unavailable. "
+            f"Analysis tools (run_analysis, get_regime) still work. "
+            f"Reason: {_degraded_reason}"
+        )
+    return _require_ctx()
+
+
+def _live_db_or_error() -> tuple["TradingContext | None", "dict | None"]:
+    """
+    Convenience wrapper for tool handlers that need a live DB connection.
+
+    Returns (ctx, None) on success, or (None, error_dict) when in degraded
+    mode.  Avoids a try/except at every call site:
+
+        ctx, err = _live_db_or_error()
+        if err:
+            return err
+        # proceed with ctx
+    """
+    try:
+        return _require_live_db(), None
+    except RuntimeError as exc:
+        return None, {"success": False, "error": str(exc), "degraded_mode": True}
+
+
 # =============================================================================
 # Lifespan
 # =============================================================================
@@ -94,10 +139,26 @@ def _require_ctx() -> TradingContext:
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Initialize TradingContext on startup, cleanup on shutdown."""
-    global _ctx
+    global _ctx, _degraded_mode, _degraded_reason
     logger.info("QuantPod MCP Server starting...")
-    _ctx = create_trading_context()
-    logger.info(f"QuantPod MCP Server initialized | session={_ctx.session_id}")
+    try:
+        _ctx = create_trading_context()
+        _degraded_mode = False
+        _degraded_reason = ""
+        logger.info(f"QuantPod MCP Server initialized | session={_ctx.session_id}")
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "locked by a running process" in msg or "Stale lock" in msg:
+            logger.warning(
+                f"[MCP] DB lock conflict — starting in degraded mode. "
+                f"Analysis tools work; portfolio/execution tools unavailable. "
+                f"Reason: {msg}"
+            )
+            _ctx = create_trading_context(db_path=":memory:")
+            _degraded_mode = True
+            _degraded_reason = msg
+        else:
+            raise  # Non-lock error (migration failure etc.) — crash loudly
     yield
     logger.info("QuantPod MCP Server stopped")
 
@@ -256,7 +317,9 @@ async def get_portfolio_state() -> dict[str, Any]:
         - positions: list of open positions with symbol, quantity, avg_cost, etc.
         - context_string: human-readable markdown summary.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         snapshot = ctx.portfolio.get_snapshot()
         positions = ctx.portfolio.get_positions()
@@ -325,7 +388,9 @@ async def get_recent_decisions(
     Returns:
         Dict with keys: decisions (list of summaries), total.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         from quant_pod.audit.models import AuditQuery
 
@@ -417,7 +482,9 @@ async def register_strategy(
     import json
     import uuid
 
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     strategy_id = f"strat_{uuid.uuid4().hex[:12]}"
 
     try:
@@ -463,7 +530,9 @@ async def list_strategies(
     Returns:
         Dict with list of strategy summaries.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         conditions = []
         params = []
@@ -517,7 +586,9 @@ async def get_strategy(
     """
     import json as _json
 
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         if strategy_id:
             row = ctx.db.execute(
@@ -610,7 +681,9 @@ async def update_strategy(
     """
     import json as _json
 
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         sets = []
         params = []
@@ -903,7 +976,9 @@ async def run_backtest(
     """
     import json as _json
 
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
 
     try:
         # 1. Load strategy
@@ -1021,7 +1096,9 @@ async def run_walkforward(
 
     import numpy as np
 
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
 
     try:
         # 1. Load strategy
@@ -1193,7 +1270,9 @@ async def execute_trade(
     import os
     import uuid as _uuid
 
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
 
     try:
         # 1. Kill switch guard
@@ -1363,7 +1442,9 @@ async def close_position(
     Returns:
         Dict with fill details or error.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         pos = ctx.portfolio.get_position(symbol)
         if pos is None:
@@ -1425,7 +1506,9 @@ async def get_fills(
     Returns:
         Dict with list of fill records.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         fills = ctx.broker.get_fills(symbol=symbol, limit=limit)
         return {
@@ -1446,7 +1529,9 @@ async def get_risk_metrics() -> dict[str, Any]:
     Returns:
         Dict with cash, equity, exposure, daily loss, and all limit values.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         snapshot = ctx.portfolio.get_snapshot()
         positions = ctx.portfolio.get_positions()
@@ -1497,7 +1582,9 @@ async def get_audit_trail(
     Returns:
         Dict with list of audit events.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         from quant_pod.audit.models import AuditQuery
 
@@ -1612,7 +1699,9 @@ async def decode_from_trades(
     Returns:
         DecodedStrategy from historical trades.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         if source == "closed_trades":
             query = "SELECT symbol, side, entry_price, exit_price, opened_at, closed_at FROM closed_trades"
@@ -1690,7 +1779,9 @@ async def get_regime_strategies(regime: str) -> dict[str, Any]:
     Returns:
         Dict with list of (strategy_id, allocation_pct, confidence).
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         rows = ctx.db.execute(
             "SELECT strategy_id, allocation_pct, confidence, last_updated "
@@ -1736,7 +1827,9 @@ async def set_regime_allocation(
     Returns:
         Confirmation with the updated allocations.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         # Validate total allocation <= 1.0
         total = sum(a.get("allocation_pct", 0) for a in allocations)
@@ -1963,7 +2056,9 @@ async def promote_strategy(
         Success with updated record, or rejection with failed criteria.
     """
 
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         strat_result = await get_strategy.fn(strategy_id=strategy_id)
         if not strat_result.get("success"):
@@ -2034,7 +2129,9 @@ async def retire_strategy(
     Returns:
         Confirmation with the retirement details.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         # Update status
         ctx.db.execute(
@@ -2081,7 +2178,9 @@ async def get_strategy_performance(
         Dict with live metrics, backtest comparison, and degradation flag.
     """
 
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         # Get strategy record for backtest comparison
         strat_result = await get_strategy.fn(strategy_id=strategy_id)
@@ -2247,7 +2346,9 @@ async def update_regime_matrix_from_performance(
     Returns:
         Dict with proposed changes per regime + reasoning.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         # Get all closed trades in the lookback period
         from datetime import datetime as _dt
@@ -2843,7 +2944,9 @@ async def get_fill_quality(order_id: str) -> dict[str, Any]:
     Returns:
         Dict with fill_price, slippage_bps, vwap, fill_vs_vwap_bps, quality_note.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         row = ctx.db.execute(
             """
@@ -2923,7 +3026,9 @@ async def get_position_monitor(symbol: str) -> dict[str, Any]:
         Dict with price, pnl, days_held, current_regime, flags, recommended_action.
         Returns has_position=False if no open position exists.
     """
-    ctx = _require_ctx()
+    ctx, err = _live_db_or_error()
+    if err:
+        return err
     try:
         pos = ctx.portfolio.get_position(symbol)
         if not pos:

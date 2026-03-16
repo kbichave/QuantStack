@@ -12,11 +12,37 @@ a crash between two writes would leave permanent partial state.
 Schema ownership lives here.  Services receive an injected connection;
 they do NOT open their own files.
 
+## Connection Model
+
+DuckDB allows only ONE write connection per file across OS processes.
+The MCP server is the canonical write owner — it holds the connection for
+its entire lifetime.  Other processes (FastAPI, scripts) must connect
+read-only via open_db_readonly().
+
+### Lock conflict handling
+
+open_db() wraps duckdb.connect() with a lock guard (_connect_with_lock_guard):
+
+  - Stale lock (owning process is dead): retries for up to
+    _STALE_LOCK_RETRY_SECS (10 s) until the OS releases the lock.
+
+  - Live conflict (owning process is alive): raises RuntimeError immediately
+    with the PID and the exact `kill PID` command to resolve it.
+
+The MCP server's lifespan() catches this RuntimeError and falls back to an
+in-memory context (degraded mode) so the Claude session is never crashed by
+a lock conflict.  Analysis tools keep working; tools that need persistent
+state return {"success": False, "degraded_mode": True}.
+
 Usage:
-    # Production
+    # Production (MCP server — write owner)
     from quant_pod.db import open_db, run_migrations
     conn = open_db("~/.quant_pod/trader.duckdb")
     run_migrations(conn)
+
+    # FastAPI / scripts — read-only, no lock competition
+    from quant_pod.db import open_db_readonly
+    conn = open_db_readonly()   # FileNotFoundError if MCP server not started
 
     # Tests — fully isolated in-memory DB
     conn = open_db(":memory:")
@@ -154,6 +180,72 @@ def reset_connection() -> None:
             except Exception:
                 pass
             _conn = None
+
+
+# ---------------------------------------------------------------------------
+# Read-only connection — for processes that must not compete for the write lock
+# ---------------------------------------------------------------------------
+
+_conn_ro: duckdb.DuckDBPyConnection | None = None
+_conn_ro_lock = Lock()
+
+
+def open_db_readonly(path: str = "") -> duckdb.DuckDBPyConnection:
+    """
+    Open (or return a cached) read-only DuckDB connection.
+
+    Multiple processes can hold read-only connections simultaneously without
+    conflicting with the write owner (MCP server).  Does NOT run migrations —
+    the write owner is always responsible for schema.
+
+    For ':memory:' paths (test compat) falls back to the regular write
+    connection so test code that calls this function works identically to
+    production code that calls open_db().
+
+    Raises:
+        FileNotFoundError: if the DB file does not exist.  The write owner
+                           (MCP server) must be started first.
+    """
+    global _conn_ro
+
+    if not path:
+        path = os.getenv("TRADER_DB_PATH", "~/.quant_pod/trader.duckdb")
+
+    if path == ":memory:":
+        # Tests use :memory: — read-only has no meaning there; reuse write conn.
+        return open_db(path)
+
+    resolved = Path(path).expanduser()
+    if not resolved.exists():
+        raise FileNotFoundError(
+            f"DB not found at {resolved}. "
+            "The MCP server must be started (and have run migrations) before "
+            "read-only consumers can connect."
+        )
+
+    path = str(resolved)
+    with _conn_ro_lock:
+        if _conn_ro is None:
+            _conn_ro = duckdb.connect(path, read_only=True)
+            logger.info(f"[DB] Opened read-only connection at {path}")
+        return _conn_ro
+
+
+def reset_connection_readonly() -> None:
+    """
+    Close and clear the cached read-only connection.
+
+    Call this in tests after any test that opens a file-backed read-only
+    connection so the cached singleton doesn't bleed across tests.
+    """
+    global _conn_ro
+    with _conn_ro_lock:
+        if _conn_ro is not None:
+            try:
+                _conn_ro.close()
+            except Exception:
+                pass
+            _conn_ro = None
 
 
 # ---------------------------------------------------------------------------

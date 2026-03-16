@@ -482,8 +482,34 @@ _decision_log: DecisionLog | None = None
 
 
 def get_decision_log(db_path: str | None = None) -> DecisionLog:
-    """Get the singleton DecisionLog instance."""
+    """Get the singleton DecisionLog instance (write connection)."""
     global _decision_log
     if _decision_log is None:
         _decision_log = DecisionLog(db_path=db_path)
     return _decision_log
+
+
+# Read-only singleton — for processes that must not compete for the write lock.
+_decision_log_ro: DecisionLog | None = None
+
+
+def get_decision_log_readonly() -> DecisionLog:
+    """
+    Get a read-only DecisionLog singleton.
+
+    Use this in processes (FastAPI, scripts) that run alongside the MCP server
+    and only need to QUERY the audit trail.  The returned instance cannot
+    record new events — those calls will raise at runtime.
+
+    DecisionLog.__init__ already skips schema creation when a connection is
+    injected, so no DDL is attempted on the read-only connection.
+
+    Raises:
+        FileNotFoundError: if trader.duckdb doesn't exist yet (MCP server not started).
+    """
+    global _decision_log_ro
+    if _decision_log_ro is None:
+        from quant_pod.db import open_db_readonly
+
+        _decision_log_ro = DecisionLog(conn=open_db_readonly())
+    return _decision_log_ro

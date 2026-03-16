@@ -88,11 +88,9 @@ _tick_lag: Optional[object] = None
 
 def _init_metrics() -> None:
     """Create all metrics once.  Safe to call multiple times."""
-    global (
-        _trades_executed, _risk_rejections, _agent_latency,
-        _signal_staleness, _portfolio_nav, _daily_pnl,
-        _kill_switch, _tick_lag,
-    )
+    global _trades_executed, _risk_rejections, _agent_latency
+    global _signal_staleness, _portfolio_nav, _daily_pnl
+    global _kill_switch, _tick_lag
     if not _PROMETHEUS_AVAILABLE or _trades_executed is not None:
         return
 

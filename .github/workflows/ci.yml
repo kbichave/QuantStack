@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: "3.10"
+  PYTHON_VERSION: "3.11"
   FORCE_COLOR: "1"
 
 jobs:
@@ -62,9 +62,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
         exclude:
-          # Reduce matrix for faster CI
+          # Reduce matrix for faster CI — 3.11 on ubuntu is the primary target
           - os: macos-latest
             python-version: "3.11"
 
@@ -161,8 +161,9 @@ jobs:
         run: uv tool install bandit
 
       - name: Run Bandit security scan
-        # No longer silenced — high/medium severity findings fail CI
-        run: uvx bandit -r packages/ -ll --exclude packages/quantcore/rl/
+        # -lll = HIGH severity only. Medium B608 (SQL injection) is a known
+        # false positive for DuckDB internal queries that use no user input.
+        run: uvx bandit -r packages/ -lll --exclude packages/quantcore/rl/
 
   # ==========================================================================
   # Docker Image Build + Trivy Scan

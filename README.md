@@ -239,6 +239,84 @@ print(f"Half-life: {decay_result.half_life:.1f} periods")
 print(f"Optimal holding period: {decay_result.optimal_holding_period} periods")
 ```
 
+## LLM Configuration (QuantPod agents)
+
+QuantPod's CrewAI agents require an LLM provider. The system supports local
+models via Ollama (free, no API key) and a full cloud provider fallback chain.
+Resolution order: per-tier env override → `LLM_PROVIDER` → `LLM_FALLBACK_CHAIN`.
+
+### Option A — Local Ollama (recommended, free)
+
+Requires [Ollama](https://ollama.com) and enough RAM for the model.
+
+```bash
+# Install Ollama
+brew install ollama       # macOS
+# or: https://ollama.com/download for Linux/Windows
+
+# Start Ollama
+ollama serve
+
+# Pull the model (one model runs all agent tiers)
+ollama pull qwen3.5:9b   # 6.6 GB
+
+# Optional: tune for performance (Apple Silicon)
+launchctl setenv OLLAMA_KEEP_ALIVE -1      # keep model loaded permanently
+launchctl setenv OLLAMA_FLASH_ATTENTION 1  # Metal acceleration
+launchctl setenv OLLAMA_NUM_PARALLEL 10    # 10 parallel IC requests
+# restart Ollama after setting these
+```
+
+Then set in `.env`:
+```bash
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+LLM_MODEL_IC=ollama/qwen3.5:9b
+LLM_MODEL_POD=ollama/qwen3.5:9b
+LLM_MODEL_ASSISTANT=ollama/qwen3.5:9b
+LLM_MODEL_DECODER=ollama/qwen3.5:9b
+```
+
+Verify setup:
+```bash
+python scripts/check_ollama_health.py
+```
+
+### Option B — Cloud providers
+
+Set `LLM_PROVIDER` to your preferred provider and supply credentials in `.env`.
+See `.env.example` for all supported options.
+
+| Provider | Key env var | Model used |
+|----------|-------------|------------|
+| `bedrock` | AWS credentials (boto3 chain) | Haiku 4.5 (ICs), Sonnet 4.6 (pods) |
+| `anthropic` | `ANTHROPIC_API_KEY` | claude-sonnet-4 |
+| `openai` | `OPENAI_API_KEY` | gpt-4o |
+| `gemini` | `GEMINI_API_KEY` | gemini-2.5-flash |
+| `groq` | `GROQ_API_KEY` | llama-3.3-70b (free tier available) |
+
+**Cost per full crew run** (16 agents):
+
+| Setup | Est. cost |
+|-------|-----------|
+| Local Ollama | $0.00 |
+| Groq (free tier) | $0.00 |
+| Bedrock Haiku ICs + Sonnet pods | ~$0.02 |
+| OpenAI GPT-4o (all agents) | ~$0.12 |
+
+### Per-agent overrides
+
+Any tier can be overridden independently — mix local and cloud:
+
+```bash
+# Example: free local ICs, stronger cloud model for pod synthesis
+LLM_MODEL_IC=ollama/qwen3.5:9b
+LLM_MODEL_POD=bedrock/us.anthropic.claude-sonnet-4-6
+LLM_MODEL_ASSISTANT=bedrock/us.anthropic.claude-sonnet-4-6
+```
+
+---
+
 ## Module Maturity
 
 | Module | Status | Notes |

@@ -62,7 +62,23 @@ async def lifespan(server: FastMCP):
     from quantcore.data.storage import DataStore
     from quantcore.features.factory import MultiTimeframeFeatureFactory
 
-    ctx.data_store = DataStore()
+    # Attempt write connection; degrade to read-only if a live process holds the lock.
+    try:
+        ctx.data_store = DataStore()
+    except RuntimeError as exc:
+        logger.warning(
+            f"DuckDB write lock conflict — falling back to read-only mode. {exc}"
+        )
+        try:
+            ctx.data_store = DataStore(read_only=True)
+            logger.warning(
+                "QuantCore DataStore opened read-only. "
+                "Data-write tools will return degraded_mode=True."
+            )
+        except Exception as ro_exc:
+            logger.error(f"Read-only fallback also failed: {ro_exc}. DataStore unavailable.")
+            ctx.data_store = None
+
     ctx.feature_factory = MultiTimeframeFeatureFactory(
         include_rrg=False,  # RRG requires benchmark data
         include_waves=True,

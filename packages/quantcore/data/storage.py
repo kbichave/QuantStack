@@ -2,10 +2,25 @@
 DuckDB-based data storage for multi-timeframe market data.
 
 Provides efficient storage and retrieval with partitioning by symbol and timeframe.
+
+## Connection model
+
+DuckDB allows only ONE write connection per file across OS processes.  The MCP
+server is the canonical write owner.  If a live process already holds the write
+lock, ``DataStore(read_only=True)`` opens a read-only connection so multiple
+consumers can coexist without conflict.
+
+Lock conflict handling in ``_connect_with_lock_guard``:
+- Stale lock (owning process is dead): retries for up to ``_STALE_LOCK_RETRY_SECS``
+  until the OS releases the file lock.
+- Live conflict (owning process is alive): raises ``RuntimeError`` immediately
+  with the PID and an exact ``kill <PID>`` command for the operator.
 """
 
 import os
+import re
 import threading
+import time
 from datetime import datetime
 
 import duckdb
@@ -14,6 +29,64 @@ from loguru import logger
 
 from quantcore.config.settings import get_settings
 from quantcore.config.timeframes import Timeframe
+
+_STALE_LOCK_RETRY_SECS = 10
+_STALE_LOCK_POLL_INTERVAL = 0.5
+
+
+def _pid_from_lock_error(exc: Exception) -> int | None:
+    """Extract PID from a DuckDB lock IOException message, or return None."""
+    m = re.search(r"\(PID\s+(\d+)\)", str(exc))
+    return int(m.group(1)) if m else None
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Return True if the process with the given PID is running."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+def _connect_with_lock_guard(
+    db_path: str, read_only: bool = False
+) -> duckdb.DuckDBPyConnection:
+    """
+    Connect to DuckDB, distinguishing stale locks from live conflicts.
+
+    - read_only=True: opens with ``read_only=True``; multiple processes may hold
+      read-only connections simultaneously without conflicting with the write owner.
+    - read_only=False (write mode): retries if the owning process is dead (stale
+      lock), raises ``RuntimeError`` immediately if it is alive.
+    """
+    if db_path == ":memory:":
+        return duckdb.connect(db_path)
+
+    if read_only:
+        return duckdb.connect(db_path, read_only=True)
+
+    deadline = time.monotonic() + _STALE_LOCK_RETRY_SECS
+    while True:
+        try:
+            return duckdb.connect(db_path)
+        except duckdb.IOException as exc:
+            pid = _pid_from_lock_error(exc)
+            if pid and _pid_is_alive(pid):
+                raise RuntimeError(
+                    f"DuckDB write lock held by live process PID {pid}. "
+                    f"Run:  kill {pid}  — then restart the QuantCore MCP server."
+                ) from exc
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"DuckDB lock on {db_path} not released after "
+                    f"{_STALE_LOCK_RETRY_SECS}s. Original error: {exc}"
+                ) from exc
+            logger.warning(
+                f"DuckDB lock held by dead process (PID {pid}), retrying in "
+                f"{_STALE_LOCK_POLL_INTERVAL}s…"
+            )
+            time.sleep(_STALE_LOCK_POLL_INTERVAL)
 
 
 class DataStore:
@@ -25,24 +98,30 @@ class DataStore:
     - Partitioning by symbol and timeframe
     - Fast analytical queries
     - Support for multi-timeframe data
+
+    Pass ``read_only=True`` when multiple processes need concurrent access.
+    Read-only instances raise ``PermissionError`` on any write method.
     """
 
-    def __init__(self, db_path: str | None = None):
+    def __init__(self, db_path: str | None = None, read_only: bool = False):
         """
         Initialize the data store.
 
         Args:
-            db_path: Path to database file (uses settings if not provided)
+            db_path: Path to database file (uses settings if not provided).
+            read_only: Open in read-only mode (no lock competition with write owner).
         """
         settings = get_settings()
         self.db_path = db_path or settings.database_path
+        self.read_only = read_only
 
-        # Ensure directory exists
+        # Ensure directory exists (not needed for read-only, but harmless)
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
 
         self._conn: duckdb.DuckDBPyConnection | None = None
         self._conn_lock = threading.Lock()
-        self._init_schema()
+        if not read_only:
+            self._init_schema()
 
     @property
     def conn(self) -> duckdb.DuckDBPyConnection:
@@ -50,7 +129,9 @@ class DataStore:
         if self._conn is None:
             with self._conn_lock:
                 if self._conn is None:
-                    self._conn = duckdb.connect(self.db_path)
+                    self._conn = _connect_with_lock_guard(
+                        self.db_path, read_only=self.read_only
+                    )
         return self._conn
 
     def _init_schema(self) -> None:

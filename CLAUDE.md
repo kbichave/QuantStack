@@ -467,11 +467,12 @@ You have permission and are expected to update your own configuration.
 | Skill | File | Purpose |
 |-------|------|---------|
 | `/trade` | `.claude/skills/trade.md` | Run analysis, reason through DailyBrief, make trade decisions |
-| `/reflect` | `.claude/skills/reflect.md` | Review outcomes, update memory, fix skills |
+| `/reflect` | `.claude/skills/reflect.md` | Review outcomes, update memory, fix skills. Flags ICs for /tune. |
 | `/workshop` | `.claude/skills/workshop.md` | Strategy R&D — hypothesize, backtest, validate, register |
 | `/decode` | `.claude/skills/decode.md` | Reverse-engineer strategies from trade history |
 | `/meta` | `.claude/skills/meta.md` | Portfolio-level orchestration across symbols and strategies |
 | `/review` | `.claude/skills/review.md` | Position review, strategy lifecycle, promotion/retirement |
+| `/tune` | `.claude/skills/tune.md` | Edit IC/pod manager prompts based on accuracy data from /reflect. Run after 3+ reflect sessions or when an IC accuracy < 50%. |
 
 ### Reference (not user-invocable)
 | File | Purpose |

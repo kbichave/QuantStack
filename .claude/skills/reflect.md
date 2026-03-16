@@ -71,6 +71,17 @@ Compute:
 - `regime_history.md`: update duration stats if enough transitions
 - `strategy_registry.md`: update live stats for active strategies
 
+### Step 4.5: IC Prompt Health Check
+For each IC in `.claude/memory/agent_performance.md`:
+- Is rolling accuracy < 50% for 2+ consecutive sessions?
+- Does Known Biases list have 3+ items?
+- Did any IC output contribute to a trade loss or missed signal?
+
+If YES for any IC: flag it as a `/tune` candidate.
+Add to `session_handoffs.md`: "IC [name] needs tuning — evidence: [what you found]"
+Do NOT edit prompts inline here — that is /tune's job.
+Only flag. /tune runs as a separate session with focused attention.
+
 ### Step 5: Review and Edit Skills
 For each skill in `.claude/skills/`:
 1. Step I keep doing manually that isn't in the skill? → Add to skill

@@ -4,9 +4,10 @@ Particle Filter (Sequential Monte Carlo).
 Nonlinear filtering for state-space models.
 """
 
-import numpy as np
-from typing import Callable, Optional, List
+from collections.abc import Callable
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -113,7 +114,7 @@ class ParticleFilter:
         self,
         observations: np.ndarray,
         prior_sample: Callable[[int], np.ndarray],
-    ) -> List[ParticleState]:
+    ) -> list[ParticleState]:
         """Run particle filter on observations."""
         state = self.initialize(prior_sample)
         states = []

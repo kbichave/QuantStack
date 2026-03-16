@@ -8,12 +8,10 @@ Includes:
 - Higher highs / lower lows patterns
 """
 
-from typing import List, Tuple, Optional
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from quantcore.features.base import FeatureBase
-from quantcore.config.timeframes import Timeframe
 
 
 class MarketStructureFeatures(FeatureBase):
@@ -51,12 +49,8 @@ class MarketStructureFeatures(FeatureBase):
         )
 
         # Bars since last swing
-        result["bars_since_swing_low"] = self._bars_since_signal(
-            result["probable_swing_low"]
-        )
-        result["bars_since_swing_high"] = self._bars_since_signal(
-            result["probable_swing_high"]
-        )
+        result["bars_since_swing_low"] = self._bars_since_signal(result["probable_swing_low"])
+        result["bars_since_swing_high"] = self._bars_since_signal(result["probable_swing_high"])
 
         # Trend exhaustion (consecutive up/down bars)
         result["consecutive_up_bars"] = self._count_consecutive(close.diff() > 0)
@@ -88,9 +82,7 @@ class MarketStructureFeatures(FeatureBase):
         )
 
         # Distance to recent swings (percentage)
-        result["dist_to_swing_high"] = (
-            (result["recent_swing_high"] - close) / close * 100
-        )
+        result["dist_to_swing_high"] = (result["recent_swing_high"] - close) / close * 100
         result["dist_to_swing_low"] = (close - result["recent_swing_low"]) / close * 100
 
         # Support/resistance proximity
@@ -184,9 +176,7 @@ class MarketStructureFeatures(FeatureBase):
             rsi_turning = pd.Series(True, index=df.index)
 
         # Combine conditions
-        probable_swing = (
-            falling_highs & close_below_prior_high & not_new_high & rsi_turning
-        )
+        probable_swing = falling_highs & close_below_prior_high & not_new_high & rsi_turning
 
         return probable_swing.astype(int)
 
@@ -254,7 +244,7 @@ class MarketStructureFeatures(FeatureBase):
         df: pd.DataFrame,
         atr_mult: float = 1.5,
         min_bars: int = 3,
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """
         Detect ZigZag-style swing points using ATR threshold.
 
@@ -284,14 +274,12 @@ class MarketStructureFeatures(FeatureBase):
         swing_low = np.zeros(n, dtype=int)
 
         if n < 5:
-            return pd.Series(swing_high, index=df.index), pd.Series(
-                swing_low, index=df.index
-            )
+            return pd.Series(swing_high, index=df.index), pd.Series(swing_low, index=df.index)
 
         # Initialize
         last_swing_idx = 0
         last_swing_price = closes[0]
-        direction: Optional[str] = None
+        direction: str | None = None
 
         for i in range(1, n):
             if np.isnan(atr[i]) or atr[i] <= 0:
@@ -360,7 +348,7 @@ class MarketStructureFeatures(FeatureBase):
 
         return atr
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of market structure feature names."""
         return [
             "probable_swing_low",

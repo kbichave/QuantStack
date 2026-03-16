@@ -52,16 +52,13 @@ from __future__ import annotations
 
 import asyncio
 import math
-import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Deque, Dict, List, Optional, Tuple
 
 import numpy as np
-from loguru import logger
 
 from quantcore.data.streaming.tick_models import QuoteTick, TradeTick
-
 
 # ---------------------------------------------------------------------------
 # Output model
@@ -72,33 +69,33 @@ from quantcore.data.streaming.tick_models import QuoteTick, TradeTick
 class MicrostructureFeatures:
     """Microstructure feature vector for one symbol at one point in time."""
 
-    symbol:            str
-    timestamp_ns:      int
+    symbol: str
+    timestamp_ns: int
 
     # Order flow
-    ofi:               float   # signed order flow (buy volume − sell volume)
-    ofi_normalised:    float   # ofi / total_volume  ∈ [−1, 1]
+    ofi: float  # signed order flow (buy volume − sell volume)
+    ofi_normalised: float  # ofi / total_volume  ∈ [−1, 1]
 
     # Price impact
-    kyle_lambda:       Optional[float]   # None until kyle_window trades seen
+    kyle_lambda: float | None  # None until kyle_window trades seen
 
     # Spread (from NBBO quotes)
-    spread_mean:       Optional[float]   # mean spread over window
-    spread_std:        Optional[float]   # std of spread
-    spread_bps_mean:   Optional[float]   # mean spread in bps
+    spread_mean: float | None  # mean spread over window
+    spread_std: float | None  # std of spread
+    spread_bps_mean: float | None  # mean spread in bps
 
     # Volume-Synchronized Probability of Informed Trading
-    vpin:              Optional[float]   # [0, 1]; None until first full bucket
+    vpin: float | None  # [0, 1]; None until first full bucket
 
     # Trade intensity
     trades_per_second: float
 
     # Roll (1984) spread estimator
-    roll_spread:       Optional[float]   # None until roll_window trades seen
+    roll_spread: float | None  # None until roll_window trades seen
 
     # Meta
-    trade_count:       int    # number of trades used for this snapshot
-    is_warm:           bool   # False until minimum windows are filled
+    trade_count: int  # number of trades used for this snapshot
+    is_warm: bool  # False until minimum windows are filled
 
 
 MicroFeaturesCallback = Callable[[MicrostructureFeatures], Awaitable[None]]
@@ -112,32 +109,32 @@ MicroFeaturesCallback = Callable[[MicrostructureFeatures], Awaitable[None]]
 @dataclass
 class _SymState:
     # OFI window: list of (signed_size,) with sign: +1=buy, −1=sell, 0=unknown
-    ofi_trades:   deque   # deque[(signed_size: float)]
+    ofi_trades: deque  # deque[(signed_size: float)]
 
     # Kyle regression window: list of (signed_flow, mid_change)
-    kyle_data:    deque   # deque[(signed_flow: float, delta_mid: float)]
-    prev_mid:     Optional[float]
+    kyle_data: deque  # deque[(signed_flow: float, delta_mid: float)]
+    prev_mid: float | None
 
     # Quote/spread window
-    spreads:      deque   # deque[float]
-    spread_bps:   deque   # deque[float]
+    spreads: deque  # deque[float]
+    spread_bps: deque  # deque[float]
 
     # VPIN: fixed-size volume buckets
-    buy_vol:      float
-    sell_vol:     float
-    bucket_vol:   float
-    vpin_buckets: deque   # deque[float]  — |V_buy − V_sell| per bucket
+    buy_vol: float
+    sell_vol: float
+    bucket_vol: float
+    vpin_buckets: deque  # deque[float]  — |V_buy − V_sell| per bucket
     total_bucket_vol: float
 
     # Trade intensity
     trade_times_s: deque  # deque[float]  — epoch seconds of recent trades
 
     # Roll spread
-    roll_prices: deque    # deque[float]
+    roll_prices: deque  # deque[float]
 
     # Metadata
-    trade_count:  int
-    is_warm:      bool
+    trade_count: int
+    is_warm: bool
 
 
 # ---------------------------------------------------------------------------
@@ -161,26 +158,26 @@ class MicrostructureFeatureEngine:
 
     def __init__(
         self,
-        ofi_window:          int   = 100,
-        kyle_window:         int   = 200,
-        spread_window:       int   = 50,
-        intensity_window_s:  float = 60.0,
-        roll_window:         int   = 50,
-        bucket_volume:       float = 1000.0,
-        vpin_buckets:        int   = 50,
-        emit_every_n:        int   = 1,
+        ofi_window: int = 100,
+        kyle_window: int = 200,
+        spread_window: int = 50,
+        intensity_window_s: float = 60.0,
+        roll_window: int = 50,
+        bucket_volume: float = 1000.0,
+        vpin_buckets: int = 50,
+        emit_every_n: int = 1,
     ) -> None:
-        self._ofi_window         = ofi_window
-        self._kyle_window        = kyle_window
-        self._spread_window      = spread_window
+        self._ofi_window = ofi_window
+        self._kyle_window = kyle_window
+        self._spread_window = spread_window
         self._intensity_window_s = intensity_window_s
-        self._roll_window        = roll_window
-        self._bucket_volume      = bucket_volume
-        self._vpin_buckets       = vpin_buckets
-        self._emit_every_n       = emit_every_n
+        self._roll_window = roll_window
+        self._bucket_volume = bucket_volume
+        self._vpin_buckets = vpin_buckets
+        self._emit_every_n = emit_every_n
 
-        self._states: Dict[str, _SymState] = {}
-        self._callbacks: List[MicroFeaturesCallback] = []
+        self._states: dict[str, _SymState] = {}
+        self._callbacks: list[MicroFeaturesCallback] = []
 
     # ── Callback registration ─────────────────────────────────────────────────
 
@@ -197,7 +194,7 @@ class MicrostructureFeatureEngine:
         state.trade_count += 1
 
         signed_size = self._signed_size(tick)
-        ts_s        = tick.timestamp_ns / 1e9
+        ts_s = tick.timestamp_ns / 1e9
 
         # OFI accumulation
         state.ofi_trades.append(signed_size)
@@ -211,7 +208,7 @@ class MicrostructureFeatureEngine:
 
         # VPIN bucket accumulation
         if tick.side == "buy":
-            state.buy_vol  += tick.size
+            state.buy_vol += tick.size
         elif tick.side == "sell":
             state.sell_vol += tick.size
         state.bucket_vol += tick.size
@@ -219,8 +216,8 @@ class MicrostructureFeatureEngine:
             imbalance = abs(state.buy_vol - state.sell_vol)
             state.vpin_buckets.append(imbalance)
             state.total_bucket_vol += state.bucket_vol
-            state.buy_vol   = 0.0
-            state.sell_vol  = 0.0
+            state.buy_vol = 0.0
+            state.sell_vol = 0.0
             state.bucket_vol = 0.0
 
         # Kyle window: need previous mid price
@@ -246,7 +243,7 @@ class MicrostructureFeatureEngine:
 
         # Kyle: track mid-price changes for Kyle regression
         if state.prev_mid is not None:
-            delta_mid   = mid - state.prev_mid
+            delta_mid = mid - state.prev_mid
             # signed flow = last OFI trade signed size (best proxy without queuing)
             signed_flow = state.ofi_trades[-1] if state.ofi_trades else 0.0
             state.kyle_data.append((signed_flow, delta_mid))
@@ -254,30 +251,28 @@ class MicrostructureFeatureEngine:
 
     # ── Feature computation ───────────────────────────────────────────────────
 
-    def _compute(
-        self, symbol: str, timestamp_ns: int
-    ) -> Optional[MicrostructureFeatures]:
+    def _compute(self, symbol: str, timestamp_ns: int) -> MicrostructureFeatures | None:
         state = self._states.get(symbol)
         if state is None:
             return None
 
         # OFI
         ofi_list = list(state.ofi_trades)
-        buy_vol  = sum(x for x in ofi_list if x > 0)
+        buy_vol = sum(x for x in ofi_list if x > 0)
         sell_vol = sum(abs(x) for x in ofi_list if x < 0)
         total_vol = buy_vol + sell_vol
-        ofi       = buy_vol - sell_vol
-        ofi_norm  = ofi / total_vol if total_vol > 0 else 0.0
+        ofi = buy_vol - sell_vol
+        ofi_norm = ofi / total_vol if total_vol > 0 else 0.0
 
         # Kyle's lambda
         kyle_lambda = self._estimate_kyle(state)
 
         # Spread statistics
         if state.spreads:
-            spread_arr   = np.array(list(state.spreads), dtype=float)
-            spread_mean  = float(np.mean(spread_arr))
-            spread_std   = float(np.std(spread_arr, ddof=1)) if len(spread_arr) > 1 else 0.0
-            bps_arr      = np.array(list(state.spread_bps), dtype=float)
+            spread_arr = np.array(list(state.spreads), dtype=float)
+            spread_mean = float(np.mean(spread_arr))
+            spread_std = float(np.std(spread_arr, ddof=1)) if len(spread_arr) > 1 else 0.0
+            bps_arr = np.array(list(state.spread_bps), dtype=float)
             spread_bps_m = float(np.mean(bps_arr))
         else:
             spread_mean = spread_std = spread_bps_m = None
@@ -297,27 +292,27 @@ class MicrostructureFeatureEngine:
         )
 
         return MicrostructureFeatures(
-            symbol            = symbol,
-            timestamp_ns      = timestamp_ns,
-            ofi               = ofi,
-            ofi_normalised    = ofi_norm,
-            kyle_lambda       = kyle_lambda,
-            spread_mean       = spread_mean,
-            spread_std        = spread_std,
-            spread_bps_mean   = spread_bps_m,
-            vpin              = vpin,
-            trades_per_second = trades_per_s,
-            roll_spread       = roll_spread,
-            trade_count       = state.trade_count,
-            is_warm           = is_warm,
+            symbol=symbol,
+            timestamp_ns=timestamp_ns,
+            ofi=ofi,
+            ofi_normalised=ofi_norm,
+            kyle_lambda=kyle_lambda,
+            spread_mean=spread_mean,
+            spread_std=spread_std,
+            spread_bps_mean=spread_bps_m,
+            vpin=vpin,
+            trades_per_second=trades_per_s,
+            roll_spread=roll_spread,
+            trade_count=state.trade_count,
+            is_warm=is_warm,
         )
 
-    def _estimate_kyle(self, state: _SymState) -> Optional[float]:
+    def _estimate_kyle(self, state: _SymState) -> float | None:
         """OLS estimate of Kyle's lambda from rolling window."""
         if len(state.kyle_data) < self._kyle_window // 2:
             return None
         data = list(state.kyle_data)
-        flows      = np.array([d[0] for d in data], dtype=float)
+        flows = np.array([d[0] for d in data], dtype=float)
         mid_changes = np.array([d[1] for d in data], dtype=float)
         if np.std(flows) < 1e-10:
             return None
@@ -326,7 +321,7 @@ class MicrostructureFeatureEngine:
         var = np.var(flows)
         return float(cov / var) if var > 1e-10 else None
 
-    def _compute_vpin(self, state: _SymState) -> Optional[float]:
+    def _compute_vpin(self, state: _SymState) -> float | None:
         """VPIN from completed buckets."""
         buckets = list(state.vpin_buckets)
         if len(buckets) < self._vpin_buckets // 2:
@@ -334,7 +329,7 @@ class MicrostructureFeatureEngine:
         total = len(buckets) * self._bucket_volume
         return float(sum(buckets) / total) if total > 0 else None
 
-    def _compute_roll(self, state: _SymState) -> Optional[float]:
+    def _compute_roll(self, state: _SymState) -> float | None:
         """Roll (1984) effective spread estimate."""
         prices = list(state.roll_prices)
         if len(prices) < 3:
@@ -360,20 +355,20 @@ class MicrostructureFeatureEngine:
     def _get_or_create(self, symbol: str) -> _SymState:
         if symbol not in self._states:
             self._states[symbol] = _SymState(
-                ofi_trades       = deque(maxlen=self._ofi_window),
-                kyle_data        = deque(maxlen=self._kyle_window),
-                prev_mid         = None,
-                spreads          = deque(maxlen=self._spread_window),
-                spread_bps       = deque(maxlen=self._spread_window),
-                buy_vol          = 0.0,
-                sell_vol         = 0.0,
-                bucket_vol       = 0.0,
-                vpin_buckets     = deque(maxlen=self._vpin_buckets),
-                total_bucket_vol = 0.0,
-                trade_times_s    = deque(),
-                roll_prices      = deque(maxlen=self._roll_window + 1),
-                trade_count      = 0,
-                is_warm          = False,
+                ofi_trades=deque(maxlen=self._ofi_window),
+                kyle_data=deque(maxlen=self._kyle_window),
+                prev_mid=None,
+                spreads=deque(maxlen=self._spread_window),
+                spread_bps=deque(maxlen=self._spread_window),
+                buy_vol=0.0,
+                sell_vol=0.0,
+                bucket_vol=0.0,
+                vpin_buckets=deque(maxlen=self._vpin_buckets),
+                total_bucket_vol=0.0,
+                trade_times_s=deque(),
+                roll_prices=deque(maxlen=self._roll_window + 1),
+                trade_count=0,
+                is_warm=False,
             )
         return self._states[symbol]
 

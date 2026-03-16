@@ -58,10 +58,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from threading import RLock
-from typing import Dict, List, Optional
 
 import duckdb
 from loguru import logger
@@ -69,14 +68,15 @@ from loguru import logger
 
 class OrderStatus(str, Enum):
     """Order lifecycle states."""
-    NEW = "new"                       # Created, not yet submitted to broker
-    SUBMITTED = "submitted"           # Sent to broker, awaiting acknowledgement
-    ACKNOWLEDGED = "acknowledged"     # Broker accepted the order
+
+    NEW = "new"  # Created, not yet submitted to broker
+    SUBMITTED = "submitted"  # Sent to broker, awaiting acknowledgement
+    ACKNOWLEDGED = "acknowledged"  # Broker accepted the order
     PARTIALLY_FILLED = "partially_filled"
-    FILLED = "filled"                 # Terminal: fully executed
-    REJECTED = "rejected"             # Terminal: broker or OMS rejected
-    CANCELLED = "cancelled"           # Terminal: cancelled before fill
-    EXPIRED = "expired"               # Terminal: TTL elapsed, never submitted
+    FILLED = "filled"  # Terminal: fully executed
+    REJECTED = "rejected"  # Terminal: broker or OMS rejected
+    CANCELLED = "cancelled"  # Terminal: cancelled before fill
+    EXPIRED = "expired"  # Terminal: TTL elapsed, never submitted
 
 
 # States from which no further transitions are allowed
@@ -90,10 +90,11 @@ _TERMINAL_STATES = {
 
 class ExecAlgoOMS(str, Enum):
     """Execution algorithm selected by OMS pre-trade analysis."""
-    IMMEDIATE = "immediate"   # < 0.2% ADV — submit now, market order
-    TWAP = "twap"             # 0.2–1% ADV — spread over session time
-    VWAP = "vwap"             # 1–5% ADV — volume-weighted over session
-    POV = "pov"               # > 5% ADV — participation-rate algo (institutional)
+
+    IMMEDIATE = "immediate"  # < 0.2% ADV — submit now, market order
+    TWAP = "twap"  # 0.2–1% ADV — spread over session time
+    VWAP = "vwap"  # 1–5% ADV — volume-weighted over session
+    POV = "pov"  # > 5% ADV — participation-rate algo (institutional)
 
 
 @dataclass
@@ -110,28 +111,28 @@ class Order:
 
     order_id: str
     symbol: str
-    side: str                           # "buy" | "sell"
+    side: str  # "buy" | "sell"
     quantity: int
-    signal_id: str                      # Traceability back to TradeSignal.session_id
-    arrival_price: float                # Price at signal-fire time (TCA benchmark)
+    signal_id: str  # Traceability back to TradeSignal.session_id
+    arrival_price: float  # Price at signal-fire time (TCA benchmark)
     exec_algo: ExecAlgoOMS = ExecAlgoOMS.IMMEDIATE
-    order_type: str = "market"          # "market" | "limit"
-    limit_price: Optional[float] = None
+    order_type: str = "market"  # "market" | "limit"
+    limit_price: float | None = None
     status: OrderStatus = OrderStatus.NEW
     filled_quantity: int = 0
-    fill_price: Optional[float] = None
-    rejection_reason: Optional[str] = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    submitted_at: Optional[datetime] = None
-    filled_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None   # None = no expiry
+    fill_price: float | None = None
+    rejection_reason: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    submitted_at: datetime | None = None
+    filled_at: datetime | None = None
+    expires_at: datetime | None = None  # None = no expiry
 
     @property
     def is_terminal(self) -> bool:
         return self.status in _TERMINAL_STATES
 
     @property
-    def implementation_shortfall_bps(self) -> Optional[float]:
+    def implementation_shortfall_bps(self) -> float | None:
         """
         Basis-point cost vs arrival price (positive = cost, negative = improvement).
 
@@ -146,7 +147,7 @@ class Order:
     def is_expired(self) -> bool:
         if self.expires_at is None:
             return False
-        return datetime.now(timezone.utc) >= self.expires_at
+        return datetime.now(UTC) >= self.expires_at
 
 
 class OrderLifecycle:
@@ -170,7 +171,7 @@ class OrderLifecycle:
 
     def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
         self.conn = conn
-        self._orders: Dict[str, Order] = {}     # order_id → Order (in-memory)
+        self._orders: dict[str, Order] = {}  # order_id → Order (in-memory)
         self._ensure_table()
         self._load_pending()
 
@@ -187,7 +188,7 @@ class OrderLifecycle:
         signal_id: str = "",
         adv: int = 1_000_000,
         order_type: str = "market",
-        limit_price: Optional[float] = None,
+        limit_price: float | None = None,
         ttl_seconds: int = _DEFAULT_TTL_SECONDS,
     ) -> Order:
         """
@@ -212,7 +213,7 @@ class OrderLifecycle:
             arrival_price=arrival_price,
             order_type=order_type,
             limit_price=limit_price,
-            expires_at=datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
+            expires_at=datetime.now(UTC) + timedelta(seconds=ttl_seconds),
         )
 
         with self._lock:
@@ -223,9 +224,7 @@ class OrderLifecycle:
                 order.rejection_reason = rejection
                 self._orders[order.order_id] = order
                 self._persist(order)
-                logger.warning(
-                    f"[OMS] Order REJECTED ({symbol} {side} {quantity}): {rejection}"
-                )
+                logger.warning(f"[OMS] Order REJECTED ({symbol} {side} {quantity}): {rejection}")
                 return order
 
             # Select execution algorithm based on size / ADV
@@ -233,7 +232,7 @@ class OrderLifecycle:
 
             # Transition NEW → SUBMITTED
             order.status = OrderStatus.SUBMITTED
-            order.submitted_at = datetime.now(timezone.utc)
+            order.submitted_at = datetime.now(UTC)
             self._orders[order.order_id] = order
             self._persist(order)
 
@@ -264,7 +263,9 @@ class OrderLifecycle:
             if order is None:
                 raise KeyError(f"[OMS] Order not found: {order_id}")
             if order.is_terminal:
-                raise ValueError(f"[OMS] Cannot partially fill terminal order {order_id} ({order.status})")
+                raise ValueError(
+                    f"[OMS] Cannot partially fill terminal order {order_id} ({order.status})"
+                )
 
             order.filled_quantity += filled_quantity
             order.fill_price = fill_price  # Running fill price (last partial price)
@@ -282,7 +283,7 @@ class OrderLifecycle:
         self,
         order_id: str,
         fill_price: float,
-        filled_quantity: Optional[int] = None,
+        filled_quantity: int | None = None,
     ) -> Order:
         """
         Record a complete fill and transition to FILLED.
@@ -299,10 +300,12 @@ class OrderLifecycle:
             if order.is_terminal:
                 raise ValueError(f"[OMS] Cannot fill terminal order {order_id} ({order.status})")
 
-            order.filled_quantity = filled_quantity if filled_quantity is not None else order.quantity
+            order.filled_quantity = (
+                filled_quantity if filled_quantity is not None else order.quantity
+            )
             order.fill_price = fill_price
             order.status = OrderStatus.FILLED
-            order.filled_at = datetime.now(timezone.utc)
+            order.filled_at = datetime.now(UTC)
             self._orders[order_id] = order
             self._persist(order)
 
@@ -310,8 +313,8 @@ class OrderLifecycle:
         logger.info(
             f"[OMS] Order FILLED {order_id[:8]} {order.symbol} "
             f"@ ${fill_price:.4f} | IS={shortfall:.1f}bps vs arrival ${order.arrival_price:.2f}"
-            if shortfall is not None else
-            f"[OMS] Order FILLED {order_id[:8]} {order.symbol} @ ${fill_price:.4f}"
+            if shortfall is not None
+            else f"[OMS] Order FILLED {order_id[:8]} {order.symbol} @ ${fill_price:.4f}"
         )
         return order
 
@@ -347,7 +350,7 @@ class OrderLifecycle:
         logger.info(f"[OMS] Order CANCELLED {order_id[:8]}: {reason}")
         return order
 
-    def expire_stale(self) -> List[Order]:
+    def expire_stale(self) -> list[Order]:
         """
         Scan pending orders and transition expired ones to EXPIRED.
 
@@ -373,23 +376,23 @@ class OrderLifecycle:
     # Queries
     # -------------------------------------------------------------------------
 
-    def get_order(self, order_id: str) -> Optional[Order]:
+    def get_order(self, order_id: str) -> Order | None:
         """Return the in-memory order, or None if not found."""
         with self._lock:
             return self._orders.get(order_id)
 
-    def get_pending_orders(self) -> List[Order]:
+    def get_pending_orders(self) -> list[Order]:
         """Return all orders in non-terminal states."""
         with self._lock:
             return [o for o in self._orders.values() if not o.is_terminal]
 
-    def get_recent_orders(self, limit: int = 50) -> List[Order]:
+    def get_recent_orders(self, limit: int = 50) -> list[Order]:
         """Return the most recently created orders (for API/dashboard)."""
         with self._lock:
             orders = sorted(self._orders.values(), key=lambda o: o.created_at, reverse=True)
             return orders[:limit]
 
-    def session_summary(self) -> Dict:
+    def session_summary(self) -> dict:
         """
         Aggregate statistics for the current session's orders.
 
@@ -399,7 +402,7 @@ class OrderLifecycle:
         with self._lock:
             orders = list(self._orders.values())
 
-        status_counts: Dict[str, int] = {}
+        status_counts: dict[str, int] = {}
         for o in orders:
             status_counts[o.status.value] = status_counts.get(o.status.value, 0) + 1
 
@@ -410,9 +413,7 @@ class OrderLifecycle:
             if o.implementation_shortfall_bps is not None
         ]
 
-        total_notional = sum(
-            (o.fill_price or o.arrival_price) * o.filled_quantity for o in filled
-        )
+        total_notional = sum((o.fill_price or o.arrival_price) * o.filled_quantity for o in filled)
 
         return {
             "order_count": len(orders),
@@ -457,7 +458,7 @@ class OrderLifecycle:
     # Compliance check (OMS, not risk)
     # -------------------------------------------------------------------------
 
-    def _compliance_check(self, order: Order) -> Optional[str]:
+    def _compliance_check(self, order: Order) -> str | None:
         """
         OMS-level compliance checks (distinct from RiskGate risk checks).
 
@@ -476,17 +477,18 @@ class OrderLifecycle:
             return "arrival_price must be > 0"
 
         # Duplicate order check — same symbol+side within window
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self._DUPLICATE_WINDOW_SECONDS)
+        cutoff = datetime.now(UTC) - timedelta(seconds=self._DUPLICATE_WINDOW_SECONDS)
         for existing in self._orders.values():
             if (
                 existing.symbol == order.symbol
                 and existing.side == order.side
                 and existing.created_at >= cutoff
-                and existing.status not in {OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.EXPIRED}
+                and existing.status
+                not in {OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.EXPIRED}
             ):
                 return (
                     f"Duplicate order: {order.symbol} {order.side} already submitted "
-                    f"{(datetime.now(timezone.utc) - existing.created_at).total_seconds():.0f}s ago"
+                    f"{(datetime.now(UTC) - existing.created_at).total_seconds():.0f}s ago"
                 )
 
         return None
@@ -508,7 +510,7 @@ class OrderLifecycle:
             self._persist(order)
         return order
 
-    def _get_mutable(self, order_id: str) -> Optional[Order]:
+    def _get_mutable(self, order_id: str) -> Order | None:
         """Return the order dict, or None. Must be called with _lock held."""
         return self._orders.get(order_id)
 
@@ -614,17 +616,30 @@ class OrderLifecycle:
     def _row_to_order(row: tuple) -> Order:
         """Reconstruct an Order from a DuckDB row."""
         (
-            order_id, symbol, side, quantity, signal_id,
-            arrival_price, exec_algo, order_type, limit_price,
-            status, filled_quantity, fill_price, rejection_reason,
-            created_at, submitted_at, filled_at, expires_at,
+            order_id,
+            symbol,
+            side,
+            quantity,
+            signal_id,
+            arrival_price,
+            exec_algo,
+            order_type,
+            limit_price,
+            status,
+            filled_quantity,
+            fill_price,
+            rejection_reason,
+            created_at,
+            submitted_at,
+            filled_at,
+            expires_at,
         ) = row
 
         def tz(dt):
             if dt is None:
                 return None
             if hasattr(dt, "tzinfo") and dt.tzinfo is None:
-                return dt.replace(tzinfo=timezone.utc)
+                return dt.replace(tzinfo=UTC)
             return dt
 
         return Order(
@@ -653,11 +668,11 @@ class OrderLifecycle:
 # =============================================================================
 
 
-_oms: Optional[OrderLifecycle] = None
+_oms: OrderLifecycle | None = None
 
 
 def get_order_lifecycle(
-    conn: Optional[duckdb.DuckDBPyConnection] = None,
+    conn: duckdb.DuckDBPyConnection | None = None,
 ) -> OrderLifecycle:
     """
     Get the singleton OrderLifecycle instance.
@@ -669,6 +684,7 @@ def get_order_lifecycle(
     if _oms is None:
         if conn is None:
             from quant_pod.db import open_db, run_migrations
+
             conn = open_db("")
             run_migrations(conn)
         _oms = OrderLifecycle(conn)

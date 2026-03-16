@@ -7,6 +7,6 @@ QuantCore MCP (Model Context Protocol) Server Module.
 Exposes QuantCore functionality as MCP tools for AI assistants.
 """
 
-from quantcore.mcp.server import mcp, main
+from quantcore.mcp.server import main, mcp
 
 __all__ = ["mcp", "main"]

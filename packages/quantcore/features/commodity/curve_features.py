@@ -4,13 +4,11 @@ Futures curve features for commodity trading.
 Computes features from term structure, contango/backwardation, and roll yield.
 """
 
-from typing import List, Optional, Dict
-import pandas as pd
 import numpy as np
-from loguru import logger
+import pandas as pd
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class CurveFeatures(FeatureBase):
@@ -52,7 +50,7 @@ class CurveFeatures(FeatureBase):
     def compute(
         self,
         df: pd.DataFrame,
-        curve_data: Optional[Dict[str, pd.DataFrame]] = None,
+        curve_data: dict[str, pd.DataFrame] | None = None,
     ) -> pd.DataFrame:
         """
         Compute curve features.
@@ -77,7 +75,7 @@ class CurveFeatures(FeatureBase):
     def _compute_from_curve_data(
         self,
         df: pd.DataFrame,
-        curve_data: Dict[str, pd.DataFrame],
+        curve_data: dict[str, pd.DataFrame],
     ) -> pd.DataFrame:
         """Compute features from actual curve data."""
         result = df.copy()
@@ -116,9 +114,7 @@ class CurveFeatures(FeatureBase):
 
         # Roll yield estimate (annualized)
         result["roll_yield"] = result["curve_slope"] * 12  # Monthly to annual
-        result["roll_yield_zscore"] = self._compute_zscore(
-            result["roll_yield"], self.lookback
-        )
+        result["roll_yield_zscore"] = self._compute_zscore(result["roll_yield"], self.lookback)
 
         # Carry trade signal
         result["carry_signal"] = np.where(
@@ -139,9 +135,7 @@ class CurveFeatures(FeatureBase):
         )
 
         # Curve regime duration
-        result["curve_regime_duration"] = self._compute_regime_duration(
-            result["is_contango"]
-        )
+        result["curve_regime_duration"] = self._compute_regime_duration(result["is_contango"])
 
         return result
 
@@ -162,9 +156,7 @@ class CurveFeatures(FeatureBase):
         mom_medium = result["close"].pct_change(20)
 
         # Curve slope estimate: negative momentum differential suggests contango
-        result["curve_slope_est"] = (
-            -(mom_medium - mom_short).rolling(self.lookback).mean()
-        )
+        result["curve_slope_est"] = -(mom_medium - mom_short).rolling(self.lookback).mean()
         result["curve_slope_est_zscore"] = self._compute_zscore(
             result["curve_slope_est"], self.lookback * 2
         )
@@ -224,7 +216,7 @@ class CurveFeatures(FeatureBase):
 
         return duration
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get list of feature names produced by this class."""
         return [
             # Core curve features

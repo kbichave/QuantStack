@@ -4,18 +4,18 @@ Per-ticker hyperparameter tuning.
 Tunes strategy parameters on validation data for each ticker individually.
 """
 
-from typing import Dict, List, Tuple, Any
 from dataclasses import dataclass
-import numpy as np
+from typing import Any
+
 import pandas as pd
 from loguru import logger
 
+from quantcore.equity.backtester import backtest_signals
 from quantcore.equity.strategies import (
     MeanReversionStrategy,
     MomentumStrategy,
     TrendFollowingStrategy,
 )
-from quantcore.equity.backtester import backtest_signals
 
 
 @dataclass
@@ -23,9 +23,9 @@ class TunedParams:
     """Tuned hyperparameters for a ticker."""
 
     ticker: str
-    mean_reversion: Dict[str, float]
-    momentum: Dict[str, float]
-    trend_following: Dict[str, float]
+    mean_reversion: dict[str, float]
+    momentum: dict[str, float]
+    trend_following: dict[str, float]
     best_strategy: str
     validation_pnl: float
 
@@ -34,7 +34,7 @@ def tune_mean_reversion(
     features: pd.DataFrame,
     prices: pd.DataFrame,
     initial_equity: float = 100000,
-) -> Tuple[Dict[str, float], float]:
+) -> tuple[dict[str, float], float]:
     """
     Tune MeanReversion hyperparameters on validation data.
 
@@ -65,7 +65,7 @@ def tune_momentum(
     features: pd.DataFrame,
     prices: pd.DataFrame,
     initial_equity: float = 100000,
-) -> Tuple[Dict[str, float], float]:
+) -> tuple[dict[str, float], float]:
     """
     Tune Momentum hyperparameters on validation data.
 
@@ -148,10 +148,10 @@ def tune_ticker_params(
 
 
 def tune_all_tickers(
-    symbol_data: Dict[str, Any],
+    symbol_data: dict[str, Any],
     calculate_data_split: callable,
     initial_equity: float = 100000,
-) -> Dict[str, TunedParams]:
+) -> dict[str, TunedParams]:
     """
     Tune hyperparameters for all tickers.
 
@@ -180,9 +180,7 @@ def tune_all_tickers(
         val_prices = data.ohlcv.iloc[split.val_start : split.val_end]
 
         if len(val_prices) < 20:
-            logger.warning(
-                f"  {symbol}: Insufficient validation data ({len(val_prices)} bars)"
-            )
+            logger.warning(f"  {symbol}: Insufficient validation data ({len(val_prices)} bars)")
             continue
 
         tuned = tune_ticker_params(symbol, val_features, val_prices, initial_equity)

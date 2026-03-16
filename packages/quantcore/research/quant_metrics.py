@@ -5,32 +5,23 @@ Bridges quant_research/ modules into the trading pipelines.
 Provides a unified API for signal evaluation and cost analysis.
 """
 
+from dataclasses import dataclass, field
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional, Any, List
-from dataclasses import dataclass, field
 from loguru import logger
 
 # Import from quant_research modules
 from quantcore.research.stat_tests import (
     adf_test,
-    lagged_cross_correlation,
-    harvey_liu_correction,
 )
-from quantcore.research.alpha_decay import AlphaDecayAnalyzer
-from quantcore.research.cost_model import TransactionCostModel
-from quantcore.research.walkforward import WalkForwardValidator
 
 # Import from signals module
 from quantcore.signals.signal_evaluator import (
     SignalEvaluator,
-    compute_ic,
-    compute_sharpe,
-    compute_sortino,
-    compute_max_drawdown,
     compute_turnover,
 )
-from quantcore.signals.cost_adjuster import CostAdjuster, CostParams
 
 
 @dataclass
@@ -71,7 +62,7 @@ class QuantResearchReport:
     spread_cost: float = 0.0
     impact_cost: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for reporting."""
         return {
             "signal_quality": {
@@ -188,7 +179,7 @@ def run_alpha_decay_analysis(
     signal: pd.Series,
     returns: pd.Series,
     max_lag: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze how alpha decays over holding periods.
 
@@ -231,7 +222,7 @@ def compute_cost_adjusted_returns(
     commission_bps: float = 1.0,
     spread_bps: float = 2.0,
     impact_bps: float = 2.0,
-) -> Dict[str, pd.Series]:
+) -> dict[str, pd.Series]:
     """
     Compute returns with realistic transaction costs.
 
@@ -277,7 +268,7 @@ def run_walkforward_backtest(
     train_window: int = 252,
     test_window: int = 21,
     cost_bps: float = 5.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run walkforward backtest with rolling optimization.
 
@@ -323,7 +314,7 @@ def run_walkforward_backtest(
 
 
 def compare_strategies(
-    strategies: Dict[str, pd.Series],
+    strategies: dict[str, pd.Series],
     returns: pd.Series,
     cost_bps: float = 5.0,
 ) -> pd.DataFrame:
@@ -383,9 +374,9 @@ def generate_quant_report_section(
     report = run_signal_diagnostics(signal, returns, cost_bps)
 
     lines = [
-        f"\n{'='*60}",
+        f"\n{'=' * 60}",
         f"QUANT RESEARCH METRICS: {strategy_name}",
-        f"{'='*60}",
+        f"{'=' * 60}",
         "",
         "SIGNAL QUALITY:",
         f"  Information Coefficient (IC): {report.ic:.4f}",
@@ -412,7 +403,7 @@ def generate_quant_report_section(
         "STATISTICAL TESTS:",
         f"  Returns Stationary: {report.is_stationary}",
         f"  ADF p-value: {report.adf_pvalue:.4f}",
-        f"{'='*60}",
+        f"{'=' * 60}",
     ]
 
     return "\n".join(lines)

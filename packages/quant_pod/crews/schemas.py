@@ -9,10 +9,9 @@ enabling CrewAI to validate and parse LLM responses automatically.
 """
 
 from datetime import date
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
 
 # =============================================================================
 # KEY LEVEL
@@ -24,15 +23,15 @@ class TaskEnvelope(BaseModel):
 
     asset_class: Literal["equities", "options", "futures", "fx_crypto"] = "equities"
     instrument_type: str = "equity"
-    task_intent: Literal[
-        "analysis", "backtest", "live_signal", "hedge", "execution_check"
-    ] = "analysis"
-    symbol: Optional[str] = None
+    task_intent: Literal["analysis", "backtest", "live_signal", "hedge", "execution_check"] = (
+        "analysis"
+    )
+    symbol: str | None = None
     notes: str = ""
     priority: Literal["routine", "high", "urgent"] = "routine"
 
     @classmethod
-    def from_inputs(cls, inputs: Dict[str, Any]) -> "TaskEnvelope":
+    def from_inputs(cls, inputs: dict[str, Any]) -> "TaskEnvelope":
         """
         Normalize task envelope from raw inputs.
 
@@ -46,7 +45,7 @@ class TaskEnvelope(BaseModel):
         if isinstance(envelope_data, TaskEnvelope):
             return envelope_data
 
-        merged: Dict[str, Any] = {}
+        merged: dict[str, Any] = {}
         merged.update(envelope_data if isinstance(envelope_data, dict) else {})
 
         # Pull top-level fallbacks
@@ -120,19 +119,19 @@ class AnalysisNote(BaseModel):
     bias_conviction: float = Field(ge=0, le=1, default=0.5)
 
     # Key levels identified
-    key_levels: List[KeyLevel] = Field(default_factory=list)
+    key_levels: list[KeyLevel] = Field(default_factory=list)
 
     # Detailed observations
-    observations: List[str] = Field(default_factory=list)
+    observations: list[str] = Field(default_factory=list)
 
     # Risk factors identified
-    risk_factors: List[str] = Field(default_factory=list)
+    risk_factors: list[str] = Field(default_factory=list)
 
     # Full reasoning
     rationale: str = ""
 
     # Quantitative technical metrics
-    technical_metrics: Dict[str, float] = Field(default_factory=dict)
+    technical_metrics: dict[str, float] = Field(default_factory=dict)
     # e.g., {"rsi_14": 65.2, "adx_14": 28.5, "atr_14": 2.3, "sma_20": 472.5}
 
     # Time horizon for this analysis
@@ -169,25 +168,25 @@ class PodResearchNote(BaseModel):
     conviction: float = Field(ge=0, le=1, default=0.5)
 
     # Aggregated key levels
-    key_levels: List[KeyLevel] = Field(default_factory=list)
+    key_levels: list[KeyLevel] = Field(default_factory=list)
 
     # Key observations
-    key_observations: List[str] = Field(default_factory=list)
+    key_observations: list[str] = Field(default_factory=list)
 
     # Risk factors
-    risk_factors: List[str] = Field(default_factory=list)
+    risk_factors: list[str] = Field(default_factory=list)
 
     # Conditions that would change the view
-    invalidation_conditions: List[str] = Field(default_factory=list)
+    invalidation_conditions: list[str] = Field(default_factory=list)
 
     # Full reasoning chain
     reasoning: str = ""
 
     # Aggregated quantitative metrics
-    aggregated_metrics: Dict[str, float] = Field(default_factory=dict)
+    aggregated_metrics: dict[str, float] = Field(default_factory=dict)
 
     # Metric consensus interpretation
-    metric_consensus: Dict[str, str] = Field(default_factory=dict)
+    metric_consensus: dict[str, str] = Field(default_factory=dict)
     # e.g., {"momentum": "bullish", "trend_strength": "strong", "volatility": "normal"}
 
     # Time horizon
@@ -215,28 +214,26 @@ class SymbolBrief(BaseModel):
     market_summary: str
 
     # Aggregated bias
-    consensus_bias: Literal[
-        "strong_bullish", "bullish", "neutral", "bearish", "strong_bearish"
-    ]
+    consensus_bias: Literal["strong_bullish", "bullish", "neutral", "bearish", "strong_bearish"]
     consensus_conviction: float = Field(ge=0, le=1, default=0.5)
 
     # Agreement level
     pod_agreement: Literal["unanimous", "strong", "moderate", "mixed", "conflicting"]
 
     # Key levels (deduplicated)
-    critical_levels: List[KeyLevel] = Field(default_factory=list)
+    critical_levels: list[KeyLevel] = Field(default_factory=list)
 
     # Most important observations
-    key_observations: List[str] = Field(default_factory=list)
+    key_observations: list[str] = Field(default_factory=list)
 
     # Risk factors to monitor
-    risk_factors: List[str] = Field(default_factory=list)
+    risk_factors: list[str] = Field(default_factory=list)
 
     # Actionable insights
-    actionable_insights: List[str] = Field(default_factory=list)
+    actionable_insights: list[str] = Field(default_factory=list)
 
     # Metadata
-    contributing_pods: List[str] = Field(default_factory=list)
+    contributing_pods: list[str] = Field(default_factory=list)
     analysis_quality: Literal["high", "medium", "low"] = "medium"
 
 
@@ -266,13 +263,13 @@ class DailyBrief(BaseModel):
     risk_environment: Literal["low", "normal", "elevated", "high"]
 
     # Symbol-specific briefs
-    symbol_briefs: List[SymbolBrief] = Field(default_factory=list)
+    symbol_briefs: list[SymbolBrief] = Field(default_factory=list)
 
     # Top opportunities (ranked)
-    top_opportunities: List[str] = Field(default_factory=list)  # Symbol names
+    top_opportunities: list[str] = Field(default_factory=list)  # Symbol names
 
     # Top risks
-    key_risks: List[str] = Field(default_factory=list)
+    key_risks: list[str] = Field(default_factory=list)
 
     # Strategic recommendations
     strategic_notes: str = ""
@@ -299,14 +296,14 @@ class TradeDecision(BaseModel):
 
     # Execution details
     entry_type: Literal["market", "limit", "stop"] = "market"
-    limit_price: Optional[float] = None
-    stop_loss: Optional[float] = None
-    take_profit: Optional[float] = None
+    limit_price: float | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
 
     # Reasoning
     reasoning: str = ""
-    signals_used: List[str] = Field(default_factory=list)
-    rejection_reason: Optional[str] = None
+    signals_used: list[str] = Field(default_factory=list)
+    rejection_reason: str | None = None
 
     # MTF context summary
     mtf_alignment: float = 0.5
@@ -339,10 +336,10 @@ class RiskVerdict(BaseModel):
 
     # Reasoning
     reasoning: str = ""
-    concerns: List[str] = Field(default_factory=list)
+    concerns: list[str] = Field(default_factory=list)
 
     # Specific limit breaches
-    limit_breaches: List[str] = Field(default_factory=list)
+    limit_breaches: list[str] = Field(default_factory=list)
 
     # Recommendations
-    recommendations: List[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)

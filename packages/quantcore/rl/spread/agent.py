@@ -4,26 +4,25 @@ Spread Arbitrage RL Agent.
 DQN agent for WTI-Brent spread trading.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any
+
 import numpy as np
 from loguru import logger
 
 from quantcore.rl.base import (
+    TORCH_AVAILABLE,
+    Action,
+    DuelingNetwork,
+    Experience,
     RLAgent,
     State,
-    Action,
-    Experience,
-    MLP,
-    DuelingNetwork,
     soft_update,
-    TORCH_AVAILABLE,
 )
 
 if TORCH_AVAILABLE:
     import torch
-    import torch.nn as nn
-    import torch.optim as optim
     import torch.nn.functional as F
+    import torch.optim as optim
 
 
 class SpreadArbitrageAgent(RLAgent):
@@ -47,7 +46,7 @@ class SpreadArbitrageAgent(RLAgent):
         self,
         state_dim: int = 12,
         action_dim: int = 5,
-        hidden_dims: List[int] = [128, 128],
+        hidden_dims: list[int] = None,
         learning_rate: float = 1e-4,
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
@@ -77,6 +76,8 @@ class SpreadArbitrageAgent(RLAgent):
             zscore_exit_threshold: Z-score threshold for exit
             device: Device to use
         """
+        if hidden_dims is None:
+            hidden_dims = [128, 128]
         super().__init__(state_dim, action_dim, learning_rate, gamma, device)
 
         self.epsilon = epsilon_start
@@ -145,9 +146,7 @@ class SpreadArbitrageAgent(RLAgent):
                 action_idx = np.random.choice([3, 4], p=[0.6, 0.4])
             elif abs(zscore) < self.zscore_exit_threshold and position_dir != 0:
                 # Near mean, have position -> consider closing
-                action_idx = np.random.choice(
-                    [0, 1, 2, 3, 4], p=[0.5, 0.125, 0.125, 0.125, 0.125]
-                )
+                action_idx = np.random.choice([0, 1, 2, 3, 4], p=[0.5, 0.125, 0.125, 0.125, 0.125])
             else:
                 action_idx = np.random.randint(self.action_dim)
 
@@ -168,7 +167,7 @@ class SpreadArbitrageAgent(RLAgent):
         """Heuristic action when no network available."""
         zscore = state.features[0] * 3  # Denormalize
         position_dir = state.features[4]
-        position_size = state.features[5]
+        state.features[5]
         bars_held = state.features[7] * 50  # Denormalize
 
         # Entry logic
@@ -190,7 +189,7 @@ class SpreadArbitrageAgent(RLAgent):
         # Hold
         return 1 if position_dir > 0 else 3
 
-    def update(self, experiences: List[Experience]) -> Dict[str, float]:
+    def update(self, experiences: list[Experience]) -> dict[str, float]:
         """
         Update agent from experiences.
 
@@ -204,23 +203,19 @@ class SpreadArbitrageAgent(RLAgent):
             return {"loss": 0.0}
 
         # Prepare batch
-        states = torch.FloatTensor(
-            np.array([e.state.features for e in experiences])
-        ).to(self.device)
-
-        actions = (
-            torch.LongTensor([e.action.value for e in experiences])
-            .unsqueeze(-1)
-            .to(self.device)
-        )
-
-        rewards = torch.FloatTensor([e.reward.value for e in experiences]).to(
+        states = torch.FloatTensor(np.array([e.state.features for e in experiences])).to(
             self.device
         )
 
-        next_states = torch.FloatTensor(
-            np.array([e.next_state.features for e in experiences])
-        ).to(self.device)
+        actions = (
+            torch.LongTensor([e.action.value for e in experiences]).unsqueeze(-1).to(self.device)
+        )
+
+        rewards = torch.FloatTensor([e.reward.value for e in experiences]).to(self.device)
+
+        next_states = torch.FloatTensor(np.array([e.next_state.features for e in experiences])).to(
+            self.device
+        )
 
         dones = torch.FloatTensor([float(e.done) for e in experiences]).to(self.device)
 
@@ -230,9 +225,7 @@ class SpreadArbitrageAgent(RLAgent):
         # Double DQN target
         with torch.no_grad():
             next_actions = self.q_network(next_states).argmax(dim=-1, keepdim=True)
-            next_q = (
-                self.target_network(next_states).gather(1, next_actions).squeeze(-1)
-            )
+            next_q = self.target_network(next_states).gather(1, next_actions).squeeze(-1)
             target_q = rewards + self.gamma * next_q * (1 - dones)
 
         # Loss
@@ -289,7 +282,7 @@ class SpreadArbitrageAgent(RLAgent):
         self.step_count = checkpoint.get("step_count", 0)
         logger.info(f"Agent loaded from {path}")
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get agent configuration."""
         config = super().get_config()
         config.update(

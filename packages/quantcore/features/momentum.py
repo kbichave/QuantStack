@@ -4,12 +4,10 @@ Momentum-related features.
 Includes RSI, Stochastics, MACD, and Rate of Change.
 """
 
-from typing import List
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from quantcore.features.base import FeatureBase
-from quantcore.config.timeframes import Timeframe
 
 
 class MomentumFeatures(FeatureBase):
@@ -66,9 +64,7 @@ class MomentumFeatures(FeatureBase):
             stoch_k = result["stoch_k"]
             stoch_d = result["stoch_d"]
 
-        result["stoch_cross"] = np.where(
-            stoch_k > stoch_d, 1, np.where(stoch_k < stoch_d, -1, 0)
-        )
+        result["stoch_cross"] = np.where(stoch_k > stoch_d, 1, np.where(stoch_k < stoch_d, -1, 0))
 
         # MACD (only compute if not already present)
         if "macd_line" not in result.columns:
@@ -241,7 +237,7 @@ class MomentumFeatures(FeatureBase):
         score = (rsi_score + stoch_score + macd_score) / 3
         return score.clip(-100, 100)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of momentum feature names."""
         return [
             "rsi",

@@ -8,13 +8,11 @@ Verifies:
 4. File loading (when files exist)
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-from datetime import datetime
-from pathlib import Path
-
+import pandas as pd
+import pytest
 from quantcore.labeling.llm_labeler import LLMLabelProvider
+
 from tests.conftest import make_ohlcv_df
 
 
@@ -73,9 +71,7 @@ class TestLLMLabelProvider:
 
         # Label type should be "ideal_pullback"
         label_type = result["label_llm_type"].iloc[-1]
-        assert (
-            label_type == "ideal_pullback"
-        ), f"Expected 'ideal_pullback', got '{label_type}'"
+        assert label_type == "ideal_pullback", f"Expected 'ideal_pullback', got '{label_type}'"
 
     def test_mock_labels_with_poor_setup(self):
         """Test that mock labels downgrade quality for poor setups."""
@@ -115,9 +111,7 @@ class TestLLMLabelProvider:
         assert hybrid.iloc[0] > 0.9, "High ATR + high quality should give high hybrid"
 
         # High ATR + low quality -> lower hybrid (deemphasized)
-        assert (
-            0.7 < hybrid.iloc[1] < 0.9
-        ), "High ATR + low quality should be deemphasized"
+        assert 0.7 < hybrid.iloc[1] < 0.9, "High ATR + low quality should be deemphasized"
 
     def test_create_hybrid_label_missing_atr(self):
         """Test hybrid label when ATR label is missing."""

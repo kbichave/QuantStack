@@ -5,18 +5,17 @@ Models typical intraday volume patterns for relative volume analysis.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional, List
-import pandas as pd
+
 import numpy as np
-from loguru import logger
+import pandas as pd
 
 
 @dataclass
 class VolumeProfileStats:
     """Volume profile statistics."""
 
-    avg_volume_by_hour: Dict[int, float]
-    std_volume_by_hour: Dict[int, float]
+    avg_volume_by_hour: dict[int, float]
+    std_volume_by_hour: dict[int, float]
     typical_pattern: pd.Series  # Normalized hourly pattern
 
 
@@ -49,7 +48,7 @@ class IntradaySeasonality:
             lookback_days: Days to use for pattern estimation
         """
         self.lookback_days = lookback_days
-        self._learned_pattern: Optional[Dict[int, float]] = None
+        self._learned_pattern: dict[int, float] | None = None
 
     def fit(self, df: pd.DataFrame) -> VolumeProfileStats:
         """
@@ -89,9 +88,7 @@ class IntradaySeasonality:
         """Return default statistics when no data."""
         return VolumeProfileStats(
             avg_volume_by_hour=self.TYPICAL_US_EQUITY_PATTERN,
-            std_volume_by_hour={
-                h: v * 0.3 for h, v in self.TYPICAL_US_EQUITY_PATTERN.items()
-            },
+            std_volume_by_hour={h: v * 0.3 for h, v in self.TYPICAL_US_EQUITY_PATTERN.items()},
             typical_pattern=pd.Series(self.TYPICAL_US_EQUITY_PATTERN),
         )
 
@@ -182,9 +179,7 @@ class VolumeProfileAnalyzer:
         )
 
         # Daily average volume
-        daily_avg = volume.rolling(
-            window=20 * 7, min_periods=20
-        ).mean()  # ~20 days for hourly
+        daily_avg = volume.rolling(window=20 * 7, min_periods=20).mean()  # ~20 days for hourly
         result["daily_avg_volume"] = daily_avg
 
         # Seasonality-adjusted volume ratio
@@ -200,20 +195,14 @@ class VolumeProfileAnalyzer:
         # Volume anomaly score
         vol_mean = result["adjusted_vol_ratio"].rolling(20).mean()
         vol_std = result["adjusted_vol_ratio"].rolling(20).std()
-        result["volume_anomaly_zscore"] = (
-            result["adjusted_vol_ratio"] - vol_mean
-        ) / vol_std
+        result["volume_anomaly_zscore"] = (result["adjusted_vol_ratio"] - vol_mean) / vol_std
 
         # Volume trend (is volume picking up or declining)
         result["volume_trend"] = volume.rolling(5).mean() / volume.rolling(20).mean()
 
         # High/low volume flags
-        result["unusual_high_volume"] = (result["volume_anomaly_zscore"] > 2).astype(
-            int
-        )
-        result["unusual_low_volume"] = (result["volume_anomaly_zscore"] < -2).astype(
-            int
-        )
+        result["unusual_high_volume"] = (result["volume_anomaly_zscore"] > 2).astype(int)
+        result["unusual_low_volume"] = (result["volume_anomaly_zscore"] < -2).astype(int)
 
         # Volume concentration (what % of daily volume in this bar)
         daily_volume = volume.resample("D").sum().reindex(result.index, method="ffill")
@@ -265,7 +254,7 @@ class VolumeProfileAnalyzer:
         self,
         df: pd.DataFrame,
         threshold_pct: float = 70,
-    ) -> List[float]:
+    ) -> list[float]:
         """
         Find high-volume price nodes (support/resistance).
 
@@ -279,8 +268,6 @@ class VolumeProfileAnalyzer:
         profile = self.get_volume_distribution(df)
 
         threshold = np.percentile(profile["volume"], threshold_pct)
-        high_volume_nodes = profile[profile["volume"] >= threshold][
-            "price_level"
-        ].tolist()
+        high_volume_nodes = profile[profile["volume"] >= threshold]["price_level"].tolist()
 
         return high_volume_nodes

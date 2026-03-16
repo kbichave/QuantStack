@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 from quant_pod.knowledge.models import StructureType, TradeRecord
 from quant_pod.knowledge.store import KnowledgeStore
@@ -26,17 +25,13 @@ class ExpectancyEngine:
     def __init__(self, store: KnowledgeStore) -> None:
         self.store = store
 
-    def _get_trades(
-        self, structure: Optional[StructureType] = None
-    ) -> List[TradeRecord]:
+    def _get_trades(self, structure: StructureType | None = None) -> list[TradeRecord]:
         trades = [t for t in self.store.get_trades(limit=500) if t.pnl is not None]
         if structure:
             trades = [t for t in trades if t.structure_type == structure]
         return trades
 
-    def calculate_expectancy(
-        self, structure: Optional[StructureType] = None
-    ) -> ExpectancyResult:
+    def calculate_expectancy(self, structure: StructureType | None = None) -> ExpectancyResult:
         trades = self._get_trades(structure)
         if not trades:
             return ExpectancyResult(0, 0.0, 0.0, 0.0, 0.0)
@@ -63,9 +58,7 @@ class ExpectancyEngine:
         if result.sample_size == 0 or result.avg_loss == 0 or result.avg_win == 0:
             return 0.0
 
-        edge = result.win_rate - (1 - result.win_rate) / (
-            result.avg_win / result.avg_loss
-        )
+        edge = result.win_rate - (1 - result.win_rate) / (result.avg_win / result.avg_loss)
         edge = max(0.0, edge)  # guard against negative edge
 
         if kelly_mode.lower() == "half":

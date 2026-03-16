@@ -28,13 +28,12 @@ the worst case is redundant check_auth() calls — not data corruption.
 from __future__ import annotations
 
 import time
-from typing import Dict, Optional
 
 from loguru import logger
 
-from quantcore.execution.broker import BrokerInterface, BrokerError
-from quantcore.execution.unified_models import UnifiedOrder, UnifiedOrderResult
+from quantcore.execution.broker import BrokerError, BrokerInterface
 from quantcore.execution.fill_tracker import FillEvent, FillTracker
+from quantcore.execution.unified_models import UnifiedOrder, UnifiedOrderResult
 
 
 class SmartOrderRouterError(RuntimeError):
@@ -60,17 +59,17 @@ class SmartOrderRouter:
 
     def __init__(
         self,
-        alpaca_broker:  Optional[BrokerInterface] = None,
-        ibkr_broker:    Optional[BrokerInterface] = None,
-        fill_tracker:   Optional[FillTracker] = None,
-        paper:          bool = True,
+        alpaca_broker: BrokerInterface | None = None,
+        ibkr_broker: BrokerInterface | None = None,
+        fill_tracker: FillTracker | None = None,
+        paper: bool = True,
     ) -> None:
-        self._alpaca     = alpaca_broker
-        self._ibkr       = ibkr_broker
-        self._tracker    = fill_tracker
-        self._paper      = paper
+        self._alpaca = alpaca_broker
+        self._ibkr = ibkr_broker
+        self._tracker = fill_tracker
+        self._paper = paper
         # {broker_name: (is_healthy: bool, checked_at: float)}
-        self._health: Dict[str, tuple[bool, float]] = {}
+        self._health: dict[str, tuple[bool, float]] = {}
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -94,7 +93,7 @@ class SmartOrderRouter:
             SmartOrderRouterError: If no healthy broker can service the order.
         """
         brokers = self._select_brokers(asset_class)
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for name, broker in brokers:
             if not self._is_healthy(name, broker):
@@ -190,10 +189,10 @@ class SmartOrderRouter:
         if self._tracker is None or result.filled_qty <= 0:
             return
         fill = FillEvent(
-            order_id        = result.order_id,
-            symbol          = order.symbol,
-            side            = order.side,
-            filled_qty      = result.filled_qty,
-            avg_fill_price  = result.avg_fill_price or 0.0,
+            order_id=result.order_id,
+            symbol=order.symbol,
+            side=order.side,
+            filled_qty=result.filled_qty,
+            avg_fill_price=result.avg_fill_price or 0.0,
         )
         self._tracker.update_fill(fill)

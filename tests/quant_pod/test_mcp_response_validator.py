@@ -10,8 +10,7 @@ No external I/O — pure in-memory validation logic.
 from __future__ import annotations
 
 import pytest
-
-from quant_pod.guardrails.mcp_response_validator import MCPResponseValidator, ValidationResult
+from quant_pod.guardrails.mcp_response_validator import MCPResponseValidator
 
 
 @pytest.fixture
@@ -26,13 +25,15 @@ def validator() -> MCPResponseValidator:
 
 class TestQuoteValidation:
     def test_valid_quote_passes(self, validator):
-        result = validator.validate_quote_response({
-            "symbol": "SPY",
-            "price": 450.0,
-            "bid": 449.9,
-            "ask": 450.1,
-            "volume": 1_000_000,
-        })
+        result = validator.validate_quote_response(
+            {
+                "symbol": "SPY",
+                "price": 450.0,
+                "bid": 449.9,
+                "ask": 450.1,
+                "volume": 1_000_000,
+            }
+        )
         assert result.is_valid
 
     def test_negative_price_rejected(self, validator):
@@ -48,11 +49,13 @@ class TestQuoteValidation:
         assert not result.is_valid
 
     def test_negative_volume_rejected(self, validator):
-        result = validator.validate_quote_response({
-            "symbol": "SPY",
-            "price": 450.0,
-            "volume": -100,
-        })
+        result = validator.validate_quote_response(
+            {
+                "symbol": "SPY",
+                "price": 450.0,
+                "volume": -100,
+            }
+        )
         assert not result.is_valid
 
 
@@ -98,40 +101,48 @@ class TestOHLCVValidation:
 
 class TestOptionsValidation:
     def test_valid_option_passes(self, validator):
-        result = validator.validate_options_response({
-            "symbol": "SPY",
-            "strike": 450.0,
-            "expiry": "2024-03-15",
-            "option_type": "call",
-            "last_price": 5.0,
-            "implied_volatility": 0.20,
-            "delta": 0.5,
-        })
+        result = validator.validate_options_response(
+            {
+                "symbol": "SPY",
+                "strike": 450.0,
+                "expiry": "2024-03-15",
+                "option_type": "call",
+                "last_price": 5.0,
+                "implied_volatility": 0.20,
+                "delta": 0.5,
+            }
+        )
         assert result.is_valid
 
     def test_iv_above_max_rejected(self, validator):
-        result = validator.validate_options_response({
-            "implied_volatility": 25.0,  # 2500% — absurd
-            "delta": 0.5,
-            "last_price": 1.0,
-        })
+        result = validator.validate_options_response(
+            {
+                "implied_volatility": 25.0,  # 2500% — absurd
+                "delta": 0.5,
+                "last_price": 1.0,
+            }
+        )
         assert not result.is_valid
 
     def test_delta_outside_range_rejected(self, validator):
-        result = validator.validate_options_response({
-            "implied_volatility": 0.25,
-            "delta": 2.5,  # > 1.0 — impossible
-            "last_price": 1.0,
-        })
+        result = validator.validate_options_response(
+            {
+                "implied_volatility": 0.25,
+                "delta": 2.5,  # > 1.0 — impossible
+                "last_price": 1.0,
+            }
+        )
         assert not result.is_valid
 
     def test_negative_option_price_rejected(self, validator):
         # Use "price" key (what the validator checks, not "last_price")
-        result = validator.validate_options_response({
-            "implied_volatility": 0.25,
-            "delta": 0.5,
-            "price": -0.01,
-        })
+        result = validator.validate_options_response(
+            {
+                "implied_volatility": 0.25,
+                "delta": 0.5,
+                "price": -0.01,
+            }
+        )
         assert not result.is_valid
 
 
@@ -170,13 +181,15 @@ class TestInjectionDetection:
 
 class TestPortfolioValidation:
     def test_valid_portfolio_passes(self, validator):
-        result = validator.validate_portfolio_response({
-            "positions": [
-                {"symbol": "SPY", "quantity": 100, "current_price": 450.0},
-                {"symbol": "AAPL", "quantity": 50, "current_price": 180.0},
-            ],
-            "cash": 50_000.0,
-        })
+        result = validator.validate_portfolio_response(
+            {
+                "positions": [
+                    {"symbol": "SPY", "quantity": 100, "current_price": 450.0},
+                    {"symbol": "AAPL", "quantity": 50, "current_price": 180.0},
+                ],
+                "cash": 50_000.0,
+            }
+        )
         assert result.is_valid
 
     def test_too_many_positions_rejected(self, validator):

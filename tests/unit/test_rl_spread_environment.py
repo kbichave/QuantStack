@@ -10,10 +10,8 @@ Verifies that:
 import numpy as np
 import pandas as pd
 import pytest
-from unittest.mock import patch
-
-from quantcore.rl.spread.environment import SpreadEnvironment, SpreadPosition
 from quantcore.rl.base import Action
+from quantcore.rl.spread.environment import SpreadEnvironment
 
 
 @pytest.fixture
@@ -123,9 +121,7 @@ class TestSpreadEnvironmentDeterminism:
         corr = env._get_correlation()
 
         # Should return neutral value (0.9)
-        assert (
-            corr == 0.9
-        ), f"Correlation should be neutral (0.9) without data, got {corr}"
+        assert corr == 0.9, f"Correlation should be neutral (0.9) without data, got {corr}"
 
     def test_usd_regime_neutral_without_usd_column(self, sample_spread_data):
         """USD regime should return neutral value when USD column not present."""
@@ -168,9 +164,7 @@ class TestSpreadEnvironmentWarnings:
 
         # Check warning was logged (loguru logs to stderr which caplog sees)
         # Also check if the flag was set
-        assert (
-            env._warned_missing_wti_brent
-        ), "Warning flag should be set for missing wti/brent"
+        assert env._warned_missing_wti_brent, "Warning flag should be set for missing wti/brent"
 
     def test_warning_for_synthetic_data(self, caplog):
         """Warning should be logged when using synthetic spread data."""
@@ -183,9 +177,7 @@ class TestSpreadEnvironmentWarnings:
         env.reset()
 
         # Check the warning flag was set
-        assert (
-            env._warned_synthetic_data
-        ), "Warning flag should be set for synthetic data"
+        assert env._warned_synthetic_data, "Warning flag should be set for synthetic data"
 
 
 class TestSpreadEnvironmentFeatureComputation:
@@ -206,9 +198,9 @@ class TestSpreadEnvironmentFeatureComputation:
         current = sample_spread_data.iloc[100]["spread"]
         expected_zscore = (current - expected_mean) / (expected_std + 1e-8)
 
-        assert (
-            abs(zscore - expected_zscore) < 1e-6
-        ), f"Z-score mismatch: got {zscore}, expected {expected_zscore}"
+        assert abs(zscore - expected_zscore) < 1e-6, (
+            f"Z-score mismatch: got {zscore}, expected {expected_zscore}"
+        )
 
     def test_momentum_computation(self, sample_spread_data):
         """Momentum should be computed correctly."""
@@ -224,12 +216,12 @@ class TestSpreadEnvironmentFeatureComputation:
         expected_mom_5 = current - sample_spread_data.iloc[95]["spread"]
         expected_mom_20 = current - sample_spread_data.iloc[80]["spread"]
 
-        assert (
-            abs(mom_5 - expected_mom_5) < 1e-6
-        ), f"5-bar momentum mismatch: got {mom_5}, expected {expected_mom_5}"
-        assert (
-            abs(mom_20 - expected_mom_20) < 1e-6
-        ), f"20-bar momentum mismatch: got {mom_20}, expected {expected_mom_20}"
+        assert abs(mom_5 - expected_mom_5) < 1e-6, (
+            f"5-bar momentum mismatch: got {mom_5}, expected {expected_mom_5}"
+        )
+        assert abs(mom_20 - expected_mom_20) < 1e-6, (
+            f"20-bar momentum mismatch: got {mom_20}, expected {expected_mom_20}"
+        )
 
     def test_percentile_computation(self, sample_spread_data):
         """Percentile rank should be computed correctly."""
@@ -247,9 +239,9 @@ class TestSpreadEnvironmentFeatureComputation:
         current = sample_spread_data.iloc[100]["spread"]
         expected_percentile = (recent <= current).mean()
 
-        assert (
-            abs(percentile - expected_percentile) < 1e-6
-        ), f"Percentile mismatch: got {percentile}, expected {expected_percentile}"
+        assert abs(percentile - expected_percentile) < 1e-6, (
+            f"Percentile mismatch: got {percentile}, expected {expected_percentile}"
+        )
 
 
 class TestSpreadEnvironmentStep:
@@ -258,21 +250,21 @@ class TestSpreadEnvironmentStep:
     def test_step_produces_valid_state(self, sample_spread_data):
         """Step should produce valid state with correct dimensions."""
         env = SpreadEnvironment(spread_data=sample_spread_data)
-        state = env.reset()
+        env.reset()
 
         # Take a step
         action = Action(value=1)  # Small long
         next_state, reward, done, info = env.step(action)
 
         # Check state dimension
-        assert (
-            len(next_state.features) == env.get_state_dim()
-        ), f"State dimension mismatch: {len(next_state.features)} != {env.get_state_dim()}"
+        assert len(next_state.features) == env.get_state_dim(), (
+            f"State dimension mismatch: {len(next_state.features)} != {env.get_state_dim()}"
+        )
 
         # Check no NaN in state
-        assert not np.any(
-            np.isnan(next_state.features)
-        ), f"State contains NaN values: {next_state.features}"
+        assert not np.any(np.isnan(next_state.features)), (
+            f"State contains NaN values: {next_state.features}"
+        )
 
     def test_position_tracking(self, sample_spread_data):
         """Position should be tracked correctly."""
@@ -377,16 +369,16 @@ class TestSpreadEnvironmentIntegration:
                 break
 
         # Verify identical sequences
-        assert len(states1) == len(
-            states2
-        ), f"State sequence lengths differ: {len(states1)} vs {len(states2)}"
+        assert len(states1) == len(states2), (
+            f"State sequence lengths differ: {len(states1)} vs {len(states2)}"
+        )
 
-        for i, (s1, s2) in enumerate(zip(states1, states2)):
+        for i, (s1, s2) in enumerate(zip(states1, states2, strict=False)):
             np.testing.assert_array_almost_equal(
                 s1, s2, decimal=5, err_msg=f"State mismatch at step {i}: {s1} vs {s2}"
             )
 
-        for i, (r1, r2) in enumerate(zip(rewards1, rewards2)):
+        for i, (r1, r2) in enumerate(zip(rewards1, rewards2, strict=False)):
             assert abs(r1 - r2) < 1e-5, f"Reward mismatch at step {i}: {r1} vs {r2}"
 
     def test_no_random_values_in_state_over_1000_steps(self, extended_spread_data):
@@ -451,19 +443,19 @@ class TestSpreadEnvironmentIntegration:
             state, _, done, _ = env.step(action)
 
             # Check no NaN
-            assert not np.any(
-                np.isnan(state.features)
-            ), f"NaN in state features at step {i}: {state.features}"
+            assert not np.any(np.isnan(state.features)), (
+                f"NaN in state features at step {i}: {state.features}"
+            )
 
             # Check no inf
-            assert not np.any(
-                np.isinf(state.features)
-            ), f"Inf in state features at step {i}: {state.features}"
+            assert not np.any(np.isinf(state.features)), (
+                f"Inf in state features at step {i}: {state.features}"
+            )
 
             # Check bounded (reasonable range for normalized features)
-            assert np.all(
-                np.abs(state.features) < 1000
-            ), f"Unbounded state features at step {i}: max={np.max(np.abs(state.features))}"
+            assert np.all(np.abs(state.features) < 1000), (
+                f"Unbounded state features at step {i}: max={np.max(np.abs(state.features))}"
+            )
 
             if done:
                 break
@@ -493,9 +485,7 @@ class TestSpreadEnvironmentIntegration:
             positions_held.append(info.get("position_direction", 0))
 
             # Verify reward is finite
-            assert np.isfinite(
-                reward_val
-            ), f"Non-finite reward at step {i}: {reward_val}"
+            assert np.isfinite(reward_val), f"Non-finite reward at step {i}: {reward_val}"
 
             if done:
                 break
@@ -538,7 +528,7 @@ class TestSpreadEnvironmentValidation:
         )
 
         # Constructor should log warning about NaN values
-        env = SpreadEnvironment(spread_data=data_with_nan)
+        SpreadEnvironment(spread_data=data_with_nan)
 
         # Check by inspecting logged records - loguru uses propagate
         # Alternatively, we can verify indirectly that validation ran

@@ -4,13 +4,12 @@ Spread features for commodity trading.
 Computes features from WTI-Brent spread, crack spreads, and other spread relationships.
 """
 
-from typing import List, Optional, Dict
-import pandas as pd
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class SpreadFeatures(FeatureBase):
@@ -58,8 +57,8 @@ class SpreadFeatures(FeatureBase):
     def compute(
         self,
         df: pd.DataFrame,
-        spread_data: Optional[pd.DataFrame] = None,
-        crack_spread_data: Optional[pd.DataFrame] = None,
+        spread_data: pd.DataFrame | None = None,
+        crack_spread_data: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
         Compute spread features.
@@ -126,12 +125,8 @@ class SpreadFeatures(FeatureBase):
             )
 
         # Spread momentum
-        result["wti_brent_spread_roc_5"] = (
-            result["wti_brent_spread"].pct_change(5) * 100
-        )
-        result["wti_brent_spread_roc_10"] = (
-            result["wti_brent_spread"].pct_change(10) * 100
-        )
+        result["wti_brent_spread_roc_5"] = result["wti_brent_spread"].pct_change(5) * 100
+        result["wti_brent_spread_roc_10"] = result["wti_brent_spread"].pct_change(10) * 100
 
         # Spread trend (regression slope)
         result["wti_brent_spread_slope"] = self._compute_regression_slope(
@@ -201,9 +196,7 @@ class SpreadFeatures(FeatureBase):
         )
 
         # Crack spread volatility
-        result["crack_spread_vol"] = (
-            result["crack_spread"].rolling(self.spread_lookback).std()
-        )
+        result["crack_spread_vol"] = result["crack_spread"].rolling(self.spread_lookback).std()
 
         # Refining margin signals
         result["crack_high_margin"] = (result["crack_zscore"] > 1.5).astype(int)
@@ -298,7 +291,7 @@ class SpreadFeatures(FeatureBase):
 
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get list of feature names produced by this class."""
         return [
             # WTI-Brent spread features

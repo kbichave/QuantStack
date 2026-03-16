@@ -5,9 +5,10 @@ Critical tests for ensuring model validity.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
-import pandas as pd
+from typing import Any
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 from sklearn.metrics import roc_auc_score
 
@@ -34,7 +35,7 @@ class FeatureShiftTest:
 
     def __init__(
         self,
-        shift_periods: List[int] = [-1, 1, 2],
+        shift_periods: list[int] = None,
         degradation_threshold: float = 0.1,
     ):
         """
@@ -44,6 +45,8 @@ class FeatureShiftTest:
             shift_periods: Periods to shift features
             degradation_threshold: Expected performance drop
         """
+        if shift_periods is None:
+            shift_periods = [-1, 1, 2]
         self.shift_periods = shift_periods
         self.degradation_threshold = degradation_threshold
 
@@ -52,8 +55,8 @@ class FeatureShiftTest:
         model: Any,
         X: pd.DataFrame,
         y: pd.Series,
-        base_score: Optional[float] = None,
-    ) -> List[LeakageTestResult]:
+        base_score: float | None = None,
+    ) -> list[LeakageTestResult]:
         """
         Run feature shift tests.
 
@@ -97,7 +100,9 @@ class FeatureShiftTest:
                 severity = (
                     "CRITICAL"
                     if degradation < -0.1
-                    else "WARNING" if degradation < -0.05 else "INFO"
+                    else "WARNING"
+                    if degradation < -0.05
+                    else "INFO"
                 )
             else:  # Backward shift (should lose info = worse)
                 expected = f"Score should drop by >{self.degradation_threshold}"
@@ -105,11 +110,7 @@ class FeatureShiftTest:
                 severity = (
                     "CRITICAL"
                     if degradation < 0.02
-                    else (
-                        "WARNING"
-                        if degradation < self.degradation_threshold
-                        else "INFO"
-                    )
+                    else ("WARNING" if degradation < self.degradation_threshold else "INFO")
                 )
 
             results.append(
@@ -155,7 +156,7 @@ class PermutationTest:
         model_params: dict,
         X: pd.DataFrame,
         y: pd.Series,
-        real_score: Optional[float] = None,
+        real_score: float | None = None,
     ) -> LeakageTestResult:
         """
         Run permutation test.
@@ -344,7 +345,7 @@ class LeakageDetector:
         y_train: pd.Series,
         X_test: pd.DataFrame,
         y_test: pd.Series,
-    ) -> Dict[str, List[LeakageTestResult]]:
+    ) -> dict[str, list[LeakageTestResult]]:
         """
         Run all leakage detection tests.
 
@@ -401,7 +402,7 @@ class LeakageDetector:
         self,
         X_train: pd.DataFrame,
         X_test: pd.DataFrame,
-    ) -> List[LeakageTestResult]:
+    ) -> list[LeakageTestResult]:
         """Check for distribution shift between train and test."""
         results = []
 
@@ -439,7 +440,7 @@ class LeakageDetector:
 
     def generate_report(
         self,
-        results: Dict[str, List[LeakageTestResult]],
+        results: dict[str, list[LeakageTestResult]],
     ) -> str:
         """Generate human-readable report."""
         lines = ["=" * 60, "LEAKAGE DETECTION REPORT", "=" * 60, ""]

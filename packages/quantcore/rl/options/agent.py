@@ -6,10 +6,10 @@ Implements the hybrid architecture:
 - Sizing and contract selection are deterministic
 """
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
 import random
 from collections import deque
+from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -24,19 +24,19 @@ except ImportError:
     TORCH_AVAILABLE = False
     logger.warning("PyTorch not available. RL agent will use random policy.")
 
-from quantcore.rl.base import RLAgent, Action, Experience
+from quantcore.rl.base import Action, Experience, RLAgent
 from quantcore.rl.options.environment import OptionsAction, OptionsEnvironment
 from quantcore.strategy.base import (
-    Strategy,
-    MarketState,
-    TargetPosition,
     DataRequirements,
+    MarketState,
     PositionDirection,
+    Strategy,
+    TargetPosition,
 )
 
 
 @dataclass
-class Experience:
+class Experience:  # noqa: F811
     """Single experience tuple for replay buffer."""
 
     state: np.ndarray
@@ -55,7 +55,7 @@ class ReplayBuffer:
     def push(self, experience: Experience):
         self.buffer.append(experience)
 
-    def sample(self, batch_size: int) -> List[Experience]:
+    def sample(self, batch_size: int) -> list[Experience]:
         return random.sample(self.buffer, min(batch_size, len(self.buffer)))
 
     def __len__(self):
@@ -143,12 +143,8 @@ class DirectionAgent(RLAgent, Strategy):
         # Networks
         if TORCH_AVAILABLE:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self.policy_net = DQNNetwork(state_dim, action_dim, hidden_dim).to(
-                self.device
-            )
-            self.target_net = DQNNetwork(state_dim, action_dim, hidden_dim).to(
-                self.device
-            )
+            self.policy_net = DQNNetwork(state_dim, action_dim, hidden_dim).to(self.device)
+            self.target_net = DQNNetwork(state_dim, action_dim, hidden_dim).to(self.device)
             self.target_net.load_state_dict(self.policy_net.state_dict())
             self.optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate)
         else:
@@ -202,7 +198,7 @@ class DirectionAgent(RLAgent, Strategy):
         reward: float,
         next_state: np.ndarray,
         done: bool,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Perform one training step.
 
@@ -270,7 +266,7 @@ class DirectionAgent(RLAgent, Strategy):
             "buffer_size": len(self.replay_buffer),
         }
 
-    def update(self, experiences: List[Experience]) -> Dict[str, float]:
+    def update(self, experiences: list[Experience]) -> dict[str, float]:
         """
         Update agent from batch of experiences (required by RLAgent interface).
 
@@ -328,7 +324,7 @@ class DirectionAgent(RLAgent, Strategy):
             "buffer_size": len(self.replay_buffer),
         }
 
-    def on_bar(self, state: MarketState) -> List[TargetPosition]:
+    def on_bar(self, state: MarketState) -> list[TargetPosition]:
         """
         Strategy interface: generate target positions.
 
@@ -369,7 +365,7 @@ class DirectionAgent(RLAgent, Strategy):
     def _action_to_position(
         self,
         action: OptionsAction,
-    ) -> Tuple[PositionDirection, float]:
+    ) -> tuple[PositionDirection, float]:
         """Convert action to position direction and confidence."""
         mapping = {
             OptionsAction.STRONG_LONG: (PositionDirection.LONG, 0.8),
@@ -425,7 +421,7 @@ def train_direction_agent(
     num_episodes: int = 100,
     max_steps_per_episode: int = 252,
     log_freq: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Train direction agent on environment with proper train/test split.
 
@@ -449,13 +445,9 @@ def train_direction_agent(
     assert train_end > 100, "Insufficient training data"
     assert train_end < total_steps - 50, "Insufficient test data"
 
-    logger.info(
-        f"RL Data split: train={train_end} steps, test={total_steps - train_end} steps"
-    )
-    logger.info(f"Train dates: {env.data.index[0]} to {env.data.index[train_end-1]}")
-    logger.info(
-        f"Test dates: {env.data.index[train_end]} to {env.data.index[-1]} (HOLDOUT)"
-    )
+    logger.info(f"RL Data split: train={train_end} steps, test={total_steps - train_end} steps")
+    logger.info(f"Train dates: {env.data.index[0]} to {env.data.index[train_end - 1]}")
+    logger.info(f"Test dates: {env.data.index[train_end]} to {env.data.index[-1]} (HOLDOUT)")
 
     # Create training environment (subset of data)
     train_data = env.data.iloc[:train_end].copy()
@@ -485,7 +477,7 @@ def train_direction_agent(
         # Limit steps to training data
         max_steps = min(max_steps_per_episode, train_end - 1)
 
-        for step in range(max_steps):
+        for step in range(max_steps):  # noqa: B007
             # Select action
             action = agent.select_action(state.features, training=True)
 
@@ -557,7 +549,7 @@ def train_direction_agent(
 def evaluate_agent(
     agent: DirectionAgent,
     env: OptionsEnvironment,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Evaluate trained agent on environment (no training updates).
 

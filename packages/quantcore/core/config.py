@@ -22,9 +22,10 @@ Usage:
     config.validate()
 """
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
+
 import yaml
 
 from quantcore.core.errors import ConfigurationError
@@ -50,22 +51,20 @@ class BacktestConfig:
     commission_per_trade: float = 1.0
     slippage_pct: float = 0.001
     position_size_pct: float = 0.1
-    stop_loss_atr_multiple: Optional[float] = 2.0
-    take_profit_atr_multiple: Optional[float] = 3.0
+    stop_loss_atr_multiple: float | None = 2.0
+    take_profit_atr_multiple: float | None = 3.0
 
     # Spread trading specific
     entry_zscore: float = 2.0
     exit_zscore: float = 0.0
-    stop_loss_zscore: Optional[float] = 5.0
+    stop_loss_zscore: float | None = 5.0
     position_size: int = 1000
     spread_cost_per_barrel: float = 0.05
 
     def validate(self) -> None:
         """Validate configuration values."""
         if self.initial_capital <= 0:
-            raise ConfigurationError(
-                "initial_capital must be positive", value=self.initial_capital
-            )
+            raise ConfigurationError("initial_capital must be positive", value=self.initial_capital)
         if self.position_size_pct <= 0 or self.position_size_pct > 1:
             raise ConfigurationError(
                 "position_size_pct must be in (0, 1]", value=self.position_size_pct
@@ -181,20 +180,16 @@ class RLConfig:
 
     # Environment
     max_episode_steps: int = 1000
-    seed: Optional[int] = None
+    seed: int | None = None
 
     def validate(self) -> None:
         """Validate configuration values."""
         if self.learning_rate <= 0:
-            raise ConfigurationError(
-                "learning_rate must be positive", value=self.learning_rate
-            )
+            raise ConfigurationError("learning_rate must be positive", value=self.learning_rate)
         if not 0 < self.gamma <= 1:
             raise ConfigurationError("gamma must be in (0, 1]", value=self.gamma)
         if self.batch_size < 1:
-            raise ConfigurationError(
-                "batch_size must be at least 1", value=self.batch_size
-            )
+            raise ConfigurationError("batch_size must be at least 1", value=self.batch_size)
 
 
 @dataclass
@@ -253,7 +248,7 @@ class SpreadTradingConfig:
     zscore_lookback: int = 60
     entry_zscore: float = 2.0
     exit_zscore: float = 0.0
-    stop_loss_zscore: Optional[float] = 5.0
+    stop_loss_zscore: float | None = 5.0
 
     # Position sizing
     position_size_barrels: int = 1000
@@ -278,10 +273,7 @@ class SpreadTradingConfig:
                 exit_zscore=self.exit_zscore,
                 entry_zscore=self.entry_zscore,
             )
-        if (
-            self.stop_loss_zscore is not None
-            and self.stop_loss_zscore <= self.entry_zscore
-        ):
+        if self.stop_loss_zscore is not None and self.stop_loss_zscore <= self.entry_zscore:
             raise ConfigurationError(
                 "stop_loss_zscore must be greater than entry_zscore",
                 stop_loss_zscore=self.stop_loss_zscore,
@@ -290,13 +282,11 @@ class SpreadTradingConfig:
 
 
 # Type alias for all config types
-ConfigType = Union[
-    BacktestConfig, FeatureConfig, RLConfig, RiskConfig, SpreadTradingConfig
-]
+ConfigType = BacktestConfig | FeatureConfig | RLConfig | RiskConfig | SpreadTradingConfig
 
 
 def load_config_from_yaml(
-    path: Union[str, Path],
+    path: str | Path,
     config_class: type,
     validate: bool = True,
 ) -> ConfigType:
@@ -317,17 +307,13 @@ def load_config_from_yaml(
     path = Path(path)
 
     if not path.exists():
-        raise ConfigurationError(
-            f"Configuration file not found: {path}", path=str(path)
-        )
+        raise ConfigurationError(f"Configuration file not found: {path}", path=str(path))
 
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             data = yaml.safe_load(f)
     except yaml.YAMLError as e:
-        raise ConfigurationError(
-            f"Invalid YAML in configuration file: {e}", path=str(path)
-        )
+        raise ConfigurationError(f"Invalid YAML in configuration file: {e}", path=str(path)) from e
 
     if data is None:
         data = {}
@@ -346,7 +332,7 @@ def load_config_from_yaml(
 
 def save_config_to_yaml(
     config: ConfigType,
-    path: Union[str, Path],
+    path: str | Path,
 ) -> None:
     """
     Save configuration to YAML file.
@@ -362,14 +348,14 @@ def save_config_to_yaml(
         yaml.dump(asdict(config), f, default_flow_style=False, sort_keys=False)
 
 
-def config_to_dict(config: ConfigType) -> Dict[str, Any]:
+def config_to_dict(config: ConfigType) -> dict[str, Any]:
     """Convert configuration to dictionary."""
     return asdict(config)
 
 
 def merge_configs(
     base: ConfigType,
-    override: Dict[str, Any],
+    override: dict[str, Any],
 ) -> ConfigType:
     """
     Merge override dictionary into base config.

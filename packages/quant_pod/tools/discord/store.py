@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import duckdb
 from loguru import logger
@@ -45,7 +44,7 @@ class DiscordStore:
     safely and we avoid holding a long-lived connection across async awaits.
     """
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         raw = db_path or os.getenv("DISCORD_DB_PATH") or _DEFAULT_DB
         self.db_path = str(Path(raw).expanduser().resolve())
         self._init_schema()
@@ -95,7 +94,7 @@ class DiscordStore:
 
         return len(rows)
 
-    def get_latest_message_id(self, channel_id: str) -> Optional[str]:
+    def get_latest_message_id(self, channel_id: str) -> str | None:
         """
         Return the snowflake ID of the most recently stored message for a
         given channel. Used as the `after=` cursor for incremental fetches.
@@ -116,8 +115,8 @@ class DiscordStore:
     def get_messages(
         self,
         label: str,
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None,
+        date_from: datetime | None = None,
+        date_to: datetime | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """Query stored messages for a label, optionally bounded by date."""

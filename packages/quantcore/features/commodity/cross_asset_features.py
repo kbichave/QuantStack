@@ -4,13 +4,11 @@ Cross-asset features for commodity trading.
 Computes correlations and relationships with USD, equities, rates, and other commodities.
 """
 
-from typing import List, Optional, Dict
-import pandas as pd
 import numpy as np
-from loguru import logger
+import pandas as pd
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class CrossAssetFeatures(FeatureBase):
@@ -58,7 +56,7 @@ class CrossAssetFeatures(FeatureBase):
     def compute(
         self,
         df: pd.DataFrame,
-        cross_asset_data: Optional[Dict[str, pd.DataFrame]] = None,
+        cross_asset_data: dict[str, pd.DataFrame] | None = None,
     ) -> pd.DataFrame:
         """
         Compute cross-asset features.
@@ -102,13 +100,9 @@ class CrossAssetFeatures(FeatureBase):
 
         # Other commodities
         if "GLD" in cross_asset_data:
-            result = self._compute_commodity_features(
-                result, cross_asset_data["GLD"], "gold"
-            )
+            result = self._compute_commodity_features(result, cross_asset_data["GLD"], "gold")
         if "COPX" in cross_asset_data:
-            result = self._compute_commodity_features(
-                result, cross_asset_data["COPX"], "copper"
-            )
+            result = self._compute_commodity_features(result, cross_asset_data["COPX"], "copper")
 
         # Aggregate cross-asset signal
         result = self._compute_aggregate_signal(result)
@@ -132,9 +126,7 @@ class CrossAssetFeatures(FeatureBase):
         usd_returns = usd_data.loc[common_idx, "close"].pct_change()
 
         # Rolling correlation
-        result["wti_usd_corr"] = wti_returns.rolling(self.corr_lookback).corr(
-            usd_returns
-        )
+        result["wti_usd_corr"] = wti_returns.rolling(self.corr_lookback).corr(usd_returns)
 
         # USD momentum
         usd_mom = usd_data["close"].pct_change(self.div_lookback)
@@ -171,9 +163,7 @@ class CrossAssetFeatures(FeatureBase):
                 "STRONG"
                 if x in usd_strength.index and usd_strength.loc[x] > 0.02
                 else (
-                    "WEAK"
-                    if x in usd_strength.index and usd_strength.loc[x] < -0.02
-                    else "NEUTRAL"
+                    "WEAK" if x in usd_strength.index and usd_strength.loc[x] < -0.02 else "NEUTRAL"
                 )
             )
         )
@@ -196,9 +186,7 @@ class CrossAssetFeatures(FeatureBase):
         xle_returns = xle_data.loc[common_idx, "close"].pct_change()
 
         # Rolling correlation
-        result["wti_xle_corr"] = wti_returns.rolling(self.corr_lookback).corr(
-            xle_returns
-        )
+        result["wti_xle_corr"] = wti_returns.rolling(self.corr_lookback).corr(xle_returns)
 
         # XLE relative strength
         xle_roc = xle_data["close"].pct_change(self.div_lookback)
@@ -263,9 +251,7 @@ class CrossAssetFeatures(FeatureBase):
         rates_returns = rates_data.loc[common_idx, "close"].pct_change()
 
         # Rolling correlation
-        result["wti_rates_corr"] = wti_returns.rolling(self.corr_lookback).corr(
-            rates_returns
-        )
+        result["wti_rates_corr"] = wti_returns.rolling(self.corr_lookback).corr(rates_returns)
 
         # Rates momentum
         rates_mom = rates_data["close"].pct_change(self.div_lookback)
@@ -302,9 +288,7 @@ class CrossAssetFeatures(FeatureBase):
         vix_returns = vix_data.loc[common_idx, "close"].pct_change()
 
         # Rolling correlation
-        result["wti_vix_corr"] = wti_returns.rolling(self.corr_lookback).corr(
-            vix_returns
-        )
+        result["wti_vix_corr"] = wti_returns.rolling(self.corr_lookback).corr(vix_returns)
 
         # VIX level
         result["vix_level"] = result.index.map(
@@ -356,9 +340,9 @@ class CrossAssetFeatures(FeatureBase):
         commodity_returns = commodity_data.loc[common_idx, "close"].pct_change()
 
         # Rolling correlation
-        result[f"wti_{commodity_name}_corr"] = wti_returns.rolling(
-            self.corr_lookback
-        ).corr(commodity_returns)
+        result[f"wti_{commodity_name}_corr"] = wti_returns.rolling(self.corr_lookback).corr(
+            commodity_returns
+        )
 
         # Relative performance
         commodity_roc = commodity_data["close"].pct_change(self.div_lookback)
@@ -388,9 +372,7 @@ class CrossAssetFeatures(FeatureBase):
 
         # USD impact
         if "wti_usd_divergence" in result.columns:
-            signal += (
-                result["wti_usd_divergence"] * -1
-            )  # Divergence = mean reversion opportunity
+            signal += result["wti_usd_divergence"] * -1  # Divergence = mean reversion opportunity
 
         # XLE divergence
         if "wti_xle_divergence" in result.columns:
@@ -481,7 +463,7 @@ class CrossAssetFeatures(FeatureBase):
             result[col] = np.nan
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get list of feature names produced by this class."""
         return [
             # USD features

@@ -4,13 +4,11 @@ Tests for complete technical indicators suite.
 Tests all 57 indicators for correctness, performance, and integration.
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-
-from quantcore.features.technical_indicators import TechnicalIndicators
+import pandas as pd
+import pytest
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.technical_indicators import TechnicalIndicators
 
 
 @pytest.fixture
@@ -150,9 +148,7 @@ class TestOscillators:
         # Histogram should be difference
         hist = result["macd_histogram"].dropna()
         expected_hist = (result["macd_line"] - result["macd_signal"]).dropna()
-        pd.testing.assert_series_equal(
-            hist, expected_hist.loc[hist.index], check_names=False
-        )
+        pd.testing.assert_series_equal(hist, expected_hist.loc[hist.index], check_names=False)
 
     def test_stochastic(self, sample_ohlcv):
         """Test Stochastic oscillator."""
@@ -339,9 +335,7 @@ class TestIntegration:
         for col in ["rsi", "macd_line", "atr"]:
             if col in result.columns:
                 corr = result[col].corr(result["close"].shift(-1))
-                assert (
-                    abs(corr) < 0.95
-                ), f"{col} suspiciously high correlation with future"
+                assert abs(corr) < 0.95, f"{col} suspiciously high correlation with future"
 
     def test_performance(self, sample_ohlcv):
         """Test computation performance."""
@@ -350,7 +344,7 @@ class TestIntegration:
         ti = TechnicalIndicators(Timeframe.H1, enable_hilbert=False)
 
         start = time.time()
-        result = ti.compute(sample_ohlcv)
+        ti.compute(sample_ohlcv)
         elapsed = time.time() - start
 
         # Should compute in reasonable time (<1s for 500 rows)

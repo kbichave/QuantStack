@@ -14,13 +14,12 @@ References:
     TA-Lib: https://mrjbq7.github.io/ta-lib/func_groups/pattern_recognition.html
 """
 
-from typing import List
-import pandas as pd
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 # Import TA-Lib (optional dependency)
 try:
@@ -81,9 +80,7 @@ class CandlestickPatternFeatures(FeatureBase):
         result = df.copy()
 
         if len(result) < 10:
-            logger.warning(
-                f"Insufficient data for pattern recognition: {len(result)} bars"
-            )
+            logger.warning(f"Insufficient data for pattern recognition: {len(result)} bars")
             for col in self.get_feature_names():
                 result[col] = 0
             return result
@@ -167,9 +164,7 @@ class CandlestickPatternFeatures(FeatureBase):
                 talib.CDL3LINESTRIKE(open_prices, high_prices, low_prices, close_prices)
             )
             result["cdl_rising_three_methods"] = self._normalize_pattern(
-                talib.CDLRISEFALL3METHODS(
-                    open_prices, high_prices, low_prices, close_prices
-                )
+                talib.CDLRISEFALL3METHODS(open_prices, high_prices, low_prices, close_prices)
             )
 
         # === AGGREGATE FEATURES ===
@@ -240,8 +235,7 @@ class CandlestickPatternFeatures(FeatureBase):
 
             # Check if they're similar (within 2%)
             if (
-                abs(window_low[lowest_idx] - window_low[second_lowest_idx])
-                / window_low[lowest_idx]
+                abs(window_low[lowest_idx] - window_low[second_lowest_idx]) / window_low[lowest_idx]
                 > 0.02
             ):
                 continue
@@ -323,7 +317,7 @@ class CandlestickPatternFeatures(FeatureBase):
 
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of candlestick pattern feature names."""
         features = [
             # Single candle patterns

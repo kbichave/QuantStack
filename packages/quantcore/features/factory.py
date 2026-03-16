@@ -4,31 +4,29 @@ Multi-timeframe feature factory.
 Orchestrates feature computation across all timeframes with cross-TF context injection.
 """
 
-from typing import Dict, List, Optional
 import pandas as pd
-import numpy as np
 from loguru import logger
 
-from quantcore.validation.input_validation import DataFrameValidator
 from quantcore.config.timeframes import (
-    Timeframe,
     TIMEFRAME_HIERARCHY,
+    Timeframe,
     get_higher_timeframes,
 )
-from quantcore.features.trend import TrendFeatures
+from quantcore.features.candlestick_patterns import CandlestickPatternFeatures
+from quantcore.features.gann import GannFeatures
+from quantcore.features.market_structure import MarketStructureFeatures
 from quantcore.features.momentum import MomentumFeatures
+from quantcore.features.quantagents_pattern import QuantAgentsPatternFeatures
+from quantcore.features.quantagents_trend import QuantAgentsTrendFeatures
+from quantcore.features.rrg import RRGFeatures
+from quantcore.features.sentiment_features import SentimentFeatures
+from quantcore.features.technical_indicators import TechnicalIndicators
+from quantcore.features.trend import TrendFeatures
+from quantcore.features.trendlines import TrendlineFeatures
 from quantcore.features.volatility import VolatilityFeatures
 from quantcore.features.volume import VolumeFeatures
-from quantcore.features.market_structure import MarketStructureFeatures
-from quantcore.features.rrg import RRGFeatures
 from quantcore.features.waves import WaveFeatures
-from quantcore.features.technical_indicators import TechnicalIndicators
-from quantcore.features.trendlines import TrendlineFeatures
-from quantcore.features.candlestick_patterns import CandlestickPatternFeatures
-from quantcore.features.quantagents_trend import QuantAgentsTrendFeatures
-from quantcore.features.quantagents_pattern import QuantAgentsPatternFeatures
-from quantcore.features.gann import GannFeatures
-from quantcore.features.sentiment_features import SentimentFeatures
+from quantcore.validation.input_validation import DataFrameValidator
 
 
 class MultiTimeframeFeatureFactory:
@@ -87,7 +85,7 @@ class MultiTimeframeFeatureFactory:
             mr_lookback: Mean reversion lookback period (default 20)
             mr_zscore_threshold: Z-score threshold for mean reversion signals (default 2.0)
         """
-        self._feature_computers: Dict[Timeframe, dict] = {}
+        self._feature_computers: dict[Timeframe, dict] = {}
         self.include_waves = include_waves
         self.include_rrg = include_rrg
         self.include_technical_indicators = include_technical_indicators
@@ -113,15 +111,13 @@ class MultiTimeframeFeatureFactory:
 
             # Technical indicators from AlphaVantage
             if include_technical_indicators:
-                self._feature_computers[tf]["technical_indicators"] = (
-                    TechnicalIndicators(
-                        tf,
-                        enable_moving_averages=enable_moving_averages,
-                        enable_oscillators=enable_oscillators,
-                        enable_volatility=enable_volatility_indicators,
-                        enable_volume=enable_volume_indicators,
-                        enable_hilbert=enable_hilbert,
-                    )
+                self._feature_computers[tf]["technical_indicators"] = TechnicalIndicators(
+                    tf,
+                    enable_moving_averages=enable_moving_averages,
+                    enable_oscillators=enable_oscillators,
+                    enable_volatility=enable_volatility_indicators,
+                    enable_volume=enable_volume_indicators,
+                    enable_hilbert=enable_hilbert,
                 )
 
             # RRG features require benchmark data
@@ -140,20 +136,16 @@ class MultiTimeframeFeatureFactory:
 
             # Candlestick pattern recognition
             if include_candlestick_patterns:
-                self._feature_computers[tf]["candlestick_patterns"] = (
-                    CandlestickPatternFeatures(tf)
-                )
+                self._feature_computers[tf]["candlestick_patterns"] = CandlestickPatternFeatures(tf)
 
             # QuantAgents trend features (multi-horizon trend analysis)
             if include_quant_trend:
-                self._feature_computers[tf]["quant_trend"] = QuantAgentsTrendFeatures(
-                    tf
-                )
+                self._feature_computers[tf]["quant_trend"] = QuantAgentsTrendFeatures(tf)
 
             # QuantAgents pattern features (price action patterns)
             if include_quant_pattern:
-                self._feature_computers[tf]["quant_pattern"] = (
-                    QuantAgentsPatternFeatures(tf, lookback_period=trendline_lookback)
+                self._feature_computers[tf]["quant_pattern"] = QuantAgentsPatternFeatures(
+                    tf, lookback_period=trendline_lookback
                 )
 
             # Gann features (swing/pivot points, retracements, price-time)
@@ -166,11 +158,11 @@ class MultiTimeframeFeatureFactory:
 
     def compute_all_timeframes(
         self,
-        data: Dict[Timeframe, pd.DataFrame],
-        benchmark_data: Optional[Dict[Timeframe, pd.DataFrame]] = None,
-        news_sentiment_data: Optional[pd.DataFrame] = None,
+        data: dict[Timeframe, pd.DataFrame],
+        benchmark_data: dict[Timeframe, pd.DataFrame] | None = None,
+        news_sentiment_data: pd.DataFrame | None = None,
         lag_features: bool = True,
-    ) -> Dict[Timeframe, pd.DataFrame]:
+    ) -> dict[Timeframe, pd.DataFrame]:
         """
         Compute features for all timeframes with cross-TF context.
 
@@ -201,9 +193,7 @@ class MultiTimeframeFeatureFactory:
                 validation_result.log_warnings()
             elif not validation_result.is_valid:
                 # For resampled TFs, just log warnings and forward-fill NaN values
-                logger.warning(
-                    f"Resampled {tf.value} has gaps, forward-filling NaN values"
-                )
+                logger.warning(f"Resampled {tf.value} has gaps, forward-filling NaN values")
                 df.ffill(inplace=True)
                 df.bfill(inplace=True)  # Fill any remaining at start
 
@@ -218,7 +208,7 @@ class MultiTimeframeFeatureFactory:
                     df.ffill(inplace=True)
                     df.bfill(inplace=True)
 
-        result: Dict[Timeframe, pd.DataFrame] = {}
+        result: dict[Timeframe, pd.DataFrame] = {}
 
         # First pass: compute features for each timeframe independently
         for tf in TIMEFRAME_HIERARCHY:
@@ -265,8 +255,8 @@ class MultiTimeframeFeatureFactory:
         self,
         df: pd.DataFrame,
         timeframe: Timeframe,
-        benchmark_df: Optional[pd.DataFrame] = None,
-        news_sentiment_data: Optional[pd.DataFrame] = None,
+        benchmark_df: pd.DataFrame | None = None,
+        news_sentiment_data: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
         Compute all features for a single timeframe.
@@ -525,16 +515,14 @@ class MultiTimeframeFeatureFactory:
         for col in available_features:
             result[f"{prefix}{col}"] = higher_reindexed[col]
 
-        logger.debug(
-            f"Injected {len(available_features)} features from {tf_higher.value}"
-        )
+        logger.debug(f"Injected {len(available_features)} features from {tf_higher.value}")
 
         return result
 
     def _lag_feature_columns(
         self,
         df: pd.DataFrame,
-        feature_cols: List[str],
+        feature_cols: list[str],
         lag: int = 1,
     ) -> pd.DataFrame:
         """Lag feature columns to prevent lookahead bias."""
@@ -551,7 +539,7 @@ class MultiTimeframeFeatureFactory:
 
         return result
 
-    def _get_all_feature_names(self, timeframe: Timeframe) -> List[str]:
+    def _get_all_feature_names(self, timeframe: Timeframe) -> list[str]:
         """Get all feature names for a timeframe (deduplicated)."""
         names = []
         seen = set()
@@ -564,8 +552,8 @@ class MultiTimeframeFeatureFactory:
 
     def get_feature_group_mapping(
         self,
-        feature_names: List[str],
-    ) -> Dict[str, str]:
+        feature_names: list[str],
+    ) -> dict[str, str]:
         """
         Create mapping from feature names to their group tags.
 
@@ -641,7 +629,7 @@ class MultiTimeframeFeatureFactory:
         timeframe: Timeframe,
         include_higher_tf: bool = True,
         include_wave_features: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Get feature names suitable for ML model input.
 
@@ -693,9 +681,9 @@ class MultiTimeframeFeatureFactory:
     def compute_single_bar(
         self,
         current_bar: pd.Series,
-        historical_data: Dict[Timeframe, pd.DataFrame],
-        benchmark_data: Optional[Dict[Timeframe, pd.DataFrame]] = None,
-    ) -> Dict[Timeframe, pd.Series]:
+        historical_data: dict[Timeframe, pd.DataFrame],
+        benchmark_data: dict[Timeframe, pd.DataFrame] | None = None,
+    ) -> dict[Timeframe, pd.Series]:
         """
         Compute features for a single new bar (for live trading).
 

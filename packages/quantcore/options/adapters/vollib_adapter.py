@@ -13,7 +13,8 @@ This adapter isolates the external library and provides a clean interface
 for QuantCore's options engine and MCP tools.
 """
 
-from typing import Dict, Literal, Optional, Union, List
+from typing import Literal
+
 import numpy as np
 from loguru import logger
 
@@ -29,16 +30,14 @@ def _normalize_option_type(option_type: OptionTypeStr) -> str:
     elif opt in ("put", "p"):
         return "p"
     else:
-        raise ValueError(
-            f"Invalid option type: {option_type}. Must be 'call', 'put', 'c', or 'p'."
-        )
+        raise ValueError(f"Invalid option type: {option_type}. Must be 'call', 'put', 'c', or 'p'.")
 
 
 def _validate_inputs(
     spot: float,
     strike: float,
     time_to_expiry: float,
-    vol: Optional[float] = None,
+    vol: float | None = None,
     rate: float = 0.0,
 ) -> None:
     """Validate common inputs for pricing functions."""
@@ -124,12 +123,10 @@ def bs_price_vollib(
             return float(price)
 
         except ImportError:
-            logger.warning(
-                "vollib not available, falling back to internal BS implementation"
-            )
+            logger.warning("vollib not available, falling back to internal BS implementation")
             # Fall back to internal implementation
-            from quantcore.options.pricing import black_scholes_price
             from quantcore.options.models import OptionType
+            from quantcore.options.pricing import black_scholes_price
 
             opt_enum = OptionType.CALL if opt_type == "c" else OptionType.PUT
             return black_scholes_price(
@@ -152,7 +149,7 @@ def implied_vol_vollib(
     option_price: float,
     option_type: OptionTypeStr = "call",
     tolerance: float = 1e-6,
-) -> Optional[float]:
+) -> float | None:
     """
     Calculate implied volatility from market price using vollib.
 
@@ -244,12 +241,10 @@ def implied_vol_vollib(
             return result
 
         except (ImportError, Exception) as e:
-            logger.warning(
-                f"vollib IV calculation failed: {e}, falling back to internal"
-            )
+            logger.warning(f"vollib IV calculation failed: {e}, falling back to internal")
             # Fall back to internal implementation
-            from quantcore.options.pricing import implied_volatility
             from quantcore.options.models import OptionType
+            from quantcore.options.pricing import implied_volatility
 
             opt_enum = OptionType.CALL if opt_type == "c" else OptionType.PUT
             return implied_volatility(
@@ -274,7 +269,7 @@ def greeks_vollib(
     rate: float = 0.05,
     dividend_yield: float = 0.0,
     option_type: OptionTypeStr = "call",
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Calculate option Greeks using vollib.
 
@@ -317,10 +312,18 @@ def greeks_vollib(
         # Try vectorized Greeks
         from py_vollib_vectorized.greeks import (
             delta as delta_func,
+        )
+        from py_vollib_vectorized.greeks import (
             gamma as gamma_func,
-            theta as theta_func,
-            vega as vega_func,
+        )
+        from py_vollib_vectorized.greeks import (
             rho as rho_func,
+        )
+        from py_vollib_vectorized.greeks import (
+            theta as theta_func,
+        )
+        from py_vollib_vectorized.greeks import (
+            vega as vega_func,
         )
 
         common_args = {
@@ -352,10 +355,18 @@ def greeks_vollib(
         try:
             from py_vollib.black_scholes_merton.greeks.analytical import (
                 delta as delta_func,
+            )
+            from py_vollib.black_scholes_merton.greeks.analytical import (
                 gamma as gamma_func,
-                theta as theta_func,
-                vega as vega_func,
+            )
+            from py_vollib.black_scholes_merton.greeks.analytical import (
                 rho as rho_func,
+            )
+            from py_vollib.black_scholes_merton.greeks.analytical import (
+                theta as theta_func,
+            )
+            from py_vollib.black_scholes_merton.greeks.analytical import (
+                vega as vega_func,
             )
 
             common_args = {
@@ -383,11 +394,9 @@ def greeks_vollib(
             }
 
         except ImportError:
-            logger.warning(
-                "vollib not available, falling back to internal Greeks implementation"
-            )
-            from quantcore.options.pricing import black_scholes_greeks
+            logger.warning("vollib not available, falling back to internal Greeks implementation")
             from quantcore.options.models import OptionType
+            from quantcore.options.pricing import black_scholes_greeks
 
             opt_enum = OptionType.CALL if opt_type == "c" else OptionType.PUT
             greeks = black_scholes_greeks(
@@ -410,13 +419,13 @@ def greeks_vollib(
 
 
 def bs_price_vectorized(
-    spots: Union[np.ndarray, List[float]],
-    strikes: Union[np.ndarray, List[float]],
-    times_to_expiry: Union[np.ndarray, List[float]],
-    vols: Union[np.ndarray, List[float]],
-    rates: Union[np.ndarray, List[float], float] = 0.05,
-    dividend_yields: Union[np.ndarray, List[float], float] = 0.0,
-    option_types: Union[np.ndarray, List[str], str] = "call",
+    spots: np.ndarray | list[float],
+    strikes: np.ndarray | list[float],
+    times_to_expiry: np.ndarray | list[float],
+    vols: np.ndarray | list[float],
+    rates: np.ndarray | list[float] | float = 0.05,
+    dividend_yields: np.ndarray | list[float] | float = 0.0,
+    option_types: np.ndarray | list[str] | str = "call",
 ) -> np.ndarray:
     """
     Vectorized Black-Scholes-Merton pricing for multiple options.
@@ -486,13 +495,13 @@ def bs_price_vectorized(
 
 
 def implied_vol_vectorized(
-    spots: Union[np.ndarray, List[float]],
-    strikes: Union[np.ndarray, List[float]],
-    times_to_expiry: Union[np.ndarray, List[float]],
-    rates: Union[np.ndarray, List[float]],
-    dividend_yields: Union[np.ndarray, List[float]],
-    option_prices: Union[np.ndarray, List[float]],
-    option_types: Union[np.ndarray, List[str], str] = "call",
+    spots: np.ndarray | list[float],
+    strikes: np.ndarray | list[float],
+    times_to_expiry: np.ndarray | list[float],
+    rates: np.ndarray | list[float],
+    dividend_yields: np.ndarray | list[float],
+    option_prices: np.ndarray | list[float],
+    option_types: np.ndarray | list[str] | str = "call",
 ) -> np.ndarray:
     """
     Vectorized implied volatility calculation.

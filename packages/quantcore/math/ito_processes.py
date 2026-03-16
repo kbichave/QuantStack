@@ -4,8 +4,9 @@ Ito Processes and Stochastic Integration.
 Numerical methods for solving stochastic differential equations (SDEs).
 """
 
+from collections.abc import Callable
+
 import numpy as np
-from typing import Callable, Optional, Tuple
 
 
 def euler_maruyama(
@@ -15,8 +16,8 @@ def euler_maruyama(
     T: float,
     n_steps: int,
     n_paths: int = 1,
-    seed: Optional[int] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+    seed: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Euler-Maruyama method for SDE simulation.
 
@@ -61,8 +62,8 @@ def milstein(
     T: float,
     n_steps: int,
     n_paths: int = 1,
-    seed: Optional[int] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+    seed: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Milstein method for SDE simulation (higher order).
 
@@ -108,8 +109,8 @@ def ornstein_uhlenbeck(
     T: float,
     n_steps: int,
     n_paths: int = 1,
-    seed: Optional[int] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+    seed: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Simulate Ornstein-Uhlenbeck process.
 

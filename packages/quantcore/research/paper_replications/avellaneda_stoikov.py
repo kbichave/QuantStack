@@ -11,9 +11,9 @@ Key Results:
     - Inventory risk management through quote skewing
 """
 
-import numpy as np
-from typing import Optional
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -86,9 +86,7 @@ class AvellanedaStoikovMM:
         quotes = mm.get_quotes(mid_price=100.0, inventory=5, volatility=0.20, time_remaining=0.5)
     """
 
-    def __init__(
-        self, gamma: float = 0.1, kappa: float = 1.5, max_inventory: int = 100
-    ):
+    def __init__(self, gamma: float = 0.1, kappa: float = 1.5, max_inventory: int = 100):
         self.gamma = gamma
         self.kappa = kappa
         self.max_inventory = max_inventory
@@ -101,9 +99,7 @@ class AvellanedaStoikovMM:
         time_remaining: float,
     ) -> QuoteResult:
         """Calculate optimal bid and ask quotes."""
-        r = reservation_price(
-            mid_price, inventory, volatility, time_remaining, self.gamma
-        )
+        r = reservation_price(mid_price, inventory, volatility, time_remaining, self.gamma)
         delta = optimal_spread(volatility, time_remaining, self.gamma, self.kappa)
 
         return QuoteResult(
@@ -118,7 +114,7 @@ class AvellanedaStoikovMM:
         initial_mid: float,
         volatility: float,
         n_steps: int = 1000,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> dict:
         """Simulate a trading session."""
         if seed is not None:
@@ -134,17 +130,11 @@ class AvellanedaStoikovMM:
             time_remaining = 1.0 - t / n_steps
             quotes = self.get_quotes(mid, inventory, volatility, time_remaining)
 
-            if (
-                np.random.random() < self.kappa * dt * 0.5
-                and inventory < self.max_inventory
-            ):
+            if np.random.random() < self.kappa * dt * 0.5 and inventory < self.max_inventory:
                 inventory += 1
                 pnl -= quotes.bid_price
 
-            if (
-                np.random.random() < self.kappa * dt * 0.5
-                and inventory > -self.max_inventory
-            ):
+            if np.random.random() < self.kappa * dt * 0.5 and inventory > -self.max_inventory:
                 inventory -= 1
                 pnl += quotes.ask_price
 

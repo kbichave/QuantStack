@@ -7,11 +7,8 @@ Validates:
 - Proper handling of different frequencies
 """
 
-from datetime import datetime, timedelta
-
 import pandas as pd
 import pytest
-
 from quantcore.data.economic_storage import EconomicStorage
 from quantcore.features.economic_features import (
     EconomicFeatureEngineer,
@@ -122,9 +119,7 @@ def test_yield_curve_features(mock_economic_data, tmp_path):
     storage.store_indicator("treasury_3m", treasury_3m)
 
     engineer = EconomicFeatureEngineer(storage)
-    features = engineer.create_daily_features(
-        pd.date_range("2020-01-01", "2020-12-31", freq="D")
-    )
+    features = engineer.create_daily_features(pd.date_range("2020-01-01", "2020-12-31", freq="D"))
 
     # Check yield curve spread is calculated
     assert "yield_curve_10y3m" in features.columns

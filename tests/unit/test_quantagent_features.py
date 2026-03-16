@@ -8,14 +8,12 @@ Verifies:
 4. Pattern detection identifies known patterns
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-from datetime import datetime
-
+import pandas as pd
 from quantcore.config.timeframes import Timeframe
-from quantcore.features.trendlines import TrendlineFeatures
 from quantcore.features.candlestick_patterns import CandlestickPatternFeatures
+from quantcore.features.trendlines import TrendlineFeatures
+
 from tests.conftest import make_ohlcv_df
 
 
@@ -43,9 +41,7 @@ class TestTrendlineFeatures:
             assert feature_name in result.columns, f"Missing feature: {feature_name}"
 
         # After warmup, should have valid trendlines
-        assert (
-            result["tl_support_slope_close"].iloc[-1] > 0
-        ), "Uptrend should have positive slope"
+        assert result["tl_support_slope_close"].iloc[-1] > 0, "Uptrend should have positive slope"
         assert not np.isnan(result["tl_support_slope_close"].iloc[-1])
 
     def test_trendline_computation_downtrend(self):
@@ -58,9 +54,7 @@ class TestTrendlineFeatures:
         result = tl.compute(df)
 
         # Downtrend should have negative slope
-        assert (
-            result["tl_support_slope_close"].iloc[-1] < 0
-        ), "Downtrend should have negative slope"
+        assert result["tl_support_slope_close"].iloc[-1] < 0, "Downtrend should have negative slope"
         assert result["tl_resist_slope_close"].iloc[-1] < 0
 
     def test_trendline_channel_width(self):
@@ -87,9 +81,7 @@ class TestTrendlineFeatures:
 
         # Price position should be near 0 (at support)
         price_pos = result["tl_price_position"].iloc[-1]
-        assert (
-            0 <= price_pos <= 1
-        ), f"Price position should be in [0,1], got {price_pos}"
+        assert 0 <= price_pos <= 1, f"Price position should be in [0,1], got {price_pos}"
 
     def test_trendline_breakout_detection(self):
         """Test breakout signal generation."""
@@ -171,8 +163,7 @@ class TestCandlestickPatternFeatures:
         for col in [
             c
             for c in result.columns
-            if c.startswith("cdl_")
-            and c not in ["cdl_bullish_count", "cdl_bearish_count"]
+            if c.startswith("cdl_") and c not in ["cdl_bullish_count", "cdl_bearish_count"]
         ]:
             values = result[col].dropna()
             if len(values) > 0:
@@ -393,9 +384,9 @@ class TestQuantAgentIntegration:
 
         # Check that H4 prefix is used for injected features
         h4_columns = [col for col in h1_features.columns if col.startswith("4H_")]
-        assert (
-            len(h4_columns) > 0
-        ), f"Expected H4 context features but found: {[c for c in h1_features.columns if 'tl_' in c or 'cdl_' in c][:10]}"
+        assert len(h4_columns) > 0, (
+            f"Expected H4 context features but found: {[c for c in h1_features.columns if 'tl_' in c or 'cdl_' in c][:10]}"
+        )
 
         # Check specific features if they exist in H4 data first
         h4_features = result[Timeframe.H4]

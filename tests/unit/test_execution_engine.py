@@ -12,25 +12,21 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
-
 from quantcore.execution.async_execution_loop import AsyncExecutionLoop
 from quantcore.execution.broker import BrokerInterface
-from quantcore.execution.fill_tracker import FillEvent, FillTracker, LivePosition
+from quantcore.execution.fill_tracker import FillEvent, FillTracker
 from quantcore.execution.kill_switch import KillSwitch, KillSwitchError
 from quantcore.execution.risk_gate import PreTradeRiskGate, RiskGateError, RiskLimits
 from quantcore.execution.smart_order_router import SmartOrderRouter, SmartOrderRouterError
 from quantcore.execution.unified_models import (
     UnifiedOrder,
     UnifiedOrderResult,
-    UnifiedQuote,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers / shared factories
@@ -42,7 +38,7 @@ def _order(
     side: str = "buy",
     qty: float = 10.0,
     order_type: str = "market",
-    limit_price: Optional[float] = None,
+    limit_price: float | None = None,
 ) -> UnifiedOrder:
     return UnifiedOrder(
         symbol=symbol,
@@ -66,7 +62,7 @@ def _fill(
         side=side,
         filled_qty=qty,
         avg_fill_price=price,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
@@ -93,7 +89,7 @@ def _result(
     )
 
 
-def _mock_broker(healthy: bool = True, result: Optional[UnifiedOrderResult] = None) -> MagicMock:
+def _mock_broker(healthy: bool = True, result: UnifiedOrderResult | None = None) -> MagicMock:
     """Return a MagicMock that satisfies BrokerInterface."""
     broker = MagicMock(spec=BrokerInterface)
     broker.check_auth.return_value = healthy
@@ -316,9 +312,7 @@ class TestPreTradeRiskGate:
 
     # --- Kill switch ---
 
-    def test_blocks_on_kill_switch(
-        self, gate: PreTradeRiskGate, ks: KillSwitch
-    ) -> None:
+    def test_blocks_on_kill_switch(self, gate: PreTradeRiskGate, ks: KillSwitch) -> None:
         ks.activate()
         with pytest.raises(RiskGateError) as exc_info:
             gate.check(_order("SPY", "buy", 10), current_price=100.0)
@@ -379,6 +373,7 @@ class TestPreTradeRiskGate:
 
     def test_rate_window_resets_after_ttl(self, gate: PreTradeRiskGate) -> None:
         import time
+
         # Manually stuff stale timestamps into the deque
         old_ts = time.monotonic() - 61.0
         for _ in range(10):
@@ -388,9 +383,7 @@ class TestPreTradeRiskGate:
 
     # --- Daily drawdown ---
 
-    def test_blocks_on_daily_loss(
-        self, gate: PreTradeRiskGate, tracker: FillTracker
-    ) -> None:
+    def test_blocks_on_daily_loss(self, gate: PreTradeRiskGate, tracker: FillTracker) -> None:
         # Buy at $100, current mark at $88 → open_pnl = 100 × (88 - 100) = -$1,200 < -$1,000
         tracker.update_fill(_fill("SPY", "buy", 100, 100.0))
         tracker.update_price("SPY", 88.0)
@@ -404,7 +397,7 @@ class TestPreTradeRiskGate:
         limits = RiskLimits(max_daily_loss=0.0)
         gate = PreTradeRiskGate(limits=limits, fill_tracker=tracker, kill_switch=ks)
         tracker.update_fill(_fill("SPY", "buy", 100, 100.0))
-        tracker.update_price("SPY", 1.0)   # catastrophic loss — still passes
+        tracker.update_price("SPY", 1.0)  # catastrophic loss — still passes
         gate.check(_order("SPY", "buy", 1), current_price=1.0)
 
     # --- record_submission ---
@@ -442,7 +435,7 @@ class TestSmartOrderRouter:
         ibkr_healthy: bool = True,
     ) -> SmartOrderRouter:
         alpaca = _mock_broker(healthy=alpaca_healthy, result=_result(order_id="ALP-001"))
-        ibkr   = _mock_broker(healthy=ibkr_healthy,  result=_result(order_id="IBK-001"))
+        ibkr = _mock_broker(healthy=ibkr_healthy, result=_result(order_id="IBK-001"))
         return SmartOrderRouter(
             alpaca_broker=alpaca,
             ibkr_broker=ibkr,
@@ -457,9 +450,7 @@ class TestSmartOrderRouter:
         result = router.route("ACC1", _order("SPY"), asset_class="equity")
         assert result.order_id == "ALP-001"
 
-    def test_equity_falls_back_to_ibkr_when_alpaca_unhealthy(
-        self, tracker: FillTracker
-    ) -> None:
+    def test_equity_falls_back_to_ibkr_when_alpaca_unhealthy(self, tracker: FillTracker) -> None:
         router = self._router(tracker, alpaca_healthy=False)
         result = router.route("ACC1", _order("SPY"), asset_class="equity")
         assert result.order_id == "IBK-001"
@@ -469,9 +460,7 @@ class TestSmartOrderRouter:
         result = router.route("ACC1", _order("ES"), asset_class="futures")
         assert result.order_id == "IBK-001"
 
-    def test_futures_raises_when_ibkr_not_configured(
-        self, tracker: FillTracker
-    ) -> None:
+    def test_futures_raises_when_ibkr_not_configured(self, tracker: FillTracker) -> None:
         alpaca = _mock_broker(healthy=True)
         router = SmartOrderRouter(alpaca_broker=alpaca, fill_tracker=tracker, paper=False)
         with pytest.raises(SmartOrderRouterError, match="IBKR"):
@@ -506,10 +495,12 @@ class TestSmartOrderRouter:
 
     def test_paper_mode_forces_alpaca(self, tracker: FillTracker) -> None:
         alpaca = _mock_broker(result=_result(order_id="PAPER-001"))
-        ibkr   = _mock_broker(result=_result(order_id="IBK-001"))
+        ibkr = _mock_broker(result=_result(order_id="IBK-001"))
         router = SmartOrderRouter(
-            alpaca_broker=alpaca, ibkr_broker=ibkr,
-            fill_tracker=tracker, paper=True,
+            alpaca_broker=alpaca,
+            ibkr_broker=ibkr,
+            fill_tracker=tracker,
+            paper=True,
         )
         result = router.route("ACC1", _order("GC"), asset_class="futures")
         assert result.order_id == "PAPER-001"
@@ -522,9 +513,7 @@ class TestSmartOrderRouter:
         assert "alpaca" in brokers
         assert "ibkr" in brokers
 
-    def test_available_brokers_empty_when_none_configured(
-        self, tracker: FillTracker
-    ) -> None:
+    def test_available_brokers_empty_when_none_configured(self, tracker: FillTracker) -> None:
         router = SmartOrderRouter(fill_tracker=tracker)
         assert router.available_brokers() == []
 
@@ -539,12 +528,15 @@ class TestSmartOrderRouter:
 
     def test_unhealthy_broker_skipped_on_retry(self, tracker: FillTracker) -> None:
         from quantcore.execution.broker import BrokerError
+
         alpaca = _mock_broker(healthy=True)
         alpaca.place_order.side_effect = BrokerError("rejected")
         ibkr = _mock_broker(healthy=True, result=_result(order_id="IBK-001"))
         router = SmartOrderRouter(
-            alpaca_broker=alpaca, ibkr_broker=ibkr,
-            fill_tracker=tracker, paper=False,
+            alpaca_broker=alpaca,
+            ibkr_broker=ibkr,
+            fill_tracker=tracker,
+            paper=False,
         )
         result = router.route("ACC1", _order("SPY"))
         assert result.order_id == "IBK-001"
@@ -562,12 +554,12 @@ def _warm_features(
     rsi: float = 50.0,
 ) -> object:
     """Build a minimal IncrementalFeatures-like object."""
-    from quantcore.data.streaming.incremental_features import IncrementalFeatures
     from quantcore.config.timeframes import Timeframe
+    from quantcore.data.streaming.incremental_features import IncrementalFeatures
 
     return IncrementalFeatures(
         symbol=symbol,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         timeframe=Timeframe.M1,
         close=close,
         ema_fast=close + ema_cross / 2,
@@ -789,7 +781,9 @@ class TestAsyncExecutionLoop:
 
         # features.close = 100 → 5×100=$500 > 100 → rejected
         loop = AsyncExecutionLoop(
-            buy_evaluator, gate, router,
+            buy_evaluator,
+            gate,
+            router,
             price_fn=lambda sym: 100.0,
         )
         await loop.start()

@@ -8,12 +8,10 @@ Comprehensive toolkit for detecting:
 - Information leakage through cross-validation
 """
 
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+
+import pandas as pd
 from scipy import stats
-from loguru import logger
 
 
 @dataclass
@@ -22,8 +20,8 @@ class LeakageReport:
 
     has_leakage: bool
     severity: str  # "none", "low", "medium", "high", "critical"
-    issues: List[Dict]
-    recommendations: List[str]
+    issues: list[dict]
+    recommendations: list[str]
 
 
 class LeakageDiagnostics:
@@ -222,7 +220,7 @@ class LeakageDiagnostics:
         label_idx = set(labels.index)
 
         only_in_features = feature_idx - label_idx
-        only_in_labels = label_idx - feature_idx
+        label_idx - feature_idx
 
         if len(only_in_features) > 0.1 * len(feature_idx):
             self.issues.append(
@@ -231,9 +229,7 @@ class LeakageDiagnostics:
                     "description": f"{len(only_in_features)} timestamps in features but not labels",
                 }
             )
-            self.recommendations.append(
-                "Check data pipeline for timestamp alignment issues"
-            )
+            self.recommendations.append("Check data pipeline for timestamp alignment issues")
 
     def _assess_severity(self) -> str:
         """Assess overall severity of detected issues."""
@@ -259,7 +255,7 @@ class LeakageDiagnostics:
 def detect_survivorship_bias(
     data: pd.DataFrame,
     min_history_years: float = 5,
-) -> Dict:
+) -> dict:
     """
     Detect potential survivorship bias in dataset.
 
@@ -306,7 +302,7 @@ def check_point_in_time_accuracy(
     data: pd.DataFrame,
     as_of_col: str,
     effective_col: str,
-) -> Dict:
+) -> dict:
     """
     Check if data respects point-in-time accuracy.
 
@@ -357,11 +353,11 @@ Issues Found ({len(report.issues)}):
     else:
         for i, issue in enumerate(report.issues, 1):
             output += f"""
-{i}. [{issue['type'].upper()}]
-   {issue['description']}
+{i}. [{issue["type"].upper()}]
+   {issue["description"]}
 """
 
-    output += f"""
+    output += """
 Recommendations:
 """
     if not report.recommendations:

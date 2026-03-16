@@ -5,14 +5,13 @@ Fundamental stochastic processes for financial modeling.
 """
 
 import numpy as np
-from typing import Optional, Tuple
 
 
 def brownian_motion(
     n_steps: int,
     dt: float = 1.0,
     n_paths: int = 1,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ) -> np.ndarray:
     """
     Simulate standard Brownian motion (Wiener process).
@@ -43,8 +42,8 @@ def geometric_brownian_motion(
     T: float,
     n_steps: int,
     n_paths: int = 1,
-    seed: Optional[int] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
+    seed: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Simulate Geometric Brownian Motion (GBM).
 
@@ -85,7 +84,7 @@ def simulate_gbm_paths(
     n_steps: int,
     n_paths: int,
     antithetic: bool = True,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ) -> np.ndarray:
     """
     Simulate GBM paths with variance reduction.

@@ -8,14 +8,12 @@ Implements the hybrid architecture:
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
 from enum import Enum
 
 import numpy as np
 import pandas as pd
-from loguru import logger
 
-from quantcore.rl.base import RLEnvironment, State, Action, Reward
+from quantcore.rl.base import Action, Reward, RLEnvironment, State
 
 
 class OptionsAction(Enum):
@@ -155,7 +153,7 @@ class OptionsEnvironment(RLEnvironment):
 
         return self._get_current_state()
 
-    def step(self, action: Action) -> Tuple[State, Reward, bool, Dict]:
+    def step(self, action: Action) -> tuple[State, Reward, bool, dict]:
         """
         Execute one step in the environment.
 
@@ -267,9 +265,7 @@ class OptionsEnvironment(RLEnvironment):
         return State(
             features=full_features,
             timestamp=(
-                self.data.index[self._current_step]
-                if self._current_step < len(self.data)
-                else None
+                self.data.index[self._current_step] if self._current_step < len(self.data) else None
             ),
             metadata={
                 "step": self._current_step,
@@ -278,7 +274,7 @@ class OptionsEnvironment(RLEnvironment):
             },
         )
 
-    def _action_to_direction(self, action: OptionsAction) -> Tuple[int, float]:
+    def _action_to_direction(self, action: OptionsAction) -> tuple[int, float]:
         """
         Convert action to direction and confidence.
 
@@ -326,9 +322,7 @@ class OptionsEnvironment(RLEnvironment):
             return 0.0
 
         # Estimate cost based on position size and spread
-        position_value = (
-            abs(self._position_delta) * self.data["close"].iloc[self._current_step]
-        )
+        position_value = abs(self._position_delta) * self.data["close"].iloc[self._current_step]
         cost = position_value * self.SPREAD_PCT + self.COMMISSION_PER_CONTRACT
 
         return cost
@@ -422,9 +416,7 @@ class OptionsEnvironment(RLEnvironment):
             return self.LAMBDA_MOMENTUM * abs(momentum) / recent_prices.iloc[0] * 100
         elif direction == -momentum_direction and momentum_direction != 0:
             # Counter-momentum (potential reversal entry) - smaller bonus
-            return (
-                self.LAMBDA_MOMENTUM * 0.5 * abs(momentum) / recent_prices.iloc[0] * 100
-            )
+            return self.LAMBDA_MOMENTUM * 0.5 * abs(momentum) / recent_prices.iloc[0] * 100
 
         return 0.0
 
@@ -489,11 +481,7 @@ class OptionsEnvironment(RLEnvironment):
         if self._current_step < 20:
             return 0.2  # Default
 
-        returns = (
-            self.data["close"]
-            .pct_change()
-            .iloc[self._current_step - 20 : self._current_step]
-        )
+        returns = self.data["close"].pct_change().iloc[self._current_step - 20 : self._current_step]
         return returns.std() * np.sqrt(252)
 
     def get_state_dim(self) -> int:

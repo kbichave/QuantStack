@@ -3,18 +3,15 @@
 
 """Tests for enhanced paper trading module."""
 
-import pytest
-from pathlib import Path
 from datetime import datetime
 
 import pandas as pd
-
+import pytest
 from quantcore.execution.paper_trading_enhanced import (
-    EnhancedPaperTradingEngine,
     EnhancedPaperOrder,
-    EnhancedPaperPosition,
-    OrderBookState,
+    EnhancedPaperTradingEngine,
     ExecutionQualityMetrics,
+    OrderBookState,
 )
 
 

@@ -3,20 +3,19 @@
 
 """Tests for realistic backtesting engine with order book simulation."""
 
-import pytest
 import tempfile
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
-
+import pytest
 from quantcore.backtesting.realistic_engine import (
+    FillRecord,
+    OrderBookSnapshot,
     RealisticBacktestConfig,
     RealisticBacktestEngine,
     RealisticBacktestResult,
-    OrderBookSnapshot,
-    FillRecord,
 )
 
 
@@ -77,7 +76,7 @@ class TestRealisticBacktestConfig:
 
         assert config.initial_capital == 100_000.0
         assert config.execution_algo == "market"
-        assert config.log_order_book == True
+        assert config.log_order_book
 
     def test_custom_config(self):
         """Test custom configuration."""

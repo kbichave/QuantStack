@@ -6,13 +6,12 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.resampler import (
-    TimeframeResampler,
     OHLCVResampler,
-    build_multi_tf_from_hourly,
+    TimeframeResampler,
     align_daily_to_hourly,
+    build_multi_tf_from_hourly,
 )
 
 
@@ -192,9 +191,7 @@ class TestAlignHigherTFToLower:
 
     def test_align_with_prefix(self, resampler, hourly_data, daily_data):
         """Test alignment adds prefix to columns."""
-        result = resampler.align_higher_tf_to_lower(
-            hourly_data, daily_data, prefix="D1"
-        )
+        result = resampler.align_higher_tf_to_lower(hourly_data, daily_data, prefix="D1")
 
         # All columns should have prefix
         for col in result.columns:
@@ -202,9 +199,7 @@ class TestAlignHigherTFToLower:
 
     def test_align_forward_fills(self, resampler, hourly_data, daily_data):
         """Test that alignment forward fills values."""
-        result = resampler.align_higher_tf_to_lower(
-            hourly_data, daily_data, prefix="D1"
-        )
+        result = resampler.align_higher_tf_to_lower(hourly_data, daily_data, prefix="D1")
 
         # Should have same length as lower TF
         assert len(result) == len(hourly_data)

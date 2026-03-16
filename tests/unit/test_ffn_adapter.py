@@ -3,7 +3,6 @@
 
 """Unit tests for ffn adapter."""
 
-import pytest
 import numpy as np
 import pandas as pd
 

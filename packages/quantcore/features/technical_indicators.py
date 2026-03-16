@@ -15,13 +15,12 @@ All indicators are:
 - Synthetic-test compatible
 """
 
-from typing import List, Optional, Tuple, Dict
-import pandas as pd
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class TechnicalIndicators(FeatureBase):
@@ -106,7 +105,7 @@ class TechnicalIndicators(FeatureBase):
 
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of all indicator names."""
         names = []
 
@@ -310,9 +309,7 @@ class TechnicalIndicators(FeatureBase):
         kama.iloc[period] = series.iloc[period]
 
         for i in range(period + 1, len(series)):
-            kama.iloc[i] = kama.iloc[i - 1] + sc.iloc[i] * (
-                series.iloc[i] - kama.iloc[i - 1]
-            )
+            kama.iloc[i] = kama.iloc[i - 1] + sc.iloc[i] * (series.iloc[i] - kama.iloc[i - 1])
 
         return kama
 
@@ -342,7 +339,7 @@ class TechnicalIndicators(FeatureBase):
 
     def _mama(
         self, series: pd.Series, fast_limit: float = 0.5, slow_limit: float = 0.05
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """MESA Adaptive Moving Average."""
         if self.synthetic_mode:
             # Simplified version for testing
@@ -375,9 +372,7 @@ class TechnicalIndicators(FeatureBase):
         volume = result["volume"]
 
         # MACD - Moving Average Convergence Divergence
-        macd, signal, hist = self._macd(
-            close, self.macd_fast, self.macd_slow, self.macd_signal
-        )
+        macd, signal, hist = self._macd(close, self.macd_fast, self.macd_slow, self.macd_signal)
         result["macd_line"] = macd
         result["macd_signal"] = signal
         result["macd_histogram"] = hist
@@ -471,7 +466,7 @@ class TechnicalIndicators(FeatureBase):
 
     def _macd(
         self, series: pd.Series, fast: int, slow: int, signal: int
-    ) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series, pd.Series]:
         """MACD - Moving Average Convergence Divergence."""
         ema_fast = self._ema(series, fast)
         ema_slow = self._ema(series, slow)
@@ -482,7 +477,7 @@ class TechnicalIndicators(FeatureBase):
 
     def _macdext(
         self, series: pd.Series, fast: int, slow: int, signal: int
-    ) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series, pd.Series]:
         """MACDEXT - MACD with controllable MA type."""
         # Using DEMA for extended version
         dema_fast = self._dema(series, fast)
@@ -507,7 +502,7 @@ class TechnicalIndicators(FeatureBase):
         close: pd.Series,
         k_period: int,
         d_period: int,
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """Stochastic Oscillator."""
         lowest_low = low.rolling(window=k_period).min()
         highest_high = high.rolling(window=k_period).max()
@@ -522,14 +517,14 @@ class TechnicalIndicators(FeatureBase):
         close: pd.Series,
         k_period: int,
         d_period: int,
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """Stochastic Fast."""
         # Fast stochastic uses raw %K
         return self._stoch(high, low, close, k_period, d_period)
 
     def _stochrsi(
         self, series: pd.Series, rsi_period: int, stoch_period: int, d_period: int
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """Stochastic RSI."""
         rsi = self._rsi(series, rsi_period)
         lowest_rsi = rsi.rolling(window=stoch_period).min()
@@ -540,17 +535,13 @@ class TechnicalIndicators(FeatureBase):
         stochrsi_d = stochrsi_k.rolling(window=d_period).mean()
         return stochrsi_k, stochrsi_d
 
-    def _willr(
-        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
+    def _willr(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
         """Williams %R."""
         highest_high = high.rolling(window=period).max()
         lowest_low = low.rolling(window=period).min()
         return -100 * (highest_high - close) / (highest_high - lowest_low).replace(0, 1)
 
-    def _adx(
-        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
+    def _adx(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
         """Average Directional Index."""
         plus_dm = self._plus_dm(high, low, 1)
         minus_dm = self._minus_dm(high, low, 1)
@@ -564,9 +555,7 @@ class TechnicalIndicators(FeatureBase):
         adx = dx.rolling(window=period).mean()
         return adx
 
-    def _adxr(
-        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
+    def _adxr(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
         """Average Directional Index Rating."""
         adx = self._adx(high, low, close, period)
         adxr = (adx + adx.shift(period)) / 2
@@ -592,9 +581,7 @@ class TechnicalIndicators(FeatureBase):
         """Balance of Power."""
         return (close - open_) / (high - low).replace(0, 1)
 
-    def _cci(
-        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
+    def _cci(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
         """Commodity Channel Index."""
         tp = (high + low + close) / 3
         sma_tp = tp.rolling(window=period).mean()
@@ -610,17 +597,13 @@ class TechnicalIndicators(FeatureBase):
 
     def _roc(self, series: pd.Series, period: int) -> pd.Series:
         """Rate of Change."""
-        return (
-            100 * (series - series.shift(period)) / series.shift(period).replace(0, 1)
-        )
+        return 100 * (series - series.shift(period)) / series.shift(period).replace(0, 1)
 
     def _rocr(self, series: pd.Series, period: int) -> pd.Series:
         """Rate of Change Ratio."""
         return series / series.shift(period).replace(0, 1)
 
-    def _aroon(
-        self, high: pd.Series, low: pd.Series, period: int
-    ) -> Tuple[pd.Series, pd.Series]:
+    def _aroon(self, high: pd.Series, low: pd.Series, period: int) -> tuple[pd.Series, pd.Series]:
         """Aroon Indicator."""
         aroon_up = high.rolling(window=period + 1).apply(
             lambda x: float(period - x.argmax()) / period * 100, raw=False
@@ -679,17 +662,13 @@ class TechnicalIndicators(FeatureBase):
 
         return 100 * (4 * avg1 + 2 * avg2 + avg3) / 7
 
-    def _dx(
-        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
+    def _dx(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
         """Directional Movement Index."""
         plus_di = self._plus_di(high, low, close, period)
         minus_di = self._minus_di(high, low, close, period)
         return 100 * abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, 1)
 
-    def _plus_di(
-        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
+    def _plus_di(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
         """Plus Directional Indicator."""
         plus_dm = self._plus_dm(high, low, 1)
         tr = self._true_range(high, low, close)
@@ -764,7 +743,7 @@ class TechnicalIndicators(FeatureBase):
 
     def _bbands(
         self, series: pd.Series, period: int, std_dev: float
-    ) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series, pd.Series]:
         """Bollinger Bands."""
         middle = series.rolling(window=period).mean()
         std = series.rolling(window=period).std()
@@ -831,25 +810,19 @@ class TechnicalIndicators(FeatureBase):
 
         return sar
 
-    def _true_range(
-        self, high: pd.Series, low: pd.Series, close: pd.Series
-    ) -> pd.Series:
+    def _true_range(self, high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
         """True Range."""
         hl = high - low
         hc = abs(high - close.shift(1))
         lc = abs(low - close.shift(1))
         return pd.concat([hl, hc, lc], axis=1).max(axis=1)
 
-    def _atr(
-        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
+    def _atr(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
         """Average True Range."""
         tr = self._true_range(high, low, close)
         return tr.rolling(window=period).mean()
 
-    def _natr(
-        self, high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
+    def _natr(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
         """Normalized Average True Range."""
         atr = self._atr(high, low, close, period)
         return 100 * atr / close.replace(0, 1)
@@ -967,18 +940,16 @@ class TechnicalIndicators(FeatureBase):
 
         return series.rolling(window=period).apply(ht_trend, raw=True)
 
-    def _ht_sine(self, series: pd.Series) -> Tuple[pd.Series, pd.Series]:
+    def _ht_sine(self, series: pd.Series) -> tuple[pd.Series, pd.Series]:
         """Hilbert Transform - Sine Wave."""
         # Simplified sine wave representation
-        dcperiod = self._ht_dcperiod(series)
+        self._ht_dcperiod(series)
         phase = self._ht_dcphase(series)
 
         sine = np.sin(phase * np.pi / 180)
         leadsine = np.sin((phase + 45) * np.pi / 180)
 
-        return pd.Series(sine, index=series.index), pd.Series(
-            leadsine, index=series.index
-        )
+        return pd.Series(sine, index=series.index), pd.Series(leadsine, index=series.index)
 
     def _ht_trendmode(self, series: pd.Series) -> pd.Series:
         """Hilbert Transform - Trend vs Cycle Mode."""
@@ -1002,11 +973,9 @@ class TechnicalIndicators(FeatureBase):
         ).replace(0, 1)
         return normalized * 360
 
-    def _ht_phasor(self, series: pd.Series) -> Tuple[pd.Series, pd.Series]:
+    def _ht_phasor(self, series: pd.Series) -> tuple[pd.Series, pd.Series]:
         """Hilbert Transform - Phasor Components."""
         phase = self._ht_dcphase(series)
         inphase = np.cos(phase * np.pi / 180)
         quadrature = np.sin(phase * np.pi / 180)
-        return pd.Series(inphase, index=series.index), pd.Series(
-            quadrature, index=series.index
-        )
+        return pd.Series(inphase, index=series.index), pd.Series(quadrature, index=series.index)

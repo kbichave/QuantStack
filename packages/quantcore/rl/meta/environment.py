@@ -18,13 +18,14 @@ NOT suitable for:
 - Production deployment
 """
 
-from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.rl.base import RLEnvironment, State, Action, Reward
+from quantcore.rl.base import Action, Reward, RLEnvironment, State
 
 
 @dataclass
@@ -84,12 +85,12 @@ class AlphaSelectionEnvironment(RLEnvironment):
 
     def __init__(
         self,
-        alpha_names: Optional[List[str]] = None,
+        alpha_names: list[str] | None = None,
         lookback: int = 20,
         include_no_trade: bool = True,
-        market_data: Optional[pd.DataFrame] = None,
-        alpha_returns: Optional[Dict[str, pd.Series]] = None,
-        seed: Optional[int] = None,
+        market_data: pd.DataFrame | None = None,
+        alpha_returns: dict[str, pd.Series] | None = None,
+        seed: int | None = None,
         production_mode: bool = False,
     ):
         """
@@ -158,14 +159,10 @@ class AlphaSelectionEnvironment(RLEnvironment):
         self.state_dim_calc = 4 + 4 * self.n_alphas + 4
 
         # Simulation state
-        self.alpha_returns: Dict[str, List[float]] = {
-            name: [] for name in self.alpha_names
-        }
-        self.alpha_signals: Dict[str, List[int]] = {
-            name: [] for name in self.alpha_names
-        }
-        self.selected_alpha_history: List[int] = []
-        self.regime_history: List[int] = []
+        self.alpha_returns: dict[str, list[float]] = {name: [] for name in self.alpha_names}
+        self.alpha_signals: dict[str, list[int]] = {name: [] for name in self.alpha_names}
+        self.selected_alpha_history: list[int] = []
+        self.regime_history: list[int] = []
 
         # Track data idx for market_data
         self.data_idx = 0
@@ -176,12 +173,12 @@ class AlphaSelectionEnvironment(RLEnvironment):
     @classmethod
     def from_knowledge_store(
         cls,
-        store: "KnowledgeStore",  # type: ignore[name-defined]
-        alpha_names: Optional[List[str]] = None,
+        store: "KnowledgeStore",  # type: ignore[name-defined]  # noqa: F821
+        alpha_names: list[str] | None = None,
         lookback_days: int = 252,
         lookback: int = 20,
         include_no_trade: bool = True,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> "AlphaSelectionEnvironment":
         """
         Factory method: build environment from real KnowledgeStore data.
@@ -195,8 +192,13 @@ class AlphaSelectionEnvironment(RLEnvironment):
         from quantcore.rl.data_bridge import KnowledgeStoreRLBridge
 
         names = alpha_names or [
-            "WTI_BRENT_SPREAD", "CRACK_SPREAD", "EIA_INVENTORY",
-            "MICROSTRUCTURE", "COMMODITY_REGIME", "CROSS_ASSET", "MACRO",
+            "WTI_BRENT_SPREAD",
+            "CRACK_SPREAD",
+            "EIA_INVENTORY",
+            "MICROSTRUCTURE",
+            "COMMODITY_REGIME",
+            "CROSS_ASSET",
+            "MACRO",
         ]
         bridge = KnowledgeStoreRLBridge.from_knowledge_store(store)
         alpha_returns = bridge.get_alpha_return_history(names, lookback_days=lookback_days)
@@ -229,9 +231,7 @@ class AlphaSelectionEnvironment(RLEnvironment):
         # Reset RNG for reproducibility
         if self.seed is not None:
             self._rng = np.random.RandomState(
-                self.seed + self.episode_count
-                if hasattr(self, "episode_count")
-                else self.seed
+                self.seed + self.episode_count if hasattr(self, "episode_count") else self.seed
             )
 
         # Reset histories
@@ -245,7 +245,7 @@ class AlphaSelectionEnvironment(RLEnvironment):
 
         return self._get_state()
 
-    def step(self, action: Action) -> Tuple[State, Reward, bool, Dict[str, Any]]:
+    def step(self, action: Action) -> tuple[State, Reward, bool, dict[str, Any]]:
         """
         Select alpha and observe outcome.
 
@@ -368,7 +368,7 @@ class AlphaSelectionEnvironment(RLEnvironment):
                 self.alpha_returns[name].append(ret)
             self.regime_history.append(self._get_current_regime())
 
-    def _generate_alpha_returns(self) -> Dict[str, float]:
+    def _generate_alpha_returns(self) -> dict[str, float]:
         """
         Generate alpha returns for current step.
 
@@ -501,7 +501,7 @@ class AlphaSelectionEnvironment(RLEnvironment):
         self,
         selected_return: float,
         action_idx: int,
-        all_returns: Dict[str, float],
+        all_returns: dict[str, float],
     ) -> Reward:
         """Calculate reward."""
         components = {}

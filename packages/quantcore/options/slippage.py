@@ -9,9 +9,8 @@ Provides realistic execution cost estimation for options trading:
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Tuple
+
 import numpy as np
-from loguru import logger
 
 
 class OrderType(Enum):
@@ -91,14 +90,14 @@ class SpreadBasedSlippage:
     def estimate_execution_price(
         self,
         mid: float,
-        bid: Optional[float],
-        ask: Optional[float],
+        bid: float | None,
+        ask: float | None,
         volume: int,
         open_interest: int,
         order_size: int,
         is_buy: bool,
         urgency: ExecutionUrgency = ExecutionUrgency.MEDIUM,
-        volatility: Optional[float] = None,
+        volatility: float | None = None,
     ) -> SlippageEstimate:
         """
         Estimate execution price with full slippage breakdown.
@@ -174,7 +173,7 @@ class SpreadBasedSlippage:
         mid: float,
         volume: int,
         open_interest: int,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """
         Estimate bid-ask spread when not available.
 

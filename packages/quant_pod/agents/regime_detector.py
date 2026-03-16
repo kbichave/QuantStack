@@ -24,7 +24,7 @@ Falls back to stub values if market data is unavailable.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -44,12 +44,12 @@ class RegimeDetectorAgent:
     VOL_HIGH_PCT = 75
     VOL_EXTREME_PCT = 90
 
-    def __init__(self, symbols: Optional[List[str]] = None) -> None:
+    def __init__(self, symbols: list[str] | None = None) -> None:
         self.symbols = list(symbols) if symbols else ["SPY"]
 
     def detect_regime(
-        self, symbol: str, timeframe: str = "daily", bars: Optional[List[Dict]] = None
-    ) -> Dict[str, Any]:
+        self, symbol: str, timeframe: str = "daily", bars: list[dict] | None = None
+    ) -> dict[str, Any]:
         """
         Detect market regime for a symbol.
 
@@ -80,9 +80,7 @@ class RegimeDetectorAgent:
             ohlcv = self._fetch_bars(symbol)
 
         if not ohlcv or len(ohlcv) < 30:
-            logger.warning(
-                f"[REGIME] {symbol}: insufficient data ({len(ohlcv or [])} bars)"
-            )
+            logger.warning(f"[REGIME] {symbol}: insufficient data ({len(ohlcv or [])} bars)")
             return self._fallback(symbol, timeframe, "insufficient data")
 
         try:
@@ -283,10 +281,11 @@ class RegimeDetectorAgent:
     # Data fetching
     # -------------------------------------------------------------------------
 
-    def _fetch_bars(self, symbol: str) -> List[Dict]:
+    def _fetch_bars(self, symbol: str) -> list[dict]:
         """Fetch OHLCV bars from the active DataProvider."""
         try:
             from quantcore.data.provider import get_provider
+
             provider = get_provider()
             bars_obj = provider.get_bars(symbol, interval="1d", limit=300)
             return [
@@ -307,7 +306,7 @@ class RegimeDetectorAgent:
     # Fallback
     # -------------------------------------------------------------------------
 
-    def _fallback(self, symbol: str, timeframe: str, reason: str) -> Dict[str, Any]:
+    def _fallback(self, symbol: str, timeframe: str, reason: str) -> dict[str, Any]:
         return {
             "success": False,
             "symbol": symbol,

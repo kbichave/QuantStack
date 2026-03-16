@@ -34,13 +34,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import date, datetime
 from threading import RLock
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import duckdb
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Data model — same interface as the old BlackboardEntry
@@ -86,7 +85,7 @@ class Blackboard:
 
     def __init__(
         self,
-        conn: Optional[duckdb.DuckDBPyConnection] = None,
+        conn: duckdb.DuckDBPyConnection | None = None,
         session_id: str = "",
     ):
         self._session_id = session_id
@@ -96,6 +95,7 @@ class Blackboard:
             self._conn = conn
         else:
             from quant_pod.db import open_db, run_migrations
+
             self._conn = open_db()
             run_migrations(self._conn)
 
@@ -110,9 +110,9 @@ class Blackboard:
         agent: str,
         symbol: str,
         message: str,
-        sim_date: Optional[date] = None,
+        sim_date: date | None = None,
         category: str = "general",
-        extra: Optional[Dict[str, Any]] = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         """
         Write an entry to agent memory.
@@ -125,16 +125,12 @@ class Blackboard:
             category: Semantic category tag (e.g. "decision", "analysis", "regime")
             extra: Optional additional structured data stored alongside the message
         """
-        payload: Dict[str, Any] = {"message": message}
+        payload: dict[str, Any] = {"message": message}
         if extra:
             payload.update(extra)
         content_json = json.dumps(payload, default=str)
 
-        ts = (
-            datetime.combine(sim_date, datetime.min.time())
-            if sim_date
-            else datetime.now()
-        )
+        ts = datetime.combine(sim_date, datetime.min.time()) if sim_date else datetime.now()
 
         with self._lock:
             self._conn.execute(
@@ -160,19 +156,19 @@ class Blackboard:
 
     def read_recent(
         self,
-        symbol: Optional[str] = None,
-        agent: Optional[str] = None,
-        category: Optional[str] = None,
-        session_id: Optional[str] = None,
+        symbol: str | None = None,
+        agent: str | None = None,
+        category: str | None = None,
+        session_id: str | None = None,
         limit: int = 20,
-    ) -> List[BlackboardEntry]:
+    ) -> list[BlackboardEntry]:
         """
         Return recent entries, most recent first.
 
         All filters are optional and combined with AND.
         """
         conditions = []
-        params: List[Any] = []
+        params: list[Any] = []
 
         if symbol:
             conditions.append("symbol = ?")
@@ -234,8 +230,7 @@ class Blackboard:
 
         if not entries:
             return (
-                f"## Recent History for {symbol}\n\n"
-                "*No recent history available for this symbol.*"
+                f"## Recent History for {symbol}\n\n*No recent history available for this symbol.*"
             )
 
         lines = [
@@ -276,7 +271,7 @@ class Blackboard:
     # Maintenance
     # -----------------------------------------------------------------------
 
-    def clear(self, session_id: Optional[str] = None) -> int:
+    def clear(self, session_id: str | None = None) -> int:
         """
         Delete entries, optionally scoped to a session.
 
@@ -289,9 +284,7 @@ class Blackboard:
                     [session_id],
                 ).fetchall()
             else:
-                result = self._conn.execute(
-                    "DELETE FROM agent_memory RETURNING id"
-                ).fetchall()
+                result = self._conn.execute("DELETE FROM agent_memory RETURNING id").fetchall()
         count = len(result)
         logger.info(f"Blackboard cleared: {count} entries removed")
         return count
@@ -317,11 +310,11 @@ class Blackboard:
 # Module-level convenience functions (backward-compatible with old API)
 # ---------------------------------------------------------------------------
 
-_blackboard: Optional[Blackboard] = None
+_blackboard: Blackboard | None = None
 
 
 def get_blackboard(
-    conn: Optional[duckdb.DuckDBPyConnection] = None,
+    conn: duckdb.DuckDBPyConnection | None = None,
     session_id: str = "",
 ) -> Blackboard:
     """Get the singleton Blackboard instance."""
@@ -335,7 +328,7 @@ def write_to_blackboard(
     agent: str,
     symbol: str,
     message: str,
-    sim_date: Optional[date] = None,
+    sim_date: date | None = None,
     category: str = "general",
 ) -> None:
     """Write to the blackboard (backward-compatible convenience function)."""

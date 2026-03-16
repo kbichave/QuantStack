@@ -37,8 +37,8 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -50,14 +50,14 @@ class ShadowDecision:
 
     decision_id: str
     tool_name: str
-    symbol: Optional[str]
-    rl_recommendation: Dict[str, Any]
-    crew_action: Optional[str]
-    crew_confidence: Optional[float]
+    symbol: str | None
+    rl_recommendation: dict[str, Any]
+    crew_action: str | None
+    crew_confidence: float | None
     created_at: datetime
-    pnl: Optional[float] = None
-    slippage_bps: Optional[float] = None
-    outcome_recorded_at: Optional[datetime] = None
+    pnl: float | None = None
+    slippage_bps: float | None = None
+    outcome_recorded_at: datetime | None = None
 
 
 @dataclass
@@ -67,14 +67,14 @@ class ShadowEvaluationResult:
     agent_type: str
     n_observations: int
     # RL simulated performance (if RL had been followed)
-    rl_simulated_sharpe: Optional[float]
-    rl_simulated_win_rate: Optional[float]
-    rl_simulated_max_drawdown: Optional[float]
+    rl_simulated_sharpe: float | None
+    rl_simulated_win_rate: float | None
+    rl_simulated_max_drawdown: float | None
     # Directional agreement with profitable crew trades
-    directional_agreement_rate: Optional[float]
+    directional_agreement_rate: float | None
     # Summary
     ready_for_promotion: bool
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
     evaluated_at: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -86,7 +86,7 @@ class ShadowEvaluator:
     Thread-safe for concurrent crew execution.
     """
 
-    def __init__(self, store: "KnowledgeStore"):  # type: ignore[name-defined]
+    def __init__(self, store: KnowledgeStore):  # type: ignore[name-defined]  # noqa: F821
         self.store = store
         self._ensure_tables()
 
@@ -121,10 +121,10 @@ class ShadowEvaluator:
     def record_decision(
         self,
         tool_name: str,
-        rl_recommendation: Dict[str, Any],
-        crew_action: Optional[str] = None,
-        crew_confidence: Optional[float] = None,
-        symbol: Optional[str] = None,
+        rl_recommendation: dict[str, Any],
+        crew_action: str | None = None,
+        crew_confidence: float | None = None,
+        symbol: str | None = None,
     ) -> str:
         """
         Record an RL recommendation alongside the crew's actual decision.
@@ -166,8 +166,8 @@ class ShadowEvaluator:
     def record_outcome(
         self,
         decision_id: str,
-        pnl: Optional[float] = None,
-        slippage_bps: Optional[float] = None,
+        pnl: float | None = None,
+        slippage_bps: float | None = None,
     ) -> None:
         """
         Record the trade outcome for a previously logged shadow decision.
@@ -245,9 +245,7 @@ class ShadowEvaluator:
         reasons = []
 
         if n < min_observations:
-            reasons.append(
-                f"Insufficient observations: {n} < {min_observations} required."
-            )
+            reasons.append(f"Insufficient observations: {n} < {min_observations} required.")
             return ShadowEvaluationResult(
                 agent_type=agent_type,
                 n_observations=n,
@@ -264,7 +262,7 @@ class ShadowEvaluator:
         pnls = []
         directional_matches = []
 
-        for rec_json, crew_action, crew_conf, pnl, slippage_bps, _ in rows:
+        for rec_json, _crew_action, _crew_conf, pnl, slippage_bps, _ in rows:
             if pnl is None:
                 continue
             try:
@@ -291,7 +289,7 @@ class ShadowEvaluator:
                 directional_matches.append(1 if (slippage_bps or 0) < 5.0 else 0)
 
             elif agent_type == "meta":
-                selected = rec.get("selected_alpha", "")
+                rec.get("selected_alpha", "")
                 directional_matches.append(1 if pnl > 0 else 0)
 
         if not pnls:
@@ -312,7 +310,8 @@ class ShadowEvaluator:
         win_rate = float(np.mean(pnl_array > 0))
         sharpe = (
             float(np.mean(pnl_array) / (np.std(pnl_array) + 1e-8) * np.sqrt(252))
-            if len(pnl_array) > 1 else 0.0
+            if len(pnl_array) > 1
+            else 0.0
         )
         # Max drawdown on cumulative equity
         equity = np.cumprod(1 + pnl_array / 100)  # treat pnl as %

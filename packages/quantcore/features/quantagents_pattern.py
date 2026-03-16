@@ -9,12 +9,11 @@ Provides higher-level pattern detection beyond candlestick patterns:
 - Swing-based pattern roles (if swing data available)
 """
 
-from typing import List, Optional
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class QuantAgentsPatternFeatures(FeatureBase):
@@ -71,9 +70,7 @@ class QuantAgentsPatternFeatures(FeatureBase):
         )
 
         # Bar sequence patterns
-        result["qa_pattern_bars_up_streak"] = self._count_consecutive_bars(
-            close, direction="up"
-        )
+        result["qa_pattern_bars_up_streak"] = self._count_consecutive_bars(close, direction="up")
         result["qa_pattern_bars_down_streak"] = self._count_consecutive_bars(
             close, direction="down"
         )
@@ -132,7 +129,7 @@ class QuantAgentsPatternFeatures(FeatureBase):
 
         for i in range(period, len(close)):
             # Look at recent price action
-            recent_close = close.iloc[i - period : i + 1]
+            close.iloc[i - period : i + 1]
             recent_high = high.iloc[i - period : i + 1]
             recent_low = low.iloc[i - period : i + 1]
 
@@ -159,10 +156,7 @@ class QuantAgentsPatternFeatures(FeatureBase):
             # Check for downtrend pullback (bounce)
             # For a bounce: we made lower lows recently (downtrend), now bouncing
             # Check if trough was made in the latter part of the period
-            elif (
-                recent_low.iloc[-period // 2 :].min()
-                < recent_low.iloc[: -period // 2].min()
-            ):
+            elif recent_low.iloc[-period // 2 :].min() < recent_low.iloc[: -period // 2].min():
                 # Lower lows in second half = recent downtrend
                 recent_trough = recent_low.min()
                 pullback_size = current_price - recent_trough
@@ -267,9 +261,7 @@ class QuantAgentsPatternFeatures(FeatureBase):
 
             if pd.isna(change):
                 current_streak = 0
-            elif (direction == "up" and change > 0) or (
-                direction == "down" and change < 0
-            ):
+            elif (direction == "up" and change > 0) or (direction == "down" and change < 0):
                 current_streak += 1
             else:
                 current_streak = 0
@@ -332,9 +324,7 @@ class QuantAgentsPatternFeatures(FeatureBase):
 
     def _has_swing_data(self, df: pd.DataFrame) -> bool:
         """Check if swing data is available."""
-        return (
-            "probable_swing_high" in df.columns and "probable_swing_low" in df.columns
-        )
+        return "probable_swing_high" in df.columns and "probable_swing_low" in df.columns
 
     def _detect_swing_pullback(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -353,9 +343,7 @@ class QuantAgentsPatternFeatures(FeatureBase):
         swing_high = df["probable_swing_high"]
 
         # Track the most recent swing high within lookback window
-        lookback = min(
-            self.lookback_period, 10
-        )  # Use shorter lookback for swing detection
+        lookback = min(self.lookback_period, 10)  # Use shorter lookback for swing detection
 
         for i in range(1, len(df)):
             # Look for recent swing high within lookback window
@@ -426,7 +414,7 @@ class QuantAgentsPatternFeatures(FeatureBase):
 
         return opportunity
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of QuantAgents pattern feature names."""
         return [
             "qa_pattern_is_pullback",

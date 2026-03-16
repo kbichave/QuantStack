@@ -31,20 +31,19 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from loguru import logger
-from scipy.optimize import minimize, OptimizeResult
+from scipy.optimize import OptimizeResult, minimize
 
 
 class OptimizationObjective(str, Enum):
     """Objective function to optimise."""
 
-    MAX_SHARPE = "max_sharpe"       # Maximise Sharpe ratio (default)
-    MIN_VARIANCE = "min_variance"   # Minimise portfolio variance
-    RISK_PARITY = "risk_parity"     # Equalise risk contribution per asset
+    MAX_SHARPE = "max_sharpe"  # Maximise Sharpe ratio (default)
+    MIN_VARIANCE = "min_variance"  # Minimise portfolio variance
+    RISK_PARITY = "risk_parity"  # Equalise risk contribution per asset
     MAX_DIVERSIFICATION = "max_diversification"  # Maximise diversification ratio
 
 
@@ -76,7 +75,7 @@ class PortfolioConstraints:
     min_weight: float = 0.0
     max_weight: float = 0.20
     max_leverage: float = 1.0
-    sector_map: Dict[str, str] = field(default_factory=dict)
+    sector_map: dict[str, str] = field(default_factory=dict)
     sector_max_weight: float = 0.40
     turnover_cost_bps: float = 5.0
     min_trade_threshold: float = 0.01
@@ -91,20 +90,20 @@ class OptimizationResult:
     allow the caller to compute trades needed to reach the target.
     """
 
-    symbols: List[str]
-    target_weights: Dict[str, float]
-    expected_return: float          # Annualised, fraction (e.g. 0.12 = 12%)
-    expected_volatility: float      # Annualised, fraction
-    expected_sharpe: float          # Expected Sharpe ratio
-    diversification_ratio: float    # Weighted avg vol / portfolio vol
+    symbols: list[str]
+    target_weights: dict[str, float]
+    expected_return: float  # Annualised, fraction (e.g. 0.12 = 12%)
+    expected_volatility: float  # Annualised, fraction
+    expected_sharpe: float  # Expected Sharpe ratio
+    diversification_ratio: float  # Weighted avg vol / portfolio vol
     objective: OptimizationObjective
     converged: bool
     solver_message: str
     # Trades required to move from current to target (None if no current given)
-    required_trades: Optional[Dict[str, float]] = None
+    required_trades: dict[str, float] | None = None
 
     @property
-    def risk_contributions(self) -> Dict[str, float]:
+    def risk_contributions(self) -> dict[str, float]:
         """
         Marginal risk contribution per asset as % of total portfolio variance.
 
@@ -156,11 +155,11 @@ class MeanVarianceOptimizer:
 
     def optimize(
         self,
-        signals: Dict[str, float],
+        signals: dict[str, float],
         cov_matrix: pd.DataFrame,
-        constraints: Optional[PortfolioConstraints] = None,
+        constraints: PortfolioConstraints | None = None,
         objective: OptimizationObjective = OptimizationObjective.MAX_SHARPE,
-        current_weights: Optional[Dict[str, float]] = None,
+        current_weights: dict[str, float] | None = None,
     ) -> OptimizationResult:
         """
         Compute target portfolio weights.
@@ -202,10 +201,9 @@ class MeanVarianceOptimizer:
         sigma = self._ledoit_wolf_shrinkage(sigma, symbols)
 
         # Prepare current weights vector (zero for new positions)
-        w_current = np.array([
-            current_weights.get(s, 0.0) if current_weights else 0.0
-            for s in symbols
-        ])
+        w_current = np.array(
+            [current_weights.get(s, 0.0) if current_weights else 0.0 for s in symbols]
+        )
 
         # Solve
         w_target, sol = self._solve(
@@ -217,7 +215,7 @@ class MeanVarianceOptimizer:
             w_current=w_current,
         )
 
-        target_dict = dict(zip(symbols, w_target))
+        target_dict = dict(zip(symbols, w_target, strict=False))
 
         # Apply min_trade_threshold — if the move is tiny, keep current weight
         if current_weights is not None:
@@ -245,10 +243,7 @@ class MeanVarianceOptimizer:
 
         required_trades = None
         if current_weights is not None:
-            required_trades = {
-                s: target_dict[s] - current_weights.get(s, 0.0)
-                for s in symbols
-            }
+            required_trades = {s: target_dict[s] - current_weights.get(s, 0.0) for s in symbols}
             # Also include any symbols in current_weights not in target (close them)
             for s, w in current_weights.items():
                 if s not in target_dict:
@@ -285,11 +280,11 @@ class MeanVarianceOptimizer:
         self,
         mu: np.ndarray,
         sigma: np.ndarray,
-        symbols: List[str],
+        symbols: list[str],
         constraints: PortfolioConstraints,
         objective: OptimizationObjective,
         w_current: np.ndarray,
-    ) -> Tuple[np.ndarray, OptimizeResult]:
+    ) -> tuple[np.ndarray, OptimizeResult]:
         """Run SLSQP optimization. Falls back to equal-weight on failure."""
         n = len(symbols)
         w0 = np.ones(n) / n  # Equal-weight starting point
@@ -311,6 +306,7 @@ class MeanVarianceOptimizer:
 
         # Objective functions
         if objective == OptimizationObjective.MAX_SHARPE:
+
             def obj_fn(w: np.ndarray) -> float:
                 ret = float(w @ mu)
                 vol = float(np.sqrt(max(w @ sigma @ w, 1e-12)))
@@ -319,16 +315,19 @@ class MeanVarianceOptimizer:
                 return -(sharpe - turnover_cost * turnover)
 
         elif objective == OptimizationObjective.MIN_VARIANCE:
+
             def obj_fn(w: np.ndarray) -> float:
                 var = float(w @ sigma @ w)
                 turnover = float(np.sum(np.abs(w - w_current)))
                 return var + turnover_cost * turnover
 
         elif objective == OptimizationObjective.RISK_PARITY:
+
             def obj_fn(w: np.ndarray) -> float:
                 return self._risk_parity_objective(w, sigma)
 
         elif objective == OptimizationObjective.MAX_DIVERSIFICATION:
+
             def obj_fn(w: np.ndarray) -> float:
                 individual_vols = np.sqrt(np.diag(sigma))
                 port_vol = float(np.sqrt(max(w @ sigma @ w, 1e-12)))
@@ -351,8 +350,7 @@ class MeanVarianceOptimizer:
 
         if not sol.success:
             logger.warning(
-                f"[OPT] Solver did not converge ({sol.message}). "
-                "Falling back to equal-weight."
+                f"[OPT] Solver did not converge ({sol.message}). Falling back to equal-weight."
             )
             w_result = w0.copy()
         else:
@@ -369,7 +367,7 @@ class MeanVarianceOptimizer:
     def _build_scipy_constraints(
         self,
         n: int,
-        symbols: List[str],
+        symbols: list[str],
         constraints: PortfolioConstraints,
     ) -> list:
         """Convert PortfolioConstraints to scipy constraint dicts."""
@@ -378,34 +376,40 @@ class MeanVarianceOptimizer:
         # Weights must sum to ≤ max_leverage (equality for long-only fully invested)
         if constraints.min_weight >= 0:
             # Long-only: weights sum to exactly 1
-            scipy_constraints.append({
-                "type": "eq",
-                "fun": lambda w: np.sum(w) - 1.0,
-            })
+            scipy_constraints.append(
+                {
+                    "type": "eq",
+                    "fun": lambda w: np.sum(w) - 1.0,
+                }
+            )
         else:
             # Long/short: sum of abs(w) ≤ max_leverage
-            scipy_constraints.append({
-                "type": "ineq",
-                "fun": lambda w: constraints.max_leverage - np.sum(np.abs(w)),
-            })
+            scipy_constraints.append(
+                {
+                    "type": "ineq",
+                    "fun": lambda w: constraints.max_leverage - np.sum(np.abs(w)),
+                }
+            )
 
         # Sector constraints: sum of weights in each sector ≤ sector_max_weight
         if constraints.sector_map:
-            sectors: Dict[str, List[int]] = {}
+            sectors: dict[str, list[int]] = {}
             for i, sym in enumerate(symbols):
                 sector = constraints.sector_map.get(sym, "_unclassified")
                 sectors.setdefault(sector, []).append(i)
 
-            for sector, indices in sectors.items():
+            for _sector, indices in sectors.items():
                 sector_indices = indices  # capture for closure
 
-                def sector_constraint(w: np.ndarray, idxs: List[int] = sector_indices) -> float:
+                def sector_constraint(w: np.ndarray, idxs: list[int] = sector_indices) -> float:
                     return constraints.sector_max_weight - float(np.sum(w[idxs]))
 
-                scipy_constraints.append({
-                    "type": "ineq",
-                    "fun": sector_constraint,
-                })
+                scipy_constraints.append(
+                    {
+                        "type": "ineq",
+                        "fun": sector_constraint,
+                    }
+                )
 
         return scipy_constraints
 
@@ -436,7 +440,7 @@ class MeanVarianceOptimizer:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _ledoit_wolf_shrinkage(sigma: np.ndarray, symbols: List[str]) -> np.ndarray:
+    def _ledoit_wolf_shrinkage(sigma: np.ndarray, symbols: list[str]) -> np.ndarray:
         """
         Apply Ledoit-Wolf analytical shrinkage to the covariance matrix.
 
@@ -450,9 +454,12 @@ class MeanVarianceOptimizer:
         """
         try:
             from sklearn.covariance import LedoitWolf
-            lw = LedoitWolf().fit(np.random.multivariate_normal(
-                np.zeros(len(symbols)), sigma, size=max(100, 10 * len(symbols))
-            ))
+
+            lw = LedoitWolf().fit(
+                np.random.multivariate_normal(
+                    np.zeros(len(symbols)), sigma, size=max(100, 10 * len(symbols))
+                )
+            )
             return lw.covariance_
         except Exception:
             # Fallback: shrink toward scaled identity
@@ -471,15 +478,15 @@ class MeanVarianceOptimizer:
     def _compute_risk_contributions(
         w: np.ndarray,
         sigma: np.ndarray,
-        symbols: List[str],
-    ) -> Dict[str, float]:
+        symbols: list[str],
+    ) -> dict[str, float]:
         """Return fractional risk contribution per asset."""
         port_var = float(w @ sigma @ w)
         if port_var < 1e-12:
             return {s: 1.0 / len(symbols) for s in symbols}
         marginal = sigma @ w
         rc = w * marginal / port_var
-        return dict(zip(symbols, rc.tolist()))
+        return dict(zip(symbols, rc.tolist(), strict=False))
 
 
 # =============================================================================
@@ -511,6 +518,7 @@ def covariance_matrix(
     if shrinkage:
         try:
             from sklearn.covariance import LedoitWolf
+
             lw = LedoitWolf()
             lw.fit(returns.fillna(0))
             cov_arr = lw.covariance_
@@ -531,11 +539,11 @@ def covariance_matrix(
 
 
 def trades_from_weights(
-    target_weights: Dict[str, float],
-    current_weights: Dict[str, float],
+    target_weights: dict[str, float],
+    current_weights: dict[str, float],
     portfolio_nav: float,
     min_trade_notional: float = 100.0,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Convert weight deltas to a list of trade dictionaries.
 
@@ -561,12 +569,14 @@ def trades_from_weights(
         if notional < min_trade_notional:
             continue
 
-        trades.append({
-            "symbol": sym,
-            "side": "buy" if delta > 0 else "sell",
-            "notional": notional,
-            "weight_delta": delta,
-        })
+        trades.append(
+            {
+                "symbol": sym,
+                "side": "buy" if delta > 0 else "sell",
+                "notional": notional,
+                "weight_delta": delta,
+            }
+        )
 
     # Sells before buys — avoid momentary over-leverage
     return sorted(trades, key=lambda t: (0 if t["side"] == "sell" else 1, -t["notional"]))

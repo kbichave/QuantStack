@@ -9,8 +9,8 @@ Provides unified interfaces to:
 """
 
 from quantcore.analytics.adapters.ffn_adapter import (
-    compute_portfolio_stats_ffn,
     compute_factor_stats_ffn,
+    compute_portfolio_stats_ffn,
     generate_tearsheet_data,
 )
 

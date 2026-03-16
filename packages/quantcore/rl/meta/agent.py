@@ -4,24 +4,24 @@ Alpha Selection RL Agent.
 Contextual bandit / DQN agent for alpha selection.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any
+
 import numpy as np
 from loguru import logger
 
 from quantcore.rl.base import (
-    RLAgent,
-    State,
-    Action,
-    Experience,
     MLP,
     TORCH_AVAILABLE,
+    Action,
+    Experience,
+    RLAgent,
+    State,
 )
 
 if TORCH_AVAILABLE:
     import torch
-    import torch.nn as nn
-    import torch.optim as optim
     import torch.nn.functional as F
+    import torch.optim as optim
 
 
 class AlphaSelectionAgent(RLAgent):
@@ -41,7 +41,7 @@ class AlphaSelectionAgent(RLAgent):
         self,
         state_dim: int,
         action_dim: int,
-        hidden_dims: List[int] = [128, 128],
+        hidden_dims: list[int] = None,
         learning_rate: float = 1e-3,
         gamma: float = 0.95,
         epsilon_start: float = 1.0,
@@ -67,6 +67,8 @@ class AlphaSelectionAgent(RLAgent):
             use_ucb: Use UCB exploration (vs epsilon-greedy)
             device: Device to use
         """
+        if hidden_dims is None:
+            hidden_dims = [128, 128]
         super().__init__(state_dim, action_dim, learning_rate, gamma, device)
 
         self.epsilon = epsilon_start
@@ -147,9 +149,7 @@ class AlphaSelectionAgent(RLAgent):
                 ucb_values[a] = float("inf")  # Try untried actions
             else:
                 # UCB bonus
-                bonus = self.ucb_coef * np.sqrt(
-                    np.log(total_counts) / self.action_counts[a]
-                )
+                bonus = self.ucb_coef * np.sqrt(np.log(total_counts) / self.action_counts[a])
                 ucb_values[a] += bonus
 
         return int(np.argmax(ucb_values))
@@ -171,7 +171,7 @@ class AlphaSelectionAgent(RLAgent):
 
         return values
 
-    def update(self, experiences: List[Experience]) -> Dict[str, float]:
+    def update(self, experiences: list[Experience]) -> dict[str, float]:
         """
         Update agent from experiences.
 
@@ -191,23 +191,19 @@ class AlphaSelectionAgent(RLAgent):
             return {"loss": 0.0}
 
         # Prepare batch
-        states = torch.FloatTensor(
-            np.array([e.state.features for e in experiences])
-        ).to(self.device)
-
-        actions = (
-            torch.LongTensor([e.action.value for e in experiences])
-            .unsqueeze(-1)
-            .to(self.device)
-        )
-
-        rewards = torch.FloatTensor([e.reward.value for e in experiences]).to(
+        states = torch.FloatTensor(np.array([e.state.features for e in experiences])).to(
             self.device
         )
 
-        next_states = torch.FloatTensor(
-            np.array([e.next_state.features for e in experiences])
-        ).to(self.device)
+        actions = (
+            torch.LongTensor([e.action.value for e in experiences]).unsqueeze(-1).to(self.device)
+        )
+
+        rewards = torch.FloatTensor([e.reward.value for e in experiences]).to(self.device)
+
+        next_states = torch.FloatTensor(np.array([e.next_state.features for e in experiences])).to(
+            self.device
+        )
 
         dones = torch.FloatTensor([float(e.done) for e in experiences]).to(self.device)
 
@@ -245,7 +241,7 @@ class AlphaSelectionAgent(RLAgent):
             "epsilon": self.epsilon,
         }
 
-    def get_alpha_statistics(self) -> Dict[str, Dict[str, float]]:
+    def get_alpha_statistics(self) -> dict[str, dict[str, float]]:
         """Get statistics for each alpha."""
         stats = {}
         for i in range(self.action_dim):
@@ -289,13 +285,11 @@ class AlphaSelectionAgent(RLAgent):
         self.optimizer.load_state_dict(checkpoint["optimizer"])
         self.epsilon = checkpoint.get("epsilon", self.epsilon_end)
         self.action_counts = checkpoint.get("action_counts", np.zeros(self.action_dim))
-        self.action_rewards = checkpoint.get(
-            "action_rewards", np.zeros(self.action_dim)
-        )
+        self.action_rewards = checkpoint.get("action_rewards", np.zeros(self.action_dim))
         self.step_count = checkpoint.get("step_count", 0)
         logger.info(f"Agent loaded from {path}")
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get agent configuration."""
         config = super().get_config()
         config.update(

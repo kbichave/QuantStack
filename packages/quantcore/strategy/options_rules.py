@@ -5,28 +5,18 @@ Implements strategies that use the existing MeanReversionRules
 with options-specific contract selection.
 """
 
-from dataclasses import dataclass
-from typing import List, Optional
-
-import numpy as np
-import pandas as pd
 from loguru import logger
 
-from quantcore.strategy.base import (
-    Strategy,
-    MarketState,
-    TargetPosition,
-    DataRequirements,
-    PositionDirection,
-    RegimeState,
-)
 from quantcore.options.contract_selector import (
     ContractSelector,
-    Direction,
-    VolRegime,
-    TrendRegime,
 )
-from quantcore.features.options_features import classify_vol_regime
+from quantcore.strategy.base import (
+    DataRequirements,
+    MarketState,
+    PositionDirection,
+    Strategy,
+    TargetPosition,
+)
 
 
 class OptionsDirectionalStrategy(Strategy):
@@ -59,7 +49,7 @@ class OptionsDirectionalStrategy(Strategy):
         self.min_confidence = min_confidence
         self.contract_selector = ContractSelector()
 
-    def on_bar(self, state: MarketState) -> List[TargetPosition]:
+    def on_bar(self, state: MarketState) -> list[TargetPosition]:
         """Generate signals based on mean reversion rules."""
         # Get features
         features = state.features
@@ -94,18 +84,12 @@ class OptionsDirectionalStrategy(Strategy):
         # Apply regime filters
         if state.regime:
             # In BEAR regime, reduce long confidence
-            if (
-                state.regime.trend_regime == "BEAR"
-                and direction == PositionDirection.LONG
-            ):
+            if state.regime.trend_regime == "BEAR" and direction == PositionDirection.LONG:
                 confidence *= 0.5
                 reason += " (reduced: BEAR regime)"
 
             # In BULL regime, reduce short confidence
-            if (
-                state.regime.trend_regime == "BULL"
-                and direction == PositionDirection.SHORT
-            ):
+            if state.regime.trend_regime == "BULL" and direction == PositionDirection.SHORT:
                 confidence *= 0.5
                 reason += " (reduced: BULL regime)"
 
@@ -164,17 +148,13 @@ class OptionsMomentumStrategy(Strategy):
         self.trend_threshold = trend_threshold
         self.momentum_lookback = momentum_lookback
 
-    def on_bar(self, state: MarketState) -> List[TargetPosition]:
+    def on_bar(self, state: MarketState) -> list[TargetPosition]:
         """Generate signals based on momentum."""
         features = state.features
 
         # Get trend features - try timeframe-prefixed names first
-        ema_alignment = features.get(
-            "1H_ema_alignment", features.get("ema_alignment", 0)
-        )
-        momentum_score = features.get(
-            "1H_momentum_score", features.get("momentum_score", 0)
-        )
+        features.get("1H_ema_alignment", features.get("ema_alignment", 0))
+        momentum_score = features.get("1H_momentum_score", features.get("momentum_score", 0))
         rsi = features.get("1H_rsi", features.get("rsi", 50))
 
         # Determine direction
@@ -249,7 +229,7 @@ class OptionsVolatilityStrategy(Strategy):
         self.iv_rank_low = iv_rank_low
         self.iv_rank_high = iv_rank_high
 
-    def on_bar(self, state: MarketState) -> List[TargetPosition]:
+    def on_bar(self, state: MarketState) -> list[TargetPosition]:
         """Generate signals based on volatility."""
         iv_rank = state.iv_rank
 
@@ -257,9 +237,7 @@ class OptionsVolatilityStrategy(Strategy):
             return []
 
         features = state.features
-        trend_direction = features.get(
-            "1H_ema_alignment", features.get("ema_alignment", 0)
-        )
+        trend_direction = features.get("1H_ema_alignment", features.get("ema_alignment", 0))
 
         direction = PositionDirection.FLAT
         confidence = 0.0
@@ -319,7 +297,7 @@ class OptionsRRGStrategy(Strategy):
     def __init__(
         self,
         name: str = "OptionsRRG",
-        favorable_quadrants: List[str] = None,
+        favorable_quadrants: list[str] = None,
     ):
         """
         Initialize strategy.
@@ -331,7 +309,7 @@ class OptionsRRGStrategy(Strategy):
         super().__init__(name)
         self.favorable_quadrants = favorable_quadrants or ["LEADING", "IMPROVING"]
 
-    def on_bar(self, state: MarketState) -> List[TargetPosition]:
+    def on_bar(self, state: MarketState) -> list[TargetPosition]:
         """Generate signals based on RRG quadrant."""
         features = state.features
 
@@ -351,9 +329,7 @@ class OptionsRRGStrategy(Strategy):
             rs_momentum = features.get("rs_momentum", 100)
             confidence = min(((rs_ratio - 100) + (rs_momentum - 100)) / 10, 1.0)
             quadrant = "LEADING" if rrg_leading else "IMPROVING"
-            reason = (
-                f"RRG {quadrant}: RS ratio={rs_ratio:.1f}, momentum={rs_momentum:.1f}"
-            )
+            reason = f"RRG {quadrant}: RS ratio={rs_ratio:.1f}, momentum={rs_momentum:.1f}"
 
         # Weakening or Lagging -> Short (or avoid)
         elif rrg_weakening or rrg_lagging:
@@ -362,9 +338,7 @@ class OptionsRRGStrategy(Strategy):
             rs_momentum = features.get("rs_momentum", 100)
             confidence = min((100 - rs_ratio + 100 - rs_momentum) / 10, 1.0)
             quadrant = "WEAKENING" if rrg_weakening else "LAGGING"
-            reason = (
-                f"RRG {quadrant}: RS ratio={rs_ratio:.1f}, momentum={rs_momentum:.1f}"
-            )
+            reason = f"RRG {quadrant}: RS ratio={rs_ratio:.1f}, momentum={rs_momentum:.1f}"
 
         if direction == PositionDirection.FLAT or confidence < 0.3:
             return []

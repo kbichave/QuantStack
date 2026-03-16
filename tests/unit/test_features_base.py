@@ -3,13 +3,10 @@
 
 """Tests for quantcore.features.base module."""
 
-from typing import List
-
 import numpy as np
 import pandas as pd
 import pytest
-
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_PARAMS
+from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
 from quantcore.features.base import FeatureBase
 
 
@@ -22,7 +19,7 @@ class ConcreteFeature(FeatureBase):
         result["test_sma"] = self.sma(df["close"], self.params.ema_slow)
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         return ["test_ema", "test_sma"]
 
 
@@ -231,9 +228,7 @@ class TestNormalizeToRange:
     def test_normalize_custom_range(self):
         """Test normalization to custom range."""
         prices = pd.Series([100.0, 110.0, 90.0, 105.0, 95.0])
-        result = FeatureBase.normalize_to_range(
-            prices, period=3, min_val=-50, max_val=50
-        )
+        result = FeatureBase.normalize_to_range(prices, period=3, min_val=-50, max_val=50)
 
         valid_results = result.dropna()
         assert (valid_results >= -50).all()
@@ -314,7 +309,7 @@ class TestAbstractMethods:
         """Test subclass must implement compute."""
 
         class IncompleteFeature(FeatureBase):
-            def get_feature_names(self) -> List[str]:
+            def get_feature_names(self) -> list[str]:
                 return []
 
         with pytest.raises(TypeError):

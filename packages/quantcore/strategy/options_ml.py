@@ -6,18 +6,18 @@ Uses gradient boosting for direction prediction.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict, Any
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
 from quantcore.strategy.base import (
-    Strategy,
-    MarketState,
-    TargetPosition,
     DataRequirements,
+    MarketState,
     PositionDirection,
+    Strategy,
+    TargetPosition,
 )
 
 try:
@@ -53,7 +53,7 @@ class MLDirectionStrategy(Strategy):
         name: str = "MLDirection",
         probability_threshold: float = 0.55,
         min_confidence: float = 0.2,
-        feature_columns: Optional[List[str]] = None,
+        feature_columns: list[str] | None = None,
     ):
         """
         Initialize ML strategy.
@@ -72,7 +72,7 @@ class MLDirectionStrategy(Strategy):
         self.model = None
         self.scaler = None
         self._is_trained = False
-        self._feature_names: List[str] = []
+        self._feature_names: list[str] = []
 
     def train(
         self,
@@ -81,7 +81,7 @@ class MLDirectionStrategy(Strategy):
         n_estimators: int = 100,
         max_depth: int = 5,
         learning_rate: float = 0.1,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Train the ML model.
 
@@ -130,15 +130,13 @@ class MLDirectionStrategy(Strategy):
 
         # Compute metrics
         train_accuracy = self.model.score(X_scaled, y)
-        train_proba = self.model.predict_proba(X_scaled)[:, 1]
+        self.model.predict_proba(X_scaled)[:, 1]
 
         # Feature importance
-        importance = dict(zip(self._feature_names, self.model.feature_importances_))
+        importance = dict(zip(self._feature_names, self.model.feature_importances_, strict=False))
         top_features = sorted(importance.items(), key=lambda x: x[1], reverse=True)[:10]
 
-        logger.info(
-            f"ML model trained: accuracy={train_accuracy:.3f}, samples={len(X)}"
-        )
+        logger.info(f"ML model trained: accuracy={train_accuracy:.3f}, samples={len(X)}")
         logger.info(f"Top features: {[f[0] for f in top_features]}")
 
         return {
@@ -148,7 +146,7 @@ class MLDirectionStrategy(Strategy):
             "top_features": top_features,
         }
 
-    def predict(self, features: Dict[str, float]) -> MLPrediction:
+    def predict(self, features: dict[str, float]) -> MLPrediction:
         """
         Make prediction from features.
 
@@ -207,7 +205,7 @@ class MLDirectionStrategy(Strategy):
             features_used=len(self._feature_names) - missing,
         )
 
-    def on_bar(self, state: MarketState) -> List[TargetPosition]:
+    def on_bar(self, state: MarketState) -> list[TargetPosition]:
         """Generate signals using ML prediction."""
         prediction = self.predict(state.features)
 
@@ -258,7 +256,7 @@ class MLDirectionStrategy(Strategy):
             lookback_bars=252,
         )
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         """Get model state for serialization."""
         state = super().get_state()
         state["is_trained"] = self._is_trained
@@ -266,7 +264,7 @@ class MLDirectionStrategy(Strategy):
         # Note: actual model serialization would use joblib/pickle
         return state
 
-    def set_state(self, state: Dict[str, Any]) -> None:
+    def set_state(self, state: dict[str, Any]) -> None:
         """Restore model state."""
         super().set_state(state)
         self._is_trained = state.get("is_trained", False)
@@ -276,9 +274,9 @@ class MLDirectionStrategy(Strategy):
 def prepare_ml_dataset(
     df: pd.DataFrame,
     target_column: str = "label_long",
-    feature_prefix: Optional[str] = None,
-    exclude_columns: Optional[List[str]] = None,
-) -> Tuple[pd.DataFrame, pd.Series]:
+    feature_prefix: str | None = None,
+    exclude_columns: list[str] | None = None,
+) -> tuple[pd.DataFrame, pd.Series]:
     """
     Prepare dataset for ML training.
 
@@ -302,9 +300,7 @@ def prepare_ml_dataset(
 
     # Remove string/object columns
     feature_cols = [
-        c
-        for c in feature_cols
-        if df[c].dtype in [np.float64, np.int64, np.float32, np.int32]
+        c for c in feature_cols if df[c].dtype in [np.float64, np.int64, np.float32, np.int32]
     ]
 
     X = df[feature_cols]
@@ -370,7 +366,7 @@ def train_with_proper_split(
     train_pct: float = 0.6,
     val_pct: float = 0.2,
     target_column: str = "label_long",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Train with proper train/val/test split to prevent data leakage.
 
@@ -419,11 +415,9 @@ def train_with_proper_split(
     X_test = X.iloc[val_end:]  # HOLDOUT - never touch during tuning
     y_test = y.iloc[val_end:]
 
-    logger.info(
-        f"Data split: train={len(X_train)}, val={len(X_val)}, test={len(X_test)}"
-    )
-    logger.info(f"Train dates: {df.index[0]} to {df.index[train_end-1]}")
-    logger.info(f"Val dates: {df.index[train_end]} to {df.index[val_end-1]}")
+    logger.info(f"Data split: train={len(X_train)}, val={len(X_val)}, test={len(X_test)}")
+    logger.info(f"Train dates: {df.index[0]} to {df.index[train_end - 1]}")
+    logger.info(f"Val dates: {df.index[train_end]} to {df.index[val_end - 1]}")
     logger.info(f"Test dates: {df.index[val_end]} to {df.index[-1]} (HOLDOUT)")
 
     # Hyperparameter tuning on VALIDATION set only
@@ -470,8 +464,8 @@ def tune_ml_hyperparameters(
     y_train: pd.Series,
     X_val: pd.DataFrame,
     y_val: pd.Series,
-    param_grid: Optional[Dict] = None,
-) -> Dict:
+    param_grid: dict | None = None,
+) -> dict:
     """
     Tune hyperparameters using grid search on VALIDATION set only.
 
@@ -546,7 +540,5 @@ def tune_ml_hyperparameters(
     logger.info(f"Best params: {best_params}, validation accuracy: {best_score:.3f}")
 
     return (
-        best_params
-        if best_params
-        else {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1}
+        best_params if best_params else {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1}
     )

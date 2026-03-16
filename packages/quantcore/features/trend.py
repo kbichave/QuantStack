@@ -4,13 +4,11 @@ Trend and mean-related features.
 Includes EMAs, regression slope, z-score, and price distance from mean.
 """
 
-from typing import List
-import pandas as pd
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 from quantcore.features.base import FeatureBase
-from quantcore.config.timeframes import Timeframe
 
 
 class TrendFeatures(FeatureBase):
@@ -43,12 +41,8 @@ class TrendFeatures(FeatureBase):
         result["ema_slow"] = self.ema(close, self.params.ema_slow)
 
         # Price distance from EMAs (percentage)
-        result["price_dist_ema_fast"] = (
-            (close - result["ema_fast"]) / result["ema_fast"] * 100
-        )
-        result["price_dist_ema_slow"] = (
-            (close - result["ema_slow"]) / result["ema_slow"] * 100
-        )
+        result["price_dist_ema_fast"] = (close - result["ema_fast"]) / result["ema_fast"] * 100
+        result["price_dist_ema_slow"] = (close - result["ema_slow"]) / result["ema_slow"] * 100
 
         # Z-score of price vs EMA
         result["zscore_price"] = self.zscore(close, self.params.zscore_period)
@@ -78,9 +72,7 @@ class TrendFeatures(FeatureBase):
         result["ema_slow_slope"] = result["ema_slow"].pct_change(5) * 100
 
         # Distance between EMAs (convergence/divergence)
-        result["ema_spread"] = (
-            (result["ema_fast"] - result["ema_slow"]) / result["ema_slow"] * 100
-        )
+        result["ema_spread"] = (result["ema_fast"] - result["ema_slow"]) / result["ema_slow"] * 100
 
         # Price position: above/below both EMAs
         result["price_above_fast_ema"] = (close > result["ema_fast"]).astype(int)
@@ -124,7 +116,7 @@ class TrendFeatures(FeatureBase):
 
         return series.rolling(window=period).apply(calc_slope, raw=False)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of trend feature names."""
         return [
             "ema_fast",

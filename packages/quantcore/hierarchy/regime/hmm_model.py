@@ -4,11 +4,11 @@ Hidden Markov Model for regime detection.
 Uses hmmlearn for statistical regime classification.
 """
 
-from typing import List, Optional, Tuple, Dict
 from dataclasses import dataclass
 from enum import Enum
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 try:
@@ -34,12 +34,12 @@ class HMMRegimeResult:
     """Result from HMM regime detection."""
 
     state: HMMRegimeState
-    state_probabilities: Dict[HMMRegimeState, float]
+    state_probabilities: dict[HMMRegimeState, float]
     transition_matrix: np.ndarray
     expected_duration: float
     regime_stability: float  # How stable is current regime
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
             "state": self.state.name,
@@ -90,9 +90,9 @@ class HMMRegimeModel:
         self.n_iter = n_iter
         self.random_state = random_state
 
-        self.model: Optional[hmm.GaussianHMM] = None
+        self.model: hmm.GaussianHMM | None = None
         self.is_fitted = False
-        self._state_mapping: Dict[int, HMMRegimeState] = {}
+        self._state_mapping: dict[int, HMMRegimeState] = {}
 
     def fit(self, df: pd.DataFrame) -> "HMMRegimeModel":
         """
@@ -178,9 +178,7 @@ class HMMRegimeModel:
             # State probabilities
             current_probs = posteriors[-1]
             state_probs = {
-                self._state_mapping.get(i, HMMRegimeState(i % 4)): float(
-                    current_probs[i]
-                )
+                self._state_mapping.get(i, HMMRegimeState(i % 4)): float(current_probs[i])
                 for i in range(self.n_states)
             }
 
@@ -228,8 +226,7 @@ class HMMRegimeModel:
 
             # Map to regime names
             regime_names = [
-                self._state_mapping.get(s, HMMRegimeState(s % 4)).name
-                for s in state_sequence
+                self._state_mapping.get(s, HMMRegimeState(s % 4)).name for s in state_sequence
             ]
 
             # Create series with proper index
@@ -240,7 +237,7 @@ class HMMRegimeModel:
             logger.error(f"HMM series prediction failed: {e}")
             return self._fallback_series(df)
 
-    def _prepare_features(self, df: pd.DataFrame) -> Optional[np.ndarray]:
+    def _prepare_features(self, df: pd.DataFrame) -> np.ndarray | None:
         """Prepare features for HMM."""
         if len(df) < 5:
             return None
@@ -292,14 +289,7 @@ class HMMRegimeModel:
         try:
             states = self.model.predict(features)
             returns = df["close"].pct_change().dropna().values[-len(states) :]
-            volatility = (
-                df["close"]
-                .pct_change()
-                .rolling(20)
-                .std()
-                .dropna()
-                .values[-len(states) :]
-            )
+            volatility = df["close"].pct_change().rolling(20).std().dropna().values[-len(states) :]
 
             # Calculate average return and vol for each state
             state_stats = {}
@@ -311,9 +301,7 @@ class HMMRegimeModel:
                     state_stats[s] = {"return": avg_ret, "vol": avg_vol}
 
             # Determine median volatility
-            all_vols = [
-                v["vol"] for v in state_stats.values() if not np.isnan(v["vol"])
-            ]
+            all_vols = [v["vol"] for v in state_stats.values() if not np.isnan(v["vol"])]
             med_vol = np.median(all_vols) if all_vols else 0
 
             # Map states
@@ -357,7 +345,7 @@ class HMMRegimeModel:
             state = HMMRegimeState.HIGH_VOL_BEAR
 
         # Equal probabilities for fallback
-        probs = {s: 0.25 for s in HMMRegimeState}
+        probs = dict.fromkeys(HMMRegimeState, 0.25)
         probs[state] = 0.7
 
         return HMMRegimeResult(
@@ -385,9 +373,7 @@ class HMMRegimeModel:
             vol = returns.std()
 
             is_bull = avg_ret > 0
-            is_high_vol = (
-                vol > returns.rolling(60).std().iloc[-1] if len(df) > 60 else False
-            )
+            is_high_vol = vol > returns.rolling(60).std().iloc[-1] if len(df) > 60 else False
 
             if is_bull and not is_high_vol:
                 regimes.append("LOW_VOL_BULL")

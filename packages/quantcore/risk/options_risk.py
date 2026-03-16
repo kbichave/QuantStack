@@ -8,10 +8,8 @@ Provides:
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
-import numpy as np
 from loguru import logger
 
 from quantcore.options.models import OptionsPosition, OptionType
@@ -65,8 +63,8 @@ class RiskMetrics:
     total_theta: float = 0.0
     total_vega: float = 0.0
 
-    delta_by_symbol: Dict[str, float] = None
-    gamma_by_symbol: Dict[str, float] = None
+    delta_by_symbol: dict[str, float] = None
+    gamma_by_symbol: dict[str, float] = None
 
     total_exposure: float = 0.0
     unrealized_pnl: float = 0.0
@@ -172,8 +170,8 @@ class PortfolioGreeksManager:
 
     def __init__(
         self,
-        greek_limits: Optional[GreeksLimits] = None,
-        risk_limits: Optional[RiskLimits] = None,
+        greek_limits: GreeksLimits | None = None,
+        risk_limits: RiskLimits | None = None,
     ):
         """
         Initialize Greeks manager.
@@ -191,7 +189,7 @@ class PortfolioGreeksManager:
 
     def update_from_positions(
         self,
-        positions: Dict[str, OptionsPosition],
+        positions: dict[str, OptionsPosition],
         current_equity: float,
     ) -> RiskMetrics:
         """
@@ -225,12 +223,8 @@ class PortfolioGreeksManager:
 
             # By symbol
             symbol = position.underlying
-            delta_by_symbol[symbol] = (
-                delta_by_symbol.get(symbol, 0) + position.net_delta
-            )
-            gamma_by_symbol[symbol] = (
-                gamma_by_symbol.get(symbol, 0) + position.net_gamma
-            )
+            delta_by_symbol[symbol] = delta_by_symbol.get(symbol, 0) + position.net_delta
+            gamma_by_symbol[symbol] = gamma_by_symbol.get(symbol, 0) + position.net_gamma
 
             # Exposure and PnL
             total_exposure += abs(position.total_premium)
@@ -241,16 +235,12 @@ class PortfolioGreeksManager:
             self._peak_equity = current_equity
 
         drawdown_pct = (
-            (self._peak_equity - current_equity) / self._peak_equity
-            if self._peak_equity > 0
-            else 0
+            (self._peak_equity - current_equity) / self._peak_equity if self._peak_equity > 0 else 0
         )
 
         # Daily PnL
         daily_pnl = (
-            current_equity - self._daily_starting_equity
-            if self._daily_starting_equity > 0
-            else 0
+            current_equity - self._daily_starting_equity if self._daily_starting_equity > 0 else 0
         )
 
         # Determine risk state
@@ -287,8 +277,8 @@ class PortfolioGreeksManager:
         drawdown_pct: float,
         daily_pnl: float,
         current_equity: float,
-        delta_by_symbol: Dict[str, float],
-        gamma_by_symbol: Dict[str, float],
+        delta_by_symbol: dict[str, float],
+        gamma_by_symbol: dict[str, float],
     ) -> RiskState:
         """Determine overall risk state."""
         breaches = []
@@ -315,9 +305,7 @@ class PortfolioGreeksManager:
             warnings.append(f"Drawdown warning: {drawdown_pct:.1%}")
 
         # Check daily loss
-        daily_loss_pct = (
-            -daily_pnl / current_equity if current_equity > 0 and daily_pnl < 0 else 0
-        )
+        daily_loss_pct = -daily_pnl / current_equity if current_equity > 0 and daily_pnl < 0 else 0
         if daily_loss_pct > self.risk_limits.max_daily_loss_pct:
             breaches.append(f"Daily loss: {daily_loss_pct:.1%}")
 
@@ -371,7 +359,7 @@ class PortfolioGreeksManager:
         proposed_delta: float,
         proposed_gamma: float,
         symbol: str,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Check if a new trade would breach limits.
 
@@ -401,7 +389,7 @@ class PortfolioGreeksManager:
 
         return True, "OK"
 
-    def get_reduction_orders(self) -> List[Dict]:
+    def get_reduction_orders(self) -> list[dict]:
         """
         Get orders needed to reduce risk to limits.
 
@@ -412,12 +400,9 @@ class PortfolioGreeksManager:
 
         # If in breach, need to reduce
         if self.current_metrics.risk_state in [RiskState.BREACH, RiskState.CRITICAL]:
-
             # Reduce delta if breached
             if abs(self.current_metrics.total_delta) > self.greek_limits.max_delta:
-                excess = (
-                    abs(self.current_metrics.total_delta) - self.greek_limits.max_delta
-                )
+                excess = abs(self.current_metrics.total_delta) - self.greek_limits.max_delta
                 orders.append(
                     {
                         "type": "REDUCE_DELTA",

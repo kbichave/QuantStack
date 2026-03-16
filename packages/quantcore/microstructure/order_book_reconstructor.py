@@ -40,13 +40,10 @@ that is emitted to registered callbacks.  The snapshot contains:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Dict, List, Optional
-
-from loguru import logger
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
 from quantcore.data.streaming.tick_models import L2Update
-
 
 # ---------------------------------------------------------------------------
 # Output model
@@ -61,20 +58,20 @@ class BookSnapshot:
     ``ask_depth`` is sorted ascending by price (best ask first).
     """
 
-    symbol:      str
+    symbol: str
     timestamp_ns: int
 
-    best_bid:    Optional[float]
-    best_ask:    Optional[float]
-    spread:      Optional[float]   # ask − bid  (None if one side is empty)
-    spread_bps:  Optional[float]   # spread / mid × 10 000
-    mid:         Optional[float]   # (bid + ask) / 2
+    best_bid: float | None
+    best_ask: float | None
+    spread: float | None  # ask − bid  (None if one side is empty)
+    spread_bps: float | None  # spread / mid × 10 000
+    mid: float | None  # (bid + ask) / 2
 
     # Order imbalance at top-N levels: (bid_vol − ask_vol) / total_vol ∈ [−1, 1]
-    imbalance:   float
+    imbalance: float
 
-    bid_depth:   List[tuple]   # [(price, size), ...] best → worst
-    ask_depth:   List[tuple]   # [(price, size), ...] best → worst
+    bid_depth: list[tuple]  # [(price, size), ...] best → worst
+    ask_depth: list[tuple]  # [(price, size), ...] best → worst
 
 
 BookSnapshotCallback = Callable[[BookSnapshot], Awaitable[None]]
@@ -99,17 +96,17 @@ class OrderBookReconstructor:
         depth_levels: int = 10,
         imbalance_levels: int = 5,
     ) -> None:
-        self._depth   = depth_levels
+        self._depth = depth_levels
         self._imb_lvl = imbalance_levels
 
         # symbol → {price: size}
-        self._bids: Dict[str, Dict[float, float]] = {}
-        self._asks: Dict[str, Dict[float, float]] = {}
+        self._bids: dict[str, dict[float, float]] = {}
+        self._asks: dict[str, dict[float, float]] = {}
 
         # Whether the next snapshot batch should clear the book first
-        self._pending_clear: Dict[str, bool] = {}
+        self._pending_clear: dict[str, bool] = {}
 
-        self._callbacks: List[BookSnapshotCallback] = []
+        self._callbacks: list[BookSnapshotCallback] = []
 
     # ── Callback registration ─────────────────────────────────────────────────
 
@@ -158,7 +155,7 @@ class OrderBookReconstructor:
 
     # ── Snapshot builder ──────────────────────────────────────────────────────
 
-    def _build_snapshot(self, symbol: str, timestamp_ns: int) -> Optional[BookSnapshot]:
+    def _build_snapshot(self, symbol: str, timestamp_ns: int) -> BookSnapshot | None:
         bids = self._bids.get(symbol, {})
         asks = self._asks.get(symbol, {})
 
@@ -166,12 +163,12 @@ class OrderBookReconstructor:
         bid_sorted = sorted(bids.items(), key=lambda kv: kv[0], reverse=True)
         ask_sorted = sorted(asks.items(), key=lambda kv: kv[0])
 
-        best_bid = bid_sorted[0][0]  if bid_sorted else None
-        best_ask = ask_sorted[0][0]  if ask_sorted else None
+        best_bid = bid_sorted[0][0] if bid_sorted else None
+        best_ask = ask_sorted[0][0] if ask_sorted else None
 
         if best_bid is not None and best_ask is not None:
-            spread     = best_ask - best_bid
-            mid        = (best_bid + best_ask) / 2.0
+            spread = best_ask - best_bid
+            mid = (best_bid + best_ask) / 2.0
             spread_bps = spread / mid * 10_000 if mid != 0.0 else None
         else:
             spread = mid = spread_bps = None
@@ -179,39 +176,40 @@ class OrderBookReconstructor:
         # Imbalance at top-N levels
         bid_vol = sum(s for _, s in bid_sorted[: self._imb_lvl])
         ask_vol = sum(s for _, s in ask_sorted[: self._imb_lvl])
-        total   = bid_vol + ask_vol
+        total = bid_vol + ask_vol
         imbalance = (bid_vol - ask_vol) / total if total > 0 else 0.0
 
         return BookSnapshot(
-            symbol       = symbol,
-            timestamp_ns = timestamp_ns,
-            best_bid     = best_bid,
-            best_ask     = best_ask,
-            spread       = spread,
-            spread_bps   = spread_bps,
-            mid          = mid,
-            imbalance    = imbalance,
-            bid_depth    = bid_sorted[: self._depth],
-            ask_depth    = ask_sorted[: self._depth],
+            symbol=symbol,
+            timestamp_ns=timestamp_ns,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            spread=spread,
+            spread_bps=spread_bps,
+            mid=mid,
+            imbalance=imbalance,
+            bid_depth=bid_sorted[: self._depth],
+            ask_depth=ask_sorted[: self._depth],
         )
 
     # ── Read API ──────────────────────────────────────────────────────────────
 
-    def get_snapshot(self, symbol: str) -> Optional[BookSnapshot]:
+    def get_snapshot(self, symbol: str) -> BookSnapshot | None:
         """Return a current snapshot without waiting for a new update."""
         if symbol not in self._bids:
             return None
         import time
+
         return self._build_snapshot(symbol, time.time_ns())
 
-    def best_bid(self, symbol: str) -> Optional[float]:
+    def best_bid(self, symbol: str) -> float | None:
         bids = self._bids.get(symbol, {})
         return max(bids.keys()) if bids else None
 
-    def best_ask(self, symbol: str) -> Optional[float]:
+    def best_ask(self, symbol: str) -> float | None:
         asks = self._asks.get(symbol, {})
         return min(asks.keys()) if asks else None
 
-    def mid(self, symbol: str) -> Optional[float]:
+    def mid(self, symbol: str) -> float | None:
         bb, ba = self.best_bid(symbol), self.best_ask(symbol)
         return (bb + ba) / 2.0 if bb is not None and ba is not None else None

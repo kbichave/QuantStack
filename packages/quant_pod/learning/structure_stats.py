@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 from quant_pod.knowledge.models import StructureType, TradeRecord
 from quant_pod.knowledge.store import KnowledgeStore
@@ -27,17 +26,13 @@ class StructureStats:
     def __init__(self, store: KnowledgeStore) -> None:
         self.store = store
 
-    def _get_trades(
-        self, structure_type: Optional[StructureType] = None
-    ) -> List[TradeRecord]:
+    def _get_trades(self, structure_type: StructureType | None = None) -> list[TradeRecord]:
         trades = self.store.get_trades(limit=500)
         if structure_type:
             trades = [t for t in trades if t.structure_type == structure_type]
         return trades
 
-    def get_structure_stats(
-        self, structure_type: StructureType
-    ) -> StructureStatsSummary:
+    def get_structure_stats(self, structure_type: StructureType) -> StructureStatsSummary:
         trades = self._get_trades(structure_type)
         total = len(trades)
         wins = [t for t in trades if (t.pnl or 0) > 0]
@@ -57,9 +52,9 @@ class StructureStats:
             expectancy=expectancy,
         )
 
-    def get_best_structures(self, min_trades: int = 5) -> List[StructureStatsSummary]:
+    def get_best_structures(self, min_trades: int = 5) -> list[StructureStatsSummary]:
         """Return structures that meet the trade threshold sorted by expectancy."""
-        summaries: List[StructureStatsSummary] = []
+        summaries: list[StructureStatsSummary] = []
         for structure in StructureType:
             trades = self._get_trades(structure)
             if len(trades) < min_trades:

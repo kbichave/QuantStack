@@ -10,22 +10,21 @@ No network calls — quote_fn is a synchronous mock.
 from __future__ import annotations
 
 import asyncio
-from typing import Dict
-from unittest.mock import MagicMock, call
+from datetime import UTC
+from unittest.mock import MagicMock
 
 import pytest
-
 from quant_pod.data.market_data_bus import RestPollingBus
 from quant_pod.execution.tick_executor import Tick
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def make_quote_fn(prices: Dict[str, float]) -> MagicMock:
+def make_quote_fn(prices: dict[str, float]) -> MagicMock:
     """Return a mock that emulates a quote function returning canned prices."""
+
     def quote_fn(symbol: str) -> dict:
         return {
             "price": prices.get(symbol, 100.0),
@@ -33,6 +32,7 @@ def make_quote_fn(prices: Dict[str, float]) -> MagicMock:
             "bid": prices.get(symbol, 100.0) - 0.01,
             "ask": prices.get(symbol, 100.0) + 0.01,
         }
+
     mock = MagicMock(side_effect=quote_fn)
     return mock
 
@@ -87,7 +87,7 @@ class TestRestPollingBusEmitsTicks:
         prices = {"AAPL": 185.0}
         quote_fn = make_quote_fn(prices)
 
-        bus = RestPollingBus(symbols=["AAPL"], quote_fn=quote_fn)
+        RestPollingBus(symbols=["AAPL"], quote_fn=quote_fn)
         tick_queue: asyncio.Queue = asyncio.Queue()
 
         async def run_once():
@@ -243,8 +243,9 @@ class TestTickDataclass:
         assert tick.mid == pytest.approx(450.0)
 
     def test_timestamp_defaults_to_now(self):
-        from datetime import datetime, timezone
-        before = datetime.now(timezone.utc)
+        from datetime import datetime
+
+        before = datetime.now(UTC)
         tick = Tick(symbol="SPY", price=450.0, volume=1000)
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
         assert before <= tick.timestamp <= after

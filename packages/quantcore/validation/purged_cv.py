@@ -5,11 +5,11 @@ Implements Lopez de Prado's purged k-fold and combinatorial purged CV
 to prevent data leakage from overlapping labels.
 """
 
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import List, Tuple, Generator, Optional
-import pandas as pd
+
 import numpy as np
-from loguru import logger
+import pandas as pd
 
 
 @dataclass
@@ -56,8 +56,8 @@ class PurgedKFoldCV:
     def split(
         self,
         X: pd.DataFrame,
-        y: Optional[pd.Series] = None,
-        label_end_times: Optional[pd.Series] = None,
+        y: pd.Series | None = None,
+        label_end_times: pd.Series | None = None,
     ) -> Generator[CVSplit, None, None]:
         """
         Generate train/test indices for each fold.
@@ -82,11 +82,7 @@ class PurgedKFoldCV:
         for fold_idx in range(self.n_splits):
             # Test indices for this fold
             test_start_idx = fold_idx * fold_size
-            test_end_idx = (
-                (fold_idx + 1) * fold_size
-                if fold_idx < self.n_splits - 1
-                else n_samples
-            )
+            test_end_idx = (fold_idx + 1) * fold_size if fold_idx < self.n_splits - 1 else n_samples
             test_indices = indices[test_start_idx:test_end_idx]
 
             # Train indices: everything except test + embargo
@@ -115,12 +111,8 @@ class PurgedKFoldCV:
             yield CVSplit(
                 train_indices=train_indices,
                 test_indices=test_indices,
-                train_start=(
-                    X.index[train_indices[0]] if len(train_indices) > 0 else None
-                ),
-                train_end=(
-                    X.index[train_indices[-1]] if len(train_indices) > 0 else None
-                ),
+                train_start=(X.index[train_indices[0]] if len(train_indices) > 0 else None),
+                train_end=(X.index[train_indices[-1]] if len(train_indices) > 0 else None),
                 test_start=X.index[test_indices[0]],
                 test_end=X.index[test_indices[-1]],
             )
@@ -158,7 +150,7 @@ class CombinatorialPurgedCV:
     def split(
         self,
         X: pd.DataFrame,
-        y: Optional[pd.Series] = None,
+        y: pd.Series | None = None,
     ) -> Generator[CVSplit, None, None]:
         """
         Generate combinatorial splits.
@@ -185,9 +177,7 @@ class CombinatorialPurgedCV:
             groups.append(indices[start:end])
 
         # Generate all combinations of test groups
-        for test_group_indices in combinations(
-            range(self.n_groups), self.n_test_groups
-        ):
+        for test_group_indices in combinations(range(self.n_groups), self.n_test_groups):
             # Test indices
             test_indices = np.concatenate([groups[i] for i in test_group_indices])
 
@@ -257,7 +247,7 @@ class WalkForwardValidator:
     def split(
         self,
         X: pd.DataFrame,
-        y: Optional[pd.Series] = None,
+        y: pd.Series | None = None,
     ) -> Generator[CVSplit, None, None]:
         """
         Generate walk-forward splits.
@@ -321,10 +311,6 @@ class WalkForwardValidator:
             "n_splits": len(splits),
             "first_test_start": splits[0].test_start if splits else None,
             "last_test_end": splits[-1].test_end if splits else None,
-            "avg_train_size": (
-                np.mean([len(s.train_indices) for s in splits]) if splits else 0
-            ),
-            "avg_test_size": (
-                np.mean([len(s.test_indices) for s in splits]) if splits else 0
-            ),
+            "avg_train_size": (np.mean([len(s.train_indices) for s in splits]) if splits else 0),
+            "avg_test_size": (np.mean([len(s.test_indices) for s in splits]) if splits else 0),
         }

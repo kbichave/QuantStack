@@ -16,7 +16,8 @@ The SABR model (Stochastic Alpha Beta Rho) captures:
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -33,7 +34,7 @@ class SABRParams:
     forward: float
     time_to_expiry: float
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary."""
         return {
             "alpha": self.alpha,
@@ -50,8 +51,8 @@ def fit_sabr_surface(
     forward: float,
     time_to_expiry: float,
     beta: float = 1.0,
-    initial_guess: Optional[Dict[str, float]] = None,
-) -> Dict[str, Any]:
+    initial_guess: dict[str, float] | None = None,
+) -> dict[str, Any]:
     """
     Fit SABR model to market IV quotes.
 
@@ -132,9 +133,7 @@ def fit_sabr_surface(
         # Calculate fitted vols and residuals
         fitted_vols = np.array(
             [
-                hagan_2002_lognormal_sabr(
-                    k, forward, time_to_expiry, alpha, beta, rho, volvol
-                )
+                hagan_2002_lognormal_sabr(k, forward, time_to_expiry, alpha, beta, rho, volvol)
                 for k in strikes
             ]
         )
@@ -178,7 +177,7 @@ def _fit_sabr_scipy(
     alpha0: float,
     rho0: float,
     volvol0: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fallback SABR fitting using scipy optimization."""
     from scipy.optimize import minimize
 
@@ -213,12 +212,7 @@ def _fit_sabr_scipy(
             x_z = 1.0
 
         term1 = alpha / (
-            fk_beta
-            * (
-                1
-                + (1 - beta) ** 2 / 24 * log_fk**2
-                + (1 - beta) ** 4 / 1920 * log_fk**4
-            )
+            fk_beta * (1 + (1 - beta) ** 2 / 24 * log_fk**2 + (1 - beta) ** 4 / 1920 * log_fk**4)
         )
         term2 = z / x_z
         term3 = (
@@ -239,10 +233,7 @@ def _fit_sabr_scipy(
             return 1e10
 
         model_vols = np.array(
-            [
-                sabr_vol_hagan(k, forward, time_to_expiry, alpha, beta, rho, nu)
-                for k in strikes
-            ]
+            [sabr_vol_hagan(k, forward, time_to_expiry, alpha, beta, rho, nu) for k in strikes]
         )
 
         if np.any(np.isnan(model_vols)):
@@ -270,10 +261,7 @@ def _fit_sabr_scipy(
     )
 
     fitted_vols = np.array(
-        [
-            sabr_vol_hagan(k, forward, time_to_expiry, alpha, beta, rho, volvol)
-            for k in strikes
-        ]
+        [sabr_vol_hagan(k, forward, time_to_expiry, alpha, beta, rho, volvol) for k in strikes]
     )
 
     residuals = market_vols - fitted_vols
@@ -298,10 +286,10 @@ def _fit_sabr_scipy(
 
 
 def interpolate_sabr_vol(
-    sabr_params: Union[SABRParams, Dict[str, float]],
+    sabr_params: SABRParams | dict[str, float],
     strike: float,
-    forward: Optional[float] = None,
-    time_to_expiry: Optional[float] = None,
+    forward: float | None = None,
+    time_to_expiry: float | None = None,
 ) -> float:
     """
     Interpolate implied volatility using fitted SABR parameters.
@@ -337,16 +325,12 @@ def interpolate_sabr_vol(
         from pysabr import hagan_2002_lognormal_sabr
 
         return float(
-            hagan_2002_lognormal_sabr(
-                strike, forward, time_to_expiry, alpha, beta, rho, volvol
-            )
+            hagan_2002_lognormal_sabr(strike, forward, time_to_expiry, alpha, beta, rho, volvol)
         )
 
     except ImportError:
         # Use internal Hagan formula
-        return _hagan_sabr_vol(
-            strike, forward, time_to_expiry, alpha, beta, rho, volvol
-        )
+        return _hagan_sabr_vol(strike, forward, time_to_expiry, alpha, beta, rho, volvol)
 
 
 def _hagan_sabr_vol(k, f, t, alpha, beta, rho, nu):
@@ -378,8 +362,7 @@ def _hagan_sabr_vol(k, f, t, alpha, beta, rho, nu):
         x_z = 1.0
 
     term1 = alpha / (
-        fk_beta
-        * (1 + (1 - beta) ** 2 / 24 * log_fk**2 + (1 - beta) ** 4 / 1920 * log_fk**4)
+        fk_beta * (1 + (1 - beta) ** 2 / 24 * log_fk**2 + (1 - beta) ** 4 / 1920 * log_fk**4)
     )
     term2 = z / x_z
     term3 = (
@@ -396,10 +379,10 @@ def _hagan_sabr_vol(k, f, t, alpha, beta, rho, nu):
 
 
 def get_sabr_smile(
-    sabr_params: Union[SABRParams, Dict[str, float]],
-    strikes: Union[List[float], np.ndarray],
-    forward: Optional[float] = None,
-    time_to_expiry: Optional[float] = None,
+    sabr_params: SABRParams | dict[str, float],
+    strikes: list[float] | np.ndarray,
+    forward: float | None = None,
+    time_to_expiry: float | None = None,
 ) -> pd.DataFrame:
     """
     Generate volatility smile from SABR parameters.
@@ -428,10 +411,10 @@ def get_sabr_smile(
 
 
 def get_sabr_skew_metrics(
-    sabr_params: Union[SABRParams, Dict[str, float]],
-    forward: Optional[float] = None,
-    time_to_expiry: Optional[float] = None,
-) -> Dict[str, float]:
+    sabr_params: SABRParams | dict[str, float],
+    forward: float | None = None,
+    time_to_expiry: float | None = None,
+) -> dict[str, float]:
     """
     Extract key skew metrics from SABR surface.
 
@@ -466,8 +449,8 @@ def get_sabr_skew_metrics(
 
     atm_vol = interpolate_sabr_vol(sabr_params, atm, forward, time_to_expiry)
     vol_90 = interpolate_sabr_vol(sabr_params, k_90, forward, time_to_expiry)
-    vol_95 = interpolate_sabr_vol(sabr_params, k_95, forward, time_to_expiry)
-    vol_105 = interpolate_sabr_vol(sabr_params, k_105, forward, time_to_expiry)
+    interpolate_sabr_vol(sabr_params, k_95, forward, time_to_expiry)
+    interpolate_sabr_vol(sabr_params, k_105, forward, time_to_expiry)
     vol_110 = interpolate_sabr_vol(sabr_params, k_110, forward, time_to_expiry)
     vol_85 = interpolate_sabr_vol(sabr_params, k_85, forward, time_to_expiry)
     vol_115 = interpolate_sabr_vol(sabr_params, k_115, forward, time_to_expiry)
@@ -499,7 +482,7 @@ def fit_term_structure_sabr(
     risk_free_rate: float = 0.05,
     dividend_yield: float = 0.0,
     beta: float = 1.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Fit SABR surfaces across multiple expiries.
 

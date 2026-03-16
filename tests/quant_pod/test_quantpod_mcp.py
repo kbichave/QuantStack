@@ -18,10 +18,8 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from quant_pod.context import create_trading_context
 from quant_pod.execution.portfolio_state import Position
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -268,12 +266,15 @@ class TestRunAnalysis:
             "confidence": 0.8,
         }
 
-        with patch(
-            "quant_pod.agents.regime_detector.RegimeDetectorAgent.detect_regime",
-            return_value=mock_regime,
-        ), patch(
-            "quant_pod.crews.trading_crew.run_analysis_only",
-            return_value=mock_result,
+        with (
+            patch(
+                "quant_pod.agents.regime_detector.RegimeDetectorAgent.detect_regime",
+                return_value=mock_regime,
+            ),
+            patch(
+                "quant_pod.crews.trading_crew.run_analysis_only",
+                return_value=mock_result,
+            ),
         ):
             result = await _get_fn(run_analysis)("SPY")
             assert result["success"] is True
@@ -303,12 +304,15 @@ class TestRunAnalysis:
     async def test_returns_error_on_crew_failure(self, _inject_ctx):
         from quant_pod.mcp.server import run_analysis
 
-        with patch(
-            "quant_pod.agents.regime_detector.RegimeDetectorAgent.detect_regime",
-            return_value={"success": True, "trend_regime": "unknown"},
-        ), patch(
-            "quant_pod.crews.trading_crew.run_analysis_only",
-            side_effect=RuntimeError("Crew failed to start"),
+        with (
+            patch(
+                "quant_pod.agents.regime_detector.RegimeDetectorAgent.detect_regime",
+                return_value={"success": True, "trend_regime": "unknown"},
+            ),
+            patch(
+                "quant_pod.crews.trading_crew.run_analysis_only",
+                side_effect=RuntimeError("Crew failed to start"),
+            ),
         ):
             result = await _get_fn(run_analysis)("SPY")
             assert result["success"] is False

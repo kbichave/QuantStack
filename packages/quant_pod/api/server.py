@@ -34,11 +34,9 @@ Run:
 
 from __future__ import annotations
 
-import math
 import statistics
-import uuid
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -55,11 +53,10 @@ from quant_pod.learning.calibration import get_calibration_tracker
 from quant_pod.monitoring.metrics import (
     get_metrics_content_type,
     get_metrics_text,
+    record_daily_pnl,
     record_kill_switch_active,
     record_nav,
-    record_daily_pnl,
 )
-
 
 # =============================================================================
 # APP
@@ -87,13 +84,13 @@ app.add_middleware(
 
 class AnalyzeRequest(BaseModel):
     symbol: str
-    date: Optional[str] = None
-    portfolio: Optional[Dict[str, Any]] = None
-    regimes: Optional[Dict[str, Any]] = None
+    date: str | None = None
+    portfolio: dict[str, Any] | None = None
+    regimes: dict[str, Any] | None = None
 
 
 class ETradeAuthRequest(BaseModel):
-    verifier_code: Optional[str] = None  # None = step 1 (get URL), set = step 2 (complete)
+    verifier_code: str | None = None  # None = step 1 (get URL), set = step 2 (complete)
 
 
 class KillSwitchRequest(BaseModel):
@@ -110,7 +107,7 @@ class ResetRequest(BaseModel):
 
 
 @app.get("/health")
-def health() -> Dict[str, Any]:
+def health() -> dict[str, Any]:
     """Health check — returns service status and kill switch state."""
     kill = get_kill_switch()
     portfolio = get_portfolio_state()
@@ -128,7 +125,7 @@ def health() -> Dict[str, Any]:
 
 
 @app.get("/portfolio")
-def get_portfolio() -> Dict[str, Any]:
+def get_portfolio() -> dict[str, Any]:
     """Current portfolio snapshot."""
     portfolio = get_portfolio_state()
     snapshot = portfolio.get_snapshot()
@@ -136,14 +133,14 @@ def get_portfolio() -> Dict[str, Any]:
 
 
 @app.get("/portfolio/positions")
-def get_positions() -> List[Dict[str, Any]]:
+def get_positions() -> list[dict[str, Any]]:
     """Current open positions."""
     portfolio = get_portfolio_state()
     return [p.model_dump() for p in portfolio.get_positions()]
 
 
 @app.post("/analyze/{symbol}")
-def analyze(symbol: str, req: Optional[AnalyzeRequest] = None) -> Dict[str, Any]:
+def analyze(symbol: str, req: AnalyzeRequest | None = None) -> dict[str, Any]:
     """
     Run regime detection + TradingDayFlow for a symbol.
 
@@ -190,7 +187,7 @@ def analyze(symbol: str, req: Optional[AnalyzeRequest] = None) -> Dict[str, Any]
         flow.state.portfolio = portfolio
         flow.state.regimes = {symbol: regime}
 
-        result = flow.kickoff()
+        flow.kickoff()
         return {
             "symbol": symbol,
             "date": str(trade_date),
@@ -203,11 +200,11 @@ def analyze(symbol: str, req: Optional[AnalyzeRequest] = None) -> Dict[str, Any]
         }
     except Exception as e:
         logger.error(f"[API] Analysis failed for {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/trades")
-def get_trades(limit: int = Query(default=50, le=500)) -> List[Dict[str, Any]]:
+def get_trades(limit: int = Query(default=50, le=500)) -> list[dict[str, Any]]:
     """Recent fills from the active broker (paper or eTrade)."""
     broker = get_broker()
     fills = broker.get_fills(limit=limit)
@@ -216,11 +213,11 @@ def get_trades(limit: int = Query(default=50, le=500)) -> List[Dict[str, Any]]:
 
 @app.get("/audit")
 def get_audit(
-    symbol: Optional[str] = None,
-    agent_name: Optional[str] = None,
-    event_type: Optional[str] = None,
+    symbol: str | None = None,
+    agent_name: str | None = None,
+    event_type: str | None = None,
     limit: int = Query(default=50, le=500),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Recent audit log entries."""
     log = get_decision_log()
     events = log.query(
@@ -248,7 +245,7 @@ def get_audit(
 
 
 @app.get("/audit/{event_id}/trace")
-def get_audit_trace(event_id: str) -> List[Dict[str, Any]]:
+def get_audit_trace(event_id: str) -> list[dict[str, Any]]:
     """Full decision trace for a specific event."""
     log = get_decision_log()
     trace = log.get_decision_trace(event_id)
@@ -258,7 +255,7 @@ def get_audit_trace(event_id: str) -> List[Dict[str, Any]]:
 
 
 @app.get("/audit/{event_id}/attribution")
-def get_audit_attribution(event_id: str) -> Dict[str, Any]:
+def get_audit_attribution(event_id: str) -> dict[str, Any]:
     """
     SHAP-style indicator attribution for a specific decision event.
 
@@ -268,7 +265,7 @@ def get_audit_attribution(event_id: str) -> Dict[str, Any]:
       - IC dissent signals (ICs that disagreed with the consensus)
     """
     log = get_decision_log()
-    events = log.query(AuditQuery(limit=1))  # Query by event_id directly
+    log.query(AuditQuery(limit=1))  # Query by event_id directly
     # query() doesn't filter by event_id, so fetch via trace (single-element trace = the event itself)
     trace = log.get_decision_trace(event_id)
     if not trace:
@@ -296,14 +293,14 @@ def get_audit_attribution(event_id: str) -> Dict[str, Any]:
 
 
 @app.get("/audit/session/{session_id}/summary")
-def get_session_summary(session_id: str) -> Dict[str, Any]:
+def get_session_summary(session_id: str) -> dict[str, Any]:
     """High-level summary of a trading session."""
     log = get_decision_log()
     return log.get_session_summary(session_id)
 
 
 @app.get("/regime/{symbol}")
-def get_regime(symbol: str) -> Dict[str, Any]:
+def get_regime(symbol: str) -> dict[str, Any]:
     """Current regime detection for a symbol."""
     from quant_pod.agents.regime_detector import RegimeDetectorAgent
 
@@ -312,7 +309,7 @@ def get_regime(symbol: str) -> Dict[str, Any]:
 
 
 @app.get("/skills")
-def get_skills() -> List[Dict[str, Any]]:
+def get_skills() -> list[dict[str, Any]]:
     """
     Agent skill performance summary — includes IC/ICIR metrics.
 
@@ -329,7 +326,7 @@ def get_skills() -> List[Dict[str, Any]]:
 
 
 @app.get("/skills/degradation")
-def get_skills_degradation() -> Dict[str, Any]:
+def get_skills_degradation() -> dict[str, Any]:
     """
     Alpha decay degradation report — on-demand monitoring check.
 
@@ -370,9 +367,9 @@ def get_skills_degradation() -> Dict[str, Any]:
 
 @app.get("/orders")
 def get_orders(
-    status: Optional[str] = None,
+    status: str | None = None,
     limit: int = Query(default=50, le=500),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     OMS order ledger — recent orders with lifecycle status.
 
@@ -411,21 +408,22 @@ def get_orders(
 
 
 @app.get("/orders/summary")
-def get_orders_summary() -> Dict[str, Any]:
+def get_orders_summary() -> dict[str, Any]:
     """OMS session summary — fill rate, IS bps, status breakdown."""
     from quant_pod.execution.order_lifecycle import get_order_lifecycle
+
     return get_order_lifecycle().session_summary()
 
 
 @app.get("/calibration")
-def get_calibration() -> List[Dict[str, Any]]:
+def get_calibration() -> list[dict[str, Any]]:
     """Agent confidence calibration report."""
     tracker = get_calibration_tracker()
     return tracker.all_agents_summary()
 
 
 @app.get("/heartbeat")
-def get_heartbeat() -> Dict[str, Any]:
+def get_heartbeat() -> dict[str, Any]:
     """
     Agent heartbeat monitor.
 
@@ -446,29 +444,33 @@ def get_heartbeat() -> Dict[str, Any]:
 
     # Fetch the most recent event for each key event type
     monitored_types = ["ic_analysis", "pod_synthesis", "super_trader_decision"]
-    agent_status: List[Dict[str, Any]] = []
+    agent_status: list[dict[str, Any]] = []
 
     for event_type in monitored_types:
         events = log.query(AuditQuery(event_type=event_type, limit=1))
         if not events:
-            agent_status.append({
-                "event_type": event_type,
-                "last_seen": None,
-                "hours_ago": None,
-                "status": "never_seen",
-            })
+            agent_status.append(
+                {
+                    "event_type": event_type,
+                    "last_seen": None,
+                    "hours_ago": None,
+                    "status": "never_seen",
+                }
+            )
         else:
             last_event = events[0]
             age_hours = (now - last_event.created_at).total_seconds() / 3600
             status = "ok" if age_hours <= max_silence_hours else "stale"
-            agent_status.append({
-                "event_type": event_type,
-                "last_seen": last_event.created_at.isoformat(),
-                "hours_ago": round(age_hours, 1),
-                "status": status,
-                "last_agent": last_event.agent_name,
-                "last_symbol": last_event.symbol,
-            })
+            agent_status.append(
+                {
+                    "event_type": event_type,
+                    "last_seen": last_event.created_at.isoformat(),
+                    "hours_ago": round(age_hours, 1),
+                    "status": status,
+                    "last_agent": last_event.agent_name,
+                    "last_symbol": last_event.symbol,
+                }
+            )
 
     overall = "ok"
     if any(s["status"] == "stale" for s in agent_status):
@@ -486,7 +488,7 @@ def get_heartbeat() -> Dict[str, Any]:
 
 
 @app.get("/dashboard/pnl")
-def get_pnl_dashboard() -> Dict[str, Any]:
+def get_pnl_dashboard() -> dict[str, Any]:
     """
     P&L dashboard — daily realized and unrealized P&L by position.
 
@@ -510,8 +512,7 @@ def get_pnl_dashboard() -> Dict[str, Any]:
             "current_price": p.current_price,
             "unrealized_pnl": p.unrealized_pnl,
             "unrealized_pnl_pct": (
-                round(p.unrealized_pnl / (p.cost_basis or 1) * 100, 2)
-                if p.cost_basis else 0.0
+                round(p.unrealized_pnl / (p.cost_basis or 1) * 100, 2) if p.cost_basis else 0.0
             ),
         }
         for p in positions
@@ -536,7 +537,7 @@ def get_pnl_dashboard() -> Dict[str, Any]:
 
 
 @app.get("/dashboard/anomalies")
-def get_anomalies() -> Dict[str, Any]:
+def get_anomalies() -> dict[str, Any]:
     """
     Anomaly detection across three dimensions:
 
@@ -546,7 +547,7 @@ def get_anomalies() -> Dict[str, Any]:
 
     Each anomaly includes a severity ("warning" | "critical") and description.
     """
-    anomalies: List[Dict[str, Any]] = []
+    anomalies: list[dict[str, Any]] = []
     broker = get_broker()
     log = get_decision_log()
     now = datetime.now()
@@ -561,19 +562,21 @@ def get_anomalies() -> Dict[str, Any]:
 
         for fill in fills[-20:]:  # Check only recent fills
             if abs(fill.filled_quantity) > threshold and threshold > 0:
-                anomalies.append({
-                    "type": "order_size",
-                    "severity": "warning",
-                    "description": (
-                        f"{fill.symbol} fill qty={fill.filled_quantity} exceeds "
-                        f"mean+3σ ({threshold:.0f}). "
-                        f"Historical mean={mean_qty:.0f}, σ={stdev_qty:.0f}."
-                    ),
-                    "symbol": fill.symbol,
-                    "value": fill.filled_quantity,
-                    "threshold": round(threshold, 2),
-                    "detected_at": fill.filled_at.isoformat(),
-                })
+                anomalies.append(
+                    {
+                        "type": "order_size",
+                        "severity": "warning",
+                        "description": (
+                            f"{fill.symbol} fill qty={fill.filled_quantity} exceeds "
+                            f"mean+3σ ({threshold:.0f}). "
+                            f"Historical mean={mean_qty:.0f}, σ={stdev_qty:.0f}."
+                        ),
+                        "symbol": fill.symbol,
+                        "value": fill.filled_quantity,
+                        "threshold": round(threshold, 2),
+                        "detected_at": fill.filled_at.isoformat(),
+                    }
+                )
 
     # ---- 2. Win rate degradation (uses ClosedTrade records, not fills) -----
     portfolio = get_portfolio_state()
@@ -586,19 +589,21 @@ def get_anomalies() -> Dict[str, Any]:
         win_rate = winners / len(pnls)
         if win_rate < 0.52:
             severity = "critical" if win_rate < 0.40 else "warning"
-            anomalies.append({
-                "type": "win_rate_degradation",
-                "severity": severity,
-                "description": (
-                    f"Win rate over last {len(pnls)} trades: "
-                    f"{win_rate:.1%} (below 52% threshold). "
-                    f"Consider retraining or halting new entries."
-                ),
-                "value": round(win_rate, 4),
-                "threshold": 0.52,
-                "sample_size": len(pnls),
-                "detected_at": now.isoformat(),
-            })
+            anomalies.append(
+                {
+                    "type": "win_rate_degradation",
+                    "severity": severity,
+                    "description": (
+                        f"Win rate over last {len(pnls)} trades: "
+                        f"{win_rate:.1%} (below 52% threshold). "
+                        f"Consider retraining or halting new entries."
+                    ),
+                    "value": round(win_rate, 4),
+                    "threshold": 0.52,
+                    "sample_size": len(pnls),
+                    "detected_at": now.isoformat(),
+                }
+            )
 
     # ---- 3. Tool failures in last 24h ------------------------------------
     cutoff = now - timedelta(hours=24)
@@ -607,39 +612,43 @@ def get_anomalies() -> Dict[str, Any]:
     for event in recent_events:
         failed_tools = [tc for tc in event.tool_calls if not tc.success]
         if failed_tools:
-            failed_tool_events.append({
-                "event_id": event.event_id,
-                "agent_name": event.agent_name,
-                "symbol": event.symbol,
-                "failed_tools": [tc.tool_name for tc in failed_tools],
-                "at": event.created_at.isoformat(),
-            })
+            failed_tool_events.append(
+                {
+                    "event_id": event.event_id,
+                    "agent_name": event.agent_name,
+                    "symbol": event.symbol,
+                    "failed_tools": [tc.tool_name for tc in failed_tools],
+                    "at": event.created_at.isoformat(),
+                }
+            )
 
     if failed_tool_events:
-        anomalies.append({
-            "type": "tool_failures",
-            "severity": "warning" if len(failed_tool_events) < 5 else "critical",
-            "description": (
-                f"{len(failed_tool_events)} agent events had tool failures in the last 24h. "
-                f"Agents may be operating on incomplete data."
-            ),
-            "count": len(failed_tool_events),
-            "events": failed_tool_events[:10],  # Cap at 10 for response size
-            "detected_at": now.isoformat(),
-        })
+        anomalies.append(
+            {
+                "type": "tool_failures",
+                "severity": "warning" if len(failed_tool_events) < 5 else "critical",
+                "description": (
+                    f"{len(failed_tool_events)} agent events had tool failures in the last 24h. "
+                    f"Agents may be operating on incomplete data."
+                ),
+                "count": len(failed_tool_events),
+                "events": failed_tool_events[:10],  # Cap at 10 for response size
+                "detected_at": now.isoformat(),
+            }
+        )
 
     return {
         "checked_at": now.isoformat(),
         "anomaly_count": len(anomalies),
         "anomalies": anomalies,
-        "status": "clean" if not anomalies else (
-            "critical" if any(a["severity"] == "critical" for a in anomalies) else "warning"
-        ),
+        "status": "clean"
+        if not anomalies
+        else ("critical" if any(a["severity"] == "critical" for a in anomalies) else "warning"),
     }
 
 
 @app.get("/etrade/status")
-def etrade_status() -> Dict[str, Any]:
+def etrade_status() -> dict[str, Any]:
     """
     eTrade connection status.
 
@@ -657,6 +666,7 @@ def etrade_status() -> Dict[str, Any]:
 
     try:
         from quant_pod.execution.etrade_broker import get_etrade_broker
+
         broker = get_etrade_broker()
         status = broker.auth_status()
         status["broker_mode"] = mode
@@ -671,7 +681,7 @@ def etrade_status() -> Dict[str, Any]:
 
 
 @app.post("/etrade/auth")
-def etrade_auth(req: ETradeAuthRequest) -> Dict[str, Any]:
+def etrade_auth(req: ETradeAuthRequest) -> dict[str, Any]:
     """
     eTrade OAuth flow.
 
@@ -691,6 +701,7 @@ def etrade_auth(req: ETradeAuthRequest) -> Dict[str, Any]:
 
     try:
         from quant_pod.execution.etrade_broker import get_etrade_broker
+
         broker = get_etrade_broker()
 
         if req.verifier_code is None:
@@ -714,16 +725,18 @@ def etrade_auth(req: ETradeAuthRequest) -> Dict[str, Any]:
                     "message": "eTrade authentication complete. Portfolio reconciled.",
                 }
             else:
-                raise HTTPException(status_code=401, detail="eTrade auth failed — check verifier code.")
+                raise HTTPException(
+                    status_code=401, detail="eTrade auth failed — check verifier code."
+                )
 
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/etrade/reconcile")
-def etrade_reconcile() -> Dict[str, Any]:
+def etrade_reconcile() -> dict[str, Any]:
     """
     Force a portfolio reconciliation against eTrade's actual positions.
 
@@ -740,10 +753,13 @@ def etrade_reconcile() -> Dict[str, Any]:
 
     try:
         from quant_pod.execution.etrade_broker import get_etrade_broker
+
         broker = get_etrade_broker()
 
         if not broker._auth.is_authenticated():
-            raise HTTPException(status_code=401, detail="Not authenticated — call /etrade/auth first.")
+            raise HTTPException(
+                status_code=401, detail="Not authenticated — call /etrade/auth first."
+            )
 
         broker._reconcile_on_startup()
         portfolio = get_portfolio_state()
@@ -756,11 +772,11 @@ def etrade_reconcile() -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.post("/kill")
-def trigger_kill_switch(req: KillSwitchRequest) -> Dict[str, Any]:
+def trigger_kill_switch(req: KillSwitchRequest) -> dict[str, Any]:
     """Activate the kill switch — halts all trading immediately."""
     kill = get_kill_switch()
     kill.trigger(reason=req.reason)
@@ -769,7 +785,7 @@ def trigger_kill_switch(req: KillSwitchRequest) -> Dict[str, Any]:
 
 
 @app.post("/reset")
-def reset_kill_switch(req: ResetRequest) -> Dict[str, Any]:
+def reset_kill_switch(req: ResetRequest) -> dict[str, Any]:
     """Reset the kill switch — allows trading to resume."""
     kill = get_kill_switch()
     if not kill.is_active():
@@ -780,7 +796,7 @@ def reset_kill_switch(req: ResetRequest) -> Dict[str, Any]:
 
 
 @app.get("/monitor/intraday")
-def monitor_intraday() -> Dict[str, Any]:
+def monitor_intraday() -> dict[str, Any]:
     """
     Run an intraday monitoring cycle on demand.
 
@@ -828,9 +844,9 @@ def monitor_intraday() -> Dict[str, Any]:
 
 @app.get("/monitor/degradation")
 def monitor_degradation(
-    strategy_id: Optional[str] = None,
+    strategy_id: str | None = None,
     rolling_days: int = Query(default=60, ge=10, le=365),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     IS/OOS degradation report.
 
@@ -871,9 +887,11 @@ def monitor_degradation(
             for r in reports
         ],
         "overall_status": (
-            "critical" if any(r.status.value == "critical" for r in reports) else
-            "warning" if any(r.status.value == "warning" for r in reports) else
-            "clean"
+            "critical"
+            if any(r.status.value == "critical" for r in reports)
+            else "warning"
+            if any(r.status.value == "warning" for r in reports)
+            else "clean"
         ),
     }
 
@@ -887,7 +905,7 @@ class ISBenchmarkRequest(BaseModel):
 
 
 @app.post("/monitor/degradation/benchmark")
-def register_benchmark(req: ISBenchmarkRequest) -> Dict[str, Any]:
+def register_benchmark(req: ISBenchmarkRequest) -> dict[str, Any]:
     """
     Register an in-sample (backtest) performance benchmark.
 
@@ -905,9 +923,10 @@ def register_benchmark(req: ISBenchmarkRequest) -> Dict[str, Any]:
         }
     """
     from quant_pod.monitoring.degradation_detector import (
-        get_degradation_detector,
         ISBenchmark,
+        get_degradation_detector,
     )
+
     detector = get_degradation_detector()
     benchmark = ISBenchmark(
         strategy_id=req.strategy_id,
@@ -924,7 +943,7 @@ def register_benchmark(req: ISBenchmarkRequest) -> Dict[str, Any]:
 def options_flow(
     symbol: str,
     expiry_within_days: int = Query(default=45, ge=1, le=180),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Unusual options activity (UOA) signal for a symbol.
 

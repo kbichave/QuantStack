@@ -33,7 +33,6 @@ writes and removes use os.makedirs / os.remove which are also atomic on Linux.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from loguru import logger
@@ -86,8 +85,7 @@ class KillSwitch:
             self._path.write_text(reason or "kill switch activated\n")
             logger.critical(
                 f"[KillSwitch] ACTIVATED — all order submission halted. "
-                f"Sentinel: {self._path}"
-                + (f" | reason: {reason}" if reason else "")
+                f"Sentinel: {self._path}" + (f" | reason: {reason}" if reason else "")
             )
         except OSError as exc:
             logger.error(f"[KillSwitch] Failed to write sentinel file: {exc}")
@@ -99,8 +97,7 @@ class KillSwitch:
             if self._path.exists():
                 self._path.unlink()
                 logger.info(
-                    f"[KillSwitch] DEACTIVATED — trading resumed. "
-                    f"Sentinel removed: {self._path}"
+                    f"[KillSwitch] DEACTIVATED — trading resumed. Sentinel removed: {self._path}"
                 )
             else:
                 logger.debug("[KillSwitch] deactivate() called but sentinel was not present")

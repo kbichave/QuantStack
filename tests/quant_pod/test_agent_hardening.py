@@ -10,7 +10,6 @@ No external I/O — pure in-memory logic.
 from __future__ import annotations
 
 import pytest
-
 from quant_pod.guardrails.agent_hardening import AgentHardener
 
 
@@ -26,13 +25,15 @@ def hardener() -> AgentHardener:
 
 class TestValidateAgentOutput:
     def test_clean_output_is_valid(self, hardener):
-        result = hardener.validate_agent_output({
-            "action": "BUY",
-            "confidence": 0.75,
-            "position_size_pct": 0.10,
-            "symbol": "SPY",
-            "entry_price": 450.0,
-        })
+        result = hardener.validate_agent_output(
+            {
+                "action": "BUY",
+                "confidence": 0.75,
+                "position_size_pct": 0.10,
+                "symbol": "SPY",
+                "entry_price": 450.0,
+            }
+        )
         assert result["is_valid"]
         assert result["violations"] == []
 
@@ -61,7 +62,9 @@ class TestValidateAgentOutput:
         # >20% → flagged and clamped
         result = hardener.validate_agent_output({"position_size_pct": 0.50})
         assert not result["is_valid"]
-        assert result["sanitized_output"]["position_size_pct"] == hardener.MAX_RECOMMENDED_POSITION_PCT
+        assert (
+            result["sanitized_output"]["position_size_pct"] == hardener.MAX_RECOMMENDED_POSITION_PCT
+        )
 
     def test_negative_position_size_flagged(self, hardener):
         result = hardener.validate_agent_output({"position_size_pct": -0.05})

@@ -8,7 +8,7 @@ IMPORTANT: Uses proper 3-way split to avoid data leakage:
 """
 
 from itertools import product
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -22,7 +22,7 @@ def tune_hyperparameters(
     initial_capital: float = 100000,
     train_end: str = "2018-01-01",
     val_end: str = "2021-01-01",
-) -> Tuple[Dict[str, float], Dict[str, Any]]:
+) -> tuple[dict[str, float], dict[str, Any]]:
     """
     Tune strategy hyperparameters using grid search with proper 3-way split.
 
@@ -60,27 +60,19 @@ def tune_hyperparameters(
     valid_data = spread_df.dropna(subset=["spread_zscore"]).copy()
 
     train_data = valid_data[valid_data.index < train_end]
-    val_data = valid_data[
-        (valid_data.index >= train_end) & (valid_data.index < val_end)
-    ]
+    val_data = valid_data[(valid_data.index >= train_end) & (valid_data.index < val_end)]
     test_data = valid_data[valid_data.index >= val_end]
 
     # Validate split sizes
     if len(train_data) < 252:
-        logger.warning(
-            f"Train set small ({len(train_data)} bars). Consider adjusting train_end."
-        )
+        logger.warning(f"Train set small ({len(train_data)} bars). Consider adjusting train_end.")
 
     if len(val_data) < 252:
-        logger.error(
-            f"Validation set too small ({len(val_data)} bars). Need at least 252 bars."
-        )
+        logger.error(f"Validation set too small ({len(val_data)} bars). Need at least 252 bars.")
         return {}, {}
 
     if len(test_data) < 200:
-        logger.error(
-            f"Test set too small ({len(test_data)} bars). Need at least 200 bars."
-        )
+        logger.error(f"Test set too small ({len(test_data)} bars). Need at least 200 bars.")
         return {}, {}
 
     logger.info("PROPER 3-WAY TEMPORAL SPLIT (No Lookahead Bias)")
@@ -116,9 +108,7 @@ def tune_hyperparameters(
         )
     )
 
-    logger.info(
-        f"Testing {len(combinations)} parameter combinations on VALIDATION set..."
-    )
+    logger.info(f"Testing {len(combinations)} parameter combinations on VALIDATION set...")
 
     best_val_sharpe = -999
     best_params = {}
@@ -169,9 +159,7 @@ def tune_hyperparameters(
             best_val_results = val_results
 
     # Print top validation results
-    all_results_sorted = sorted(
-        all_results, key=lambda x: x["val_sharpe"], reverse=True
-    )
+    all_results_sorted = sorted(all_results, key=lambda x: x["val_sharpe"], reverse=True)
 
     logger.success("Top Parameter Combinations (by VALIDATION Sharpe):")
     header = f"{'Entry Z':>8} {'Exit Z':>8} {'Size':>8} {'Cost/bbl':>10} {'Stop Z':>8} | {'Val SR':>10} {'Val Ret':>10} {'Trades':>8}"
@@ -210,9 +198,7 @@ def tune_hyperparameters(
         best_params["stop_loss_zscore"],
     )
 
-    logger.info(
-        f"  Test Period: {test_data.index[0].date()} to {test_data.index[-1].date()}"
-    )
+    logger.info(f"  Test Period: {test_data.index[0].date()} to {test_data.index[-1].date()}")
     logger.info(f"  Test Sharpe: {test_results['sharpe_ratio']:.2f}")
     logger.info(f"  Test Return: {test_results['total_return_pct']:.1f}%")
     logger.info(f"  Test Trades: {test_results['total_trades']}")

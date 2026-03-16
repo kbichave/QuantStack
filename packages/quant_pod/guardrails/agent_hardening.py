@@ -43,10 +43,9 @@ Usage:
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
-
 
 # Tokens that could be used for prompt injection
 _INJECTION_PATTERNS = [
@@ -62,9 +61,7 @@ _INJECTION_PATTERNS = [
     r"override",
 ]
 
-_INJECTION_RE = re.compile(
-    "|".join(_INJECTION_PATTERNS), re.IGNORECASE
-)
+_INJECTION_RE = re.compile("|".join(_INJECTION_PATTERNS), re.IGNORECASE)
 
 
 class AgentHardener:
@@ -115,7 +112,7 @@ class AgentHardener:
 
         return cleaned.strip()
 
-    def sanitize_indicators(self, indicators: Dict[str, Any]) -> Dict[str, float]:
+    def sanitize_indicators(self, indicators: dict[str, Any]) -> dict[str, float]:
         """
         Sanitize a dict of indicator values, keeping only numeric scalars.
 
@@ -128,9 +125,7 @@ class AgentHardener:
             if isinstance(val, (int, float)) and not isinstance(val, bool):
                 safe[str(key)[:50]] = round(float(val), 6)
             else:
-                logger.debug(
-                    f"[HARDENING] Dropped non-numeric indicator '{key}': {type(val)}"
-                )
+                logger.debug(f"[HARDENING] Dropped non-numeric indicator '{key}': {type(val)}")
         return safe
 
     # -------------------------------------------------------------------------
@@ -141,9 +136,9 @@ class AgentHardener:
         self,
         symbol: str,
         portfolio_state_str: str,
-        market_data: Dict[str, Any],
-        indicators: Dict[str, Any],
-        regime: Dict[str, Any],
+        market_data: dict[str, Any],
+        indicators: dict[str, Any],
+        regime: dict[str, Any],
         recent_trades_summary: str = "",
         session_block: int = 1,
     ) -> str:
@@ -211,9 +206,7 @@ class AgentHardener:
     # 3. IC agreement measurement
     # -------------------------------------------------------------------------
 
-    def measure_ic_agreement(
-        self, ic_outputs: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def measure_ic_agreement(self, ic_outputs: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Measure agreement level across IC outputs.
 
@@ -263,9 +256,7 @@ class AgentHardener:
 
         # Identify dissenters
         dissenting = [
-            names[i]
-            for i, b in enumerate(biases)
-            if majority_dir != 0 and b != majority_dir
+            names[i] for i, b in enumerate(biases) if majority_dir != 0 and b != majority_dir
         ]
 
         # Scale factor: full size only when all ICs agree
@@ -279,9 +270,12 @@ class AgentHardener:
             scale = 0.25  # Strong disagreement → minimal position
 
         bias_label = (
-            "bullish" if avg_bias > 0.3
-            else "bearish" if avg_bias < -0.3
-            else "conflicted" if len(set(biases)) > 1
+            "bullish"
+            if avg_bias > 0.3
+            else "bearish"
+            if avg_bias < -0.3
+            else "conflicted"
+            if len(set(biases)) > 1
             else "neutral"
         )
 
@@ -314,7 +308,7 @@ class AgentHardener:
         return session_block % 4 == 0
 
     def summarize_trades_for_context(
-        self, trades: List[Dict[str, Any]], max_detailed: int = 3
+        self, trades: list[dict[str, Any]], max_detailed: int = 3
     ) -> str:
         """
         Compress trade history for context injection.
@@ -350,7 +344,6 @@ class AgentHardener:
 
         return "\n".join(lines)
 
-
     # -------------------------------------------------------------------------
     # 5. Agent output anomaly detection (TradeTrap: direct prompt injection)
     # -------------------------------------------------------------------------
@@ -362,9 +355,9 @@ class AgentHardener:
 
     def validate_agent_output(
         self,
-        output: Dict[str, Any],
+        output: dict[str, Any],
         portfolio_equity: float = 100_000.0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Validate agent output before it reaches the execution layer.
 
@@ -463,9 +456,9 @@ class AgentHardener:
 
     def reconcile_blackboard_with_portfolio(
         self,
-        blackboard_positions: List[Dict[str, Any]],
-        portfolio_positions: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        blackboard_positions: list[dict[str, Any]],
+        portfolio_positions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """
         Detect divergence between agent beliefs (Blackboard) and ground truth
         (PortfolioState) before execution.
@@ -491,15 +484,19 @@ class AgentHardener:
             }
         """
         # Build lookup dicts by symbol
-        bb_map = {str(p.get("symbol", "")).upper(): p for p in blackboard_positions if p.get("symbol")}
-        port_map = {str(p.get("symbol", "")).upper(): p for p in portfolio_positions if p.get("symbol")}
+        bb_map = {
+            str(p.get("symbol", "")).upper(): p for p in blackboard_positions if p.get("symbol")
+        }
+        port_map = {
+            str(p.get("symbol", "")).upper(): p for p in portfolio_positions if p.get("symbol")
+        }
 
         bb_symbols = set(bb_map.keys())
         port_symbols = set(port_map.keys())
 
-        phantom = []      # In BB but not in portfolio
-        unknown = []      # In portfolio but not in BB
-        mismatches = []   # In both but quantity differs
+        phantom = []  # In BB but not in portfolio
+        unknown = []  # In portfolio but not in BB
+        mismatches = []  # In both but quantity differs
 
         for sym in bb_symbols - port_symbols:
             phantom.append({"symbol": sym, "bb_quantity": bb_map[sym].get("quantity", 0)})
@@ -511,12 +508,14 @@ class AgentHardener:
             bb_qty = float(bb_map[sym].get("quantity", 0) or 0)
             port_qty = float(port_map[sym].get("quantity", 0) or 0)
             if port_qty != 0 and abs(bb_qty - port_qty) / abs(port_qty) > 0.05:
-                mismatches.append({
-                    "symbol": sym,
-                    "bb_quantity": bb_qty,
-                    "portfolio_quantity": port_qty,
-                    "pct_diff": abs(bb_qty - port_qty) / abs(port_qty),
-                })
+                mismatches.append(
+                    {
+                        "symbol": sym,
+                        "bb_quantity": bb_qty,
+                        "portfolio_quantity": port_qty,
+                        "pct_diff": abs(bb_qty - port_qty) / abs(port_qty),
+                    }
+                )
 
         issues = phantom + unknown + mismatches
         is_reconciled = len(issues) == 0
@@ -549,7 +548,7 @@ class AgentHardener:
 
 
 # Singleton
-_hardener: Optional[AgentHardener] = None
+_hardener: AgentHardener | None = None
 
 
 def get_hardener() -> AgentHardener:

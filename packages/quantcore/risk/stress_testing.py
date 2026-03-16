@@ -10,16 +10,13 @@ Provides:
 """
 
 from dataclasses import dataclass
-from enum import Enum
-from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
-from loguru import logger
 
-from quantcore.options.models import OptionsPosition, OptionType
-from quantcore.options.pricing import black_scholes_price, black_scholes_greeks
-
+from quantcore.options.models import OptionsPosition
+from quantcore.options.pricing import black_scholes_greeks, black_scholes_price
 
 # Predefined historical stress scenarios
 # Format: (price_change_pct, vol_change_pct)
@@ -61,7 +58,7 @@ class PortfolioStressResult:
     total_stressed_value: float
     total_pnl: float
     total_pnl_pct: float
-    position_results: List[StressResult]
+    position_results: list[StressResult]
     worst_position: str
     best_position: str
 
@@ -94,7 +91,7 @@ class MonteCarloSimulator:
     def __init__(
         self,
         n_simulations: int = 10000,
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ):
         """
         Initialize Monte Carlo simulator.
@@ -189,11 +186,11 @@ class MonteCarloSimulator:
 
     def simulate_correlated(
         self,
-        S0: Dict[str, float],
-        volatilities: Dict[str, float],
+        S0: dict[str, float],
+        volatilities: dict[str, float],
         correlation_matrix: np.ndarray,
         time_horizon_days: int = 21,
-    ) -> Dict[str, np.ndarray]:
+    ) -> dict[str, np.ndarray]:
         """
         Generate correlated price paths for multiple assets.
 
@@ -225,9 +222,7 @@ class MonteCarloSimulator:
             s0 = S0[symbol]
             vol = volatilities[symbol]
 
-            terminal = s0 * np.exp(
-                -0.5 * vol**2 * T + vol * np.sqrt(T) * correlated_Z[:, i]
-            )
+            terminal = s0 * np.exp(-0.5 * vol**2 * T + vol * np.sqrt(T) * correlated_Z[:, i])
             result[symbol] = terminal
 
         return result
@@ -412,12 +407,8 @@ class VaRCalculator:
             cvar_95=self.expected_shortfall(returns, 0.95),
             cvar_99=self.expected_shortfall(returns, 0.99),
             max_loss=-returns.min() if not returns.empty else 0.0,
-            mean_loss=(
-                -returns[returns < 0].mean() if len(returns[returns < 0]) > 0 else 0.0
-            ),
-            loss_std=(
-                returns[returns < 0].std() if len(returns[returns < 0]) > 1 else 0.0
-            ),
+            mean_loss=(-returns[returns < 0].mean() if len(returns[returns < 0]) > 0 else 0.0),
+            loss_std=(returns[returns < 0].std() if len(returns[returns < 0]) > 1 else 0.0),
             simulation_count=len(returns),
         )
 
@@ -481,9 +472,7 @@ class PortfolioStressTester:
         )
 
         # Calculate new Greeks
-        greeks = self._position_greeks(
-            position, stressed_price, stressed_iv, time_decay_days
-        )
+        greeks = self._position_greeks(position, stressed_price, stressed_iv, time_decay_days)
 
         pnl = stressed_value - initial_value
         pnl_pct = pnl / abs(initial_value) if initial_value != 0 else 0.0
@@ -538,7 +527,7 @@ class PortfolioStressTester:
         spot: float,
         iv: float,
         days_passed: int,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Calculate aggregate position Greeks."""
         delta = 0.0
         gamma = 0.0
@@ -576,9 +565,9 @@ class PortfolioStressTester:
 
     def run_scenario(
         self,
-        positions: Dict[str, OptionsPosition],
-        spot_prices: Dict[str, float],
-        ivs: Dict[str, float],
+        positions: dict[str, OptionsPosition],
+        spot_prices: dict[str, float],
+        ivs: dict[str, float],
         scenario_name: str,
         price_change_pct: float,
         vol_change_pct: float,
@@ -627,12 +616,8 @@ class PortfolioStressTester:
 
         # Find worst and best positions
         if position_results:
-            worst_idx = min(
-                range(len(position_results)), key=lambda i: position_results[i].pnl
-            )
-            best_idx = max(
-                range(len(position_results)), key=lambda i: position_results[i].pnl
-            )
+            worst_idx = min(range(len(position_results)), key=lambda i: position_results[i].pnl)
+            best_idx = max(range(len(position_results)), key=lambda i: position_results[i].pnl)
             worst_symbol = list(positions.keys())[worst_idx]
             best_symbol = list(positions.keys())[best_idx]
         else:
@@ -652,10 +637,10 @@ class PortfolioStressTester:
 
     def run_all_scenarios(
         self,
-        positions: Dict[str, OptionsPosition],
-        spot_prices: Dict[str, float],
-        ivs: Dict[str, float],
-        scenarios: Optional[Dict[str, Tuple[float, float]]] = None,
+        positions: dict[str, OptionsPosition],
+        spot_prices: dict[str, float],
+        ivs: dict[str, float],
+        scenarios: dict[str, tuple[float, float]] | None = None,
         time_decay_days: int = 0,
     ) -> pd.DataFrame:
         """
@@ -704,9 +689,9 @@ class PortfolioStressTester:
 
     def monte_carlo_stress(
         self,
-        positions: Dict[str, OptionsPosition],
-        spot_prices: Dict[str, float],
-        ivs: Dict[str, float],
+        positions: dict[str, OptionsPosition],
+        spot_prices: dict[str, float],
+        ivs: dict[str, float],
         n_simulations: int = 10000,
         horizon_days: int = 21,
         include_vol_shock: bool = True,
@@ -773,14 +758,10 @@ class PortfolioStressTester:
             cvar_99=self.var_calc.expected_shortfall_mc(pnl_simulations, 0.99),
             max_loss=-np.min(pnl_simulations),
             mean_loss=(
-                -np.mean(pnl_simulations[pnl_simulations < 0])
-                if np.any(pnl_simulations < 0)
-                else 0
+                -np.mean(pnl_simulations[pnl_simulations < 0]) if np.any(pnl_simulations < 0) else 0
             ),
             loss_std=(
-                np.std(pnl_simulations[pnl_simulations < 0])
-                if np.any(pnl_simulations < 0)
-                else 0
+                np.std(pnl_simulations[pnl_simulations < 0]) if np.any(pnl_simulations < 0) else 0
             ),
             simulation_count=n_simulations,
         )

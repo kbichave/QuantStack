@@ -12,9 +12,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
-
 from quant_pod.context import create_trading_context
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -31,6 +29,7 @@ def ctx():
 @pytest.fixture
 def _inject_ctx(ctx):
     import quant_pod.mcp.server as srv
+
     original = srv._ctx
     srv._ctx = ctx
     yield ctx
@@ -50,14 +49,16 @@ def _make_signals(n: int = 30) -> list:
         exit_time = entry + timedelta(hours=3)
         entry_price = 450 + i * 0.2
         exit_price = entry_price * (1.015 if i % 3 != 0 else 0.99)
-        signals.append({
-            "symbol": "SPY",
-            "direction": "long",
-            "entry_time": entry.strftime("%Y-%m-%d %H:%M"),
-            "entry_price": entry_price,
-            "exit_time": exit_time.strftime("%Y-%m-%d %H:%M"),
-            "exit_price": exit_price,
-        })
+        signals.append(
+            {
+                "symbol": "SPY",
+                "direction": "long",
+                "entry_time": entry.strftime("%Y-%m-%d %H:%M"),
+                "entry_price": entry_price,
+                "exit_time": exit_time.strftime("%Y-%m-%d %H:%M"),
+                "exit_price": exit_price,
+            }
+        )
     return signals
 
 

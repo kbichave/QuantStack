@@ -18,9 +18,8 @@ Usage:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -145,7 +144,7 @@ class RLProductionConfig(BaseSettings):
         return Path(self.checkpoint_base_path) / "meta_agent.pt"
 
 
-_cached_config: Optional[RLProductionConfig] = None
+_cached_config: RLProductionConfig | None = None
 
 
 def get_rl_config() -> RLProductionConfig:

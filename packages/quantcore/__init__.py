@@ -44,7 +44,6 @@ math
 
 from __future__ import annotations
 
-
 __version__ = "0.1.0"
 __author__ = "Kshitij Bichave"
 __license__ = "Apache-2.0"
@@ -79,22 +78,21 @@ from quantcore import (
     visualization,
 )
 
-# =============================================================================
-# Convenience Imports
-# =============================================================================
-
-# Configuration
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_PARAMS
-
 # Types
 from quantcore._typing import (
     OHLCV,
-    Signal,
-    Returns,
-    FeatureMatrix,
     BacktestMetrics,
+    FeatureMatrix,
+    Returns,
+    Signal,
     TradeRecord,
 )
+
+# =============================================================================
+# Convenience Imports
+# =============================================================================
+# Configuration
+from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
 
 # =============================================================================
 # Public API

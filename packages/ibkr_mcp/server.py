@@ -19,18 +19,18 @@ import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any
 
 from fastmcp import FastMCP
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Server context
 # ---------------------------------------------------------------------------
 
+
 class _Ctx:
-    mgr: Any       = None   # IBKRConnectionManager
+    mgr: Any = None  # IBKRConnectionManager
     account_id: str = ""
 
 
@@ -44,9 +44,9 @@ async def lifespan(server: FastMCP):
         from ibkr_mcp.connection import IBKRConnectionManager
 
         _ctx.mgr = IBKRConnectionManager.get_instance(
-            host      = os.getenv("IBKR_HOST",      "127.0.0.1"),
-            port      = int(os.getenv("IBKR_PORT",  "4001")),
-            client_id = int(os.getenv("IBKR_CLIENT_ID", "1")),
+            host=os.getenv("IBKR_HOST", "127.0.0.1"),
+            port=int(os.getenv("IBKR_PORT", "4001")),
+            client_id=int(os.getenv("IBKR_CLIENT_ID", "1")),
         )
         _ctx.mgr.connect()
         accounts = _ctx.mgr.ib.managedAccounts()
@@ -71,12 +71,13 @@ mcp = FastMCP("ibkr_mcp", lifespan=lifespan)
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _require_ib():
     if _ctx.mgr is None or not _ctx.mgr.is_connected():
         raise RuntimeError(
             f"IB Gateway not connected at "
-            f"{os.getenv('IBKR_HOST','127.0.0.1')}:"
-            f"{os.getenv('IBKR_PORT','4001')}. "
+            f"{os.getenv('IBKR_HOST', '127.0.0.1')}:"
+            f"{os.getenv('IBKR_PORT', '4001')}. "
             "Start IB Gateway and call connect_gateway."
         )
     return _ctx.mgr.ib
@@ -94,6 +95,7 @@ def _dc_to_dict(obj) -> dict:
 # Tools
 # ---------------------------------------------------------------------------
 
+
 @mcp.tool()
 def connect_gateway(
     host: str = "127.0.0.1",
@@ -107,15 +109,16 @@ def connect_gateway(
     """
     try:
         from ibkr_mcp.connection import IBKRConnectionManager
+
         mgr = IBKRConnectionManager.get_instance(host=host, port=port)
         mgr.connect()
         accounts = mgr.ib.managedAccounts()
         _ctx.mgr = mgr
         _ctx.account_id = accounts[0] if accounts else ""
         return {
-            "success":    True,
-            "host":       host,
-            "port":       port,
+            "success": True,
+            "host": host,
+            "port": port,
             "account_id": _ctx.account_id,
         }
     except Exception as exc:
@@ -127,10 +130,10 @@ def get_connection_status() -> dict:
     """Check whether IB Gateway is connected."""
     connected = _ctx.mgr is not None and _ctx.mgr.is_connected()
     return {
-        "success":    True,
-        "connected":  connected,
-        "host":       os.getenv("IBKR_HOST", "127.0.0.1"),
-        "port":       int(os.getenv("IBKR_PORT", "4001")),
+        "success": True,
+        "connected": connected,
+        "host": os.getenv("IBKR_HOST", "127.0.0.1"),
+        "port": int(os.getenv("IBKR_PORT", "4001")),
         "account_id": _ctx.account_id,
     }
 
@@ -147,22 +150,27 @@ def get_accounts() -> dict:
 
 
 @mcp.tool()
-def get_balance(account_id: Optional[str] = None) -> dict:
+def get_balance(account_id: str | None = None) -> dict:
     """Return cash, net liquidation value, and buying power.
 
     Args:
         account_id: IB account ID (uses default account if omitted).
     """
     try:
-        ib     = _require_ib()
-        acct   = account_id or _ctx.account_id
+        ib = _require_ib()
+        acct = account_id or _ctx.account_id
         values = ib.accountValues(acct)
         summary = {
             v.tag: float(v.value) if _is_float(v.value) else v.value
             for v in values
-            if v.tag in (
-                "NetLiquidation", "TotalCashValue", "BuyingPower",
-                "MaintMarginReq", "AvailableFunds", "UnrealizedPnL",
+            if v.tag
+            in (
+                "NetLiquidation",
+                "TotalCashValue",
+                "BuyingPower",
+                "MaintMarginReq",
+                "AvailableFunds",
+                "UnrealizedPnL",
             )
             and v.currency == "USD"
         }
@@ -172,35 +180,37 @@ def get_balance(account_id: Optional[str] = None) -> dict:
 
 
 @mcp.tool()
-def get_positions(account_id: Optional[str] = None) -> dict:
+def get_positions(account_id: str | None = None) -> dict:
     """Return all open positions.
 
     Args:
         account_id: IB account ID (uses default account if omitted).
     """
     try:
-        ib   = _require_ib()
+        ib = _require_ib()
         acct = account_id or _ctx.account_id
         port = ib.portfolio(acct)
         positions = []
         for item in port:
-            positions.append({
-                "symbol":        item.contract.symbol,
-                "sec_type":      item.contract.secType,
-                "quantity":      item.position,
-                "avg_cost":      item.averageCost,
-                "market_price":  item.marketPrice,
-                "market_value":  item.marketValue,
-                "unrealised_pnl": item.unrealizedPNL,
-                "realised_pnl":  item.realizedPNL,
-            })
+            positions.append(
+                {
+                    "symbol": item.contract.symbol,
+                    "sec_type": item.contract.secType,
+                    "quantity": item.position,
+                    "avg_cost": item.averageCost,
+                    "market_price": item.marketPrice,
+                    "market_value": item.marketValue,
+                    "unrealised_pnl": item.unrealizedPNL,
+                    "realised_pnl": item.realizedPNL,
+                }
+            )
         return {"success": True, "positions": positions, "count": len(positions)}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 
 
 @mcp.tool()
-def get_quote(symbols: List[str]) -> dict:
+def get_quote(symbols: list[str]) -> dict:
     """Return real-time snapshot bid/ask/last for up to 20 symbols.
 
     Args:
@@ -208,18 +218,21 @@ def get_quote(symbols: List[str]) -> dict:
     """
     try:
         import ib_insync as iblib
+
         ib = _require_ib()
         contracts = [iblib.Stock(s, "SMART", "USD") for s in symbols]
-        tickers   = ib.reqTickers(*contracts)
+        tickers = ib.reqTickers(*contracts)
         quotes = []
-        for sym, t in zip(symbols, tickers):
-            quotes.append({
-                "symbol": sym,
-                "bid":    t.bid   if t.bid   and t.bid   > 0 else None,
-                "ask":    t.ask   if t.ask   and t.ask   > 0 else None,
-                "last":   t.last  if t.last  and t.last  > 0 else None,
-                "close":  t.close if t.close and t.close > 0 else None,
-            })
+        for sym, t in zip(symbols, tickers, strict=False):
+            quotes.append(
+                {
+                    "symbol": sym,
+                    "bid": t.bid if t.bid and t.bid > 0 else None,
+                    "ask": t.ask if t.ask and t.ask > 0 else None,
+                    "last": t.last if t.last and t.last > 0 else None,
+                    "close": t.close if t.close and t.close > 0 else None,
+                }
+            )
         return {"success": True, "quotes": quotes}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -227,9 +240,9 @@ def get_quote(symbols: List[str]) -> dict:
 
 @mcp.tool()
 def get_historical_bars(
-    symbol:    str,
+    symbol: str,
     timeframe: str = "1h",
-    duration:  str = "30 D",
+    duration: str = "30 D",
 ) -> dict:
     """Return OHLCV history from IB Gateway reqHistoricalData.
 
@@ -240,24 +253,25 @@ def get_historical_bars(
     """
     try:
         import ib_insync as iblib
-        ib       = _require_ib()
+
+        ib = _require_ib()
         contract = iblib.Stock(symbol, "SMART", "USD")
         bars = ib.reqHistoricalData(
             contract,
-            endDateTime       = "",
-            durationStr       = duration,
-            barSizeSetting    = timeframe,
-            whatToShow        = "TRADES",
-            useRTH            = True,
-            formatDate        = 1,
+            endDateTime="",
+            durationStr=duration,
+            barSizeSetting=timeframe,
+            whatToShow="TRADES",
+            useRTH=True,
+            formatDate=1,
         )
         records = [
             {
                 "timestamp": b.date.isoformat() if hasattr(b.date, "isoformat") else str(b.date),
-                "open":   float(b.open),
-                "high":   float(b.high),
-                "low":    float(b.low),
-                "close":  float(b.close),
+                "open": float(b.open),
+                "high": float(b.high),
+                "low": float(b.low),
+                "close": float(b.close),
                 "volume": float(b.volume),
             }
             for b in bars
@@ -270,7 +284,7 @@ def get_historical_bars(
 @mcp.tool()
 def get_option_chains(
     symbol: str,
-    expiry: Optional[str] = None,
+    expiry: str | None = None,
 ) -> dict:
     """Return options chain expirations and strikes from IB Gateway.
 
@@ -280,17 +294,20 @@ def get_option_chains(
     """
     try:
         import ib_insync as iblib
-        ib       = _require_ib()
+
+        ib = _require_ib()
         contract = iblib.Stock(symbol, "SMART", "USD")
-        chains   = ib.reqSecDefOptParams(symbol, "", "STK", contract.conId or 0)
+        chains = ib.reqSecDefOptParams(symbol, "", "STK", contract.conId or 0)
         results = []
         for c in chains:
             exp_filter = [e for e in c.expirations if not expiry or e == expiry]
-            results.append({
-                "exchange":    c.exchange,
-                "expirations": exp_filter,
-                "strikes":     list(c.strikes)[:20],   # first 20 strikes for brevity
-            })
+            results.append(
+                {
+                    "exchange": c.exchange,
+                    "expirations": exp_filter,
+                    "strikes": list(c.strikes)[:20],  # first 20 strikes for brevity
+                }
+            )
         return {"success": True, "symbol": symbol, "chains": results}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -298,12 +315,12 @@ def get_option_chains(
 
 @mcp.tool()
 def place_order(
-    symbol:      str,
-    side:        str,
-    quantity:    float,
-    order_type:  str = "market",
-    limit_price: Optional[float] = None,
-    account_id:  Optional[str] = None,
+    symbol: str,
+    side: str,
+    quantity: float,
+    order_type: str = "market",
+    limit_price: float | None = None,
+    account_id: str | None = None,
 ) -> dict:
     """Submit an equity order via IB Gateway.
 
@@ -317,8 +334,9 @@ def place_order(
     """
     try:
         import ib_insync as iblib
-        ib       = _require_ib()
-        acct     = account_id or _ctx.account_id
+
+        ib = _require_ib()
+        acct = account_id or _ctx.account_id
         contract = iblib.Stock(symbol, "SMART", "USD")
 
         if order_type.lower() == "market":
@@ -332,11 +350,11 @@ def place_order(
 
         trade = ib.placeOrder(contract, order)
         return {
-            "success":  True,
+            "success": True,
             "order_id": trade.order.orderId,
-            "status":   str(trade.orderStatus.status),
-            "symbol":   symbol,
-            "side":     side,
+            "status": str(trade.orderStatus.status),
+            "symbol": symbol,
+            "side": side,
             "quantity": quantity,
         }
     except Exception as exc:
@@ -351,7 +369,6 @@ def cancel_order(order_id: int) -> dict:
         order_id: IB integer order ID.
     """
     try:
-        import ib_insync as iblib
         ib = _require_ib()
         trades = [t for t in ib.trades() if t.order.orderId == order_id]
         if not trades:
@@ -363,7 +380,7 @@ def cancel_order(order_id: int) -> dict:
 
 
 @mcp.tool()
-def get_orders(status: Optional[str] = None) -> dict:
+def get_orders(status: str | None = None) -> dict:
     """Return open and/or completed orders.
 
     Args:
@@ -377,17 +394,19 @@ def get_orders(status: Optional[str] = None) -> dict:
             s = str(t.orderStatus.status).lower()
             if status and s != status.lower():
                 continue
-            results.append({
-                "order_id":   t.order.orderId,
-                "symbol":     t.contract.symbol,
-                "side":       t.order.action,
-                "quantity":   t.order.totalQuantity,
-                "order_type": t.order.orderType,
-                "limit_price": t.order.lmtPrice if t.order.lmtPrice else None,
-                "status":     str(t.orderStatus.status),
-                "filled":     t.orderStatus.filled,
-                "avg_fill":   t.orderStatus.avgFillPrice if t.orderStatus.avgFillPrice else None,
-            })
+            results.append(
+                {
+                    "order_id": t.order.orderId,
+                    "symbol": t.contract.symbol,
+                    "side": t.order.action,
+                    "quantity": t.order.totalQuantity,
+                    "order_type": t.order.orderType,
+                    "limit_price": t.order.lmtPrice if t.order.lmtPrice else None,
+                    "status": str(t.orderStatus.status),
+                    "filled": t.orderStatus.filled,
+                    "avg_fill": t.orderStatus.avgFillPrice if t.orderStatus.avgFillPrice else None,
+                }
+            )
         return {"success": True, "orders": results, "count": len(results)}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -396,6 +415,7 @@ def get_orders(status: Optional[str] = None) -> dict:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def _is_float(v: str) -> bool:
     try:

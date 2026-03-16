@@ -27,11 +27,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 from scipy import stats
-
 
 # =============================================================================
 # SHARPE RATIO WITH CONFIDENCE INTERVAL
@@ -39,11 +38,11 @@ from scipy import stats
 
 
 def sharpe_ratio_with_ci(
-    returns: List[float],
+    returns: list[float],
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
     confidence: float = 0.95,
-) -> Tuple[float, Tuple[float, float]]:
+) -> tuple[float, tuple[float, float]]:
     """
     Compute annualized Sharpe ratio with a confidence interval.
 
@@ -85,9 +84,7 @@ def sharpe_ratio_with_ci(
 
     # Variance of the annualized Sharpe ratio
     sr_period = mean_excess / std_excess  # Period Sharpe (not annualized yet)
-    var_sr = (1 / n) * (
-        1 + (sr_period ** 2 / 2) - skew * sr_period + ((kurt + 2) / 4) * sr_period ** 2
-    )
+    var_sr = (1 / n) * (1 + (sr_period**2 / 2) - skew * sr_period + ((kurt + 2) / 4) * sr_period**2)
     se_sr_period = math.sqrt(max(0, var_sr))
     se_sr_annualized = se_sr_period * math.sqrt(periods_per_year)
 
@@ -104,7 +101,7 @@ def sharpe_ratio_with_ci(
 
 
 def monte_carlo_permutation(
-    returns: List[float],
+    returns: list[float],
     observed_sharpe: float,
     n_permutations: int = 1000,
     risk_free_rate: float = 0.0,
@@ -179,15 +176,15 @@ class WalkForwardSummary:
     n_folds: int
     avg_test_sharpe: float
     median_test_sharpe: float
-    pct_positive_folds: float       # Fraction of folds with positive test Sharpe
+    pct_positive_folds: float  # Fraction of folds with positive test Sharpe
     avg_test_return: float
     avg_max_drawdown: float
-    sharpe_degradation: float       # avg_train_sharpe - avg_test_sharpe
+    sharpe_degradation: float  # avg_train_sharpe - avg_test_sharpe
     is_statistically_significant: bool
-    notes: List[str]
+    notes: list[str]
 
 
-def walk_forward_summary(folds: List[WalkForwardFold]) -> WalkForwardSummary:
+def walk_forward_summary(folds: list[WalkForwardFold]) -> WalkForwardSummary:
     """
     Aggregate walk-forward fold results into a summary.
 
@@ -224,13 +221,10 @@ def walk_forward_summary(folds: List[WalkForwardFold]) -> WalkForwardSummary:
     notes = []
     if degradation > 0.5:
         notes.append(
-            f"High degradation ({degradation:.2f}): "
-            "strategy likely overfit to training data"
+            f"High degradation ({degradation:.2f}): strategy likely overfit to training data"
         )
     if pct_positive < 0.6:
-        notes.append(
-            f"Only {pct_positive:.0%} of folds positive: strategy is inconsistent"
-        )
+        notes.append(f"Only {pct_positive:.0%} of folds positive: strategy is inconsistent")
     if avg_test < 0.5:
         notes.append(f"Avg test Sharpe {avg_test:.2f} < 0.5: weak edge")
 
@@ -255,9 +249,7 @@ def walk_forward_summary(folds: List[WalkForwardFold]) -> WalkForwardSummary:
 # =============================================================================
 
 
-def min_sample_size_check(
-    n_trades: int, min_required: int = 100
-) -> Tuple[bool, str]:
+def min_sample_size_check(n_trades: int, min_required: int = 100) -> tuple[bool, str]:
     """
     Check if we have enough trades to claim statistical edge.
 
@@ -288,7 +280,7 @@ def min_sample_size_check(
 
 
 def calmar_ratio(
-    returns: List[float],
+    returns: list[float],
     periods_per_year: int = 252,
 ) -> float:
     """
@@ -319,16 +311,15 @@ def calmar_ratio(
 
 
 def degradation_report(
-    in_sample_metrics: Dict[str, float],
-    out_of_sample_metrics: Dict[str, float],
-) -> Dict[str, Any]:
+    in_sample_metrics: dict[str, float],
+    out_of_sample_metrics: dict[str, float],
+) -> dict[str, Any]:
     """
     Compare in-sample vs out-of-sample performance.
 
     Returns a dict with degradation pct for each metric and an overall verdict.
     """
-    from typing import Any  # local import to avoid circular
-    report: Dict[str, Any] = {}
+    report: dict[str, Any] = {}
     degraded_metrics = []
 
     for metric in ["sharpe", "win_rate", "profit_factor", "calmar"]:

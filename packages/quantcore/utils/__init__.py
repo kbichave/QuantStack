@@ -1,12 +1,12 @@
 """Utility functions for the trader package."""
 
 from quantcore.utils.formatting import (
-    print_header,
-    print_section,
-    print_success,
     print_error,
+    print_header,
     print_info,
     print_money,
+    print_section,
+    print_success,
 )
 
 __all__ = [

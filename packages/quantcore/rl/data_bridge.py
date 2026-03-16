@@ -34,12 +34,9 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 from loguru import logger
-
 from quant_pod.knowledge.store import KnowledgeStore
 
 
@@ -58,10 +55,10 @@ class KnowledgeStoreRLBridge:
 
     def __init__(self, store: KnowledgeStore):
         self.store = store
-        self._av_call_timestamps: List[float] = []
+        self._av_call_timestamps: list[float] = []
 
     @classmethod
-    def from_knowledge_store(cls, store: KnowledgeStore) -> "KnowledgeStoreRLBridge":
+    def from_knowledge_store(cls, store: KnowledgeStore) -> KnowledgeStoreRLBridge:
         """Standard factory. Prefer this over direct __init__."""
         return cls(store)
 
@@ -71,9 +68,9 @@ class KnowledgeStoreRLBridge:
 
     def get_alpha_return_history(
         self,
-        alpha_names: List[str],
+        alpha_names: list[str],
         lookback_days: int = 252,
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """
         Build per-alpha return series from closed trade journal entries.
 
@@ -115,7 +112,7 @@ class KnowledgeStoreRLBridge:
         df = pd.DataFrame(rows, columns=["alpha_tag", "trade_date", "daily_pnl_pct"])
         df["trade_date"] = pd.to_datetime(df["trade_date"])
 
-        result: Dict[str, pd.Series] = {}
+        result: dict[str, pd.Series] = {}
         for alpha_name in alpha_names:
             # Match on signal_type prefix — e.g. "trend_momentum_ic" matches "trend"
             mask = df["alpha_tag"].str.contains(
@@ -141,7 +138,7 @@ class KnowledgeStoreRLBridge:
     def get_signal_history(
         self,
         lookback_days: int = 90,
-    ) -> List["_TradingSignalLike"]:
+    ) -> list[_TradingSignalLike]:  # noqa: F821
         """
         Fetch TradingSignal records for SizingEnvironment initialization.
 
@@ -239,7 +236,7 @@ class KnowledgeStoreRLBridge:
 
         # Approximate high/low when unavailable
         df["high"] = df["close"] * 1.002  # +20 bps
-        df["low"] = df["close"] * 0.998   # -20 bps
+        df["low"] = df["close"] * 0.998  # -20 bps
 
         logger.debug(f"[DataBridge] Loaded {len(df)} bars for {symbol} execution env.")
         return df
@@ -251,7 +248,7 @@ class KnowledgeStoreRLBridge:
     def get_realized_returns(
         self,
         lookback_days: int = 252,
-    ) -> List[float]:
+    ) -> list[float]:
         """
         Fetch daily realized P&L % from closed trades as a return series.
 
@@ -284,9 +281,9 @@ class KnowledgeStoreRLBridge:
 
     def bootstrap_from_alphavantage(
         self,
-        symbols: List[str],
+        symbols: list[str],
         start_date: str = "2022-01-01",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         function: str = "TIME_SERIES_DAILY",
     ) -> None:
         """
@@ -302,6 +299,7 @@ class KnowledgeStoreRLBridge:
             function: AlphaVantage function (TIME_SERIES_DAILY or TIME_SERIES_WEEKLY)
         """
         import os
+
         import requests
 
         key = api_key or os.getenv("ALPHA_VANTAGE_API_KEY", "demo")
@@ -352,8 +350,7 @@ class KnowledgeStoreRLBridge:
                 # AlphaVantage rate limit signal
                 if "Note" in data or "Information" in data:
                     logger.warning(
-                        f"[DataBridge] AlphaVantage rate limit hit for {symbol}. "
-                        "Sleeping 60s..."
+                        f"[DataBridge] AlphaVantage rate limit hit for {symbol}. Sleeping 60s..."
                     )
                     time.sleep(61.0)
                     continue
@@ -396,9 +393,7 @@ class KnowledgeStoreRLBridge:
                         # Skip duplicates gracefully
                         pass
 
-                logger.info(
-                    f"[DataBridge] Inserted {inserted} observations for {symbol}."
-                )
+                logger.info(f"[DataBridge] Inserted {inserted} observations for {symbol}.")
 
             except requests.RequestException as exc:
                 logger.error(f"[DataBridge] Failed to fetch {symbol}: {exc}")
@@ -423,7 +418,7 @@ class KnowledgeStoreRLBridge:
 
     def has_sufficient_alpha_history(
         self,
-        alpha_names: List[str],
+        alpha_names: list[str],
         min_observations: int = 20,
     ) -> bool:
         """

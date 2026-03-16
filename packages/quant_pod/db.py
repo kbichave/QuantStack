@@ -28,17 +28,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from threading import Lock
-from typing import Optional
 
 import duckdb
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Connection management
 # ---------------------------------------------------------------------------
 
-_conn: Optional[duckdb.DuckDBPyConnection] = None
+_conn: duckdb.DuckDBPyConnection | None = None
 _conn_lock = Lock()
 
 
@@ -86,6 +84,7 @@ def reset_connection() -> None:
 # ---------------------------------------------------------------------------
 # Migrations — idempotent, append-only schema upgrades
 # ---------------------------------------------------------------------------
+
 
 def run_migrations(conn: duckdb.DuckDBPyConnection) -> None:
     """

@@ -26,8 +26,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, date, datetime
 
 from loguru import logger
 
@@ -37,11 +36,11 @@ class LivePosition:
     """Current state of one symbol held in the portfolio."""
 
     symbol: str
-    quantity: float          # positive = long, negative = short
-    avg_cost: float          # volume-weighted average entry price
-    current_price: float     # last known mark-to-market price
-    realised_pnl: float = 0.0   # cumulative closed P&L (today)
-    open_pnl: float = 0.0       # mark-to-market open P&L
+    quantity: float  # positive = long, negative = short
+    avg_cost: float  # volume-weighted average entry price
+    current_price: float  # last known mark-to-market price
+    realised_pnl: float = 0.0  # cumulative closed P&L (today)
+    open_pnl: float = 0.0  # mark-to-market open P&L
 
     @property
     def market_value(self) -> float:
@@ -61,10 +60,10 @@ class FillEvent:
 
     order_id: str
     symbol: str
-    side: str           # "buy" | "sell"
+    side: str  # "buy" | "sell"
     filled_qty: float
     avg_fill_price: float
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class FillTracker:
@@ -76,8 +75,8 @@ class FillTracker:
 
     def __init__(self, starting_cash: float = 0.0) -> None:
         self._lock = threading.RLock()
-        self._positions: Dict[str, LivePosition] = {}
-        self._fills: List[FillEvent] = []
+        self._positions: dict[str, LivePosition] = {}
+        self._fills: list[FillEvent] = []
         self._starting_cash = starting_cash
         self._day_start = date.today()
 
@@ -98,10 +97,10 @@ class FillTracker:
 
             if sym not in self._positions:
                 self._positions[sym] = LivePosition(
-                    symbol        = sym,
-                    quantity      = 0.0,
-                    avg_cost      = 0.0,
-                    current_price = fill.avg_fill_price,
+                    symbol=sym,
+                    quantity=0.0,
+                    avg_cost=0.0,
+                    current_price=fill.avg_fill_price,
                 )
 
             pos = self._positions[sym]
@@ -119,12 +118,14 @@ class FillTracker:
             else:
                 # Reducing or flipping position
                 close_qty = min(abs(qty), abs(prev_qty))
-                realised = close_qty * (fill.avg_fill_price - pos.avg_cost) * (1 if prev_qty > 0 else -1)
+                realised = (
+                    close_qty * (fill.avg_fill_price - pos.avg_cost) * (1 if prev_qty > 0 else -1)
+                )
                 pos.realised_pnl += realised
                 pos.quantity += qty
                 if abs(pos.quantity) < 1e-9:
-                    pos.quantity  = 0.0
-                    pos.avg_cost  = 0.0
+                    pos.quantity = 0.0
+                    pos.avg_cost = 0.0
                 elif (prev_qty > 0) != (pos.quantity > 0):
                     # Flipped side: residual quantity is at fill price
                     pos.avg_cost = fill.avg_fill_price
@@ -148,7 +149,7 @@ class FillTracker:
                 pos.current_price = price
                 pos.refresh_open_pnl()
 
-    def update_prices(self, prices: Dict[str, float]) -> None:
+    def update_prices(self, prices: dict[str, float]) -> None:
         """Bulk price update from a quote snapshot."""
         with self._lock:
             for sym, px in prices.items():
@@ -159,15 +160,15 @@ class FillTracker:
 
     # ── Queries (read-only — safe to call without lock from risk gate) ─────────
 
-    def get_position(self, symbol: str) -> Optional[LivePosition]:
+    def get_position(self, symbol: str) -> LivePosition | None:
         with self._lock:
             return self._positions.get(symbol)
 
-    def get_all_positions(self) -> Dict[str, LivePosition]:
+    def get_all_positions(self) -> dict[str, LivePosition]:
         with self._lock:
             return dict(self._positions)
 
-    def get_open_positions(self) -> Dict[str, LivePosition]:
+    def get_open_positions(self) -> dict[str, LivePosition]:
         """Return only positions with non-zero quantity."""
         with self._lock:
             return {s: p for s, p in self._positions.items() if abs(p.quantity) > 1e-9}
@@ -196,7 +197,7 @@ class FillTracker:
         with self._lock:
             return len(self._fills)
 
-    def recent_fills(self, n: int = 20) -> List[FillEvent]:
+    def recent_fills(self, n: int = 20) -> list[FillEvent]:
         with self._lock:
             return list(self._fills[-n:])
 

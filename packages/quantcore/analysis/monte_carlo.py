@@ -6,7 +6,7 @@ NOT used for parameter selection or model training. Using parameters that
 were optimized on the same data invalidates the robustness test.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -17,12 +17,12 @@ from quantcore.backtesting.costs import ProductionCostModel
 
 def run_monte_carlo_simulation(
     spread_df: pd.DataFrame,
-    params: Dict[str, float],
+    params: dict[str, float],
     initial_capital: float = 100000,
     n_simulations: int = 1000,
     timing_noise_days: int = 1,
-    holdout_start: Optional[str] = None,
-) -> Dict[str, Any]:
+    holdout_start: str | None = None,
+) -> dict[str, Any]:
     """
     Run Monte Carlo simulation to test strategy robustness.
 
@@ -54,9 +54,7 @@ def run_monte_carlo_simulation(
     # Determine holdout period
     if holdout_start is None:
         holdout_start = "2021-01-01"
-        logger.warning(
-            "Monte Carlo: No holdout_start specified, defaulting to 2021-01-01"
-        )
+        logger.warning("Monte Carlo: No holdout_start specified, defaulting to 2021-01-01")
         logger.warning("  If params were tuned on 2021+ data, results may be overfit!")
 
     # Filter to holdout period only
@@ -74,7 +72,7 @@ def run_monte_carlo_simulation(
     cost_model = ProductionCostModel(slippage_model="volatility")
     results = []
 
-    for sim in range(n_simulations):
+    for _sim in range(n_simulations):
         # Add timing noise
         timing_shift = np.random.randint(-timing_noise_days, timing_noise_days + 1)
 
@@ -111,9 +109,7 @@ def run_monte_carlo_simulation(
                     position = 1
                     entry_price = spread
                     cost = (
-                        cost_model.calculate_total_cost(
-                            n_contracts, vol, is_round_trip=False
-                        )
+                        cost_model.calculate_total_cost(n_contracts, vol, is_round_trip=False)
                         * slippage_mult
                     )
                     capital -= cost
@@ -121,9 +117,7 @@ def run_monte_carlo_simulation(
                     position = -1
                     entry_price = spread
                     cost = (
-                        cost_model.calculate_total_cost(
-                            n_contracts, vol, is_round_trip=False
-                        )
+                        cost_model.calculate_total_cost(n_contracts, vol, is_round_trip=False)
                         * slippage_mult
                     )
                     capital -= cost
@@ -133,9 +127,7 @@ def run_monte_carlo_simulation(
                 if (stop_z and zscore < -stop_z) or zscore > exit_z:
                     pnl = (spread - entry_price) * n_contracts * 1000
                     cost = (
-                        cost_model.calculate_total_cost(
-                            n_contracts, vol, is_round_trip=False
-                        )
+                        cost_model.calculate_total_cost(n_contracts, vol, is_round_trip=False)
                         * slippage_mult
                     )
                     capital += pnl - cost
@@ -146,9 +138,7 @@ def run_monte_carlo_simulation(
                 if (stop_z and zscore > stop_z) or zscore < -exit_z:
                     pnl = (entry_price - spread) * n_contracts * 1000
                     cost = (
-                        cost_model.calculate_total_cost(
-                            n_contracts, vol, is_round_trip=False
-                        )
+                        cost_model.calculate_total_cost(n_contracts, vol, is_round_trip=False)
                         * slippage_mult
                     )
                     capital += pnl - cost
@@ -163,9 +153,7 @@ def run_monte_carlo_simulation(
             else:
                 pnl = (entry_price - spread) * n_contracts * 1000
             vol = 0.02
-            cost = cost_model.calculate_total_cost(
-                n_contracts, vol, is_round_trip=False
-            )
+            cost = cost_model.calculate_total_cost(n_contracts, vol, is_round_trip=False)
             capital += pnl - cost
             trades.append(pnl - cost)
 

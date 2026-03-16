@@ -8,13 +8,12 @@ Provides higher-level trend abstractions beyond basic EMAs:
 - Trend strength (slope normalized by volatility)
 """
 
-from typing import List
-import pandas as pd
 import numpy as np
+import pandas as pd
 from scipy import stats
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class QuantAgentsTrendFeatures(FeatureBase):
@@ -70,24 +69,14 @@ class QuantAgentsTrendFeatures(FeatureBase):
         close = result["close"]
 
         # Multi-horizon regression slopes
-        result["qa_trend_slope_short"] = self._compute_normalized_slope(
-            close, self.window_short
-        )
-        result["qa_trend_slope_med"] = self._compute_normalized_slope(
-            close, self.window_med
-        )
-        result["qa_trend_slope_long"] = self._compute_normalized_slope(
-            close, self.window_long
-        )
+        result["qa_trend_slope_short"] = self._compute_normalized_slope(close, self.window_short)
+        result["qa_trend_slope_med"] = self._compute_normalized_slope(close, self.window_med)
+        result["qa_trend_slope_long"] = self._compute_normalized_slope(close, self.window_long)
 
         # Trend quality (R² for each horizon)
-        result["qa_trend_quality_short"] = self._compute_r_squared(
-            close, self.window_short
-        )
+        result["qa_trend_quality_short"] = self._compute_r_squared(close, self.window_short)
         result["qa_trend_quality_med"] = self._compute_r_squared(close, self.window_med)
-        result["qa_trend_quality_long"] = self._compute_r_squared(
-            close, self.window_long
-        )
+        result["qa_trend_quality_long"] = self._compute_r_squared(close, self.window_long)
 
         # Trend regime classification (using medium window)
         result["qa_trend_regime"] = self._classify_trend_regime(
@@ -265,9 +254,7 @@ class QuantAgentsTrendFeatures(FeatureBase):
         bar_change = series.pct_change()
 
         # Determine expected direction from trend slope
-        expected_direction = trend_slope.apply(
-            lambda x: 1 if x > 0 else -1 if x < 0 else 0
-        )
+        expected_direction = trend_slope.apply(lambda x: 1 if x > 0 else -1 if x < 0 else 0)
 
         # Check if bar change aligns with expected direction
         def calc_consistency(idx):
@@ -280,14 +267,10 @@ class QuantAgentsTrendFeatures(FeatureBase):
             if expected_dir == 0:
                 return 0.5  # Neutral
 
-            aligned_bars = sum(
-                (recent_changes > 0) if expected_dir > 0 else (recent_changes < 0)
-            )
+            aligned_bars = sum((recent_changes > 0) if expected_dir > 0 else (recent_changes < 0))
             return aligned_bars / period
 
-        return pd.Series(
-            [calc_consistency(i) for i in range(len(series))], index=series.index
-        )
+        return pd.Series([calc_consistency(i) for i in range(len(series))], index=series.index)
 
     def _compute_multi_horizon_alignment(
         self,
@@ -314,7 +297,7 @@ class QuantAgentsTrendFeatures(FeatureBase):
         dir_long = slope_long.apply(lambda x: 1 if x > 0 else -1 if x < 0 else 0)
 
         # Calculate agreement
-        def calc_alignment(s, m, l):
+        def calc_alignment(s, m, l):  # noqa: E741
             if s == m == l and s != 0:
                 return 1.0  # Perfect alignment
             elif (s == m and s != 0) or (m == l and m != 0) or (s == l and s != 0):
@@ -325,11 +308,14 @@ class QuantAgentsTrendFeatures(FeatureBase):
                 return 0.0  # All disagree
 
         return pd.Series(
-            [calc_alignment(s, m, l) for s, m, l in zip(dir_short, dir_med, dir_long)],
+            [
+                calc_alignment(s, m, lo)
+                for s, m, lo in zip(dir_short, dir_med, dir_long, strict=False)
+            ],
             index=slope_short.index,
         )
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of QuantAgents trend feature names."""
         return [
             "qa_trend_slope_short",

@@ -9,13 +9,11 @@ Verifies:
 5. No lookahead bias
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-from datetime import datetime
-
+import pandas as pd
 from quantcore.config.timeframes import Timeframe
 from quantcore.features.quantagents_pattern import QuantAgentsPatternFeatures
+
 from tests.conftest import make_ohlcv_df
 
 
@@ -115,9 +113,7 @@ class TestQuantAgentsPatternFeatures:
 
         # Should NOT be consolidating
         consolidation_count = (result["qa_pattern_consolidation"].iloc[-20:] == 1).sum()
-        assert (
-            consolidation_count < 5
-        ), "Strong trend should NOT be marked as consolidation"
+        assert consolidation_count < 5, "Strong trend should NOT be marked as consolidation"
 
     def test_consecutive_up_bars(self):
         """Test consecutive up bars counting."""
@@ -130,9 +126,7 @@ class TestQuantAgentsPatternFeatures:
 
         # Should count consecutive up bars
         max_streak = result["qa_pattern_bars_up_streak"].max()
-        assert (
-            max_streak >= 4
-        ), f"Should count at least 4 consecutive up bars, got {max_streak}"
+        assert max_streak >= 4, f"Should count at least 4 consecutive up bars, got {max_streak}"
 
     def test_consecutive_down_bars(self):
         """Test consecutive down bars counting."""
@@ -145,9 +139,7 @@ class TestQuantAgentsPatternFeatures:
 
         # Should count consecutive down bars
         max_streak = result["qa_pattern_bars_down_streak"].max()
-        assert (
-            max_streak >= 4
-        ), f"Should count at least 4 consecutive down bars, got {max_streak}"
+        assert max_streak >= 4, f"Should count at least 4 consecutive down bars, got {max_streak}"
 
     def test_range_position(self):
         """Test price position within range calculation."""
@@ -160,16 +152,16 @@ class TestQuantAgentsPatternFeatures:
 
         # Price should be near top of range at the end
         last_position = result["qa_pattern_range_position"].iloc[-1]
-        assert (
-            0.8 < last_position <= 1.0
-        ), f"Price should be near top of range, got {last_position:.2f}"
+        assert 0.8 < last_position <= 1.0, (
+            f"Price should be near top of range, got {last_position:.2f}"
+        )
 
         # In a steady uptrend, price is always near the top of its recent range
         # because the lookback window's high is near the current price
         early_position = result["qa_pattern_range_position"].iloc[25]
-        assert (
-            0.5 < early_position <= 1.0
-        ), f"Price should be near top in uptrend, got {early_position:.2f}"
+        assert 0.5 < early_position <= 1.0, (
+            f"Price should be near top in uptrend, got {early_position:.2f}"
+        )
 
     def test_volatility_regime_with_atr(self):
         """Test volatility regime classification when ATR is available."""
@@ -184,9 +176,7 @@ class TestQuantAgentsPatternFeatures:
 
         # Should detect high vol regime at the end
         vol_regime_end = result["qa_pattern_vol_regime"].iloc[-1]
-        assert (
-            vol_regime_end == 1
-        ), "Should detect high volatility regime with increasing ATR"
+        assert vol_regime_end == 1, "Should detect high volatility regime with increasing ATR"
 
     def test_volatility_regime_without_atr(self):
         """Test graceful handling when ATR not available."""
@@ -198,9 +188,9 @@ class TestQuantAgentsPatternFeatures:
         result = qa_pattern.compute(df)
 
         # Should default to neutral (0)
-        assert (
-            result["qa_pattern_vol_regime"] == 0
-        ).all(), "Without ATR, vol regime should be neutral (0)"
+        assert (result["qa_pattern_vol_regime"] == 0).all(), (
+            "Without ATR, vol regime should be neutral (0)"
+        )
 
     def test_swing_features_without_swing_data(self):
         """Test that swing features default to 0 when swing data not available."""
@@ -212,12 +202,12 @@ class TestQuantAgentsPatternFeatures:
         result = qa_pattern.compute(df)
 
         # Swing features should be 0
-        assert (
-            result["qa_pattern_swing_pullback"] == 0
-        ).all(), "Without swing data, swing pullback should be 0"
-        assert (
-            result["qa_pattern_swing_bounce"] == 0
-        ).all(), "Without swing data, swing bounce should be 0"
+        assert (result["qa_pattern_swing_pullback"] == 0).all(), (
+            "Without swing data, swing pullback should be 0"
+        )
+        assert (result["qa_pattern_swing_bounce"] == 0).all(), (
+            "Without swing data, swing bounce should be 0"
+        )
 
     def test_swing_pullback_with_swing_data(self):
         """Test swing pullback detection when swing data is available."""
@@ -263,9 +253,9 @@ class TestQuantAgentsPatternFeatures:
         result = qa_pattern.compute(df)
 
         # Should default to 0
-        assert (
-            result["qa_pattern_mr_opportunity"] == 0
-        ).all(), "Without z-score, MR opportunity should be 0"
+        assert (result["qa_pattern_mr_opportunity"] == 0).all(), (
+            "Without z-score, MR opportunity should be 0"
+        )
 
     def test_no_lookahead_bias(self):
         """Test that features don't use future data."""
@@ -276,9 +266,9 @@ class TestQuantAgentsPatternFeatures:
         result = qa_pattern.compute(df)
 
         # First lookback_period bars should have NaN for some features
-        assert (
-            result["qa_pattern_range_position"].iloc[:20].isna().all()
-        ), "Early bars should have NaN for range position (no lookahead)"
+        assert result["qa_pattern_range_position"].iloc[:20].isna().all(), (
+            "Early bars should have NaN for range position (no lookahead)"
+        )
 
     def test_feature_names_complete(self):
         """Test that get_feature_names returns all features."""
@@ -308,9 +298,9 @@ class TestQuantAgentsPatternFeatures:
 
         # All feature columns should be numeric
         for feature_name in qa_pattern.get_feature_names():
-            assert pd.api.types.is_numeric_dtype(
-                result[feature_name]
-            ), f"{feature_name} should be numeric"
+            assert pd.api.types.is_numeric_dtype(result[feature_name]), (
+                f"{feature_name} should be numeric"
+            )
 
     def test_no_inf_values(self):
         """Test that features don't produce infinite values."""
@@ -322,7 +312,5 @@ class TestQuantAgentsPatternFeatures:
 
         # Check for infinite values
         for feature_name in qa_pattern.get_feature_names():
-            finite_values = (
-                result[feature_name].replace([np.inf, -np.inf], np.nan).dropna()
-            )
+            finite_values = result[feature_name].replace([np.inf, -np.inf], np.nan).dropna()
             assert len(finite_values) > 0, f"All values are inf/nan for {feature_name}"

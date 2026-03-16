@@ -17,10 +17,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_config(shadow=True, enabled=True):
     cfg = MagicMock()
@@ -43,30 +43,36 @@ def _mock_config(shadow=True, enabled=True):
 # Snapshot store
 # ---------------------------------------------------------------------------
 
+
 class TestSnapshotStore:
     def setup_method(self):
         from quantcore.rl.rl_tools import _PRETRADE_SNAPSHOTS
+
         _PRETRADE_SNAPSHOTS.clear()
 
     def test_save_and_pop(self):
-        from quantcore.rl.rl_tools import save_pretrade_snapshot, pop_pretrade_snapshot
+        from quantcore.rl.rl_tools import pop_pretrade_snapshot, save_pretrade_snapshot
+
         save_pretrade_snapshot("rl_position_size", {"scale": 0.7})
         result = pop_pretrade_snapshot("rl_position_size")
         assert result is not None
         assert result["scale"] == 0.7
 
     def test_pop_removes_entry(self):
-        from quantcore.rl.rl_tools import save_pretrade_snapshot, pop_pretrade_snapshot
+        from quantcore.rl.rl_tools import pop_pretrade_snapshot, save_pretrade_snapshot
+
         save_pretrade_snapshot("rl_position_size", {"scale": 0.7})
         pop_pretrade_snapshot("rl_position_size")
         assert pop_pretrade_snapshot("rl_position_size") is None
 
     def test_pop_nonexistent_returns_none(self):
         from quantcore.rl.rl_tools import pop_pretrade_snapshot
+
         assert pop_pretrade_snapshot("nonexistent") is None
 
     def test_overwrite_same_key(self):
-        from quantcore.rl.rl_tools import save_pretrade_snapshot, pop_pretrade_snapshot
+        from quantcore.rl.rl_tools import pop_pretrade_snapshot, save_pretrade_snapshot
+
         save_pretrade_snapshot("rl_position_size", {"scale": 0.3})
         save_pretrade_snapshot("rl_position_size", {"scale": 0.9})
         result = pop_pretrade_snapshot("rl_position_size")
@@ -77,13 +83,16 @@ class TestSnapshotStore:
 # RLPositionSizeTool
 # ---------------------------------------------------------------------------
 
+
 class TestRLPositionSizeTool:
     def setup_method(self):
         from quantcore.rl.rl_tools import _PRETRADE_SNAPSHOTS
+
         _PRETRADE_SNAPSHOTS.clear()
 
     def test_degrades_gracefully_when_no_checkpoint(self):
         from quantcore.rl.rl_tools import RLPositionSizeTool
+
         tool = RLPositionSizeTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(signal_confidence=0.7, signal_direction="LONG")
@@ -93,6 +102,7 @@ class TestRLPositionSizeTool:
 
     def test_returns_shadow_true_when_configured(self):
         from quantcore.rl.rl_tools import RLPositionSizeTool
+
         tool = RLPositionSizeTool()
         with patch.object(tool, "_get_config", return_value=_mock_config(shadow=True)):
             result = tool._run(signal_confidence=0.7, signal_direction="LONG")
@@ -101,6 +111,7 @@ class TestRLPositionSizeTool:
 
     def test_disabled_returns_fallback(self):
         from quantcore.rl.rl_tools import RLPositionSizeTool
+
         tool = RLPositionSizeTool()
         cfg = _mock_config()
         cfg.enable_sizing_rl = False
@@ -112,6 +123,7 @@ class TestRLPositionSizeTool:
 
     def test_scale_in_valid_range(self):
         from quantcore.rl.rl_tools import RLPositionSizeTool
+
         tool = RLPositionSizeTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(signal_confidence=0.7, signal_direction="LONG")
@@ -141,6 +153,7 @@ class TestRLPositionSizeTool:
 
     def test_result_has_reasoning(self):
         from quantcore.rl.rl_tools import RLPositionSizeTool
+
         tool = RLPositionSizeTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(signal_confidence=0.7, signal_direction="LONG")
@@ -152,9 +165,11 @@ class TestRLPositionSizeTool:
 # RLExecutionStrategyTool
 # ---------------------------------------------------------------------------
 
+
 class TestRLExecutionStrategyTool:
     def test_degrades_gracefully_when_no_checkpoint(self):
         from quantcore.rl.rl_tools import RLExecutionStrategyTool
+
         tool = RLExecutionStrategyTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(symbol="SPY", quantity=100.0, urgency="normal")
@@ -163,6 +178,7 @@ class TestRLExecutionStrategyTool:
 
     def test_returns_valid_strategy(self):
         from quantcore.rl.rl_tools import RLExecutionStrategyTool
+
         tool = RLExecutionStrategyTool()
         valid_strategies = {"AGGRESSIVE", "BALANCED", "PASSIVE", "TWAP", "NO_TRADE"}
         with patch.object(tool, "_get_config", return_value=_mock_config()):
@@ -172,6 +188,7 @@ class TestRLExecutionStrategyTool:
 
     def test_disabled_returns_fallback(self):
         from quantcore.rl.rl_tools import RLExecutionStrategyTool
+
         tool = RLExecutionStrategyTool()
         cfg = _mock_config()
         cfg.enable_execution_rl = False
@@ -182,6 +199,7 @@ class TestRLExecutionStrategyTool:
 
     def test_shadow_flag_true_when_configured(self):
         from quantcore.rl.rl_tools import RLExecutionStrategyTool
+
         tool = RLExecutionStrategyTool()
         with patch.object(tool, "_get_config", return_value=_mock_config(shadow=True)):
             result = tool._run(symbol="SPY", quantity=100.0, urgency="normal")
@@ -193,9 +211,11 @@ class TestRLExecutionStrategyTool:
 # RLAlphaWeightTool
 # ---------------------------------------------------------------------------
 
+
 class TestRLAlphaWeightTool:
     def test_degrades_gracefully(self):
         from quantcore.rl.rl_tools import RLAlphaWeightTool
+
         tool = RLAlphaWeightTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(
@@ -208,6 +228,7 @@ class TestRLAlphaWeightTool:
 
     def test_disabled_returns_equal_weights(self):
         from quantcore.rl.rl_tools import RLAlphaWeightTool
+
         tool = RLAlphaWeightTool()
         cfg = _mock_config()
         cfg.enable_meta_rl = False
@@ -221,6 +242,7 @@ class TestRLAlphaWeightTool:
 
     def test_empty_signals(self):
         from quantcore.rl.rl_tools import RLAlphaWeightTool
+
         tool = RLAlphaWeightTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(regime="normal", competing_signals=[])
@@ -232,24 +254,29 @@ class TestRLAlphaWeightTool:
 # Factory functions
 # ---------------------------------------------------------------------------
 
+
 class TestFactoryFunctions:
     def test_rl_position_size_tool_factory(self):
         from quantcore.rl.rl_tools import rl_position_size_tool
+
         tool = rl_position_size_tool()
         assert tool.name == "rl_position_size"
 
     def test_rl_execution_strategy_tool_factory(self):
         from quantcore.rl.rl_tools import rl_execution_strategy_tool
+
         tool = rl_execution_strategy_tool()
         assert tool.name == "rl_execution_strategy"
 
     def test_rl_alpha_weight_tool_factory(self):
         from quantcore.rl.rl_tools import rl_alpha_weight_tool
+
         tool = rl_alpha_weight_tool()
         assert tool.name == "rl_alpha_weight"
 
     def test_get_rl_tools_returns_list(self):
         from quantcore.rl.rl_tools import get_rl_tools
+
         cfg = _mock_config()
         tools = get_rl_tools(cfg)
         assert isinstance(tools, list)
@@ -257,6 +284,7 @@ class TestFactoryFunctions:
 
     def test_get_rl_tools_respects_disabled_flags(self):
         from quantcore.rl.rl_tools import get_rl_tools
+
         cfg = _mock_config()
         cfg.enable_sizing_rl = False
         cfg.enable_execution_rl = False
@@ -266,6 +294,7 @@ class TestFactoryFunctions:
 
     def test_get_rl_tools_partial_enabled(self):
         from quantcore.rl.rl_tools import get_rl_tools
+
         cfg = _mock_config()
         cfg.enable_sizing_rl = True
         cfg.enable_execution_rl = False

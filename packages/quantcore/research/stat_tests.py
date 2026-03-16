@@ -9,12 +9,12 @@ Provides rigorous hypothesis testing for trading signals:
 - Bootstrap confidence intervals
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
-from scipy import stats
 from loguru import logger
+from scipy import stats
 
 
 @dataclass
@@ -25,13 +25,13 @@ class TestResult:
     statistic: float
     p_value: float
     is_significant: bool
-    critical_values: Optional[Dict[str, float]] = None
-    additional_info: Optional[Dict] = None
+    critical_values: dict[str, float] | None = None
+    additional_info: dict | None = None
 
 
 def adf_test(
     series: pd.Series,
-    max_lags: Optional[int] = None,
+    max_lags: int | None = None,
     regression: str = "c",
     significance_level: float = 0.05,
 ) -> TestResult:
@@ -76,9 +76,7 @@ def adf_test(
             "nobs": nobs,
             "ic_best": icbest,
             "regression": regression,
-            "interpretation": (
-                "stationary" if p_value < significance_level else "non-stationary"
-            ),
+            "interpretation": ("stationary" if p_value < significance_level else "non-stationary"),
         },
     )
 
@@ -88,7 +86,7 @@ def lagged_cross_correlation(
     returns: pd.Series,
     max_lag: int = 20,
     min_lag: int = 1,
-) -> Dict[int, float]:
+) -> dict[int, float]:
     """
     Compute lagged cross-correlation between signal and future returns.
 
@@ -212,10 +210,10 @@ def regime_switching_test(
 
 
 def harvey_liu_correction(
-    p_values: List[float],
+    p_values: list[float],
     num_tests: int,
     significance_level: float = 0.05,
-) -> Dict[str, any]:
+) -> dict[str, any]:
     """
     Harvey-Liu-Zhu (2016) multiple testing correction for trading strategies.
 
@@ -237,7 +235,7 @@ def harvey_liu_correction(
 
     # Harvey-Liu adjustment factor
     # Accounts for multiple testing with expected correlation
-    adjustment_factor = np.sqrt(np.log(num_tests))
+    np.sqrt(np.log(num_tests))
 
     # Adjusted critical t-statistic (approximately)
     # From HLZ paper: t-stat threshold ≈ sqrt(2 * log(M))
@@ -275,7 +273,7 @@ def bootstrap_confidence_interval(
     n_bootstrap: int = 10000,
     confidence_level: float = 0.95,
     method: str = "percentile",
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """
     Compute bootstrap confidence interval for any statistic.
 
@@ -310,9 +308,7 @@ def bootstrap_confidence_interval(
         upper = np.percentile(bootstrap_stats, 100 * (1 - alpha / 2))
 
     elif method == "basic":
-        lower = 2 * point_estimate - np.percentile(
-            bootstrap_stats, 100 * (1 - alpha / 2)
-        )
+        lower = 2 * point_estimate - np.percentile(bootstrap_stats, 100 * (1 - alpha / 2))
         upper = 2 * point_estimate - np.percentile(bootstrap_stats, 100 * alpha / 2)
 
     elif method == "bca":
@@ -336,9 +332,7 @@ def bootstrap_confidence_interval(
         z_alpha_high = stats.norm.ppf(1 - alpha / 2)
 
         p_low = stats.norm.cdf(z0 + (z0 + z_alpha_low) / (1 - a * (z0 + z_alpha_low)))
-        p_high = stats.norm.cdf(
-            z0 + (z0 + z_alpha_high) / (1 - a * (z0 + z_alpha_high))
-        )
+        p_high = stats.norm.cdf(z0 + (z0 + z_alpha_high) / (1 - a * (z0 + z_alpha_high)))
 
         lower = np.percentile(bootstrap_stats, 100 * p_low)
         upper = np.percentile(bootstrap_stats, 100 * p_high)
@@ -415,7 +409,7 @@ def run_signal_validation_suite(
     returns: pd.Series,
     price: pd.Series,
     num_total_tests: int = 100,
-) -> Dict[str, TestResult]:
+) -> dict[str, TestResult]:
     """
     Run full suite of statistical tests on a trading signal.
 

@@ -52,8 +52,8 @@ rejection counts for monitoring or MCP tool exposure.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Optional
 
 from loguru import logger
 
@@ -62,20 +62,19 @@ from quantcore.execution.risk_gate import PreTradeRiskGate, RiskGateError
 from quantcore.execution.smart_order_router import SmartOrderRouter, SmartOrderRouterError
 from quantcore.execution.unified_models import UnifiedOrder
 
-
-SignalEvaluator = Callable[[IncrementalFeatures], Awaitable[Optional[UnifiedOrder]]]
+SignalEvaluator = Callable[[IncrementalFeatures], Awaitable[UnifiedOrder | None]]
 
 
 @dataclass
 class _LoopStats:
-    signals_received:   int = 0
-    signals_warm:       int = 0
-    orders_attempted:   int = 0
-    orders_placed:      int = 0
-    risk_rejections:    int = 0
-    router_errors:      int = 0
-    exceptions:         int = 0
-    symbols_seen:       set = field(default_factory=set)
+    signals_received: int = 0
+    signals_warm: int = 0
+    orders_attempted: int = 0
+    orders_placed: int = 0
+    risk_rejections: int = 0
+    router_errors: int = 0
+    exceptions: int = 0
+    symbols_seen: set = field(default_factory=set)
 
 
 class AsyncExecutionLoop:
@@ -95,20 +94,20 @@ class AsyncExecutionLoop:
     def __init__(
         self,
         signal_evaluator: SignalEvaluator,
-        risk_gate:        PreTradeRiskGate,
-        router:           SmartOrderRouter,
-        account_id:       str = "",
-        asset_class:      str = "equity",
-        price_fn:         Optional[Callable[[str], float]] = None,
+        risk_gate: PreTradeRiskGate,
+        router: SmartOrderRouter,
+        account_id: str = "",
+        asset_class: str = "equity",
+        price_fn: Callable[[str], float] | None = None,
     ) -> None:
-        self._evaluator   = signal_evaluator
-        self._risk_gate   = risk_gate
-        self._router      = router
-        self._account_id  = account_id
+        self._evaluator = signal_evaluator
+        self._risk_gate = risk_gate
+        self._router = router
+        self._account_id = account_id
         self._asset_class = asset_class
-        self._price_fn    = price_fn
-        self._stats       = _LoopStats()
-        self._running     = False
+        self._price_fn = price_fn
+        self._stats = _LoopStats()
+        self._running = False
         self._tasks: list[asyncio.Task] = []
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -117,8 +116,7 @@ class AsyncExecutionLoop:
         """Mark the loop as running.  Callbacks registered via on_features() are now live."""
         self._running = True
         logger.info(
-            f"[ExecLoop] Started — account={self._account_id} "
-            f"asset_class={self._asset_class}"
+            f"[ExecLoop] Started — account={self._account_id} asset_class={self._asset_class}"
         )
 
     async def stop(self) -> None:
@@ -151,7 +149,7 @@ class AsyncExecutionLoop:
         self._stats.symbols_seen.add(features.symbol)
 
         if not features.is_warm:
-            return   # suppress signals during warmup — indicators not yet valid
+            return  # suppress signals during warmup — indicators not yet valid
 
         self._stats.signals_warm += 1
         task = asyncio.create_task(
@@ -175,11 +173,7 @@ class AsyncExecutionLoop:
             return  # hold signal
 
         self._stats.orders_attempted += 1
-        current_price = (
-            self._price_fn(features.symbol)
-            if self._price_fn
-            else features.close
-        )
+        current_price = self._price_fn(features.symbol) if self._price_fn else features.close
 
         # Pre-trade risk gate (synchronous — fast)
         try:
@@ -216,14 +210,14 @@ class AsyncExecutionLoop:
         """Return cumulative loop statistics for monitoring."""
         s = self._stats
         return {
-            "running":             self._running,
-            "signals_received":    s.signals_received,
-            "signals_warm":        s.signals_warm,
-            "orders_attempted":    s.orders_attempted,
-            "orders_placed":       s.orders_placed,
-            "risk_rejections":     s.risk_rejections,
-            "router_errors":       s.router_errors,
-            "exceptions":          s.exceptions,
-            "symbols_tracked":     len(s.symbols_seen),
-            "risk_gate":           self._risk_gate.status(),
+            "running": self._running,
+            "signals_received": s.signals_received,
+            "signals_warm": s.signals_warm,
+            "orders_attempted": s.orders_attempted,
+            "orders_placed": s.orders_placed,
+            "risk_rejections": s.risk_rejections,
+            "router_errors": s.router_errors,
+            "exceptions": s.exceptions,
+            "symbols_tracked": len(s.symbols_seen),
+            "risk_gate": self._risk_gate.status(),
         }

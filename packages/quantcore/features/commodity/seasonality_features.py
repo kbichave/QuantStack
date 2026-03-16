@@ -4,13 +4,12 @@ Seasonality features for commodity trading.
 Computes time-based patterns, inventory cycles, and session-based features.
 """
 
-from typing import List, Optional
-import pandas as pd
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class SeasonalityFeatures(FeatureBase):
@@ -104,9 +103,7 @@ class SeasonalityFeatures(FeatureBase):
 
         # Seasonal periods
         result["is_driving_season"] = result["month"].isin([5, 6, 7, 8, 9]).astype(int)
-        result["is_heating_season"] = (
-            result["month"].isin([11, 12, 1, 2, 3]).astype(int)
-        )
+        result["is_heating_season"] = result["month"].isin([11, 12, 1, 2, 3]).astype(int)
         result["is_shoulder_season"] = result["month"].isin([4, 10]).astype(int)
 
         # Week of year
@@ -154,8 +151,7 @@ class SeasonalityFeatures(FeatureBase):
             ).astype(int)
 
             result["is_pre_eia_hour"] = (
-                (result.index.dayofweek == 2)
-                & (result.index.hour < self.EIA_RELEASE_HOUR)
+                (result.index.dayofweek == 2) & (result.index.hour < self.EIA_RELEASE_HOUR)
             ).astype(int)
 
         return result
@@ -227,9 +223,7 @@ class SeasonalityFeatures(FeatureBase):
         # Current day vs average
         result["dow_return_vs_avg"] = returns - result.apply(
             lambda row: (
-                result.loc[
-                    : row.name, f"dow_{int(row['day_of_week'])}_avg_return"
-                ].iloc[-1]
+                result.loc[: row.name, f"dow_{int(row['day_of_week'])}_avg_return"].iloc[-1]
                 if not pd.isna(row["day_of_week"])
                 else np.nan
             ),
@@ -246,11 +240,7 @@ class SeasonalityFeatures(FeatureBase):
         # Seasonal strength (how strong is current seasonal pattern)
         result["seasonal_strength"] = result.apply(
             lambda row: (
-                abs(
-                    result.loc[
-                        : row.name, f"month_{int(row['month'])}_avg_return"
-                    ].iloc[-1]
-                )
+                abs(result.loc[: row.name, f"month_{int(row['month'])}_avg_return"].iloc[-1])
                 if not pd.isna(row["month"])
                 else np.nan
             ),
@@ -271,7 +261,7 @@ class SeasonalityFeatures(FeatureBase):
 
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get list of feature names produced by this class."""
         features = [
             # Time features

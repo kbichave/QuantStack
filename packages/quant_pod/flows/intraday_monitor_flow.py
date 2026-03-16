@@ -39,12 +39,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
 
 import requests
 from loguru import logger
-
 
 # =============================================================================
 # REPORT MODEL
@@ -56,12 +54,12 @@ class RegimeChange:
     """A detected regime reversal on a held position."""
 
     symbol: str
-    entry_regime: str       # Regime when position was opened (from audit log)
-    current_regime: str     # Current detected regime
+    entry_regime: str  # Regime when position was opened (from audit log)
+    current_regime: str  # Current detected regime
     entry_confidence: float
     current_confidence: float
-    position_side: str      # "long" or "short"
-    action_hint: str        # Human-readable recommended action
+    position_side: str  # "long" or "short"
+    action_hint: str  # Human-readable recommended action
 
 
 @dataclass
@@ -72,22 +70,22 @@ class IntradayReport:
     duration_seconds: float
 
     # Portfolio metrics
-    open_positions: List[Dict]
+    open_positions: list[dict]
     intraday_pnl: float
     intraday_pnl_pct: float
-    daily_loss_pct: float       # As fraction of equity (negative = loss)
-    daily_loss_limit_pct: float # From RiskGate config
+    daily_loss_pct: float  # As fraction of equity (negative = loss)
+    daily_loss_limit_pct: float  # From RiskGate config
 
     # Regime status
-    regime_checks: Dict[str, Dict]     # symbol → current regime
-    regime_reversals: List[RegimeChange]
+    regime_checks: dict[str, dict]  # symbol → current regime
+    regime_reversals: list[RegimeChange]
 
     # Degradation status (from AlphaMonitor + DegradationDetector)
-    alpha_status: str           # "clean" | "warning" | "critical"
-    degradation_status: str     # "clean" | "warning" | "critical" | "insufficient_data"
+    alpha_status: str  # "clean" | "warning" | "critical"
+    degradation_status: str  # "clean" | "warning" | "critical" | "insufficient_data"
 
     # Findings and recommended actions
-    action_items: List[str] = field(default_factory=list)
+    action_items: list[str] = field(default_factory=list)
     discord_alert_sent: bool = False
 
     @property
@@ -98,7 +96,11 @@ class IntradayReport:
     def overall_status(self) -> str:
         if self.degradation_status == "critical" or self.alpha_status == "critical":
             return "critical"
-        if self.regime_reversals or self.degradation_status == "warning" or self.alpha_status == "warning":
+        if (
+            self.regime_reversals
+            or self.degradation_status == "warning"
+            or self.alpha_status == "warning"
+        ):
             return "warning"
         return "clean"
 
@@ -125,7 +127,7 @@ class IntradayMonitorFlow:
 
     def __init__(
         self,
-        webhook_url: Optional[str] = None,
+        webhook_url: str | None = None,
         min_regime_confidence: float = 0.6,
     ) -> None:
         """
@@ -149,7 +151,9 @@ class IntradayMonitorFlow:
 
         # 1. Price update + P&L computation
         intraday_pnl, intraday_pnl_pct = self._compute_intraday_pnl(snapshot)
-        daily_loss_pct = snapshot.get("daily_pnl", 0.0) / max(snapshot.get("total_equity", 1.0), 1.0)
+        daily_loss_pct = snapshot.get("daily_pnl", 0.0) / max(
+            snapshot.get("total_equity", 1.0), 1.0
+        )
         daily_loss_limit = self._get_daily_loss_limit()
 
         # 2. Regime check on all held symbols
@@ -210,10 +214,11 @@ class IntradayMonitorFlow:
     # Step implementations
     # -------------------------------------------------------------------------
 
-    def _get_portfolio(self) -> Dict:
+    def _get_portfolio(self) -> dict:
         """Load current portfolio state."""
         try:
             from quant_pod.execution.portfolio_state import get_portfolio_state
+
             ps = get_portfolio_state()
             snapshot = ps.get_snapshot()
             positions = [p.model_dump() for p in ps.get_positions()]
@@ -222,7 +227,7 @@ class IntradayMonitorFlow:
             logger.warning(f"[INTRADAY] Portfolio load failed: {e}")
             return {"snapshot": {}, "positions": []}
 
-    def _compute_intraday_pnl(self, snapshot: Dict) -> Tuple[float, float]:
+    def _compute_intraday_pnl(self, snapshot: dict) -> tuple[float, float]:
         """Compute intraday P&L from portfolio snapshot."""
         daily_pnl = snapshot.get("daily_pnl", 0.0)
         equity = max(snapshot.get("total_equity", 1.0), 1.0)
@@ -232,14 +237,16 @@ class IntradayMonitorFlow:
         """Read daily loss limit from RiskGate config."""
         try:
             from quant_pod.execution.risk_gate import get_risk_gate
+
             limits = get_risk_gate().limits
             return getattr(limits, "daily_loss_limit_pct", 0.02)
         except Exception:
             return float(os.getenv("RISK_DAILY_LOSS_LIMIT_PCT", "0.02"))
 
-    def _check_regimes(self, symbols: List[str]) -> Dict[str, Dict]:
+    def _check_regimes(self, symbols: list[str]) -> dict[str, dict]:
         """Run RegimeDetectorAgent on all held symbols. Never throws."""
         from quant_pod.agents.regime_detector import RegimeDetectorAgent
+
         detector = RegimeDetectorAgent()
         regimes = {}
         for symbol in symbols:
@@ -253,9 +260,9 @@ class IntradayMonitorFlow:
 
     def _detect_reversals(
         self,
-        positions: List[Dict],
-        current_regimes: Dict[str, Dict],
-    ) -> List[RegimeChange]:
+        positions: list[dict],
+        current_regimes: dict[str, dict],
+    ) -> list[RegimeChange]:
         """
         Compare current regime to regime at time of position entry.
 
@@ -288,15 +295,17 @@ class IntradayMonitorFlow:
             reversal = self._is_reversal(entry_trend, current_trend, side)
             if reversal:
                 action_hint = self._reversal_action_hint(side, entry_trend, current_trend)
-                reversals.append(RegimeChange(
-                    symbol=symbol,
-                    entry_regime=entry_trend,
-                    current_regime=current_trend,
-                    entry_confidence=entry.get("confidence", 0.0),
-                    current_confidence=current_conf,
-                    position_side=side,
-                    action_hint=action_hint,
-                ))
+                reversals.append(
+                    RegimeChange(
+                        symbol=symbol,
+                        entry_regime=entry_trend,
+                        current_regime=current_trend,
+                        entry_confidence=entry.get("confidence", 0.0),
+                        current_confidence=current_conf,
+                        position_side=side,
+                        action_hint=action_hint,
+                    )
+                )
                 logger.warning(
                     f"[INTRADAY] REGIME REVERSAL {symbol}: "
                     f"{entry_trend} → {current_trend} ({side} position)"
@@ -329,24 +338,27 @@ class IntradayMonitorFlow:
             "Consider covering — counter-trend risk increasing."
         )
 
-    def _load_entry_regimes(self, symbols: List[str]) -> Dict[str, Dict]:
+    def _load_entry_regimes(self, symbols: list[str]) -> dict[str, dict]:
         """
         Load the regime context recorded at position-entry time from audit log.
 
         Falls back to empty dict if audit log is unavailable — reversal detection
         is disabled for that symbol (avoids false positives on missing data).
         """
-        entry_regimes: Dict[str, Dict] = {}
+        entry_regimes: dict[str, dict] = {}
         try:
             from quant_pod.audit.decision_log import get_decision_log
             from quant_pod.audit.models import AuditQuery
+
             log = get_decision_log()
             for symbol in symbols:
-                events = log.query(AuditQuery(
-                    symbol=symbol,
-                    event_type="super_trader_decision",
-                    limit=1,
-                ))
+                events = log.query(
+                    AuditQuery(
+                        symbol=symbol,
+                        event_type="super_trader_decision",
+                        limit=1,
+                    )
+                )
                 if events:
                     # The regime at entry is stored in output_structured
                     output = events[0].output_structured or {}
@@ -359,6 +371,7 @@ class IntradayMonitorFlow:
         """Run AlphaMonitor and return overall status string."""
         try:
             from quant_pod.monitoring.alpha_monitor import get_alpha_monitor
+
             monitor = get_alpha_monitor()
             # Suppress Discord from here — intraday_monitor handles notification
             monitor._webhook_url = None
@@ -372,6 +385,7 @@ class IntradayMonitorFlow:
         """Run DegradationDetector and return overall status string."""
         try:
             from quant_pod.monitoring.degradation_detector import get_degradation_detector
+
             detector = get_degradation_detector()
             reports = detector.check_all()
             if not reports:
@@ -388,10 +402,10 @@ class IntradayMonitorFlow:
         self,
         daily_loss_pct: float,
         daily_loss_limit: float,
-        reversals: List[RegimeChange],
+        reversals: list[RegimeChange],
         alpha_status: str,
         degradation_status: str,
-    ) -> List[str]:
+    ) -> list[str]:
         """Build a prioritised list of action items for the ops dashboard."""
         items = []
 
@@ -450,13 +464,23 @@ class IntradayMonitorFlow:
         fields = [
             {"name": "Open Positions", "value": str(len(report.open_positions)), "inline": True},
             {"name": "Intraday P&L", "value": f"{report.intraday_pnl_pct:+.2%}", "inline": True},
-            {"name": "Daily Loss", "value": f"{report.daily_loss_pct:+.2%} / {report.daily_loss_limit_pct:.0%} limit", "inline": True},
-            {"name": "Regime Reversals", "value": str(len(report.regime_reversals)), "inline": True},
+            {
+                "name": "Daily Loss",
+                "value": f"{report.daily_loss_pct:+.2%} / {report.daily_loss_limit_pct:.0%} limit",
+                "inline": True,
+            },
+            {
+                "name": "Regime Reversals",
+                "value": str(len(report.regime_reversals)),
+                "inline": True,
+            },
             {"name": "Alpha Status", "value": report.alpha_status.upper(), "inline": True},
             {"name": "Degradation", "value": report.degradation_status.upper(), "inline": True},
         ]
 
-        description = "\n".join(f"• {item}" for item in report.action_items[:5]) or "No action items."
+        description = (
+            "\n".join(f"• {item}" for item in report.action_items[:5]) or "No action items."
+        )
 
         embed = {
             "title": f"QuantPod Intraday Monitor — {report.overall_status.upper()}",
@@ -491,18 +515,23 @@ def main() -> None:
         python -m quant_pod.flows.intraday_monitor_flow
     """
     import json
+
     flow = IntradayMonitorFlow()
     report = flow.run()
-    print(json.dumps({
-        "status": report.overall_status,
-        "run_at": report.run_at.isoformat(),
-        "action_items": report.action_items,
-        "regime_reversals": [
-            {"symbol": r.symbol, "hint": r.action_hint}
-            for r in report.regime_reversals
-        ],
-        "intraday_pnl_pct": report.intraday_pnl_pct,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "status": report.overall_status,
+                "run_at": report.run_at.isoformat(),
+                "action_items": report.action_items,
+                "regime_reversals": [
+                    {"symbol": r.symbol, "hint": r.action_hint} for r in report.regime_reversals
+                ],
+                "intraday_pnl_pct": report.intraday_pnl_pct,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

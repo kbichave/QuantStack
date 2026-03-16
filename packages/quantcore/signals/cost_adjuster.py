@@ -4,10 +4,10 @@ Cost-Adjusted Signal Generation.
 Adjusts signals for transaction costs and filters low-edge trades.
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, Tuple
-from dataclasses import dataclass
 
 
 @dataclass
@@ -25,7 +25,7 @@ def estimate_transaction_cost(
     price: float,
     daily_volume: float,
     volatility: float,
-    params: Optional[CostParams] = None,
+    params: CostParams | None = None,
 ) -> float:
     """
     Estimate total transaction cost.
@@ -87,7 +87,7 @@ def net_of_cost_signal(
 def minimum_edge_filter(
     signal: pd.Series,
     min_edge_bps: float = 5.0,
-    edge_estimate: Optional[pd.Series] = None,
+    edge_estimate: pd.Series | None = None,
 ) -> pd.Series:
     """
     Filter signals below minimum edge threshold.
@@ -159,8 +159,8 @@ class CostAdjuster:
     def estimate_cost(
         self,
         position_change: pd.Series,
-        daily_volume: Optional[pd.Series] = None,
-        volatility: Optional[pd.Series] = None,
+        daily_volume: pd.Series | None = None,
+        volatility: pd.Series | None = None,
     ) -> pd.Series:
         """
         Estimate trading costs.
@@ -190,8 +190,8 @@ class CostAdjuster:
     def adjust(
         self,
         signal: pd.Series,
-        returns: Optional[pd.Series] = None,
-        volatility: Optional[pd.Series] = None,
+        returns: pd.Series | None = None,
+        volatility: pd.Series | None = None,
     ) -> pd.Series:
         """
         Adjust signal for costs.
@@ -262,7 +262,7 @@ class CostAdjuster:
     def turnover_analysis(
         self,
         signal: pd.Series,
-    ) -> Dict:
+    ) -> dict:
         """
         Analyze signal turnover.
 
@@ -298,7 +298,7 @@ def optimize_cost_threshold(
     returns: pd.Series,
     cost_bps: float,
     thresholds: np.ndarray = np.linspace(0, 0.5, 20),
-) -> Tuple[float, pd.DataFrame]:
+) -> tuple[float, pd.DataFrame]:
     """
     Find optimal signal threshold considering costs.
 

@@ -4,21 +4,19 @@ ML strategy for equity direction prediction.
 Uses GradientBoosting classifier with feature selection.
 """
 
-from typing import Dict, Any
+from typing import Any
 
-import numpy as np
 import pandas as pd
 from loguru import logger
-
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.feature_selection import VarianceThreshold
 
-from quantcore.equity.backtester import backtest_signals, BacktestResult
-from quantcore.equity.reports import TickerStrategyResult, StrategyResult
+from quantcore.equity.backtester import backtest_signals
+from quantcore.equity.reports import StrategyResult, TickerStrategyResult
 
 
 def run_ml_strategy(
-    symbol_data: Dict[str, Any],
+    symbol_data: dict[str, Any],
     initial_equity: float = 100000,
     calculate_data_split: callable = None,
 ) -> StrategyResult:
@@ -83,14 +81,12 @@ def run_ml_strategy(
             selector = VarianceThreshold(threshold=0.01)
             selector.fit(X_train_full)
             selected_features = [
-                f for f, s in zip(feature_cols, selector.get_support()) if s
+                f for f, s in zip(feature_cols, selector.get_support(), strict=False) if s
             ]
 
             if len(selected_features) > 100:
                 correlations = (
-                    train_features[selected_features]
-                    .corrwith(train_features["label"])
-                    .abs()
+                    train_features[selected_features].corrwith(train_features["label"]).abs()
                 )
                 selected_features = correlations.nlargest(100).index.tolist()
 
@@ -153,9 +149,7 @@ def run_ml_strategy(
             total_wins += int(result.win_rate * result.num_trades)
             max_dd = max(max_dd, result.max_drawdown)
 
-            logger.info(
-                f"  Test PnL=${result.total_pnl:,.0f}, Trades={result.num_trades}"
-            )
+            logger.info(f"  Test PnL=${result.total_pnl:,.0f}, Trades={result.num_trades}")
 
         except Exception as e:
             logger.error(f"  Error: {e}")

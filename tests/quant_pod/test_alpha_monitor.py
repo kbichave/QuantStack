@@ -9,9 +9,7 @@ without hitting Discord webhooks or DuckDB on disk.
 
 from __future__ import annotations
 
-import duckdb
 import pytest
-
 from quant_pod.monitoring.alpha_monitor import (
     AlertSeverity,
     AlphaMonitor,
@@ -54,6 +52,7 @@ class TestClassifyAgent:
     def test_healthy_agent_returns_none(self, monitor):
         """Positive IC, stable — should return None (no alert)."""
         entry = _make_entry(rolling_ic_30=0.05, ic_trend="STABLE")
+
         # Need a dummy tracker that has needs_retraining() method
         class _FakeTracker:
             def needs_retraining(self, agent_id):

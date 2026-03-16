@@ -10,18 +10,16 @@ alpha_vs_cost_check, aggregate_report. No external I/O.
 from __future__ import annotations
 
 import pytest
-
 from quantcore.execution.tca_engine import (
     ExecAlgo,
     OrderSide,
     PreTradeForecast,
     TCAEngine,
-    TradeTCAResult,
     TradeRecord,
+    TradeTCAResult,
     post_trade_tca,
     pre_trade_forecast,
 )
-
 
 # ---------------------------------------------------------------------------
 # pre_trade_forecast
@@ -45,7 +43,7 @@ class TestPreTradeForecast:
         result = pre_trade_forecast(
             symbol="SPY",
             side=OrderSide.BUY,
-            shares=100,          # 100 / 80M = 0.000125% → immediate
+            shares=100,  # 100 / 80M = 0.000125% → immediate
             arrival_price=450.0,
             adv=80_000_000,
             daily_volatility_pct=1.0,
@@ -57,7 +55,7 @@ class TestPreTradeForecast:
         result = pre_trade_forecast(
             symbol="SPY",
             side=OrderSide.BUY,
-            shares=400_000,      # 400k / 80M = 0.5% → TWAP
+            shares=400_000,  # 400k / 80M = 0.5% → TWAP
             arrival_price=450.0,
             adv=80_000_000,
             daily_volatility_pct=1.0,
@@ -69,7 +67,7 @@ class TestPreTradeForecast:
         result = pre_trade_forecast(
             symbol="SPY",
             side=OrderSide.BUY,
-            shares=2_400_000,   # 2.4M / 80M = 3% → VWAP
+            shares=2_400_000,  # 2.4M / 80M = 3% → VWAP
             arrival_price=450.0,
             adv=80_000_000,
             daily_volatility_pct=1.0,
@@ -183,7 +181,9 @@ class TestTCAEngine:
         for i in range(3):
             tid = f"t{i}"
             engine.record_arrival(tid, "SPY", OrderSide.BUY, 100, 450.0)
-            engine.record_fill(tid, fill_price=450.9, vwap_price=450.5, twap_price=450.4, prev_close=449.0)
+            engine.record_fill(
+                tid, fill_price=450.9, vwap_price=450.5, twap_price=450.4, prev_close=449.0
+            )
 
         report = engine.aggregate_report()
         assert report["n_trades"] == 3

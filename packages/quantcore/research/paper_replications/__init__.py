@@ -8,6 +8,11 @@ Modules:
 - lob_features: ML features from limit order book
 """
 
+from quantcore.research.paper_replications.almgren_chriss import (
+    AlmgrenChrissExecutor,
+    execution_cost,
+    optimal_trajectory,
+)
 from quantcore.research.paper_replications.avellaneda_stoikov import (
     AvellanedaStoikovMM,
     optimal_spread,
@@ -16,11 +21,6 @@ from quantcore.research.paper_replications.avellaneda_stoikov import (
 from quantcore.research.paper_replications.bouchaud_impact import (
     BouchaudImpactModel,
     propagator_model,
-)
-from quantcore.research.paper_replications.almgren_chriss import (
-    AlmgrenChrissExecutor,
-    optimal_trajectory,
-    execution_cost,
 )
 from quantcore.research.paper_replications.lob_features import (
     LOBFeatureExtractor,

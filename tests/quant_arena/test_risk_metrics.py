@@ -19,23 +19,20 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import List
 
 import numpy as np
 import pytest
-
 from quant_arena.historical.risk_metrics import (
-    VaRReport,
     _STRESS_SCENARIOS,
     _empty_report,
     compute_risk_metrics,
     format_var_report,
 )
 
-
 # ---------------------------------------------------------------------------
 # Minimal PortfolioState stub — mirrors the real dataclass's equity field only
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _FakeSnapshot:
@@ -43,12 +40,14 @@ class _FakeSnapshot:
     date: object = None
 
 
-def _make_snapshots(equities: List[float]) -> List[_FakeSnapshot]:
+def _make_snapshots(equities: list[float]) -> list[_FakeSnapshot]:
     """Build a list of fake PortfolioState-like objects from an equity series."""
     return [_FakeSnapshot(equity=e) for e in equities]
 
 
-def _trending_up(n: int = 50, start: float = 100_000.0, drift: float = 0.0005) -> List[_FakeSnapshot]:
+def _trending_up(
+    n: int = 50, start: float = 100_000.0, drift: float = 0.0005
+) -> list[_FakeSnapshot]:
     """Generate n snapshots with a slight upward drift and small noise (seed fixed)."""
     rng = np.random.default_rng(42)
     equities = [start]
@@ -58,7 +57,7 @@ def _trending_up(n: int = 50, start: float = 100_000.0, drift: float = 0.0005) -
     return _make_snapshots(equities)
 
 
-def _volatile_curve(n: int = 100, start: float = 100_000.0) -> List[_FakeSnapshot]:
+def _volatile_curve(n: int = 100, start: float = 100_000.0) -> list[_FakeSnapshot]:
     """Generate n snapshots with high volatility (fat-tail noise for CVaR tests)."""
     rng = np.random.default_rng(7)
     equities = [start]
@@ -71,6 +70,7 @@ def _volatile_curve(n: int = 100, start: float = 100_000.0) -> List[_FakeSnapsho
 # ---------------------------------------------------------------------------
 # TestInsufficientData
 # ---------------------------------------------------------------------------
+
 
 class TestInsufficientData:
     """Guard path: fewer than 10 snapshots returns a zeroed report."""
@@ -113,6 +113,7 @@ class TestInsufficientData:
 # TestVaROrdering
 # ---------------------------------------------------------------------------
 
+
 class TestVaROrdering:
     """Core invariant: 99% VaR >= 95% VaR (tighter confidence = larger loss)."""
 
@@ -145,6 +146,7 @@ class TestVaROrdering:
 # TestVaRNonNegative
 # ---------------------------------------------------------------------------
 
+
 class TestVaRNonNegative:
     """VaR / CVaR are losses expressed as positive dollars."""
 
@@ -170,6 +172,7 @@ class TestVaRNonNegative:
 # ---------------------------------------------------------------------------
 # TestSqrtOfTimeScaling
 # ---------------------------------------------------------------------------
+
 
 class TestSqrtOfTimeScaling:
     """10-day VaR = 1-day VaR * sqrt(10); monthly VaR = 1-day * sqrt(21)."""
@@ -198,6 +201,7 @@ class TestSqrtOfTimeScaling:
 # ---------------------------------------------------------------------------
 # TestStressScenarios
 # ---------------------------------------------------------------------------
+
 
 class TestStressScenarios:
     """Stress scenarios must be present and produce negative P&L (losses)."""
@@ -238,6 +242,7 @@ class TestStressScenarios:
 # TestObservationCount
 # ---------------------------------------------------------------------------
 
+
 class TestObservationCount:
     """n_observations should equal len(returns) = len(snapshots) - 1."""
 
@@ -256,6 +261,7 @@ class TestObservationCount:
 # ---------------------------------------------------------------------------
 # TestDistributionalStats
 # ---------------------------------------------------------------------------
+
 
 class TestDistributionalStats:
     """Skewness and kurtosis fields should be finite numbers."""
@@ -288,6 +294,7 @@ class TestDistributionalStats:
 # ---------------------------------------------------------------------------
 # TestFormatVaRReport
 # ---------------------------------------------------------------------------
+
 
 class TestFormatVaRReport:
     """format_var_report() must produce a non-empty string with key section headers."""
@@ -324,6 +331,7 @@ class TestFormatVaRReport:
 # ---------------------------------------------------------------------------
 # TestDeterminism
 # ---------------------------------------------------------------------------
+
 
 class TestDeterminism:
     """Same input → same output (seed param is reserved for future MC; not used yet)."""

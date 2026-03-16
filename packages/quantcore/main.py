@@ -9,27 +9,27 @@ This module provides the high-level orchestration for:
 5. Backtesting and performance analysis
 """
 
-from typing import Dict, Optional, List
 from datetime import datetime
+
 import pandas as pd
 from loguru import logger
 
-from quantcore.config.settings import get_settings, Settings
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_HIERARCHY
-from quantcore.data.base import AssetClass
-from quantcore.data.registry import DataProviderRegistry
-from quantcore.data.storage import DataStore
-from quantcore.data.resampler import OHLCVResampler
-from quantcore.data.preprocessor import DataPreprocessor
-from quantcore.features.factory import MultiTimeframeFeatureFactory
-from quantcore.labeling.event_labeler import MultiTimeframeLabelBuilder
-from quantcore.hierarchy.cascade import SignalCascade
-from quantcore.models.trainer import ModelTrainer, TrainingConfig
-from quantcore.models.ensemble import HierarchicalEnsemble
-from quantcore.strategy.signals import SignalGenerator
-from quantcore.backtesting.engine import BacktestEngine, BacktestConfig
+from quantcore.backtesting.engine import BacktestConfig, BacktestEngine
 from quantcore.backtesting.reports import PerformanceReport
+from quantcore.config.settings import Settings, get_settings
+from quantcore.config.timeframes import Timeframe
+from quantcore.data.base import AssetClass
+from quantcore.data.preprocessor import DataPreprocessor
+from quantcore.data.registry import DataProviderRegistry
+from quantcore.data.resampler import OHLCVResampler
+from quantcore.data.storage import DataStore
+from quantcore.features.factory import MultiTimeframeFeatureFactory
+from quantcore.hierarchy.cascade import SignalCascade
+from quantcore.labeling.event_labeler import MultiTimeframeLabelBuilder
+from quantcore.models.ensemble import HierarchicalEnsemble
+from quantcore.models.trainer import ModelTrainer, TrainingConfig
 from quantcore.risk.controls import RiskController
+from quantcore.strategy.signals import SignalGenerator
 
 
 class TradingPlatform:
@@ -43,7 +43,7 @@ class TradingPlatform:
     - Backtesting
     """
 
-    def __init__(self, settings: Optional[Settings] = None):
+    def __init__(self, settings: Settings | None = None):
         """
         Initialize the trading platform.
 
@@ -67,7 +67,7 @@ class TradingPlatform:
 
     def fetch_and_store_data(
         self,
-        symbols: Optional[List[str]] = None,
+        symbols: list[str] | None = None,
     ) -> None:
         """
         Fetch data for all symbols and store in database.
@@ -82,9 +82,7 @@ class TradingPlatform:
 
             try:
                 # Fetch hourly data via the registry (tries providers in priority order)
-                df_1h = self.data_registry.fetch_ohlcv(
-                    symbol, AssetClass.EQUITY, Timeframe.H1
-                )
+                df_1h = self.data_registry.fetch_ohlcv(symbol, AssetClass.EQUITY, Timeframe.H1)
 
                 if df_1h.empty:
                     logger.warning(f"No data fetched for {symbol}")
@@ -108,9 +106,9 @@ class TradingPlatform:
     def load_data(
         self,
         symbol: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[Timeframe, pd.DataFrame]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[Timeframe, pd.DataFrame]:
         """
         Load multi-timeframe data for a symbol.
 
@@ -126,9 +124,9 @@ class TradingPlatform:
 
     def compute_features(
         self,
-        data: Dict[Timeframe, pd.DataFrame],
-        benchmark_data: Optional[Dict[Timeframe, pd.DataFrame]] = None,
-    ) -> Dict[Timeframe, pd.DataFrame]:
+        data: dict[Timeframe, pd.DataFrame],
+        benchmark_data: dict[Timeframe, pd.DataFrame] | None = None,
+    ) -> dict[Timeframe, pd.DataFrame]:
         """
         Compute features for all timeframes.
 
@@ -143,7 +141,7 @@ class TradingPlatform:
 
     def train_models(
         self,
-        training_data: Dict[Timeframe, pd.DataFrame],
+        training_data: dict[Timeframe, pd.DataFrame],
         model_dir: str = "models",
     ) -> None:
         """
@@ -192,8 +190,8 @@ class TradingPlatform:
     def generate_signals(
         self,
         symbol: str,
-        data: Dict[Timeframe, pd.DataFrame],
-    ) -> List:
+        data: dict[Timeframe, pd.DataFrame],
+    ) -> list:
         """
         Generate trading signals.
 
@@ -215,8 +213,8 @@ class TradingPlatform:
     def run_backtest(
         self,
         symbol: str,
-        data: Dict[Timeframe, pd.DataFrame],
-        config: Optional[BacktestConfig] = None,
+        data: dict[Timeframe, pd.DataFrame],
+        config: BacktestConfig | None = None,
     ) -> PerformanceReport:
         """
         Run backtest on historical data.
@@ -246,8 +244,8 @@ class TradingPlatform:
     def run_full_pipeline(
         self,
         symbol: str,
-        train_end_date: Optional[datetime] = None,
-    ) -> Dict:
+        train_end_date: datetime | None = None,
+    ) -> dict:
         """
         Run the complete pipeline: data → features → labels → train → backtest.
 

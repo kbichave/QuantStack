@@ -10,15 +10,14 @@ No external I/O — all tests use canned text.
 
 from __future__ import annotations
 
-import pytest
 from datetime import date
 
+import pytest
 from quantcore.data.sec_edgar import (
+    EdgarSignal,
+    FilingMetadata,
     FilingSentiment,
     FilingSentimentScorer,
-    FilingMetadata,
-    EdgarSignalBuilder,
-    EdgarSignal,
 )
 
 

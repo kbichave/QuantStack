@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict, List, Set
-
 # Registry metadata for ICs and pod managers.
 # Asset classes: equities, options, futures, fx_crypto
 
-IC_REGISTRY: Dict[str, Dict[str, Set[str]]] = {
+IC_REGISTRY: dict[str, dict[str, set[str]]] = {
     "data_ingestion_ic": {
         "asset_classes": {"equities", "options", "futures", "fx_crypto"},
         "capabilities": {"data"},
@@ -60,7 +58,7 @@ IC_REGISTRY: Dict[str, Dict[str, Set[str]]] = {
     },
 }
 
-POD_MANAGER_REGISTRY: Dict[str, Dict[str, Set[str]]] = {
+POD_MANAGER_REGISTRY: dict[str, dict[str, set[str]]] = {
     "data_pod_manager": {
         "asset_classes": {"equities", "options", "futures", "fx_crypto"},
         "capabilities": {"data"},
@@ -87,7 +85,7 @@ POD_MANAGER_REGISTRY: Dict[str, Dict[str, Set[str]]] = {
     },
 }
 
-POD_DEPENDENCIES: Dict[str, List[str]] = {
+POD_DEPENDENCIES: dict[str, list[str]] = {
     "data_pod_manager": ["data_ingestion_ic"],
     "market_monitor_pod_manager": ["market_snapshot_ic", "regime_detector_ic"],
     "technicals_pod_manager": [
@@ -107,7 +105,7 @@ POD_DEPENDENCIES: Dict[str, List[str]] = {
 }
 
 # Default runtime profiles (ordered for determinism)
-PROFILE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
+PROFILE_DEFAULTS: dict[str, dict[str, list[str]]] = {
     "equities": {
         "ics": [
             "data_ingestion_ic",
@@ -198,15 +196,12 @@ PROFILE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
 }
 
 
-def registry_snapshot() -> Dict[str, Dict[str, List[str]]]:
+def registry_snapshot() -> dict[str, dict[str, list[str]]]:
     """Return registry metadata for prompts/logging."""
     return {
-        "ics": {
-            name: sorted(meta["asset_classes"]) for name, meta in IC_REGISTRY.items()
-        },
+        "ics": {name: sorted(meta["asset_classes"]) for name, meta in IC_REGISTRY.items()},
         "pod_managers": {
-            name: sorted(meta["asset_classes"])
-            for name, meta in POD_MANAGER_REGISTRY.items()
+            name: sorted(meta["asset_classes"]) for name, meta in POD_MANAGER_REGISTRY.items()
         },
         "profiles": PROFILE_DEFAULTS,
     }

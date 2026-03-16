@@ -11,7 +11,7 @@ Or run directly:
     python src/quantcore/mcp_server.py
 """
 
-from quantcore.mcp.server import mcp, main
+from quantcore.mcp.server import main
 
 if __name__ == "__main__":
     main()

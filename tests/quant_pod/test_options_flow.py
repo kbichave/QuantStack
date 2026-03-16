@@ -12,7 +12,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-
 from quant_pod.tools.options_flow_tools import (
     OptionsContract,
     OptionsFlowClient,
@@ -121,11 +120,11 @@ class TestComputeSignal:
         """vol/OI > 3 AND notional > $50k → unusual."""
         unusual = _contract(
             "call",
-            volume=2000,    # vol/OI = 2000/100 = 20 > 3
+            volume=2000,  # vol/OI = 2000/100 = 20 > 3
             open_interest=100,
             last_price=3.0,
             bid=2.9,
-            ask=3.1,        # notional = 2000 * 3.0 * 100 = $600k > $50k
+            ask=3.1,  # notional = 2000 * 3.0 * 100 = $600k > $50k
         )
         normal = _contract("call", volume=100, open_interest=1000)  # vol/OI = 0.1
         signal = client._compute_signal("SPY", [unusual, normal])
@@ -133,10 +132,10 @@ class TestComputeSignal:
 
     def test_high_iv_contributes_to_score(self, client):
         high_iv = _contract("call", implied_volatility=0.70, volume=500, open_interest=100)
-        low_iv  = _contract("call", implied_volatility=0.20, volume=500, open_interest=100)
+        low_iv = _contract("call", implied_volatility=0.20, volume=500, open_interest=100)
 
         sig_high = client._compute_signal("SPY", [high_iv])
-        sig_low  = client._compute_signal("SPY", [low_iv])
+        sig_low = client._compute_signal("SPY", [low_iv])
         # High IV should score higher
         assert sig_high.unusual_score >= sig_low.unusual_score
 

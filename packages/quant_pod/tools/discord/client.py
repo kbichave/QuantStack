@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import aiohttp
 from loguru import logger
@@ -24,7 +23,7 @@ def snowflake_from_datetime(dt: datetime) -> int:
 def datetime_from_snowflake(snowflake: int) -> datetime:
     """Extract the UTC timestamp embedded in a Discord snowflake ID."""
     ms = (int(snowflake) >> 22) + _DISCORD_EPOCH_MS
-    return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    return datetime.fromtimestamp(ms / 1000, tz=UTC)
 
 
 class DiscordClient:
@@ -53,7 +52,7 @@ class DiscordClient:
             self._auth = f"Bot {token}"
         else:
             self._auth = token  # user token — no prefix
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
     async def __aenter__(self) -> DiscordClient:
         self._session = aiohttp.ClientSession(
@@ -75,7 +74,7 @@ class DiscordClient:
             raise RuntimeError("Use DiscordClient as an async context manager.")
 
         url = f"{DISCORD_API_BASE}{path}"
-        for attempt in range(4):
+        for _attempt in range(4):
             async with self._session.request(method, url, **kwargs) as resp:  # type: ignore[arg-type]
                 if resp.status == 429:
                     body = await resp.json()
@@ -86,8 +85,7 @@ class DiscordClient:
 
                 if resp.status == 401:
                     raise ValueError(
-                        "Discord authentication failed. "
-                        "Check that DISCORD_TOKEN is correct."
+                        "Discord authentication failed. Check that DISCORD_TOKEN is correct."
                     )
                 if resp.status == 403:
                     raise PermissionError(
@@ -111,8 +109,8 @@ class DiscordClient:
         self,
         channel_id: str,
         *,
-        before: Optional[str] = None,
-        after: Optional[str] = None,
+        before: str | None = None,
+        after: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         params: dict[str, str | int] = {"limit": min(limit, 100)}
@@ -130,7 +128,7 @@ class DiscordClient:
         channel_id: str,
         since: datetime,
         *,
-        progress_callback: Optional[callable] = None,  # type: ignore[type-arg]
+        progress_callback: callable | None = None,  # type: ignore[type-arg]
     ) -> list[DiscordMessage]:
         """
         Paginate backwards through channel history, collecting every message
@@ -141,7 +139,7 @@ class DiscordClient:
         """
         cutoff_snowflake = snowflake_from_datetime(since)
         collected: list[DiscordMessage] = []
-        before_id: Optional[str] = None
+        before_id: str | None = None
 
         while True:
             page = await self._get_messages_page(channel_id, before=before_id)

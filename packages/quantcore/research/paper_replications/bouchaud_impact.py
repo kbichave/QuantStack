@@ -10,9 +10,9 @@ Key Results:
     - Impact decays over time (propagator model)
 """
 
-import numpy as np
-from typing import List, Tuple
 from dataclasses import dataclass
+
+import numpy as np
 
 
 def propagator_model(t: np.ndarray, beta: float = 0.5, tau: float = 10.0) -> np.ndarray:
@@ -62,7 +62,7 @@ class BouchaudImpactModel:
         self.beta = beta
         self.tau = tau
         self.permanent_fraction = permanent_fraction
-        self.trade_history: List[Tuple[float, float, float]] = []
+        self.trade_history: list[tuple[float, float, float]] = []
 
     def compute_impact(
         self,
@@ -92,9 +92,7 @@ class BouchaudImpactModel:
         permanent = immediate * self.permanent_fraction
         initial_transient = immediate * (1 - self.permanent_fraction)
 
-        trajectory = permanent + initial_transient * propagator_model(
-            times, self.beta, self.tau
-        )
+        trajectory = permanent + initial_transient * propagator_model(times, self.beta, self.tau)
         return trajectory
 
     def add_trade(self, time: float, order_size: float, daily_volume: float) -> None:

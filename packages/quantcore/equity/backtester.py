@@ -8,7 +8,6 @@ Backtests equity signals with:
 """
 
 from dataclasses import dataclass, field
-from typing import List
 
 import numpy as np
 import pandas as pd
@@ -36,7 +35,7 @@ class BacktestResult:
     win_rate: float
     num_trades: int
     avg_trade_pnl: float
-    trades: List[TradeRecord] = field(default_factory=list)
+    trades: list[TradeRecord] = field(default_factory=list)
 
 
 def backtest_signals(

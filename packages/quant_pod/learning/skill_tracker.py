@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import Lock
-from typing import Dict, List, Optional
 
 import numpy as np
 from loguru import logger
@@ -37,15 +35,11 @@ class AgentSkill:
     winning_signals: int = 0
     total_signal_pnl: float = 0.0
     # IC observations — each entry is the IC for one completed signal period
-    ic_observations: List[float] = field(default_factory=list)
+    ic_observations: list[float] = field(default_factory=list)
 
     @property
     def prediction_accuracy(self) -> float:
-        return (
-            self.correct_predictions / self.prediction_count
-            if self.prediction_count
-            else 0.0
-        )
+        return self.correct_predictions / self.prediction_count if self.prediction_count else 0.0
 
     @property
     def signal_win_rate(self) -> float:
@@ -113,7 +107,7 @@ class SkillTracker:
 
     def __init__(self, store: KnowledgeStore) -> None:
         self.store = store
-        self._skills: Dict[str, AgentSkill] = {}
+        self._skills: dict[str, AgentSkill] = {}
         self._ensure_table()
         self._load_from_db()
 
@@ -245,8 +239,8 @@ class SkillTracker:
     def update_agent_skill(
         self,
         agent_id: str,
-        prediction_correct: Optional[bool] = None,
-        signal_pnl: Optional[float] = None,
+        prediction_correct: bool | None = None,
+        signal_pnl: float | None = None,
     ) -> AgentSkill:
         """Update metrics for an agent and persist to DuckDB."""
         with self._lock:
@@ -287,6 +281,7 @@ class SkillTracker:
             Updated AgentSkill.
         """
         import math
+
         if math.isnan(ic_value) or math.isinf(ic_value):
             logger.debug(f"[SKILL] Skipping NaN/Inf IC for {agent_id}")
             return self._get_skill(agent_id)
@@ -356,7 +351,7 @@ class SkillTracker:
 
         return max(0.5, min(1.5, adjustment))
 
-    def get_all_skills(self) -> List[AgentSkill]:
+    def get_all_skills(self) -> list[AgentSkill]:
         """Return all tracked agent skills."""
         return list(self._skills.values())
 
@@ -393,7 +388,7 @@ class SkillTracker:
 
         return False
 
-    def ic_summary(self) -> List[Dict]:
+    def ic_summary(self) -> list[dict]:
         """
         Return per-agent IC summary for the /skills API endpoint.
 
@@ -401,16 +396,18 @@ class SkillTracker:
         """
         summary = []
         for skill in self._skills.values():
-            summary.append({
-                "agent_id": skill.agent_id,
-                "ic": round(skill.ic, 4),
-                "icir": round(skill.icir, 3),
-                "rolling_ic_30": round(skill.rolling_ic(30), 4),
-                "ic_trend": skill.ic_trend(),
-                "n_ic_observations": len(skill.ic_observations),
-                "prediction_accuracy": round(skill.prediction_accuracy, 3),
-                "signal_win_rate": round(skill.signal_win_rate, 3),
-                "avg_signal_pnl": round(skill.avg_signal_pnl, 2),
-                "needs_retraining": self.needs_retraining(skill.agent_id),
-            })
+            summary.append(
+                {
+                    "agent_id": skill.agent_id,
+                    "ic": round(skill.ic, 4),
+                    "icir": round(skill.icir, 3),
+                    "rolling_ic_30": round(skill.rolling_ic(30), 4),
+                    "ic_trend": skill.ic_trend(),
+                    "n_ic_observations": len(skill.ic_observations),
+                    "prediction_accuracy": round(skill.prediction_accuracy, 3),
+                    "signal_win_rate": round(skill.signal_win_rate, 3),
+                    "avg_signal_pnl": round(skill.avg_signal_pnl, 2),
+                    "needs_retraining": self.needs_retraining(skill.agent_id),
+                }
+            )
         return sorted(summary, key=lambda x: x["icir"], reverse=True)

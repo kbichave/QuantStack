@@ -4,81 +4,62 @@
 """Tests for MCP Bridge tool wrappers."""
 
 import json
-import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from quant_pod.tools.mcp_bridge import (
-    # Bridge
-    MCPBridge,
-    get_bridge,
-    # Market Data Tools
-    FetchMarketDataTool,
-    LoadMarketDataTool,
-    ListStoredSymbolsTool,
-    GetSymbolSnapshotTool,
-    fetch_market_data_tool,
-    load_market_data_tool,
-    list_stored_symbols_tool,
-    get_symbol_snapshot_tool,
+    ComputeAllFeaturesTool,
+    ComputeGreeksTool,
+    ComputeImpliedVolTool,
     # Technical Analysis Tools
     ComputeIndicatorsTool,
-    ComputeAllFeaturesTool,
+    ComputePositionSizeTool,
+    ComputeVaRTool,
+    # Market Data Tools
+    FetchMarketDataTool,
+    GetSymbolSnapshotTool,
     ListAvailableIndicatorsTool,
-    compute_indicators_tool,
-    compute_all_features_tool,
-    list_available_indicators_tool,
-    # Backtesting Tools
+    ListStoredSymbolsTool,
+    LoadMarketDataTool,
+    # Bridge
+    MCPBridge,
+    # Options Tools
+    PriceOptionTool,
+    # Statistical Tools
     RunBacktestTool,
     RunMonteCarloTool,
     RunWalkForwardTool,
+    StressTestPortfolioTool,
+    analyze_option_structure_tool,
+    analyze_volume_profile_tool,
+    check_risk_limits_tool,
+    compute_all_features_tool,
+    compute_alpha_decay_tool,
+    compute_greeks_tool,
+    compute_implied_vol_tool,
+    compute_indicators_tool,
+    compute_information_coefficient_tool,
+    compute_option_chain_tool,
+    compute_position_size_tool,
+    compute_var_tool,
+    fetch_market_data_tool,
+    generate_trade_template_tool,
+    get_event_calendar_tool,
+    get_market_regime_snapshot_tool,
+    get_symbol_snapshot_tool,
+    list_available_indicators_tool,
+    list_stored_symbols_tool,
+    load_market_data_tool,
+    price_option_tool,
+    run_adf_test_tool,
     run_backtest_tool,
     run_monte_carlo_tool,
     run_walkforward_tool,
-    # Statistical Tools
-    RunADFTestTool,
-    ComputeAlphaDecayTool,
-    ComputeInformationCoefficientTool,
-    ValidateSignalTool,
-    run_adf_test_tool,
-    compute_alpha_decay_tool,
-    compute_information_coefficient_tool,
-    validate_signal_tool,
-    # Options Tools
-    PriceOptionTool,
-    ComputeGreeksTool,
-    ComputeImpliedVolTool,
-    AnalyzeOptionStructureTool,
-    ComputeOptionChainTool,
-    price_option_tool,
-    compute_greeks_tool,
-    compute_implied_vol_tool,
-    analyze_option_structure_tool,
-    compute_option_chain_tool,
-    # Risk Management Tools
-    ComputePositionSizeTool,
-    ComputeVaRTool,
-    StressTestPortfolioTool,
-    CheckRiskLimitsTool,
-    compute_position_size_tool,
-    compute_var_tool,
-    stress_test_portfolio_tool,
-    check_risk_limits_tool,
-    # Market/Regime Tools
-    GetMarketRegimeSnapshotTool,
-    AnalyzeVolumeProfileTool,
-    GetEventCalendarTool,
-    get_market_regime_snapshot_tool,
-    analyze_volume_profile_tool,
-    get_event_calendar_tool,
-    # Trade Tools
-    ValidateTradeTool,
-    ScoreTradeStructureTool,
-    GenerateTradeTemplateTool,
-    validate_trade_tool,
     score_trade_structure_tool,
-    generate_trade_template_tool,
+    stress_test_portfolio_tool,
+    validate_signal_tool,
+    validate_trade_tool,
 )
-
 
 # =============================================================================
 # FIXTURES
@@ -124,9 +105,7 @@ class TestMarketDataTools:
 
     def test_fetch_market_data_tool(self):
         """Test fetch_market_data_tool returns OHLCV data."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "data": [
@@ -150,9 +129,7 @@ class TestMarketDataTools:
 
     def test_get_symbol_snapshot_tool(self):
         """Test get_symbol_snapshot_tool returns comprehensive snapshot."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "AAPL",
                 "price": 175.50,
@@ -170,9 +147,7 @@ class TestMarketDataTools:
 
     def test_list_stored_symbols_tool(self):
         """Test list_stored_symbols_tool returns symbol list."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
                 "count": 4,
@@ -196,18 +171,14 @@ class TestTechnicalAnalysisTools:
 
     def test_compute_indicators_tool(self):
         """Test compute_indicators_tool returns indicator values."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "indicators": {"rsi_14": 55.5, "macd": 1.2, "atr_14": 5.5},
             }
 
             tool = compute_indicators_tool()
-            result = tool._run(
-                symbol="SPY", timeframe="daily", indicators=["rsi_14", "macd"]
-            )
+            result = tool._run(symbol="SPY", timeframe="daily", indicators=["rsi_14", "macd"])
 
             data = json.loads(result)
             assert data["symbol"] == "SPY"
@@ -216,9 +187,7 @@ class TestTechnicalAnalysisTools:
 
     def test_compute_all_features_tool(self):
         """Test compute_all_features_tool returns 200+ features."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "feature_count": 215,
@@ -234,9 +203,7 @@ class TestTechnicalAnalysisTools:
 
     def test_list_available_indicators_tool(self):
         """Test list_available_indicators_tool returns indicator catalog."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "indicators": [
                     {"name": "RSI", "description": "Relative Strength Index"},
@@ -266,9 +233,7 @@ class TestBacktestingTools:
 
     def test_run_backtest_tool(self):
         """Test run_backtest_tool returns backtest metrics."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "strategy": "mean_reversion",
@@ -291,9 +256,7 @@ class TestBacktestingTools:
 
     def test_run_monte_carlo_tool(self):
         """Test run_monte_carlo_tool returns simulation results."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "n_simulations": 1000,
@@ -314,9 +277,7 @@ class TestBacktestingTools:
 
     def test_run_walkforward_tool(self):
         """Test run_walkforward_tool returns walk-forward splits."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "n_splits": 5,
@@ -348,9 +309,7 @@ class TestStatisticalTools:
 
     def test_run_adf_test_tool(self):
         """Test run_adf_test_tool returns stationarity result."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "adf_statistic": -3.5,
@@ -368,9 +327,7 @@ class TestStatisticalTools:
 
     def test_compute_alpha_decay_tool(self):
         """Test compute_alpha_decay_tool returns decay analysis."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "signal_column": "rsi_14",
@@ -388,9 +345,7 @@ class TestStatisticalTools:
 
     def test_compute_information_coefficient_tool(self):
         """Test compute_information_coefficient_tool returns IC value."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "signal_column": "rsi_14",
@@ -408,9 +363,7 @@ class TestStatisticalTools:
 
     def test_validate_signal_tool(self):
         """Test validate_signal_tool returns validation result."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "signal_column": "momentum_rsi",
@@ -440,9 +393,7 @@ class TestOptionsTools:
 
     def test_price_option_tool(self):
         """Test price_option_tool returns Black-Scholes price."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "option_type": "call",
                 "price": 5.25,
@@ -452,9 +403,7 @@ class TestOptionsTools:
             }
 
             tool = price_option_tool()
-            result = tool._run(
-                spot=100, strike=100, time_to_expiry=0.25, volatility=0.20
-            )
+            result = tool._run(spot=100, strike=100, time_to_expiry=0.25, volatility=0.20)
 
             data = json.loads(result)
             assert "price" in data
@@ -462,9 +411,7 @@ class TestOptionsTools:
 
     def test_compute_greeks_tool(self):
         """Test compute_greeks_tool returns all Greeks."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "option_type": "call",
                 "greeks": {
@@ -477,9 +424,7 @@ class TestOptionsTools:
             }
 
             tool = compute_greeks_tool()
-            result = tool._run(
-                spot=100, strike=100, time_to_expiry=0.25, volatility=0.20
-            )
+            result = tool._run(spot=100, strike=100, time_to_expiry=0.25, volatility=0.20)
 
             data = json.loads(result)
             assert "greeks" in data
@@ -488,9 +433,7 @@ class TestOptionsTools:
 
     def test_compute_implied_vol_tool(self):
         """Test compute_implied_vol_tool returns IV."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "implied_volatility": 0.22,
                 "option_price": 5.50,
@@ -498,9 +441,7 @@ class TestOptionsTools:
             }
 
             tool = compute_implied_vol_tool()
-            result = tool._run(
-                option_price=5.50, spot=100, strike=100, time_to_expiry=0.25
-            )
+            result = tool._run(option_price=5.50, spot=100, strike=100, time_to_expiry=0.25)
 
             data = json.loads(result)
             assert "implied_volatility" in data
@@ -508,9 +449,7 @@ class TestOptionsTools:
 
     def test_analyze_option_structure_tool(self):
         """Test analyze_option_structure_tool returns P&L profile."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "structure_type": "VERTICAL_SPREAD",
                 "max_profit": 200,
@@ -534,9 +473,7 @@ class TestOptionsTools:
 
     def test_compute_option_chain_tool(self):
         """Test compute_option_chain_tool returns theoretical chain."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "expiry_date": "2024-02-16",
@@ -545,9 +482,7 @@ class TestOptionsTools:
             }
 
             tool = compute_option_chain_tool()
-            result = tool._run(
-                symbol="SPY", spot_price=470, volatility=0.18, days_to_expiry=30
-            )
+            result = tool._run(symbol="SPY", spot_price=470, volatility=0.18, days_to_expiry=30)
 
             data = json.loads(result)
             assert "calls" in data
@@ -564,9 +499,7 @@ class TestRiskManagementTools:
 
     def test_compute_position_size_tool(self):
         """Test compute_position_size_tool returns position size."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "shares": 50,
                 "dollar_amount": 5000,
@@ -583,9 +516,7 @@ class TestRiskManagementTools:
 
     def test_compute_var_tool(self):
         """Test compute_var_tool returns VaR metrics."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "var_95": 2500,
                 "var_99": 3500,
@@ -594,9 +525,7 @@ class TestRiskManagementTools:
             }
 
             tool = compute_var_tool()
-            result = tool._run(
-                returns=[0.01, -0.02, 0.015, -0.01], portfolio_value=100000
-            )
+            result = tool._run(returns=[0.01, -0.02, 0.015, -0.01], portfolio_value=100000)
 
             data = json.loads(result)
             assert "var_95" in data
@@ -604,9 +533,7 @@ class TestRiskManagementTools:
 
     def test_stress_test_portfolio_tool(self):
         """Test stress_test_portfolio_tool returns scenario results."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "scenarios": [
                     {"name": "Market Crash", "pnl": -15000},
@@ -626,9 +553,7 @@ class TestRiskManagementTools:
 
     def test_check_risk_limits_tool(self):
         """Test check_risk_limits_tool returns pass/fail status."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "within_limits": True,
                 "checks": {"delta_ok": True, "gamma_ok": True, "vega_ok": True},
@@ -636,9 +561,7 @@ class TestRiskManagementTools:
             }
 
             tool = check_risk_limits_tool()
-            result = tool._run(
-                portfolio_delta=50, portfolio_gamma=25, portfolio_vega=2500
-            )
+            result = tool._run(portfolio_delta=50, portfolio_gamma=25, portfolio_vega=2500)
 
             data = json.loads(result)
             assert "within_limits" in data
@@ -655,9 +578,7 @@ class TestMarketRegimeTools:
 
     def test_get_market_regime_snapshot_tool(self):
         """Test get_market_regime_snapshot_tool returns regime classification."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "regime": "trending_up",
                 "confidence": 0.85,
@@ -674,9 +595,7 @@ class TestMarketRegimeTools:
 
     def test_analyze_volume_profile_tool(self):
         """Test analyze_volume_profile_tool returns volume analysis."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "poc": 470.50,  # Point of Control
@@ -695,9 +614,7 @@ class TestMarketRegimeTools:
 
     def test_get_event_calendar_tool(self):
         """Test get_event_calendar_tool returns upcoming events."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "events": [
                     {"date": "2024-01-15", "type": "earnings", "symbol": "AAPL"},
@@ -728,9 +645,7 @@ class TestTradeTools:
 
     def test_validate_trade_tool(self):
         """Test validate_trade_tool returns validation result."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "is_valid": True,
                 "checks": {
@@ -756,9 +671,7 @@ class TestTradeTools:
 
     def test_score_trade_structure_tool(self):
         """Test score_trade_structure_tool returns score."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "total_score": 75,
                 "grade": "B",
@@ -784,9 +697,7 @@ class TestTradeTools:
 
     def test_generate_trade_template_tool(self):
         """Test generate_trade_template_tool returns template."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "direction": "LONG",
@@ -801,9 +712,7 @@ class TestTradeTools:
             }
 
             tool = generate_trade_template_tool()
-            result = tool._run(
-                symbol="SPY", direction="LONG", structure_type="VERTICAL_SPREAD"
-            )
+            result = tool._run(symbol="SPY", direction="LONG", structure_type="VERTICAL_SPREAD")
 
             data = json.loads(result)
             assert "legs" in data
@@ -820,9 +729,7 @@ class TestErrorHandling:
 
     def test_quantcore_unavailable(self):
         """Test error when QuantCore MCP is unavailable."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = {"error": "QuantCore MCP not available"}
 
             tool = compute_indicators_tool()
@@ -834,12 +741,8 @@ class TestErrorHandling:
 
     def test_invalid_tool_response(self):
         """Test handling of tool not found error."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
-            mock_call.return_value = {
-                "error": "Tool nonexistent_tool not found in QuantCore MCP"
-            }
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = {"error": "Tool nonexistent_tool not found in QuantCore MCP"}
 
             tool = run_backtest_tool()
             result = tool._run(symbol="SPY")
@@ -849,9 +752,7 @@ class TestErrorHandling:
 
     def test_exception_handling(self):
         """Test exception from MCP call is returned as error dict."""
-        with patch.object(
-            MCPBridge, "call_quantcore", new_callable=AsyncMock
-        ) as mock_call:
+        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
             # Simulate the bridge returning an error dict (as it does when catching exceptions)
             mock_call.return_value = {"error": "Connection timeout"}
 

@@ -25,20 +25,22 @@ Usage:
     all_tools = get_all_tools()
 """
 
-from typing import List, Optional
+from loguru import logger
 
 from quant_pod.crewai_compat import BaseTool
-from loguru import logger
 
 # RL tools (optional — degrade gracefully when torch/checkpoints unavailable)
 try:
+    from quantcore.rl.config import RLProductionConfig, get_rl_config
     from quantcore.rl.rl_tools import (
         get_rl_tools as _get_rl_tools,
-        rl_position_size_tool,
-        rl_execution_strategy_tool,
-        rl_alpha_weight_tool,
     )
-    from quantcore.rl.config import RLProductionConfig, get_rl_config
+    from quantcore.rl.rl_tools import (
+        rl_alpha_weight_tool,  # noqa: F401
+        rl_execution_strategy_tool,  # noqa: F401
+        rl_position_size_tool,  # noqa: F401
+    )
+
     RL_TOOLS_AVAILABLE = True
 except ImportError:
     RL_TOOLS_AVAILABLE = False
@@ -50,46 +52,46 @@ except ImportError:
 # =============================================================================
 
 from quant_pod.tools.mcp_bridge import (
-    # Market Data Tools
-    fetch_market_data_tool,
-    load_market_data_tool,
-    list_stored_symbols_tool,
-    get_symbol_snapshot_tool,
+    analyze_liquidity_tool,
+    analyze_option_structure_tool,
+    analyze_volume_profile_tool,
+    check_risk_limits_tool,
+    compute_all_features_tool,
+    compute_alpha_decay_tool,
+    compute_greeks_tool,
+    compute_implied_vol_tool,
     # Technical Analysis Tools
     compute_indicators_tool,
-    compute_all_features_tool,
-    list_available_indicators_tool,
+    compute_information_coefficient_tool,
+    compute_max_drawdown_tool,
+    compute_option_chain_tool,
+    compute_portfolio_stats_tool,
     # Risk Tools
     compute_position_size_tool,
     compute_var_tool,
-    check_risk_limits_tool,
-    stress_test_portfolio_tool,
-    compute_max_drawdown_tool,
-    compute_portfolio_stats_tool,
-    analyze_liquidity_tool,
-    # Market/Regime Tools
-    get_market_regime_snapshot_tool,
-    analyze_volume_profile_tool,
-    get_trading_calendar_tool,
-    get_event_calendar_tool,
+    # Market Data Tools
+    fetch_market_data_tool,
     # Trade Tools
     generate_trade_template_tool,
-    validate_trade_tool,
-    score_trade_structure_tool,
-    simulate_trade_outcome_tool,
+    get_event_calendar_tool,
+    # Market/Regime Tools
+    get_market_regime_snapshot_tool,
+    get_symbol_snapshot_tool,
+    get_trading_calendar_tool,
+    list_available_indicators_tool,
+    list_stored_symbols_tool,
+    load_market_data_tool,
+    # Options Tools
+    price_option_tool,
+    # Statistical Tools
+    run_adf_test_tool,
     # Backtesting Tools
     run_backtest_tool,
     run_monte_carlo_tool,
-    # Statistical Tools
-    run_adf_test_tool,
-    compute_alpha_decay_tool,
-    compute_information_coefficient_tool,
-    # Options Tools
-    price_option_tool,
-    compute_greeks_tool,
-    compute_implied_vol_tool,
-    analyze_option_structure_tool,
-    compute_option_chain_tool,
+    score_trade_structure_tool,
+    simulate_trade_outcome_tool,
+    stress_test_portfolio_tool,
+    validate_trade_tool,
 )
 
 # Tools are available - no fallback needed
@@ -102,7 +104,7 @@ logger.info("MCP Bridge tools loaded successfully")
 # =============================================================================
 
 
-def get_market_data_tools() -> List[BaseTool]:
+def get_market_data_tools() -> list[BaseTool]:
     """Get tools for loading and fetching market data."""
     return [
         load_market_data_tool(),
@@ -112,7 +114,7 @@ def get_market_data_tools() -> List[BaseTool]:
     ]
 
 
-def get_technical_analysis_tools() -> List[BaseTool]:
+def get_technical_analysis_tools() -> list[BaseTool]:
     """Get tools for technical analysis (indicators, features)."""
     return [
         compute_indicators_tool(),
@@ -124,7 +126,7 @@ def get_technical_analysis_tools() -> List[BaseTool]:
     ]
 
 
-def get_analyst_tools(analyst_type: str = "general") -> List[BaseTool]:
+def get_analyst_tools(analyst_type: str = "general") -> list[BaseTool]:
     """
     Get tools for a specific analyst type.
 
@@ -170,7 +172,7 @@ def get_analyst_tools(analyst_type: str = "general") -> List[BaseTool]:
         ]
 
 
-def get_risk_tools() -> List[BaseTool]:
+def get_risk_tools() -> list[BaseTool]:
     """Get tools for risk management analysis."""
     return [
         compute_position_size_tool(),
@@ -183,7 +185,7 @@ def get_risk_tools() -> List[BaseTool]:
     ]
 
 
-def get_execution_tools() -> List[BaseTool]:
+def get_execution_tools() -> list[BaseTool]:
     """Get tools for trade execution decisions."""
     return [
         generate_trade_template_tool(),
@@ -195,7 +197,7 @@ def get_execution_tools() -> List[BaseTool]:
     ]
 
 
-def get_validation_tools() -> List[BaseTool]:
+def get_validation_tools() -> list[BaseTool]:
     """Get tools for strategy validation and backtesting."""
     return [
         run_backtest_tool(),
@@ -203,7 +205,7 @@ def get_validation_tools() -> List[BaseTool]:
     ]
 
 
-def get_statistical_tools() -> List[BaseTool]:
+def get_statistical_tools() -> list[BaseTool]:
     """Get tools for statistical analysis."""
     return [
         run_adf_test_tool(),
@@ -212,7 +214,7 @@ def get_statistical_tools() -> List[BaseTool]:
     ]
 
 
-def get_options_tools() -> List[BaseTool]:
+def get_options_tools() -> list[BaseTool]:
     """Get tools for options analysis."""
     return [
         price_option_tool(),
@@ -223,7 +225,7 @@ def get_options_tools() -> List[BaseTool]:
     ]
 
 
-def get_rl_tools(config: "Optional[RLProductionConfig]" = None) -> List[BaseTool]:
+def get_rl_tools(config: "RLProductionConfig | None" = None) -> list[BaseTool]:
     """
     Get RL agent tools for the trading crew.
 
@@ -247,7 +249,7 @@ def get_rl_tools(config: "Optional[RLProductionConfig]" = None) -> List[BaseTool
         return []
 
 
-def get_all_tools() -> List[BaseTool]:
+def get_all_tools() -> list[BaseTool]:
     """Get all available tools for the trading crew."""
     # Deduplicate tools (some appear in multiple categories)
     tool_instances = {}

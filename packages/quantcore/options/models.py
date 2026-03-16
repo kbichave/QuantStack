@@ -11,7 +11,7 @@ Core dataclasses for options trading:
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
-from typing import List, Literal, Optional
+
 import pandas as pd
 
 
@@ -60,7 +60,7 @@ class OptionContract:
     rho: float = 0.0
 
     # Metadata
-    data_timestamp: Optional[datetime] = None
+    data_timestamp: datetime | None = None
 
     @property
     def mid(self) -> float:
@@ -125,9 +125,7 @@ class OptionContract:
             contract_id=data.get("contract_id", ""),
             underlying=data.get("underlying", ""),
             expiry=(
-                pd.to_datetime(data.get("expiry")).date()
-                if data.get("expiry")
-                else date.today()
+                pd.to_datetime(data.get("expiry")).date() if data.get("expiry") else date.today()
             ),
             strike=float(data.get("strike", 0)),
             option_type=OptionType(data.get("option_type", "CALL").upper()),
@@ -156,7 +154,7 @@ class OptionLeg:
     contract: OptionContract
     quantity: int  # Positive for long, negative for short
     entry_price: float = 0.0
-    entry_timestamp: Optional[datetime] = None
+    entry_timestamp: datetime | None = None
 
     @property
     def side(self) -> PositionSide:
@@ -216,9 +214,7 @@ class OptionLeg:
             if self.contract.is_call:
                 return float("inf")
             else:
-                return (
-                    abs(self.quantity) * (self.contract.strike - self.entry_price) * 100
-                )
+                return abs(self.quantity) * (self.contract.strike - self.entry_price) * 100
 
 
 @dataclass
@@ -231,8 +227,8 @@ class OptionsPosition:
 
     position_id: str
     underlying: str
-    legs: List[OptionLeg] = field(default_factory=list)
-    entry_timestamp: Optional[datetime] = None
+    legs: list[OptionLeg] = field(default_factory=list)
+    entry_timestamp: datetime | None = None
     notes: str = ""
 
     @property
@@ -266,14 +262,14 @@ class OptionsPosition:
         return len(self.legs)
 
     @property
-    def earliest_expiry(self) -> Optional[date]:
+    def earliest_expiry(self) -> date | None:
         """Earliest expiration date."""
         if not self.legs:
             return None
         return min(leg.contract.expiry for leg in self.legs)
 
     @property
-    def days_to_earliest_expiry(self) -> Optional[int]:
+    def days_to_earliest_expiry(self) -> int | None:
         """Days to earliest expiration."""
         expiry = self.earliest_expiry
         if expiry:
@@ -342,8 +338,8 @@ class VerticalSpread:
     quantity: int = 1
 
     # Market data for each leg
-    long_contract: Optional[OptionContract] = None
-    short_contract: Optional[OptionContract] = None
+    long_contract: OptionContract | None = None
+    short_contract: OptionContract | None = None
 
     @property
     def width(self) -> float:
@@ -394,18 +390,14 @@ class VerticalSpread:
         """Net delta."""
         if not self.long_contract or not self.short_contract:
             return 0.0
-        return (
-            (self.long_contract.delta - self.short_contract.delta) * self.quantity * 100
-        )
+        return (self.long_contract.delta - self.short_contract.delta) * self.quantity * 100
 
     @property
     def net_theta(self) -> float:
         """Net theta."""
         if not self.long_contract or not self.short_contract:
             return 0.0
-        return (
-            (self.long_contract.theta - self.short_contract.theta) * self.quantity * 100
-        )
+        return (self.long_contract.theta - self.short_contract.theta) * self.quantity * 100
 
     @property
     def breakeven(self) -> float:

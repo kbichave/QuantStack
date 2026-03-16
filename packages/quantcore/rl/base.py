@@ -4,14 +4,14 @@ Base classes for Reinforcement Learning agents.
 Provides foundational abstractions for all RL layers.
 """
 
+import random
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Union
-from enum import Enum
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from collections import deque
-import random
 from loguru import logger
 
 try:
@@ -21,9 +21,7 @@ try:
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
-    logger.warning(
-        "PyTorch not available. RL agents will use fallback implementations."
-    )
+    logger.warning("PyTorch not available. RL agents will use fallback implementations.")
 
 
 # ============================================================================
@@ -43,8 +41,8 @@ class State:
     """
 
     features: np.ndarray
-    timestamp: Optional[pd.Timestamp] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    timestamp: pd.Timestamp | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_tensor(self) -> "torch.Tensor":
         """Convert to PyTorch tensor."""
@@ -69,9 +67,9 @@ class Action:
         metadata: Additional action context
     """
 
-    value: Union[int, float, np.ndarray]
-    action_type: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    value: int | float | np.ndarray
+    action_type: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_discrete(self) -> bool:
@@ -96,8 +94,8 @@ class Reward:
     """
 
     value: float
-    components: Dict[str, float] = field(default_factory=dict)
-    info: Dict[str, Any] = field(default_factory=dict)
+    components: dict[str, float] = field(default_factory=dict)
+    info: dict[str, Any] = field(default_factory=dict)
 
     def __float__(self) -> float:
         return self.value
@@ -116,7 +114,7 @@ class Experience:
     reward: Reward
     next_state: State
     done: bool
-    info: Dict[str, Any] = field(default_factory=dict)
+    info: dict[str, Any] = field(default_factory=dict)
 
 
 # ============================================================================
@@ -157,7 +155,7 @@ class ReplayBuffer:
         self.priorities: deque = deque(maxlen=capacity)
         self.max_priority = 1.0
 
-    def push(self, experience: Experience, priority: Optional[float] = None) -> None:
+    def push(self, experience: Experience, priority: float | None = None) -> None:
         """
         Add experience to buffer.
 
@@ -171,7 +169,7 @@ class ReplayBuffer:
             p = priority if priority is not None else self.max_priority
             self.priorities.append(p)
 
-    def sample(self, batch_size: int) -> List[Experience]:
+    def sample(self, batch_size: int) -> list[Experience]:
         """
         Sample batch of experiences.
 
@@ -189,7 +187,7 @@ class ReplayBuffer:
         else:
             return random.sample(list(self.buffer), batch_size)
 
-    def _prioritized_sample(self, batch_size: int) -> List[Experience]:
+    def _prioritized_sample(self, batch_size: int) -> list[Experience]:
         """Sample with prioritization."""
         priorities = np.array(self.priorities)
         probs = priorities**self.alpha
@@ -198,12 +196,12 @@ class ReplayBuffer:
         indices = np.random.choice(len(self.buffer), batch_size, p=probs)
         return [self.buffer[i] for i in indices]
 
-    def update_priorities(self, indices: List[int], priorities: List[float]) -> None:
+    def update_priorities(self, indices: list[int], priorities: list[float]) -> None:
         """Update priorities for experiences."""
         if not self.prioritized:
             return
 
-        for idx, priority in zip(indices, priorities):
+        for idx, priority in zip(indices, priorities, strict=False):
             if idx < len(self.priorities):
                 self.priorities[idx] = priority
                 self.max_priority = max(self.max_priority, priority)
@@ -275,7 +273,7 @@ class RLAgent(ABC):
         pass
 
     @abstractmethod
-    def update(self, experiences: List[Experience]) -> Dict[str, float]:
+    def update(self, experiences: list[Experience]) -> dict[str, float]:
         """
         Update agent from experiences.
 
@@ -295,15 +293,15 @@ class RLAgent(ABC):
         """Set agent to evaluation mode."""
         self.training = False
 
-    def save(self, path: str) -> None:
+    def save(self, path: str) -> None:  # noqa: B027
         """Save agent to file."""
         pass
 
-    def load(self, path: str) -> None:
+    def load(self, path: str) -> None:  # noqa: B027
         """Load agent from file."""
         pass
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get agent configuration."""
         return {
             "state_dim": self.state_dim,
@@ -343,7 +341,7 @@ class RLEnvironment(ABC):
         pass
 
     @abstractmethod
-    def step(self, action: Action) -> Tuple[State, Reward, bool, Dict[str, Any]]:
+    def step(self, action: Action) -> tuple[State, Reward, bool, dict[str, Any]]:
         """
         Take action in environment.
 
@@ -365,11 +363,11 @@ class RLEnvironment(ABC):
         """Return action dimension."""
         pass
 
-    def render(self) -> None:
+    def render(self) -> None:  # noqa: B027
         """Render environment (optional)."""
         pass
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027
         """Clean up environment resources."""
         pass
 
@@ -387,10 +385,12 @@ if TORCH_AVAILABLE:
             self,
             input_dim: int,
             output_dim: int,
-            hidden_dims: List[int] = [256, 256],
+            hidden_dims: list[int] = None,
             activation: str = "relu",
-            output_activation: Optional[str] = None,
+            output_activation: str | None = None,
         ):
+            if hidden_dims is None:
+                hidden_dims = [256, 256]
             super().__init__()
 
             layers = []
@@ -429,8 +429,10 @@ if TORCH_AVAILABLE:
             self,
             input_dim: int,
             output_dim: int,
-            hidden_dims: List[int] = [256, 256],
+            hidden_dims: list[int] = None,
         ):
+            if hidden_dims is None:
+                hidden_dims = [256, 256]
             super().__init__()
 
             # Shared feature extraction
@@ -469,9 +471,11 @@ if TORCH_AVAILABLE:
             self,
             state_dim: int,
             action_dim: int,
-            hidden_dims: List[int] = [256, 256],
+            hidden_dims: list[int] = None,
             continuous: bool = False,
         ):
+            if hidden_dims is None:
+                hidden_dims = [256, 256]
             super().__init__()
 
             self.continuous = continuous
@@ -506,7 +510,7 @@ if TORCH_AVAILABLE:
                 nn.Linear(hidden_dims[1], 1),
             )
 
-        def forward(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        def forward(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
             """Forward pass returning policy and value."""
             shared = self.shared(state)
 
@@ -525,7 +529,7 @@ if TORCH_AVAILABLE:
             self,
             state: torch.Tensor,
             deterministic: bool = False,
-        ) -> Tuple[torch.Tensor, torch.Tensor]:
+        ) -> tuple[torch.Tensor, torch.Tensor]:
             """Get action and log probability."""
             shared = self.shared(state)
 
@@ -539,9 +543,7 @@ if TORCH_AVAILABLE:
                     dist = torch.distributions.Normal(mean, std)
                     action = dist.sample()
 
-                log_prob = (
-                    torch.distributions.Normal(mean, std).log_prob(action).sum(-1)
-                )
+                log_prob = torch.distributions.Normal(mean, std).log_prob(action).sum(-1)
             else:
                 probs = self.actor(shared)
 
@@ -551,9 +553,7 @@ if TORCH_AVAILABLE:
                     dist = torch.distributions.Categorical(probs)
                     action = dist.sample()
 
-                log_prob = torch.log(
-                    probs.gather(-1, action.unsqueeze(-1)).squeeze(-1) + 1e-8
-                )
+                log_prob = torch.log(probs.gather(-1, action.unsqueeze(-1)).squeeze(-1) + 1e-8)
 
             return action, log_prob
 
@@ -568,7 +568,7 @@ def soft_update(target: nn.Module, source: nn.Module, tau: float = 0.005) -> Non
     if not TORCH_AVAILABLE:
         return
 
-    for target_param, source_param in zip(target.parameters(), source.parameters()):
+    for target_param, source_param in zip(target.parameters(), source.parameters(), strict=False):
         target_param.data.copy_(tau * source_param.data + (1 - tau) * target_param.data)
 
 
@@ -581,7 +581,7 @@ def hard_update(target: nn.Module, source: nn.Module) -> None:
 
 
 def compute_returns(
-    rewards: List[float],
+    rewards: list[float],
     gamma: float = 0.99,
     normalize: bool = True,
 ) -> np.ndarray:
@@ -602,12 +602,12 @@ def compute_returns(
 
 
 def compute_gae(
-    rewards: List[float],
-    values: List[float],
+    rewards: list[float],
+    values: list[float],
     next_value: float,
     gamma: float = 0.99,
     lam: float = 0.95,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Compute Generalized Advantage Estimation."""
     advantages = []
     returns = []

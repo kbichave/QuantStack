@@ -14,10 +14,10 @@ Key Features:
     - Spread and mid-price features
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional
-from dataclasses import dataclass
 
 
 @dataclass
@@ -31,9 +31,7 @@ class LOBSnapshot:
     ask_sizes: np.ndarray
 
 
-def order_imbalance(
-    bid_sizes: np.ndarray, ask_sizes: np.ndarray, levels: int = 5
-) -> float:
+def order_imbalance(bid_sizes: np.ndarray, ask_sizes: np.ndarray, levels: int = 5) -> float:
     """
     Compute order imbalance at top N levels.
 
@@ -54,9 +52,7 @@ def order_imbalance(
     return (bid_vol - ask_vol) / total if total > 0 else 0.0
 
 
-def queue_position_features(
-    snapshot: LOBSnapshot, levels: int = 10
-) -> Dict[str, float]:
+def queue_position_features(snapshot: LOBSnapshot, levels: int = 10) -> dict[str, float]:
     """Extract queue position features."""
     bid_prices = snapshot.bid_prices[:levels]
     bid_sizes = snapshot.bid_sizes[:levels]
@@ -91,9 +87,9 @@ class LOBFeatureExtractor:
     def __init__(self, n_levels: int = 10, lookback: int = 50):
         self.n_levels = n_levels
         self.lookback = lookback
-        self.history: List[LOBSnapshot] = []
+        self.history: list[LOBSnapshot] = []
 
-    def extract(self, snapshot: LOBSnapshot) -> Dict[str, float]:
+    def extract(self, snapshot: LOBSnapshot) -> dict[str, float]:
         """Extract all features from a LOB snapshot."""
         features = queue_position_features(snapshot, self.n_levels)
 
@@ -112,14 +108,12 @@ class LOBFeatureExtractor:
 
         return features
 
-    def _compute_dynamics(self) -> Dict[str, float]:
+    def _compute_dynamics(self) -> dict[str, float]:
         """Compute dynamic features from history."""
         features = {}
 
         mid_prices = [
-            (s.bid_prices[0] + s.ask_prices[0]) / 2
-            for s in self.history
-            if len(s.bid_prices) > 0
+            (s.bid_prices[0] + s.ask_prices[0]) / 2 for s in self.history if len(s.bid_prices) > 0
         ]
 
         if len(mid_prices) >= 5:
@@ -127,15 +121,13 @@ class LOBFeatureExtractor:
             features["return_5"] = np.sum(returns[-5:])
             features["volatility_5"] = np.std(returns[-5:])
 
-        imbalances = [
-            order_imbalance(s.bid_sizes, s.ask_sizes, 5) for s in self.history
-        ]
+        imbalances = [order_imbalance(s.bid_sizes, s.ask_sizes, 5) for s in self.history]
         if len(imbalances) >= 5:
             features["imbalance_ma_5"] = np.mean(imbalances[-5:])
 
         return features
 
-    def extract_batch(self, snapshots: List[LOBSnapshot]) -> pd.DataFrame:
+    def extract_batch(self, snapshots: list[LOBSnapshot]) -> pd.DataFrame:
         """Extract features for a batch of snapshots."""
         self.history = []
         all_features = []

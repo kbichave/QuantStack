@@ -14,7 +14,6 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-
 from quant_pod.context import create_trading_context
 from quant_pod.execution.risk_gate import RiskGate, RiskLimits
 
@@ -125,9 +124,7 @@ class TestDailyHaltSentinel:
         gate._write_halt_sentinel()
         assert halt_sentinel.exists()
 
-    def test_halt_sentinel_loaded_on_new_instance(
-        self, ctx, halt_sentinel, monkeypatch
-    ):
+    def test_halt_sentinel_loaded_on_new_instance(self, ctx, halt_sentinel, monkeypatch):
         """A restarted process should reload the halt from the sentinel file."""
         monkeypatch.setattr(RiskGate, "DAILY_HALT_SENTINEL", halt_sentinel)
         g1 = RiskGate(portfolio=ctx.portfolio)

@@ -16,11 +16,8 @@ not for actual margin calculation with brokers.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
-import numpy as np
-from loguru import logger
 
-from quantcore.options.models import OptionsPosition, OptionType, OptionLeg
+from quantcore.options.models import OptionsPosition, OptionType
 from quantcore.options.pricing import black_scholes_price
 
 
@@ -47,7 +44,7 @@ class MarginBreakdown:
     total_margin: float  # Final margin requirement
 
     # Component details
-    scenario_losses: List[float] = field(default_factory=list)
+    scenario_losses: list[float] = field(default_factory=list)
     worst_scenario: str = ""
     margin_tier: MarginTier = MarginTier.LONG_OPTION
 
@@ -132,8 +129,8 @@ class SPANMarginCalculator:
         position: OptionsPosition,
         underlying_price: float,
         current_iv: float,
-        days_to_expiry: Optional[int] = None,
-    ) -> Tuple[float, List[float], str]:
+        days_to_expiry: int | None = None,
+    ) -> tuple[float, list[float], str]:
         """
         Calculate SPAN scanning risk for a position.
 
@@ -191,18 +188,14 @@ class SPANMarginCalculator:
         position: OptionsPosition,
         spot: float,
         iv: float,
-        days_to_expiry: Optional[int] = None,
+        days_to_expiry: int | None = None,
     ) -> float:
         """Calculate total position value."""
         total = 0.0
 
         for leg in position.legs:
             contract = leg.contract
-            dte = (
-                days_to_expiry
-                if days_to_expiry is not None
-                else contract.days_to_expiry
-            )
+            dte = days_to_expiry if days_to_expiry is not None else contract.days_to_expiry
             T = max(0.001, dte / 365)
 
             price = black_scholes_price(
@@ -225,7 +218,7 @@ class SPANMarginCalculator:
 
     def calculate_inter_spread_credit(
         self,
-        positions: Dict[str, OptionsPosition],
+        positions: dict[str, OptionsPosition],
     ) -> float:
         """
         Calculate credit for offsetting positions across symbols.
@@ -359,7 +352,7 @@ class SPANMarginCalculator:
         position: OptionsPosition,
         underlying_price: float,
         current_iv: float,
-        days_to_expiry: Optional[int] = None,
+        days_to_expiry: int | None = None,
     ) -> MarginBreakdown:
         """
         Calculate comprehensive SPAN-style margin for a position.
@@ -426,10 +419,10 @@ class SPANMarginCalculator:
 
     def calculate_portfolio_margin(
         self,
-        positions: Dict[str, OptionsPosition],
-        spot_prices: Dict[str, float],
-        ivs: Dict[str, float],
-    ) -> Dict[str, MarginBreakdown]:
+        positions: dict[str, OptionsPosition],
+        spot_prices: dict[str, float],
+        ivs: dict[str, float],
+    ) -> dict[str, MarginBreakdown]:
         """
         Calculate margin for entire portfolio with inter-spread credits.
 
@@ -460,9 +453,7 @@ class SPANMarginCalculator:
         if total_before_credit > 0:
             credit_ratio = min(inter_credit / total_before_credit, 0.30)
             for symbol in results:
-                results[symbol].inter_spread_credit = (
-                    results[symbol].total_margin * credit_ratio
-                )
+                results[symbol].inter_spread_credit = results[symbol].total_margin * credit_ratio
                 results[symbol].total_margin *= 1 - credit_ratio
 
         return results
@@ -482,8 +473,8 @@ class SPANMarginCalculator:
 
     def get_portfolio_summary(
         self,
-        margins: Dict[str, MarginBreakdown],
-    ) -> Dict[str, float]:
+        margins: dict[str, MarginBreakdown],
+    ) -> dict[str, float]:
         """
         Get summary statistics for portfolio margin.
 

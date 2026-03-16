@@ -34,10 +34,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
-import pandas as pd
 
 
 class PositionDirection(Enum):
@@ -180,16 +179,16 @@ class MarketState:
     volume: float
 
     # Features (200+ from MultiTimeframeFeatureFactory)
-    features: Dict[str, float] = field(default_factory=dict)
+    features: dict[str, float] = field(default_factory=dict)
 
     # Regime context (must be explicit)
-    regime: Optional[RegimeState] = None
+    regime: RegimeState | None = None
 
     # Options-specific
-    iv_rank: Optional[float] = None
-    iv_percentile: Optional[float] = None
-    days_to_earnings: Optional[int] = None
-    atm_iv: Optional[float] = None
+    iv_rank: float | None = None
+    iv_percentile: float | None = None
+    days_to_earnings: int | None = None
+    atm_iv: float | None = None
 
     # Current position state
     current_delta: float = 0.0
@@ -255,11 +254,7 @@ class MarketState:
                 self.current_gamma,
                 self.current_theta,
                 self.current_vega,
-                (
-                    self.unrealized_pnl / self.portfolio_equity
-                    if self.portfolio_equity > 0
-                    else 0
-                ),
+                (self.unrealized_pnl / self.portfolio_equity if self.portfolio_equity > 0 else 0),
             ]
         )
 
@@ -316,14 +311,14 @@ class TargetPosition:
     confidence: float  # [-1, +1] for sizing
 
     # Optional specifics
-    target_delta: Optional[float] = None
-    max_premium: Optional[float] = None
+    target_delta: float | None = None
+    max_premium: float | None = None
     min_dte: int = 20
     max_dte: int = 45
 
     # Risk parameters
-    stop_loss_pct: Optional[float] = None
-    take_profit_pct: Optional[float] = None
+    stop_loss_pct: float | None = None
+    take_profit_pct: float | None = None
 
     # Metadata
     reason: str = ""
@@ -362,12 +357,12 @@ class DataRequirements:
     ... )
     """
 
-    timeframes: List[str] = field(default_factory=lambda: ["1H", "4H", "1D", "1W"])
+    timeframes: list[str] = field(default_factory=lambda: ["1H", "4H", "1D", "1W"])
     need_options_chain: bool = False
     need_earnings_calendar: bool = False
     need_news_sentiment: bool = False
     lookback_bars: int = 252
-    symbols: List[str] = field(default_factory=list)
+    symbols: list[str] = field(default_factory=list)
 
 
 class Strategy(ABC):
@@ -464,7 +459,7 @@ class Strategy(ABC):
         self._is_initialized = False
 
     @abstractmethod
-    def on_bar(self, state: MarketState) -> List[TargetPosition]:
+    def on_bar(self, state: MarketState) -> list[TargetPosition]:
         """
         Process new bar and generate target positions.
 
@@ -517,7 +512,7 @@ class Strategy(ABC):
         """
         self._is_initialized = True
 
-    def on_fill(
+    def on_fill(  # noqa: B027
         self,
         symbol: str,
         direction: PositionDirection,
@@ -545,7 +540,7 @@ class Strategy(ABC):
         """
         pass
 
-    def on_position_close(
+    def on_position_close(  # noqa: B027
         self,
         symbol: str,
         pnl: float,
@@ -570,7 +565,7 @@ class Strategy(ABC):
         """
         pass
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         """
         Get strategy state for serialization.
 
@@ -584,7 +579,7 @@ class Strategy(ABC):
         """
         return {"name": self.name, "initialized": self._is_initialized}
 
-    def set_state(self, state: Dict[str, Any]) -> None:
+    def set_state(self, state: dict[str, Any]) -> None:
         """
         Restore strategy state from serialization.
 
@@ -634,7 +629,7 @@ class CompositeStrategy(Strategy):
 
     def __init__(
         self,
-        strategies: List[Strategy],
+        strategies: list[Strategy],
         name: str = "CompositeStrategy",
         aggregation: str = "majority",
     ) -> None:
@@ -654,7 +649,7 @@ class CompositeStrategy(Strategy):
         self.strategies = strategies
         self.aggregation = aggregation
 
-    def on_bar(self, state: MarketState) -> List[TargetPosition]:
+    def on_bar(self, state: MarketState) -> list[TargetPosition]:
         """
         Aggregate signals from all sub-strategies.
 
@@ -675,7 +670,7 @@ class CompositeStrategy(Strategy):
             all_positions.extend(positions)
 
         # Group by symbol
-        by_symbol: Dict[str, List[TargetPosition]] = {}
+        by_symbol: dict[str, list[TargetPosition]] = {}
         for pos in all_positions:
             if pos.symbol not in by_symbol:
                 by_symbol[pos.symbol] = []
@@ -683,16 +678,14 @@ class CompositeStrategy(Strategy):
 
         # Aggregate
         result = []
-        for symbol, positions in by_symbol.items():
+        for _symbol, positions in by_symbol.items():
             aggregated = self._aggregate_positions(positions)
             if aggregated:
                 result.append(aggregated)
 
         return result
 
-    def _aggregate_positions(
-        self, positions: List[TargetPosition]
-    ) -> Optional[TargetPosition]:
+    def _aggregate_positions(self, positions: list[TargetPosition]) -> TargetPosition | None:
         """
         Aggregate positions for the same symbol.
 
@@ -711,10 +704,8 @@ class CompositeStrategy(Strategy):
 
         # Count directions
         long_count = sum(1 for p in positions if p.direction == PositionDirection.LONG)
-        short_count = sum(
-            1 for p in positions if p.direction == PositionDirection.SHORT
-        )
-        flat_count = sum(1 for p in positions if p.direction == PositionDirection.FLAT)
+        short_count = sum(1 for p in positions if p.direction == PositionDirection.SHORT)
+        sum(1 for p in positions if p.direction == PositionDirection.FLAT)
 
         total = len(positions)
 

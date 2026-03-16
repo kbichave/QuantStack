@@ -17,8 +17,8 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
 from threading import Lock
+from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -37,13 +37,13 @@ class MemoryCategory(str, Enum):
 class Memory(BaseModel):
     """A single memory entry."""
 
-    id: Optional[str] = None
+    id: str | None = None
     content: str
     category: MemoryCategory
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
-    agent_id: Optional[str] = None
-    relevance_score: Optional[float] = None
+    agent_id: str | None = None
+    relevance_score: float | None = None
 
 
 class Mem0Client:
@@ -156,9 +156,9 @@ class Mem0Client:
         self,
         category: MemoryCategory,
         content: str,
-        metadata: Optional[Dict[str, Any]] = None,
-        agent_id: Optional[str] = None,
-    ) -> Optional[str]:
+        metadata: dict[str, Any] | None = None,
+        agent_id: str | None = None,
+    ) -> str | None:
         """
         Store a memory in Mem0.
 
@@ -208,9 +208,9 @@ class Mem0Client:
     def search_memory(
         self,
         query: str,
-        category: Optional[MemoryCategory] = None,
+        category: MemoryCategory | None = None,
         limit: int = 10,
-    ) -> List[Memory]:
+    ) -> list[Memory]:
         """
         Search memories by semantic similarity.
 
@@ -267,10 +267,10 @@ class Mem0Client:
 
     def get_recent(
         self,
-        category: Optional[MemoryCategory] = None,
+        category: MemoryCategory | None = None,
         limit: int = 10,
-        agent_id: Optional[str] = None,
-    ) -> List[Memory]:
+        agent_id: str | None = None,
+    ) -> list[Memory]:
         """
         Get recent memories.
 
@@ -327,7 +327,7 @@ class Mem0Client:
             logger.error(f"Error getting recent memories: {e}")
             return []
 
-    def get_memory(self, memory_id: str) -> Optional[Memory]:
+    def get_memory(self, memory_id: str) -> Memory | None:
         """
         Get a specific memory by ID.
 
@@ -348,9 +348,7 @@ class Mem0Client:
                 return Memory(
                     id=result.get("id"),
                     content=result.get("memory", ""),
-                    category=MemoryCategory(
-                        item_metadata.get("category", "trade_decisions")
-                    ),
+                    category=MemoryCategory(item_metadata.get("category", "trade_decisions")),
                     metadata=item_metadata,
                     agent_id=item_metadata.get("agent_id"),
                 )
@@ -395,7 +393,7 @@ class Mem0Client:
 
 
 # Global client instance
-_mem0_client: Optional[Mem0Client] = None
+_mem0_client: Mem0Client | None = None
 
 
 def get_mem0_client() -> Mem0Client:
@@ -410,9 +408,9 @@ def get_mem0_client() -> Mem0Client:
 def store_memory_sync(
     category: MemoryCategory,
     content: str,
-    metadata: Optional[Dict[str, Any]] = None,
-    agent_id: Optional[str] = None,
-) -> Optional[str]:
+    metadata: dict[str, Any] | None = None,
+    agent_id: str | None = None,
+) -> str | None:
     """Store a memory synchronously."""
     client = get_mem0_client()
     return client.store_memory(category, content, metadata, agent_id)
@@ -420,19 +418,19 @@ def store_memory_sync(
 
 def search_memory_sync(
     query: str,
-    category: Optional[MemoryCategory] = None,
+    category: MemoryCategory | None = None,
     limit: int = 10,
-) -> List[Memory]:
+) -> list[Memory]:
     """Search memories synchronously."""
     client = get_mem0_client()
     return client.search_memory(query, category, limit)
 
 
 def get_recent_sync(
-    category: Optional[MemoryCategory] = None,
+    category: MemoryCategory | None = None,
     limit: int = 10,
-    agent_id: Optional[str] = None,
-) -> List[Memory]:
+    agent_id: str | None = None,
+) -> list[Memory]:
     """Get recent memories synchronously."""
     client = get_mem0_client()
     return client.get_recent(category, limit, agent_id)

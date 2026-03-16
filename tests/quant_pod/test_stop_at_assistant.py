@@ -15,13 +15,11 @@ API key is required for these structural tests.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from quant_pod.crews.schemas import DailyBrief, TradeDecision
-
 
 # ---------------------------------------------------------------------------
 # Lightweight stubs
@@ -89,9 +87,7 @@ def crew_and_roster():
     tc.assistant_synthesis_task = lambda: StubTask(
         "assistant_synthesis_task", output_pydantic=DailyBrief
     )
-    tc.trade_decision_task = lambda: StubTask(
-        "trade_decision_task", output_pydantic=TradeDecision
-    )
+    tc.trade_decision_task = lambda: StubTask("trade_decision_task", output_pydantic=TradeDecision)
 
     roster = PodSelection(
         asset_class="equities",

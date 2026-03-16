@@ -28,50 +28,48 @@ import asyncio
 import os
 import uuid
 from datetime import date, datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any
 
-from quantcore.execution.tca_engine import TCAEngine, OrderSide as TCAOrderSide
-from quantcore.execution.smart_order_router import SmartOrderRouter, SmartOrderRouterError
-from quantcore.execution.fill_tracker import FillTracker
-from quantcore.execution.unified_models import UnifiedOrder
-from quant_pod.agents.portfolio_optimizer_agent import PortfolioOptimizerAgent
-
-from quant_pod.crewai_compat import Flow, listen, router, start
 from loguru import logger
 from pydantic import BaseModel, Field
+from quantcore.execution.fill_tracker import FillTracker
+from quantcore.execution.smart_order_router import SmartOrderRouter, SmartOrderRouterError
+from quantcore.execution.tca_engine import OrderSide as TCAOrderSide
+from quantcore.execution.tca_engine import TCAEngine
+from quantcore.execution.unified_models import UnifiedOrder
+
+from quant_pod.agents.portfolio_optimizer_agent import PortfolioOptimizerAgent
 
 # Import regime detector
 from quant_pod.agents.regime_detector import RegimeDetectorAgent
+
+# Import audit trail
+from quant_pod.audit.decision_log import get_decision_log, make_trade_event
+from quant_pod.crewai_compat import Flow, listen, router, start
 
 # Import CrewAI-native TradingCrew
 from quant_pod.crews import TradingCrew
 from quant_pod.crews.regime_config import apply_regime_config_to_inputs, get_regime_crew_config
 from quant_pod.crews.registry import PROFILE_DEFAULTS
 from quant_pod.crews.schemas import (
-    TradeDecision,
     DailyBrief,
-    RiskVerdict,
 )
-
-# Import blackboard for cross-agent memory
-from quant_pod.memory.blackboard import (
-    write_to_blackboard,
-    read_blackboard_context,
-    get_blackboard,
-    write_portfolio_state,
-)
+from quant_pod.execution.broker_factory import get_broker, get_broker_mode
+from quant_pod.execution.kill_switch import get_kill_switch
+from quant_pod.execution.paper_broker import OrderRequest
 
 # Import execution layer
 from quant_pod.execution.portfolio_state import get_portfolio_state
 from quant_pod.execution.risk_gate import get_risk_gate
-from quant_pod.execution.kill_switch import get_kill_switch
-from quant_pod.execution.paper_broker import OrderRequest
-from quant_pod.execution.broker_factory import get_broker, get_broker_mode
 from quant_pod.execution.signal_cache import SignalCache, TradeSignal
 
-# Import audit trail
-from quant_pod.audit.decision_log import get_decision_log, make_trade_event, make_analysis_event
-
+# Import blackboard for cross-agent memory
+from quant_pod.memory.blackboard import (
+    get_blackboard,
+    read_blackboard_context,
+    write_portfolio_state,
+    write_to_blackboard,
+)
 
 # =============================================================================
 # FLOW STATE MODEL
@@ -82,27 +80,27 @@ class TradingDayState(BaseModel):
     """Structured state for the trading day flow."""
 
     # Flow metadata
-    current_date: Optional[date] = None
-    symbols: List[str] = Field(default_factory=list)
+    current_date: date | None = None
+    symbols: list[str] = Field(default_factory=list)
 
     # Market context
-    market_data: Dict[str, Dict] = Field(default_factory=dict)
-    features: Dict[str, Dict] = Field(default_factory=dict)
-    portfolio: Dict[str, Any] = Field(default_factory=dict)
+    market_data: dict[str, dict] = Field(default_factory=dict)
+    features: dict[str, dict] = Field(default_factory=dict)
+    portfolio: dict[str, Any] = Field(default_factory=dict)
 
     # Phase 1: Regime Detection
-    regimes: Dict[str, Dict] = Field(default_factory=dict)
+    regimes: dict[str, dict] = Field(default_factory=dict)
 
     # Phase 2-4: Crew Analysis (handled by TradingCrew)
-    daily_briefs: Dict[str, DailyBrief] = Field(default_factory=dict)
-    trade_decisions: List[Dict] = Field(default_factory=list)
+    daily_briefs: dict[str, DailyBrief] = Field(default_factory=dict)
+    trade_decisions: list[dict] = Field(default_factory=list)
 
     # Phase 5: Execution
-    approved_trades: List[Dict] = Field(default_factory=list)
-    executed_trades: List[Dict] = Field(default_factory=list)
+    approved_trades: list[dict] = Field(default_factory=list)
+    executed_trades: list[dict] = Field(default_factory=list)
 
     # Metrics
-    signal_funnel: Dict[str, int] = Field(
+    signal_funnel: dict[str, int] = Field(
         default_factory=lambda: {
             "symbols_analyzed": 0,
             "decisions_made": 0,
@@ -111,13 +109,13 @@ class TradingDayState(BaseModel):
     )
 
     # Agent logs for UI
-    agent_logs: List[Dict] = Field(default_factory=list)
+    agent_logs: list[dict] = Field(default_factory=list)
 
     # Historical context
-    historical_context: Dict[str, str] = Field(default_factory=dict)
+    historical_context: dict[str, str] = Field(default_factory=dict)
 
     # Error tracking
-    errors: List[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
 
     class Config:
         arbitrary_types_allowed = True
@@ -143,7 +141,7 @@ class TradingDayFlow(Flow[TradingDayState]):
 
     def __init__(
         self,
-        signal_cache: Optional[SignalCache] = None,
+        signal_cache: SignalCache | None = None,
         signal_ttl_seconds: int = 900,
     ):
         """
@@ -212,7 +210,7 @@ class TradingDayFlow(Flow[TradingDayState]):
             self._trading_crew = TradingCrew()
         return self._trading_crew
 
-    def _build_sor(self) -> Optional[SmartOrderRouter]:
+    def _build_sor(self) -> SmartOrderRouter | None:
         """Build SmartOrderRouter if Alpaca or IBKR env vars are present.
 
         Returns None when neither broker is configured so that _execute_directly
@@ -224,6 +222,7 @@ class TradingDayFlow(Flow[TradingDayState]):
         if os.getenv("ALPACA_API_KEY"):
             try:
                 from alpaca_mcp.client import AlpacaBrokerClient  # type: ignore
+
                 alpaca_broker = AlpacaBrokerClient()
                 logger.info("[SOR] Alpaca broker client initialised")
             except Exception as _e:
@@ -232,6 +231,7 @@ class TradingDayFlow(Flow[TradingDayState]):
         if os.getenv("IBKR_HOST"):
             try:
                 from ibkr_mcp.client import IBKRBrokerClient  # type: ignore
+
                 ibkr_broker = IBKRBrokerClient()
                 logger.info("[SOR] IBKR broker client initialised")
             except Exception as _e:
@@ -254,7 +254,7 @@ class TradingDayFlow(Flow[TradingDayState]):
     # =========================================================================
 
     @start()
-    def detect_regime(self) -> Dict[str, Any]:
+    def detect_regime(self) -> dict[str, Any]:
         """
         Detect market regimes for all symbols.
         Entry point of the flow.
@@ -280,23 +280,16 @@ class TradingDayFlow(Flow[TradingDayState]):
         # Snapshot portfolio into knowledge store for time-series tracking
         try:
             from quant_pod.knowledge.store import KnowledgeStore
+
             KnowledgeStore().save_portfolio_snapshot(portfolio_snapshot.model_dump())
         except Exception as _snap_err:
             logger.debug(f"Portfolio snapshot to knowledge store failed: {_snap_err}")
 
         logger.info("")
-        logger.info(
-            "╔══════════════════════════════════════════════════════════════════╗"
-        )
-        logger.info(
-            f"║  TRADING DAY FLOW: {current_date}                                ║"
-        )
-        logger.info(
-            f"║  Symbols: {symbols}                                              ║"
-        )
-        logger.info(
-            "╚══════════════════════════════════════════════════════════════════╝"
-        )
+        logger.info("╔══════════════════════════════════════════════════════════════════╗")
+        logger.info(f"║  TRADING DAY FLOW: {current_date}                                ║")
+        logger.info(f"║  Symbols: {symbols}                                              ║")
+        logger.info("╚══════════════════════════════════════════════════════════════════╝")
         logger.info("")
 
         logger.info("═══ PHASE 1: REGIME DETECTION ═══")
@@ -359,7 +352,7 @@ class TradingDayFlow(Flow[TradingDayState]):
     # =========================================================================
 
     @listen(detect_regime)
-    def run_crew_analysis(self, regime_result: Dict) -> Dict[str, Any]:
+    def run_crew_analysis(self, regime_result: dict) -> dict[str, Any]:
         """
         Run TradingCrew for full analysis.
 
@@ -494,12 +487,10 @@ class TradingDayFlow(Flow[TradingDayState]):
     # =========================================================================
 
     @router(run_crew_analysis)
-    def route_execution(self, analysis_result: Dict) -> str:
+    def route_execution(self, analysis_result: dict) -> str:
         """Route to execute or hold based on approved trades."""
         if self.state.approved_trades:
-            logger.info(
-                f"Router: {len(self.state.approved_trades)} approved trades → execute"
-            )
+            logger.info(f"Router: {len(self.state.approved_trades)} approved trades → execute")
             return "execute"
         else:
             logger.info("Router: No approved trades → hold")
@@ -510,7 +501,7 @@ class TradingDayFlow(Flow[TradingDayState]):
     # =========================================================================
 
     @listen("execute")
-    def execute_trades(self) -> Dict[str, Any]:
+    def execute_trades(self) -> dict[str, Any]:
         """
         Publish signals or execute trades directly, depending on mode.
 
@@ -526,11 +517,11 @@ class TradingDayFlow(Flow[TradingDayState]):
             return self._publish_signals()
         return self._execute_directly()
 
-    def _publish_signals(self) -> Dict[str, Any]:
+    def _publish_signals(self) -> dict[str, Any]:
         """HF mode: write signals to SignalCache for the TickExecutor."""
         logger.info("═══ PHASE 5: PUBLISHING SIGNALS → TICK EXECUTOR ═══")
 
-        signals: List[TradeSignal] = []
+        signals: list[TradeSignal] = []
 
         for decision in self.state.approved_trades:
             symbol = decision.get("symbol", "")
@@ -563,7 +554,7 @@ class TradingDayFlow(Flow[TradingDayState]):
 
         return {"signals_published": len(signals)}
 
-    def _execute_directly(self) -> Dict[str, Any]:
+    def _execute_directly(self) -> dict[str, Any]:
         """Direct mode: execute trades immediately (backward-compatible)."""
         logger.info("═══ PHASE 5: TRADE EXECUTION (DIRECT) ═══")
 
@@ -576,12 +567,12 @@ class TradingDayFlow(Flow[TradingDayState]):
         # trades before the loop, replacing per-symbol bucket sizing.
         # Falls back to None → _calculate_quantity() path per symbol below.
         # -----------------------------------------------------------------------
-        portfolio_target_weights: Dict[str, float] = {}
+        portfolio_target_weights: dict[str, float] = {}
         try:
             returns_df = self._get_returns_dataframe()
             snapshot = self._portfolio.get_snapshot()
             portfolio_equity = self.state.portfolio.get("equity", 100_000) or 100_000
-            current_weights: Dict[str, float] = {
+            current_weights: dict[str, float] = {
                 pos.symbol: pos.notional_value / portfolio_equity
                 for pos in (snapshot.positions or [])
                 if portfolio_equity > 0
@@ -592,8 +583,7 @@ class TradingDayFlow(Flow[TradingDayState]):
                 current_weights=current_weights or None,
             )
             logger.info(
-                f"[PortOpt] Target weights computed for "
-                f"{len(portfolio_target_weights)} symbols"
+                f"[PortOpt] Target weights computed for {len(portfolio_target_weights)} symbols"
             )
         except Exception as _opt_err:
             logger.warning(
@@ -615,10 +605,9 @@ class TradingDayFlow(Flow[TradingDayState]):
                     quantity = self._calculate_quantity(decision)
 
                 if quantity > 0:
-                    current_price = (
-                        self.state.features.get(symbol, {}).get("close", 0.0)
-                        or self.state.market_data.get(symbol, {}).get("close", 0.0)
-                    )
+                    current_price = self.state.features.get(symbol, {}).get(
+                        "close", 0.0
+                    ) or self.state.market_data.get(symbol, {}).get("close", 0.0)
                     daily_volume = int(
                         self.state.market_data.get(symbol, {}).get("volume", 1_000_000)
                     )
@@ -633,9 +622,7 @@ class TradingDayFlow(Flow[TradingDayState]):
                     )
 
                     if not verdict.approved:
-                        logger.warning(
-                            f"[RISK GATE] BLOCKED {action} {symbol}: {verdict.reason}"
-                        )
+                        logger.warning(f"[RISK GATE] BLOCKED {action} {symbol}: {verdict.reason}")
                         rejection_event = make_trade_event(
                             session_id=self._session_id,
                             agent_name="RiskGate",
@@ -644,7 +631,9 @@ class TradingDayFlow(Flow[TradingDayState]):
                             action=action,
                             confidence=decision.get("confidence", 0.0),
                             reasoning=verdict.reason,
-                            output_structured={"violations": [v.__dict__ for v in verdict.violations]},
+                            output_structured={
+                                "violations": [v.__dict__ for v in verdict.violations]
+                            },
                             risk_approved=False,
                             risk_violations=[v.description for v in verdict.violations],
                         )
@@ -670,9 +659,7 @@ class TradingDayFlow(Flow[TradingDayState]):
 
                     # TCA: pre-trade cost forecast
                     # atr_pct from feature pipeline; default 1.5% daily vol
-                    daily_vol_pct = float(
-                        self.state.features.get(symbol, {}).get("atr_pct", 1.5)
-                    )
+                    daily_vol_pct = float(self.state.features.get(symbol, {}).get("atr_pct", 1.5))
                     forecast = self._tca.pre_trade(
                         trade_id=trade_id,
                         adv=float(daily_volume),
@@ -733,7 +720,8 @@ class TradingDayFlow(Flow[TradingDayState]):
                             fill_commission = sor_result.commission or 0.0
                             fill_slippage_bps = (
                                 abs(fill_price - current_price) / current_price * 10_000
-                                if current_price > 0 else 0.0
+                                if current_price > 0
+                                else 0.0
                             )
                             fill_order_id = sor_result.order_id
                         except SmartOrderRouterError as sor_err:
@@ -754,9 +742,7 @@ class TradingDayFlow(Flow[TradingDayState]):
                                 )
                             )
                             if fill.rejected:
-                                logger.warning(
-                                    f"[BROKER] REJECTED {symbol}: {fill.reject_reason}"
-                                )
+                                logger.warning(f"[BROKER] REJECTED {symbol}: {fill.reject_reason}")
                                 self.state.errors.append(
                                     f"Broker rejected {symbol}: {fill.reject_reason}"
                                 )
@@ -829,7 +815,7 @@ class TradingDayFlow(Flow[TradingDayState]):
         return {"executed": len(executed)}
 
     @listen("hold")
-    def log_hold_decision(self) -> Dict[str, Any]:
+    def log_hold_decision(self) -> dict[str, Any]:
         """Log when no trades are executed."""
         logger.info("═══ NO TRADES - HOLDING ═══")
 
@@ -847,16 +833,16 @@ class TradingDayFlow(Flow[TradingDayState]):
     # =========================================================================
 
     @listen(execute_trades)
-    def finalize_executed_day(self, execute_result: Dict) -> Dict[str, Any]:
+    def finalize_executed_day(self, execute_result: dict) -> dict[str, Any]:
         """Finalize day after execution."""
         return self._finalize_day()
 
     @listen(log_hold_decision)
-    def finalize_hold_day(self, hold_result: Dict) -> Dict[str, Any]:
+    def finalize_hold_day(self, hold_result: dict) -> dict[str, Any]:
         """Finalize day after hold."""
         return self._finalize_day()
 
-    def _finalize_day(self) -> Dict[str, Any]:
+    def _finalize_day(self) -> dict[str, Any]:
         """Build final day result and run post-trade learning."""
         # Post-trade learning: run ExpectancyEngine on any newly closed trades
         self._run_post_trade_learning()
@@ -872,24 +858,12 @@ class TradingDayFlow(Flow[TradingDayState]):
             )
 
         logger.info("")
-        logger.info(
-            "╔══════════════════════════════════════════════════════════════════╗"
-        )
-        logger.info(
-            f"║  TRADING DAY COMPLETE: {self.state.current_date}                 ║"
-        )
-        logger.info(
-            f"║  Decisions: {len(self.state.trade_decisions)}                    ║"
-        )
-        logger.info(
-            f"║  Executed: {len(self.state.executed_trades)}                     ║"
-        )
-        logger.info(
-            f"║  Errors: {len(self.state.errors)}                                ║"
-        )
-        logger.info(
-            "╚══════════════════════════════════════════════════════════════════╝"
-        )
+        logger.info("╔══════════════════════════════════════════════════════════════════╗")
+        logger.info(f"║  TRADING DAY COMPLETE: {self.state.current_date}                 ║")
+        logger.info(f"║  Decisions: {len(self.state.trade_decisions)}                    ║")
+        logger.info(f"║  Executed: {len(self.state.executed_trades)}                     ║")
+        logger.info(f"║  Errors: {len(self.state.errors)}                                ║")
+        logger.info("╚══════════════════════════════════════════════════════════════════╝")
         logger.info("")
 
         return {
@@ -905,9 +879,9 @@ class TradingDayFlow(Flow[TradingDayState]):
         """Run ExpectancyEngine and SkillTracker updates after trade execution."""
         try:
             from quant_pod.knowledge.store import KnowledgeStore
+            from quant_pod.learning.calibration import get_calibration_tracker
             from quant_pod.learning.expectancy_engine import ExpectancyEngine
             from quant_pod.learning.skill_tracker import SkillTracker
-            from quant_pod.learning.calibration import get_calibration_tracker
 
             store = KnowledgeStore()
             expectancy = ExpectancyEngine(store)
@@ -945,8 +919,7 @@ class TradingDayFlow(Flow[TradingDayState]):
                 # Check retraining trigger
                 if skill_tracker.needs_retraining("SuperTrader"):
                     logger.warning(
-                        "[LEARNING] SuperTrader win rate below threshold — "
-                        "consider retraining"
+                        "[LEARNING] SuperTrader win rate below threshold — consider retraining"
                     )
 
         except Exception as e:
@@ -958,6 +931,7 @@ class TradingDayFlow(Flow[TradingDayState]):
         if self._rl_adapter is not None and self._rl_config is not None:
             try:
                 from quantcore.rl.rl_tools import pop_pretrade_snapshot
+
                 for trade in self.state.executed_trades:
                     # Try each tool type — one snapshot per tool per day
                     for tool_name in ("rl_position_size", "rl_execution_strategy"):
@@ -974,7 +948,7 @@ class TradingDayFlow(Flow[TradingDayState]):
     def _log_agent(
         self,
         agent: str,
-        symbol: Optional[str],
+        symbol: str | None,
         message: str,
         role: str,
     ) -> None:
@@ -994,7 +968,7 @@ class TradingDayFlow(Flow[TradingDayState]):
         """Retrieve historical context from blackboard."""
         return read_blackboard_context(symbol, limit=10)
 
-    def _store_decision(self, symbol: str, decision: Dict) -> None:
+    def _store_decision(self, symbol: str, decision: dict) -> None:
         """Store trade decision to blackboard."""
         action = decision.get("action", "hold").upper()
         conf = decision.get("confidence", 0)
@@ -1009,17 +983,18 @@ class TradingDayFlow(Flow[TradingDayState]):
             sim_date=self.state.current_date,
         )
 
-    def _get_returns_dataframe(self) -> Optional["pd.DataFrame"]:
+    def _get_returns_dataframe(self) -> pd.DataFrame | None:  # noqa: F821
         """Pull 90-day daily close returns from the quantcore DataStore.
 
         Returns None on any failure so the portfolio optimizer's fallback path
         (signal-proportional equal-weight) activates instead of crashing the flow.
         """
         try:
-            import pandas as pd
             from datetime import timedelta
-            from quantcore.data.storage import DataStore
+
+            import pandas as pd
             from quantcore.config.timeframes import Timeframe
+            from quantcore.data.storage import DataStore
 
             store = DataStore()
             symbols = self.state.symbols or []
@@ -1027,7 +1002,7 @@ class TradingDayFlow(Flow[TradingDayState]):
                 self.state.current_date or date.today(), datetime.min.time()
             )
             start_date = end_date - timedelta(days=120)  # extra buffer for weekends/holidays
-            returns_dict: Dict[str, Any] = {}
+            returns_dict: dict[str, Any] = {}
 
             for sym in symbols:
                 try:
@@ -1066,17 +1041,16 @@ class TradingDayFlow(Flow[TradingDayState]):
             return 0
 
         equity = self.state.portfolio.get("equity", 100_000)
-        price = (
-            self.state.features.get(symbol, {}).get("close", 0.0)
-            or self.state.market_data.get(symbol, {}).get("close", 0.0)
-        )
+        price = self.state.features.get(symbol, {}).get("close", 0.0) or self.state.market_data.get(
+            symbol, {}
+        ).get("close", 0.0)
 
         if price <= 0.0:
             return 0
 
         return int(equity * weight / price)
 
-    def _calculate_quantity(self, decision: Dict) -> int:
+    def _calculate_quantity(self, decision: dict) -> int:
         """Calculate trade quantity based on decision.
 
         Legacy per-symbol sizing used when the portfolio optimizer is bypassed
@@ -1085,10 +1059,9 @@ class TradingDayFlow(Flow[TradingDayState]):
         """
         symbol = decision.get("symbol")
         equity = self.state.portfolio.get("equity", 100_000)
-        price = (
-            self.state.features.get(symbol, {}).get("close", 0.0)
-            or self.state.market_data.get(symbol, {}).get("close", 0.0)
-        )
+        price = self.state.features.get(symbol, {}).get("close", 0.0) or self.state.market_data.get(
+            symbol, {}
+        ).get("close", 0.0)
 
         if price <= 0:
             return 0
@@ -1113,14 +1086,14 @@ class TradingDayFlowAdapter:
 
     def __init__(
         self,
-        config: Optional[Any] = None,
+        config: Any | None = None,
         **kwargs,
     ):
         """Initialize the adapter."""
         self.config = config
         logger.info("TradingDayFlowAdapter initialized (TradingCrew mode)")
 
-    async def run_day(self, context: Any) -> Dict[str, Any]:
+    async def run_day(self, context: Any) -> dict[str, Any]:
         """
         Run the trading day using TradingCrew.
         """
@@ -1138,9 +1111,7 @@ class TradingDayFlowAdapter:
                     ),
                     "market_data": context.market_data.get(symbol, {}),
                     "features": context.features.get(symbol, {}),
-                    "portfolio": (
-                        context.portfolio if hasattr(context, "portfolio") else {}
-                    ),
+                    "portfolio": (context.portfolio if hasattr(context, "portfolio") else {}),
                     "historical_context": "",
                 }
 
@@ -1152,7 +1123,8 @@ class TradingDayFlowAdapter:
                 loop = asyncio.get_event_loop()
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     result = await loop.run_in_executor(
-                        pool, lambda: crew.crew().kickoff(inputs=inputs)
+                        pool,
+                        lambda: crew.crew().kickoff(inputs=inputs),  # noqa: B023
                     )
 
                 # Extract decision
@@ -1182,9 +1154,7 @@ class TradingDayFlowAdapter:
                         trade = {
                             "symbol": symbol,
                             "action": action,
-                            "quantity": self._calculate_quantity(
-                                context, symbol, decision_dict
-                            ),
+                            "quantity": self._calculate_quantity(context, symbol, decision_dict),
                             "confidence": confidence,
                             "reasoning": reasoning,
                             "stop_loss": decision_dict.get("stop_loss"),
@@ -1224,7 +1194,7 @@ class TradingDayFlowAdapter:
             },
         }
 
-    def _extract_decision_dict(self, decision: Any) -> Dict[str, Any]:
+    def _extract_decision_dict(self, decision: Any) -> dict[str, Any]:
         """Extract decision as dict from various formats."""
         if hasattr(decision, "model_dump"):
             return decision.model_dump()
@@ -1239,7 +1209,7 @@ class TradingDayFlowAdapter:
         self,
         context: Any,
         symbol: str,
-        decision: Dict[str, Any],
+        decision: dict[str, Any],
     ) -> int:
         """Calculate trade quantity."""
         portfolio = context.portfolio if hasattr(context, "portfolio") else {}

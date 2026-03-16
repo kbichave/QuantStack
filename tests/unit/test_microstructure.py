@@ -3,21 +3,18 @@
 
 """Tests for microstructure module: OrderBook, MatchingEngine, ImpactModels."""
 
-import pytest
 import numpy as np
-
-from quantcore.microstructure.order_book import OrderBook, Order, OrderType, Side, Level
-from quantcore.microstructure.matching_engine import (
-    MatchingEngine,
-    Fill,
-    ExecutionReport,
-)
+import pytest
 from quantcore.microstructure.impact_models import (
     ImpactModel,
     ImpactParams,
-    square_root_impact,
     estimate_kyle_lambda,
+    square_root_impact,
 )
+from quantcore.microstructure.matching_engine import (
+    MatchingEngine,
+)
+from quantcore.microstructure.order_book import Order, OrderBook, OrderType, Side
 
 
 class TestOrderBook:

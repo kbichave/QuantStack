@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
 
 import duckdb
 from loguru import logger
@@ -99,8 +98,8 @@ class TradingContext:
 def create_trading_context(
     db_path: str = "",
     initial_cash: float = 100_000.0,
-    risk_limits: Optional[RiskLimits] = None,
-    session_id: Optional[str] = None,
+    risk_limits: RiskLimits | None = None,
+    session_id: str | None = None,
 ) -> TradingContext:
     """
     Build and return a fully-wired TradingContext.

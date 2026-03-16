@@ -14,8 +14,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
-
 from quantcore.rl.features import RLFeatureExtractor
 
 
@@ -267,7 +265,7 @@ class TestAlphaSelectionFeatures:
             regime_idx=1,
             alpha_names=self.ALPHA_NAMES,
             alpha_returns_history={a: [] for a in self.ALPHA_NAMES},
-            alpha_regime_alignments={a: 0.5 for a in self.ALPHA_NAMES},
+            alpha_regime_alignments=dict.fromkeys(self.ALPHA_NAMES, 0.5),
             market_volatility=0.3,
             vix_normalized=0.4,
         )
@@ -278,7 +276,7 @@ class TestAlphaSelectionFeatures:
             regime_idx=2,
             alpha_names=self.ALPHA_NAMES,
             alpha_returns_history={a: [] for a in self.ALPHA_NAMES},
-            alpha_regime_alignments={a: 0.5 for a in self.ALPHA_NAMES},
+            alpha_regime_alignments=dict.fromkeys(self.ALPHA_NAMES, 0.5),
             market_volatility=0.3,
             vix_normalized=0.4,
         )
@@ -293,7 +291,7 @@ class TestAlphaSelectionFeatures:
             regime_idx=99,  # out of range → clamped to 3
             alpha_names=self.ALPHA_NAMES,
             alpha_returns_history={a: [] for a in self.ALPHA_NAMES},
-            alpha_regime_alignments={a: 0.5 for a in self.ALPHA_NAMES},
+            alpha_regime_alignments=dict.fromkeys(self.ALPHA_NAMES, 0.5),
             market_volatility=0.3,
             vix_normalized=0.4,
         )
@@ -304,8 +302,8 @@ class TestAlphaSelectionFeatures:
         feats = RLFeatureExtractor.alpha_selection_features(
             regime_idx=0,
             alpha_names=self.ALPHA_NAMES,
-            alpha_returns_history={a: returns for a in self.ALPHA_NAMES},
-            alpha_regime_alignments={a: 0.7 for a in self.ALPHA_NAMES},
+            alpha_returns_history=dict.fromkeys(self.ALPHA_NAMES, returns),
+            alpha_regime_alignments=dict.fromkeys(self.ALPHA_NAMES, 0.7),
             market_volatility=0.25,
             vix_normalized=0.5,
         )

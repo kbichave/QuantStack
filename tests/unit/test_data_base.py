@@ -4,11 +4,9 @@
 """Tests for quantcore.data.base module."""
 
 from datetime import datetime
-from typing import List, Optional
 
 import pandas as pd
 import pytest
-
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.base import AssetClass, AssetClassAdapter
 from quantcore.data.provider_enum import DataProvider
@@ -38,7 +36,7 @@ class TestAssetClassEnum:
 class MockAdapter(AssetClassAdapter):
     """Mock adapter for testing."""
 
-    def __init__(self, symbols: List[str] = None):
+    def __init__(self, symbols: list[str] = None):
         self._symbols = symbols or ["TEST1", "TEST2", "TEST3"]
 
     @property
@@ -53,13 +51,13 @@ class MockAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         # Return empty DataFrame for tests
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         return self._symbols
 
 

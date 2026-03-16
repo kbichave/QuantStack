@@ -5,13 +5,12 @@ Wraps the options trading logic in a Gymnasium interface
 for use with Stable Baselines3 algorithms (SAC, PPO, TD3).
 """
 
-from typing import Dict, List, Optional, Tuple, Any
+# Suppress gym deprecation warning
+import warnings
+
 import numpy as np
 import pandas as pd
 from loguru import logger
-
-# Suppress gym deprecation warning
-import warnings
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="gym")
 
@@ -30,9 +29,7 @@ except ImportError:
         logger.info("Using legacy gym instead of gymnasium")
     except ImportError:
         GYM_AVAILABLE = False
-        logger.warning(
-            "Neither gymnasium nor gym available. Install with: pip install gymnasium"
-        )
+        logger.warning("Neither gymnasium nor gym available. Install with: pip install gymnasium")
 
 
 class OptionsTradingEnv(gym.Env):
@@ -76,7 +73,7 @@ class OptionsTradingEnv(gym.Env):
         initial_equity: float = 100000,
         max_holding_days: int = 30,
         window_size: int = 1,
-        render_mode: Optional[str] = None,
+        render_mode: str | None = None,
     ):
         """
         Initialize options trading environment.
@@ -92,9 +89,7 @@ class OptionsTradingEnv(gym.Env):
         super().__init__()
 
         if not GYM_AVAILABLE:
-            raise ImportError(
-                "Gymnasium is required. Install with: pip install gymnasium"
-            )
+            raise ImportError("Gymnasium is required. Install with: pip install gymnasium")
 
         self.data = data.copy()
         self.features = features.copy()
@@ -164,9 +159,9 @@ class OptionsTradingEnv(gym.Env):
 
     def reset(
         self,
-        seed: Optional[int] = None,
-        options: Optional[Dict] = None,
-    ) -> Tuple[np.ndarray, Dict]:
+        seed: int | None = None,
+        options: dict | None = None,
+    ) -> tuple[np.ndarray, dict]:
         """
         Reset environment to initial state.
 
@@ -196,7 +191,7 @@ class OptionsTradingEnv(gym.Env):
 
         return obs, info
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
         """
         Execute one step in the environment.
 
@@ -221,11 +216,7 @@ class OptionsTradingEnv(gym.Env):
 
         # Total reward
         reward = float(
-            pnl_change
-            - transaction_cost
-            - position_penalty
-            - gamma_penalty
-            - tail_penalty
+            pnl_change - transaction_cost - position_penalty - gamma_penalty - tail_penalty
         )
 
         # Update position
@@ -273,7 +264,7 @@ class OptionsTradingEnv(gym.Env):
 
         return obs.astype(np.float32)
 
-    def _get_info(self) -> Dict:
+    def _get_info(self) -> dict:
         """Get current info dict."""
         return {
             "step": self._current_step,
@@ -357,9 +348,7 @@ class OptionsTradingEnv(gym.Env):
         self._position_delta = 0.7 * self._position_delta + 0.3 * target_delta
 
         # Clip to limits
-        self._position_delta = np.clip(
-            self._position_delta, -self.MAX_DELTA, self.MAX_DELTA
-        )
+        self._position_delta = np.clip(self._position_delta, -self.MAX_DELTA, self.MAX_DELTA)
 
         # Update gamma/theta based on position
         self._position_gamma = abs(self._position_delta) * 0.1
@@ -400,11 +389,7 @@ class OptionsTradingEnv(gym.Env):
         if self._current_step < 20:
             return 0.2  # Default
 
-        returns = (
-            self.data["close"]
-            .pct_change()
-            .iloc[self._current_step - 20 : self._current_step]
-        )
+        returns = self.data["close"].pct_change().iloc[self._current_step - 20 : self._current_step]
         return float(returns.std() * np.sqrt(252))
 
     def render(self) -> None:

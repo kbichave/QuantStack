@@ -26,7 +26,6 @@ Example
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -128,7 +127,7 @@ class FeatureBase(ABC):
         pass
 
     @abstractmethod
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """
         Return list of feature names computed by this class.
 
@@ -148,7 +147,7 @@ class FeatureBase(ABC):
     @staticmethod
     def lag_features(
         df: pd.DataFrame,
-        columns: List[str],
+        columns: list[str],
         lag: int = 1,
     ) -> pd.DataFrame:
         """
@@ -348,7 +347,7 @@ class FeatureBase(ABC):
     def zscore(
         series: pd.Series,
         period: int,
-        min_periods: Optional[int] = None,
+        min_periods: int | None = None,
     ) -> pd.Series:
         """
         Calculate rolling z-score.

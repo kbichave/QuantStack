@@ -11,12 +11,10 @@ All RL trainer calls are mocked — no torch dependency required.
 
 from __future__ import annotations
 
-from collections import deque
 from datetime import date
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 
 def _make_config(max_updates=10, min_buffer=0, degradation=0.80):
@@ -41,6 +39,7 @@ def _make_kill_switch(active=False):
 
 def _make_adapter(max_updates=10, min_buffer=0, kill_active=False):
     from quantcore.rl.online_adapter import PostTradeRLAdapter
+
     cfg = _make_config(max_updates=max_updates, min_buffer=min_buffer)
     ks = _make_kill_switch(active=kill_active)
     return PostTradeRLAdapter(cfg, ks)
@@ -146,9 +145,7 @@ class TestRateLimiting:
             mock_trainer.buffer.__len__ = lambda self: 200
             mock_get.return_value = mock_trainer
             for i in range(5):
-                adapter.process_trade_outcome(
-                    _trade(order_id=f"ord{i}"), _sizing_snapshot()
-                )
+                adapter.process_trade_outcome(_trade(order_id=f"ord{i}"), _sizing_snapshot())
         # Cap is 2 — updates_today should not exceed cap
         assert adapter._updates_today <= adapter.config.max_updates_per_day
 

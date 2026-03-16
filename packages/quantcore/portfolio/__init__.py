@@ -2,9 +2,9 @@
 
 from quantcore.portfolio.optimizer import (
     MeanVarianceOptimizer,
+    OptimizationObjective,
     OptimizationResult,
     PortfolioConstraints,
-    OptimizationObjective,
 )
 
 __all__ = [

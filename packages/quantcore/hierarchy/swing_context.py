@@ -5,12 +5,12 @@ Identifies swing phases (impulse vs correction) for optimal entry timing.
 Now wave-aware: integrates Elliott Wave-style context when available.
 """
 
+from dataclasses import dataclass
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
-import pandas as pd
+from typing import Any, Optional
+
 import numpy as np
-from loguru import logger
+import pandas as pd
 
 
 class SwingPhase(Enum):
@@ -95,7 +95,7 @@ class SwingContext:
             or (self.phase == SwingPhase.CONSOLIDATION and self.correction_depth > 30)
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "phase": self.phase.value,
@@ -132,7 +132,7 @@ class SwingContextAnalyzer:
     def analyze(
         self,
         df: pd.DataFrame,
-        trend_context: Optional["TrendContext"] = None,
+        trend_context: Optional["TrendContext"] = None,  # noqa: F821
         include_wave_context: bool = True,
     ) -> SwingContext:
         """
@@ -279,7 +279,7 @@ class SwingContextAnalyzer:
         self,
         df: pd.DataFrame,
         current: pd.Series,
-        trend_context: Optional["TrendContext"],
+        trend_context: Optional["TrendContext"],  # noqa: F821
     ) -> SwingPhase:
         """Classify current swing phase."""
         # Get recent price action
@@ -290,7 +290,7 @@ class SwingContextAnalyzer:
         momentum = current.get("momentum_score", 0)
 
         # Get trend structure
-        structure = current.get("trend_structure", 0)
+        current.get("trend_structure", 0)
 
         # EMA alignment
         ema_alignment = current.get("ema_alignment", 0)

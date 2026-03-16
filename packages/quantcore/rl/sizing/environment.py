@@ -17,13 +17,14 @@ Limitations:
 - Return simulation simplified when no data provided
 """
 
-from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.rl.base import RLEnvironment, State, Action, Reward
+from quantcore.rl.base import Action, Reward, RLEnvironment, State
 
 
 @dataclass
@@ -64,7 +65,7 @@ class SizingDataRequirements:
         - Signals are generated synthetically
     """
 
-    required_columns: List[str] = None
+    required_columns: list[str] = None
 
     def __post_init__(self):
         self.required_columns = ["close"]
@@ -107,9 +108,9 @@ class SizingEnvironment(RLEnvironment):
         max_position_pct: float = 0.2,
         max_drawdown_limit: float = 0.15,
         risk_free_rate: float = 0.02,
-        data: Optional[pd.DataFrame] = None,
-        signals: Optional[List[TradingSignal]] = None,
-        seed: Optional[int] = None,
+        data: pd.DataFrame | None = None,
+        signals: list[TradingSignal] | None = None,
+        seed: int | None = None,
         production_mode: bool = False,
     ):
         """
@@ -149,15 +150,15 @@ class SizingEnvironment(RLEnvironment):
         self._rng = np.random.RandomState(seed)
 
         # State
-        self.portfolio: Optional[PortfolioState] = None
-        self.current_signal: Optional[TradingSignal] = None
+        self.portfolio: PortfolioState | None = None
+        self.current_signal: TradingSignal | None = None
         self.data_idx = 0
 
         # History
-        self.equity_curve: List[float] = []
-        self.returns: List[float] = []
-        self.positions: List[float] = []
-        self.trades: List[Dict] = []
+        self.equity_curve: list[float] = []
+        self.returns: list[float] = []
+        self.positions: list[float] = []
+        self.trades: list[dict] = []
 
         # Warning flags
         self._warned_synthetic_signals = False
@@ -170,11 +171,11 @@ class SizingEnvironment(RLEnvironment):
     @classmethod
     def from_knowledge_store(
         cls,
-        store: "KnowledgeStore",  # type: ignore[name-defined]
-        symbol: Optional[str] = None,
+        store: "KnowledgeStore",  # type: ignore[name-defined]  # noqa: F821
+        symbol: str | None = None,
         lookback_days: int = 90,
         initial_equity: float = 100000,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ) -> "SizingEnvironment":
         """
         Factory method: build sizing environment from real KnowledgeStore data.
@@ -225,8 +226,7 @@ class SizingEnvironment(RLEnvironment):
         # Reset RNG
         if self.seed is not None:
             self._rng = np.random.RandomState(
-                self.seed
-                + (self.episode_count if hasattr(self, "episode_count") else 0)
+                self.seed + (self.episode_count if hasattr(self, "episode_count") else 0)
             )
 
         # Reset portfolio
@@ -263,7 +263,7 @@ class SizingEnvironment(RLEnvironment):
 
         return self._get_state()
 
-    def step(self, action: Action) -> Tuple[State, Reward, bool, Dict[str, Any]]:
+    def step(self, action: Action) -> tuple[State, Reward, bool, dict[str, Any]]:
         """
         Take position sizing action.
 
@@ -291,7 +291,7 @@ class SizingEnvironment(RLEnvironment):
 
         # Execute position change
         old_position = self.portfolio.position
-        position_change = target_position - old_position
+        target_position - old_position
 
         # Simulate market move
         price_return = self._simulate_return()
@@ -306,9 +306,7 @@ class SizingEnvironment(RLEnvironment):
         # Update drawdown
         peak_equity = max(self.equity_curve)
         self.portfolio.drawdown = (peak_equity - self.portfolio.equity) / peak_equity
-        self.portfolio.max_drawdown = max(
-            self.portfolio.max_drawdown, self.portfolio.drawdown
-        )
+        self.portfolio.max_drawdown = max(self.portfolio.max_drawdown, self.portfolio.drawdown)
 
         # Update history
         self.equity_curve.append(self.portfolio.equity)
@@ -406,8 +404,7 @@ class SizingEnvironment(RLEnvironment):
                 self.portfolio.drawdown / self.max_drawdown_limit,
                 self.portfolio.risk_budget_used,
                 rolling_sharpe / 3,  # Normalize
-                self.portfolio.position
-                / (self.portfolio.equity * self.max_position_pct + 1e-8),
+                self.portfolio.position / (self.portfolio.equity * self.max_position_pct + 1e-8),
                 min(time_since_trade / 10, 1.0),
                 regime,
                 win_rate,
@@ -440,9 +437,7 @@ class SizingEnvironment(RLEnvironment):
         # Generate synthetic signal (with seeded RNG for reproducibility)
         direction = self._rng.choice(["LONG", "SHORT", "NEUTRAL"], p=[0.4, 0.4, 0.2])
         confidence = self._rng.beta(2, 2)  # Concentrated around 0.5
-        expected_return = (
-            self._rng.normal(0.001, 0.002) if direction != "NEUTRAL" else 0
-        )
+        expected_return = self._rng.normal(0.001, 0.002) if direction != "NEUTRAL" else 0
 
         return TradingSignal(
             direction=direction,
@@ -482,9 +477,7 @@ class SizingEnvironment(RLEnvironment):
 
         # Risk-adjusted return
         if len(self.returns) >= 2:
-            recent_sharpe = np.mean(self.returns[-5:]) / (
-                np.std(self.returns[-5:]) + 1e-8
-            )
+            recent_sharpe = np.mean(self.returns[-5:]) / (np.std(self.returns[-5:]) + 1e-8)
             components["risk_adjusted_return"] = recent_sharpe
         else:
             components["risk_adjusted_return"] = pnl / (self.initial_equity * 0.01)

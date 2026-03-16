@@ -34,16 +34,14 @@ Usage:
     python -m etrade_mcp.server
 """
 
-import json
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastmcp import FastMCP
 from loguru import logger
-
 from quant_pod.tools.etrade.auth import ETradeAuthManager
 from quant_pod.tools.etrade.client import ETradeClient
 from quant_pod.tools.etrade.models import (
@@ -59,7 +57,6 @@ from quant_pod.tools.etrade.models import (
     SpreadOrderRequest,
 )
 
-
 # =============================================================================
 # SERVER CONTEXT
 # =============================================================================
@@ -70,7 +67,7 @@ class ServerContext:
     """Shared state for the MCP server process."""
 
     auth_manager: ETradeAuthManager
-    client: Optional[ETradeClient] = None
+    client: ETradeClient | None = None
     sandbox_mode: bool = True
 
 
@@ -139,9 +136,7 @@ def _get_context() -> ServerContext:
 def _ensure_client() -> ETradeClient:
     ctx = _get_context()
     if not ctx.auth_manager.is_authenticated():
-        raise ValueError(
-            "Not authenticated. Call etrade_authorize first to complete OAuth flow."
-        )
+        raise ValueError("Not authenticated. Call etrade_authorize first to complete OAuth flow.")
     if not ctx.client:
         ctx.client = ETradeClient(ctx.auth_manager)
     return ctx.client
@@ -168,7 +163,7 @@ def _serialize(obj: Any) -> Any:
 
 
 @mcp.tool()
-async def etrade_authorize(verifier_code: Optional[str] = None) -> Dict[str, Any]:
+async def etrade_authorize(verifier_code: str | None = None) -> dict[str, Any]:
     """
     Start or complete eTrade OAuth authorisation.
 
@@ -211,7 +206,7 @@ async def etrade_authorize(verifier_code: Optional[str] = None) -> Dict[str, Any
 
 
 @mcp.tool()
-async def etrade_refresh_token() -> Dict[str, Any]:
+async def etrade_refresh_token() -> dict[str, Any]:
     """
     Refresh the eTrade access token.
 
@@ -236,7 +231,7 @@ async def etrade_refresh_token() -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def get_auth_status() -> Dict[str, Any]:
+async def get_auth_status() -> dict[str, Any]:
     """Get current eTrade authentication status and token expiry."""
     ctx = _get_context()
     auth = ctx.auth_manager
@@ -254,7 +249,7 @@ async def get_auth_status() -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def get_accounts() -> Dict[str, Any]:
+async def get_accounts() -> dict[str, Any]:
     """
     List eTrade accounts for the authenticated user.
 
@@ -270,7 +265,7 @@ async def get_accounts() -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def get_account_balance(account_id_key: str) -> Dict[str, Any]:
+async def get_account_balance(account_id_key: str) -> dict[str, Any]:
     """
     Get account balance and buying power.
 
@@ -288,8 +283,8 @@ async def get_account_balance(account_id_key: str) -> Dict[str, Any]:
 @mcp.tool()
 async def get_positions(
     account_id_key: str,
-    symbol: Optional[str] = None,
-) -> Dict[str, Any]:
+    symbol: str | None = None,
+) -> dict[str, Any]:
     """
     Get open positions for an account.
 
@@ -311,7 +306,7 @@ async def get_positions(
 
 
 @mcp.tool()
-async def get_quote(symbols: str) -> Dict[str, Any]:
+async def get_quote(symbols: str) -> dict[str, Any]:
     """
     Get real-time quotes for one or more symbols.
 
@@ -328,7 +323,7 @@ async def get_quote(symbols: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def get_option_expiry_dates(symbol: str) -> Dict[str, Any]:
+async def get_option_expiry_dates(symbol: str) -> dict[str, Any]:
     """
     Get available option expiration dates for a symbol.
 
@@ -351,11 +346,11 @@ async def get_option_expiry_dates(symbol: str) -> Dict[str, Any]:
 @mcp.tool()
 async def get_option_chains(
     symbol: str,
-    expiration_date: Optional[str] = None,
-    strike_price_near: Optional[float] = None,
+    expiration_date: str | None = None,
+    strike_price_near: float | None = None,
     no_of_strikes: int = 10,
-    option_type: Optional[str] = None,
-) -> Dict[str, Any]:
+    option_type: str | None = None,
+) -> dict[str, Any]:
     """
     Get option chain for a symbol with calls, puts, and Greeks.
 
@@ -392,14 +387,14 @@ async def preview_order(
     action: str,
     quantity: int,
     order_type: str = "LIMIT",
-    limit_price: Optional[float] = None,
-    stop_price: Optional[float] = None,
+    limit_price: float | None = None,
+    stop_price: float | None = None,
     duration: str = "DAY",
     security_type: str = "EQ",
-    option_type: Optional[str] = None,
-    strike_price: Optional[float] = None,
-    expiration_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    option_type: str | None = None,
+    strike_price: float | None = None,
+    expiration_date: str | None = None,
+) -> dict[str, Any]:
     """
     Preview an order before placement — always call this first.
 
@@ -463,15 +458,15 @@ async def place_order(
     action: str,
     quantity: int,
     order_type: str = "LIMIT",
-    limit_price: Optional[float] = None,
-    stop_price: Optional[float] = None,
+    limit_price: float | None = None,
+    stop_price: float | None = None,
     duration: str = "DAY",
     security_type: str = "EQ",
-    option_type: Optional[str] = None,
-    strike_price: Optional[float] = None,
-    expiration_date: Optional[str] = None,
-    preview_id: Optional[str] = None,
-) -> Dict[str, Any]:
+    option_type: str | None = None,
+    strike_price: float | None = None,
+    expiration_date: str | None = None,
+    preview_id: str | None = None,
+) -> dict[str, Any]:
     """
     Place an order. Always call preview_order first.
 
@@ -530,11 +525,11 @@ async def place_order(
 async def place_spread_order(
     account_id_key: str,
     underlying_symbol: str,
-    legs: List[Dict[str, Any]],
+    legs: list[dict[str, Any]],
     order_type: str = "LIMIT",
-    limit_price: Optional[float] = None,
+    limit_price: float | None = None,
     duration: str = "DAY",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Place a multi-leg option spread (vertical, iron condor, calendar, etc.).
 
@@ -590,7 +585,7 @@ async def place_spread_order(
 
 
 @mcp.tool()
-async def cancel_order(account_id_key: str, order_id: str) -> Dict[str, Any]:
+async def cancel_order(account_id_key: str, order_id: str) -> dict[str, Any]:
     """
     Cancel an open order.
 
@@ -612,8 +607,8 @@ async def cancel_order(account_id_key: str, order_id: str) -> Dict[str, Any]:
 @mcp.tool()
 async def get_orders(
     account_id_key: str,
-    status: Optional[str] = None,
-) -> Dict[str, Any]:
+    status: str | None = None,
+) -> dict[str, Any]:
     """
     Get orders for an account.
 

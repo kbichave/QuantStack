@@ -21,16 +21,16 @@ call this with pre-fetched data.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 def compute_allocation(
     regime: str,
     regime_confidence: float,
-    strategies: List[Dict[str, Any]],
+    strategies: list[dict[str, Any]],
     max_gross_exposure_pct: float = 1.5,
     forward_testing_cap: float = 0.10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute capital allocations for eligible strategies.
 
@@ -57,6 +57,7 @@ def compute_allocation(
         affinity = strat.get("regime_affinity") or {}
         if isinstance(affinity, str):
             import json
+
             try:
                 affinity = json.loads(affinity)
             except (ValueError, TypeError):
@@ -71,6 +72,7 @@ def compute_allocation(
         bt = strat.get("backtest_summary") or {}
         if isinstance(bt, str):
             import json
+
             try:
                 bt = json.loads(bt)
             except (ValueError, TypeError):
@@ -78,15 +80,17 @@ def compute_allocation(
 
         sharpe = bt.get("sharpe_ratio", 0.0)
 
-        eligible.append({
-            "strategy_id": strat["strategy_id"],
-            "strategy_name": strat.get("name", ""),
-            "status": status,
-            "regime_score": regime_score,
-            "ranking_sharpe": sharpe,
-            "risk_params": strat.get("risk_params") or {},
-            "symbols": _extract_symbols(bt),
-        })
+        eligible.append(
+            {
+                "strategy_id": strat["strategy_id"],
+                "strategy_name": strat.get("name", ""),
+                "status": status,
+                "regime_score": regime_score,
+                "ranking_sharpe": sharpe,
+                "risk_params": strat.get("risk_params") or {},
+                "symbols": _extract_symbols(bt),
+            }
+        )
 
     if not eligible:
         return {
@@ -123,6 +127,7 @@ def compute_allocation(
         risk_params = strat.get("risk_params", {})
         if isinstance(risk_params, str):
             import json
+
             try:
                 risk_params = json.loads(risk_params)
             except (ValueError, TypeError):
@@ -139,21 +144,23 @@ def compute_allocation(
 
         mode = "paper" if strat["status"] == "forward_testing" else "live"
 
-        allocations.append({
-            "strategy_id": strat["strategy_id"],
-            "strategy_name": strat["strategy_name"],
-            "capital_pct": round(base, 4),
-            "symbols": strat["symbols"],
-            "mode": mode,
-            "regime_score": round(strat["regime_score"], 2),
-            "ranking_sharpe": round(strat["ranking_sharpe"], 4),
-            "reasoning": (
-                f"Regime score {strat['regime_score']:.2f} × "
-                f"Sharpe {strat['ranking_sharpe']:.2f} = "
-                f"rank {strat['regime_score'] * strat['ranking_sharpe']:.3f}. "
-                f"{'Capped at forward_testing limit.' if strat['status'] == 'forward_testing' else ''}"
-            ),
-        })
+        allocations.append(
+            {
+                "strategy_id": strat["strategy_id"],
+                "strategy_name": strat["strategy_name"],
+                "capital_pct": round(base, 4),
+                "symbols": strat["symbols"],
+                "mode": mode,
+                "regime_score": round(strat["regime_score"], 2),
+                "ranking_sharpe": round(strat["ranking_sharpe"], 4),
+                "reasoning": (
+                    f"Regime score {strat['regime_score']:.2f} × "
+                    f"Sharpe {strat['ranking_sharpe']:.2f} = "
+                    f"rank {strat['regime_score'] * strat['ranking_sharpe']:.3f}. "
+                    f"{'Capped at forward_testing limit.' if strat['status'] == 'forward_testing' else ''}"
+                ),
+            }
+        )
         total += base
 
     # Scale down if regime confidence is low
@@ -163,8 +170,7 @@ def compute_allocation(
             a["capital_pct"] = round(a["capital_pct"] * scale, 4)
         total *= scale
         warnings.append(
-            f"Regime confidence {regime_confidence:.0%} < 60%: "
-            f"allocations scaled to {scale:.0%}"
+            f"Regime confidence {regime_confidence:.0%} < 60%: allocations scaled to {scale:.0%}"
         )
 
     return {
@@ -177,8 +183,8 @@ def compute_allocation(
 
 
 def resolve_conflicts(
-    proposed_trades: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    proposed_trades: list[dict[str, Any]],
+) -> dict[str, Any]:
     """
     Resolve signal conflicts across strategies for the same symbols.
 
@@ -201,7 +207,7 @@ def resolve_conflicts(
     """
     from collections import defaultdict
 
-    by_symbol: Dict[str, List[Dict]] = defaultdict(list)
+    by_symbol: dict[str, list[dict]] = defaultdict(list)
     for trade in proposed_trades:
         by_symbol[trade.get("symbol", "")].append(trade)
 
@@ -212,13 +218,15 @@ def resolve_conflicts(
     for symbol, trades in by_symbol.items():
         if len(trades) == 1:
             resolved_trades.append(trades[0])
-            resolutions.append({
-                "symbol": symbol,
-                "action": "keep",
-                "reasoning": "No conflict — single strategy",
-                "kept_strategy": trades[0].get("strategy_id"),
-                "skipped_strategies": [],
-            })
+            resolutions.append(
+                {
+                    "symbol": symbol,
+                    "action": "keep",
+                    "reasoning": "No conflict — single strategy",
+                    "kept_strategy": trades[0].get("strategy_id"),
+                    "skipped_strategies": [],
+                }
+            )
             continue
 
         # Group by direction
@@ -236,46 +244,54 @@ def resolve_conflicts(
 
             if buy_conf > 0.85 and sell_conf < 0.65:
                 resolved_trades.append(best_buy)
-                resolutions.append({
-                    "symbol": symbol,
-                    "action": "keep",
-                    "reasoning": f"Buy confidence {buy_conf:.0%} >> sell {sell_conf:.0%}",
-                    "kept_strategy": best_buy.get("strategy_id"),
-                    "skipped_strategies": [t.get("strategy_id") for t in sells],
-                })
+                resolutions.append(
+                    {
+                        "symbol": symbol,
+                        "action": "keep",
+                        "reasoning": f"Buy confidence {buy_conf:.0%} >> sell {sell_conf:.0%}",
+                        "kept_strategy": best_buy.get("strategy_id"),
+                        "skipped_strategies": [t.get("strategy_id") for t in sells],
+                    }
+                )
             elif sell_conf > 0.85 and buy_conf < 0.65:
                 resolved_trades.append(best_sell)
-                resolutions.append({
-                    "symbol": symbol,
-                    "action": "keep",
-                    "reasoning": f"Sell confidence {sell_conf:.0%} >> buy {buy_conf:.0%}",
-                    "kept_strategy": best_sell.get("strategy_id"),
-                    "skipped_strategies": [t.get("strategy_id") for t in buys],
-                })
+                resolutions.append(
+                    {
+                        "symbol": symbol,
+                        "action": "keep",
+                        "reasoning": f"Sell confidence {sell_conf:.0%} >> buy {buy_conf:.0%}",
+                        "kept_strategy": best_sell.get("strategy_id"),
+                        "skipped_strategies": [t.get("strategy_id") for t in buys],
+                    }
+                )
             elif buy_conf > 0.75 and sell_conf > 0.75:
                 # Genuine disagreement — skip
-                resolutions.append({
-                    "symbol": symbol,
-                    "action": "skip",
-                    "reasoning": (
-                        f"Genuine disagreement: buy {buy_conf:.0%} vs sell {sell_conf:.0%}. "
-                        "Both > 75% — skipping to avoid false signal."
-                    ),
-                    "kept_strategy": None,
-                    "skipped_strategies": [t.get("strategy_id") for t in trades],
-                })
+                resolutions.append(
+                    {
+                        "symbol": symbol,
+                        "action": "skip",
+                        "reasoning": (
+                            f"Genuine disagreement: buy {buy_conf:.0%} vs sell {sell_conf:.0%}. "
+                            "Both > 75% — skipping to avoid false signal."
+                        ),
+                        "kept_strategy": None,
+                        "skipped_strategies": [t.get("strategy_id") for t in trades],
+                    }
+                )
             else:
                 # Keep higher confidence
                 winner = best_buy if buy_conf >= sell_conf else best_sell
                 loser_side = sells if buy_conf >= sell_conf else buys
                 resolved_trades.append(winner)
-                resolutions.append({
-                    "symbol": symbol,
-                    "action": "keep",
-                    "reasoning": f"Higher confidence wins: {max(buy_conf, sell_conf):.0%} vs {min(buy_conf, sell_conf):.0%}",
-                    "kept_strategy": winner.get("strategy_id"),
-                    "skipped_strategies": [t.get("strategy_id") for t in loser_side],
-                })
+                resolutions.append(
+                    {
+                        "symbol": symbol,
+                        "action": "keep",
+                        "reasoning": f"Higher confidence wins: {max(buy_conf, sell_conf):.0%} vs {min(buy_conf, sell_conf):.0%}",
+                        "kept_strategy": winner.get("strategy_id"),
+                        "skipped_strategies": [t.get("strategy_id") for t in loser_side],
+                    }
+                )
         else:
             # Same direction — merge conservatively
             all_trades = buys or sells
@@ -284,16 +300,18 @@ def resolve_conflicts(
             min_pct = min(t.get("capital_pct", 0.025) for t in all_trades)
             merged = {**best, "capital_pct": min_pct}
             resolved_trades.append(merged)
-            resolutions.append({
-                "symbol": symbol,
-                "action": "adjust",
-                "reasoning": (
-                    f"Same direction ({best.get('action')}): "
-                    f"merged {len(all_trades)} signals, conservative sizing at {min_pct:.1%}"
-                ),
-                "kept_strategy": best.get("strategy_id"),
-                "skipped_strategies": [],
-            })
+            resolutions.append(
+                {
+                    "symbol": symbol,
+                    "action": "adjust",
+                    "reasoning": (
+                        f"Same direction ({best.get('action')}): "
+                        f"merged {len(all_trades)} signals, conservative sizing at {min_pct:.1%}"
+                    ),
+                    "kept_strategy": best.get("strategy_id"),
+                    "skipped_strategies": [],
+                }
+            )
 
     return {
         "resolved_trades": resolved_trades,
@@ -302,7 +320,7 @@ def resolve_conflicts(
     }
 
 
-def _match_regime(current_regime: str, affinity: Dict[str, float]) -> float:
+def _match_regime(current_regime: str, affinity: dict[str, float]) -> float:
     """
     Match current regime against a strategy's regime_affinity dict.
 
@@ -327,7 +345,7 @@ def _match_regime(current_regime: str, affinity: Dict[str, float]) -> float:
     return best
 
 
-def _extract_symbols(backtest_summary: Dict) -> List[str]:
+def _extract_symbols(backtest_summary: dict) -> list[str]:
     """Extract symbol list from a backtest summary."""
     if not backtest_summary:
         return []

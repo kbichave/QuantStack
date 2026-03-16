@@ -15,9 +15,9 @@ Quantsbin is designed for structured options analysis and payoff diagrams.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Literal
+
 import numpy as np
-import pandas as pd
 from loguru import logger
 
 
@@ -29,8 +29,8 @@ class OptionLegSpec:
     strike: float
     expiry_days: int  # Days to expiry
     quantity: int  # Positive for long, negative for short
-    premium: Optional[float] = None  # Premium per contract (if known)
-    iv: Optional[float] = None
+    premium: float | None = None  # Premium per contract (if known)
+    iv: float | None = None
 
 
 @dataclass
@@ -39,16 +39,16 @@ class StructureSpec:
 
     underlying_symbol: str
     underlying_price: float
-    legs: List[OptionLegSpec]
+    legs: list[OptionLegSpec]
     risk_free_rate: float = 0.05
     dividend_yield: float = 0.0
 
 
 def analyze_structure_quantsbin(
-    structure_spec: Union[StructureSpec, Dict[str, Any]],
+    structure_spec: StructureSpec | dict[str, Any],
     price_range_pct: float = 0.30,
     num_points: int = 100,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze multi-leg option structure for payoff, Greeks, and key metrics.
 
@@ -78,8 +78,8 @@ def analyze_structure_quantsbin(
         return {"error": "No legs in structure"}
 
     try:
-        from quantsbin.derivativepricing import EqOption
-        from quantsbin.derivativepricing.namesnmapper import EngineType
+        from quantsbin.derivativepricing import EqOption  # noqa: F401
+        from quantsbin.derivativepricing.namesnmapper import EngineType  # noqa: F401
 
         return _analyze_with_quantsbin(spec, price_range_pct, num_points)
 
@@ -88,7 +88,7 @@ def analyze_structure_quantsbin(
         return _analyze_structure_internal(spec, price_range_pct, num_points)
 
 
-def _dict_to_structure_spec(d: Dict[str, Any]) -> StructureSpec:
+def _dict_to_structure_spec(d: dict[str, Any]) -> StructureSpec:
     """Convert dictionary to StructureSpec."""
     legs = []
     for leg_dict in d.get("legs", []):
@@ -116,7 +116,7 @@ def _analyze_with_quantsbin(
     spec: StructureSpec,
     price_range_pct: float,
     num_points: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Analyze structure using quantsbin library."""
     from quantsbin.derivativepricing import EqOption
     from quantsbin.derivativepricing.namesnmapper import EngineType
@@ -239,10 +239,10 @@ def _analyze_structure_internal(
     spec: StructureSpec,
     price_range_pct: float,
     num_points: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Internal structure analysis without quantsbin."""
-    from quantcore.options.pricing import black_scholes_price, black_scholes_greeks
     from quantcore.options.models import OptionType
+    from quantcore.options.pricing import black_scholes_greeks, black_scholes_price
 
     spot = spec.underlying_price
     rate = spec.risk_free_rate
@@ -275,12 +275,8 @@ def _analyze_structure_internal(
 
         # Current price and Greeks
         try:
-            price = black_scholes_price(
-                spot, leg.strike, tte, rate, vol, opt_type, div_yield
-            )
-            greeks = black_scholes_greeks(
-                spot, leg.strike, tte, rate, vol, opt_type, div_yield
-            )
+            price = black_scholes_price(spot, leg.strike, tte, rate, vol, opt_type, div_yield)
+            greeks = black_scholes_greeks(spot, leg.strike, tte, rate, vol, opt_type, div_yield)
 
             current_value += leg.quantity * price * 100
             total_delta += leg.quantity * greeks.delta * 100
@@ -346,7 +342,7 @@ def _analyze_structure_internal(
     }
 
 
-def _find_break_evens(price_grid: np.ndarray, payoffs: np.ndarray) -> List[float]:
+def _find_break_evens(price_grid: np.ndarray, payoffs: np.ndarray) -> list[float]:
     """Find break-even price points where payoff crosses zero."""
     break_evens = []
 
@@ -367,7 +363,7 @@ def _estimate_pop(
     spot: float,
     vol: float,
     tte: float,
-) -> Optional[float]:
+) -> float | None:
     """Estimate probability of profit using lognormal distribution."""
     if tte <= 0 or vol <= 0:
         return None
@@ -393,7 +389,6 @@ def _estimate_pop(
         return 0.0
 
     # Calculate probability for each profitable range
-    total_prob = 0.0
 
     # Simple approach: use min and max profitable prices
     min_prof = profitable_prices.min()
@@ -408,7 +403,7 @@ def _estimate_pop(
     return round(float(prob * 100), 1)
 
 
-def _identify_structure_type(legs: List[OptionLegSpec]) -> str:
+def _identify_structure_type(legs: list[OptionLegSpec]) -> str:
     """Identify the type of option structure based on legs."""
     if len(legs) == 1:
         leg = legs[0]
@@ -456,7 +451,7 @@ def _identify_structure_type(legs: List[OptionLegSpec]) -> str:
 
     if len(legs) == 4:
         # Could be iron condor, butterfly, etc.
-        strikes = sorted([l.strike for l in legs])
+        strikes = sorted([l.strike for l in legs])  # noqa: E741
 
         # Iron condor: 4 different strikes
         if len(set(strikes)) == 4:
@@ -469,7 +464,7 @@ def _identify_structure_type(legs: List[OptionLegSpec]) -> str:
     return f"Custom {len(legs)}-Leg Structure"
 
 
-def get_standard_structures() -> Dict[str, Dict[str, Any]]:
+def get_standard_structures() -> dict[str, dict[str, Any]]:
     """
     Get specifications for standard option structures.
 

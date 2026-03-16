@@ -4,13 +4,11 @@ Microstructure features for commodity trading.
 Computes volume imbalance, VWAP deviation, realized volatility, and gap patterns.
 """
 
-from typing import List, Optional
-import pandas as pd
 import numpy as np
-from loguru import logger
+import pandas as pd
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class MicrostructureFeatures(FeatureBase):
@@ -102,9 +100,7 @@ class MicrostructureFeatures(FeatureBase):
 
         # Rolling up/down volume
         result["up_volume_sum"] = result["up_volume"].rolling(self.vol_lookback).sum()
-        result["down_volume_sum"] = (
-            result["down_volume"].rolling(self.vol_lookback).sum()
-        )
+        result["down_volume_sum"] = result["down_volume"].rolling(self.vol_lookback).sum()
 
         # Volume imbalance ratio
         total_vol = result["up_volume_sum"] + result["down_volume_sum"]
@@ -155,14 +151,12 @@ class MicrostructureFeatures(FeatureBase):
 
         # Rolling VWAP
         pv = typical_price * result["volume"]
-        result["vwap"] = pv.rolling(self.vwap_lookback).sum() / result[
-            "volume"
-        ].rolling(self.vwap_lookback).sum().replace(0, np.nan)
+        result["vwap"] = pv.rolling(self.vwap_lookback).sum() / result["volume"].rolling(
+            self.vwap_lookback
+        ).sum().replace(0, np.nan)
 
         # Price deviation from VWAP
-        result["vwap_deviation"] = (
-            (result["close"] - result["vwap"]) / result["vwap"] * 100
-        )
+        result["vwap_deviation"] = (result["close"] - result["vwap"]) / result["vwap"] * 100
         result["vwap_deviation_zscore"] = self._compute_zscore(
             result["vwap_deviation"], self.vol_lookback
         )
@@ -204,7 +198,7 @@ class MicrostructureFeatures(FeatureBase):
 
         # Returns
         returns = result["close"].pct_change()
-        log_returns = np.log(result["close"] / result["close"].shift(1))
+        np.log(result["close"] / result["close"].shift(1))
 
         # Realized volatility (annualized)
         result["realized_vol_5"] = returns.rolling(5).std() * np.sqrt(252)
@@ -212,9 +206,9 @@ class MicrostructureFeatures(FeatureBase):
         result["realized_vol_20"] = returns.rolling(20).std() * np.sqrt(252)
 
         # Volatility term structure (short vs long)
-        result["vol_term_ratio"] = result["realized_vol_5"] / result[
-            "realized_vol_20"
-        ].replace(0, np.nan)
+        result["vol_term_ratio"] = result["realized_vol_5"] / result["realized_vol_20"].replace(
+            0, np.nan
+        )
 
         # Volatility z-score
         result["vol_zscore"] = self._compute_zscore(
@@ -228,16 +222,15 @@ class MicrostructureFeatures(FeatureBase):
         # Parkinson volatility (high-low based)
         result["parkinson_vol"] = np.sqrt(
             (1 / (4 * np.log(2)))
-            * np.log(result["high"] / result["low"]).rolling(self.vol_lookback).mean()
-            ** 2
+            * np.log(result["high"] / result["low"]).rolling(self.vol_lookback).mean() ** 2
         ) * np.sqrt(252)
 
         # Garman-Klass volatility (OHLC based)
         hl_term = 0.5 * np.log(result["high"] / result["low"]) ** 2
         co_term = (2 * np.log(2) - 1) * np.log(result["close"] / result["open"]) ** 2
-        result["gk_vol"] = np.sqrt(
-            (hl_term - co_term).rolling(self.vol_lookback).mean()
-        ) * np.sqrt(252)
+        result["gk_vol"] = np.sqrt((hl_term - co_term).rolling(self.vol_lookback).mean()) * np.sqrt(
+            252
+        )
 
         # Volatility regime
         vol_percentile = (
@@ -262,9 +255,7 @@ class MicrostructureFeatures(FeatureBase):
         result["gap_pct"] = result["gap"] / result["close"].shift(1) * 100
 
         # Gap z-score
-        result["gap_zscore"] = self._compute_zscore(
-            result["gap_pct"], self.vol_lookback
-        )
+        result["gap_zscore"] = self._compute_zscore(result["gap_pct"], self.vol_lookback)
 
         # Gap up/down
         result["gap_up"] = (result["gap_pct"] > 0.5).astype(int)  # > 0.5% gap up
@@ -277,8 +268,7 @@ class MicrostructureFeatures(FeatureBase):
         # Gap fill (price returns to previous close)
         result["gap_filled"] = np.where(
             result["gap_pct"] > 0,
-            result["low"]
-            <= result["close"].shift(1),  # Gap up filled if low touches prev close
+            result["low"] <= result["close"].shift(1),  # Gap up filled if low touches prev close
             result["high"]
             >= result["close"].shift(1),  # Gap down filled if high touches prev close
         ).astype(int)
@@ -287,9 +277,9 @@ class MicrostructureFeatures(FeatureBase):
         result["overnight_return"] = result["gap_pct"]
 
         # Gap to range ratio
-        result["gap_to_range"] = result["gap"].abs() / (
-            result["high"] - result["low"]
-        ).replace(0, np.nan)
+        result["gap_to_range"] = result["gap"].abs() / (result["high"] - result["low"]).replace(
+            0, np.nan
+        )
 
         return result
 
@@ -301,9 +291,7 @@ class MicrostructureFeatures(FeatureBase):
         high_low = result["high"] - result["low"]
         high_close = (result["high"] - result["close"].shift(1)).abs()
         low_close = (result["low"] - result["close"].shift(1)).abs()
-        result["true_range"] = pd.concat([high_low, high_close, low_close], axis=1).max(
-            axis=1
-        )
+        result["true_range"] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
 
         # ATR
         result["atr"] = result["true_range"].rolling(14).mean()
@@ -312,9 +300,7 @@ class MicrostructureFeatures(FeatureBase):
         result["range_pct"] = (result["high"] - result["low"]) / result["close"] * 100
 
         # Range z-score
-        result["range_zscore"] = self._compute_zscore(
-            result["range_pct"], self.vol_lookback
-        )
+        result["range_zscore"] = self._compute_zscore(result["range_pct"], self.vol_lookback)
 
         # Intraday momentum (close position in range)
         result["close_position"] = (result["close"] - result["low"]) / (
@@ -380,7 +366,7 @@ class MicrostructureFeatures(FeatureBase):
         std = series.rolling(lookback).std()
         return (series - mean) / std.replace(0, np.nan)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get list of feature names produced by this class."""
         return [
             # Volume imbalance

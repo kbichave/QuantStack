@@ -3,9 +3,6 @@
 
 """Unit tests for quantsbin adapter."""
 
-import pytest
-import numpy as np
-
 
 class TestQuantsbinAdapter:
     """Test suite for quantsbin adapter functions."""

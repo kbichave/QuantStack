@@ -3,21 +3,20 @@
 
 """Tests for learning engine modules."""
 
-import pytest
-from datetime import datetime, timedelta
 import tempfile
 from pathlib import Path
 
-from quant_pod.knowledge.store import KnowledgeStore
+import pytest
 from quant_pod.knowledge.models import (
-    TradeRecord,
-    TradeDirection,
     StructureType,
+    TradeDirection,
+    TradeRecord,
     TradeStatus,
 )
-from quant_pod.learning.skill_tracker import SkillTracker, AgentSkill
-from quant_pod.learning.structure_stats import StructureStats
+from quant_pod.knowledge.store import KnowledgeStore
 from quant_pod.learning.expectancy_engine import ExpectancyEngine
+from quant_pod.learning.skill_tracker import SkillTracker
+from quant_pod.learning.structure_stats import StructureStats
 
 
 @pytest.fixture
@@ -132,7 +131,7 @@ class TestSkillTracker:
         assert adj == 1.0  # No adjustment for new agents
 
         # Agent with history
-        for i in range(15):
+        for _i in range(15):
             tracker.update_agent_skill("experienced_agent", prediction_correct=True)
 
         adj = tracker.get_confidence_adjustment("experienced_agent")

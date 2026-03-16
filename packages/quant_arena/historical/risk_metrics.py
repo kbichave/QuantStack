@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -41,10 +40,10 @@ class VaRReport:
 
     # --- Historical (empirical) method ---
     # Directly reads the empirical return distribution; no distributional assumption.
-    var_95_hist: float          # 1-day 5th-percentile loss (dollar)
-    var_99_hist: float          # 1-day 1st-percentile loss (dollar)
-    cvar_95_hist: float         # Expected loss in the 5% tail (dollar)
-    cvar_99_hist: float         # Expected loss in the 1% tail (dollar)
+    var_95_hist: float  # 1-day 5th-percentile loss (dollar)
+    var_99_hist: float  # 1-day 1st-percentile loss (dollar)
+    cvar_95_hist: float  # Expected loss in the 5% tail (dollar)
+    cvar_99_hist: float  # Expected loss in the 1% tail (dollar)
 
     # --- Parametric (normal) method ---
     # Assumes returns are normally distributed; underestimates tail risk for
@@ -53,32 +52,32 @@ class VaRReport:
     var_99_param: float
 
     # --- Return percentiles (for diagnostics) ---
-    pct_1: float                # 1st percentile of daily returns (e.g. -0.032)
-    pct_5: float                # 5th percentile of daily returns
+    pct_1: float  # 1st percentile of daily returns (e.g. -0.032)
+    pct_5: float  # 5th percentile of daily returns
     skewness: float
     excess_kurtosis: float
 
     # --- Period-scaled (10-day / monthly, using sqrt-of-time scaling) ---
-    var_99_10day: float         # 10-day 99% VaR (dollar)
-    var_99_monthly: float       # 21-day 99% VaR (dollar)
+    var_99_10day: float  # 10-day 99% VaR (dollar)
+    var_99_monthly: float  # 21-day 99% VaR (dollar)
 
     # --- Context ---
     n_observations: int
     equity_at_calculation: float
 
     # --- Stress scenarios ---
-    stress_scenarios: Dict[str, float] = field(default_factory=dict)
+    stress_scenarios: dict[str, float] = field(default_factory=dict)
     # e.g. {"2008_financial_crisis": -18400.0, "2020_covid_crash": -9200.0}
 
 
 # Historical 1-month peak-to-trough losses for common stress scenarios.
 # Source: public market data (approximate monthly peak-to-trough returns).
-_STRESS_SCENARIOS: Dict[str, float] = {
-    "2008_lehman_month":      -0.175,   # S&P 500, October 2008
-    "2020_covid_crash_month": -0.125,   # S&P 500, March 2020
-    "2011_euro_crisis_month": -0.070,   # S&P 500, August 2011
-    "2022_rate_shock_month":  -0.082,   # S&P 500, September 2022
-    "2000_dot_com_month":     -0.095,   # S&P 500, March 2001
+_STRESS_SCENARIOS: dict[str, float] = {
+    "2008_lehman_month": -0.175,  # S&P 500, October 2008
+    "2020_covid_crash_month": -0.125,  # S&P 500, March 2020
+    "2011_euro_crisis_month": -0.070,  # S&P 500, August 2011
+    "2022_rate_shock_month": -0.082,  # S&P 500, September 2022
+    "2000_dot_com_month": -0.095,  # S&P 500, March 2001
 }
 
 
@@ -123,16 +122,20 @@ def compute_risk_metrics(
     tail_99 = returns[returns <= p1]
     tail_95 = returns[returns <= p5]
 
-    cvar_99_hist = abs(float(np.mean(tail_99))) * current_equity if len(tail_99) > 0 else var_99_hist
-    cvar_95_hist = abs(float(np.mean(tail_95))) * current_equity if len(tail_95) > 0 else var_95_hist
+    cvar_99_hist = (
+        abs(float(np.mean(tail_99))) * current_equity if len(tail_99) > 0 else var_99_hist
+    )
+    cvar_95_hist = (
+        abs(float(np.mean(tail_95))) * current_equity if len(tail_95) > 0 else var_95_hist
+    )
 
     # --- Parametric (normal) VaR ---
     mean_r = float(np.mean(returns))
     std_r = float(np.std(returns, ddof=1))
 
     # z-scores for normal distribution
-    z_95 = 1.6449   # norm.ppf(0.95)
-    z_99 = 2.3263   # norm.ppf(0.99)
+    z_95 = 1.6449  # norm.ppf(0.95)
+    z_99 = 2.3263  # norm.ppf(0.99)
 
     var_95_param = (mean_r - z_95 * std_r) * current_equity * -1
     var_99_param = (mean_r - z_99 * std_r) * current_equity * -1
@@ -147,6 +150,7 @@ def compute_risk_metrics(
 
     # --- Distributional stats ---
     from scipy import stats as scipy_stats
+
     skewness = float(scipy_stats.skew(returns))
     excess_kurtosis = float(scipy_stats.kurtosis(returns))
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from urllib.parse import urlencode
 
 import requests
@@ -30,24 +30,21 @@ from quant_pod.tools.etrade.auth import ETradeAuthManager
 from quant_pod.tools.etrade.models import (
     Account,
     AccountBalance,
-    APIResponse,
     OptionChain,
     OptionExpiration,
     OptionQuote,
     Order,
     OrderAction,
-    OrderDuration,
     OrderLeg,
     OrderPreview,
     OrderRequest,
+    OrderStatus,
     OrderType,
     Position,
     Quote,
     SecurityType,
-    SpreadLeg,
     SpreadOrderRequest,
 )
-
 
 # =============================================================================
 # CONSTANTS
@@ -124,10 +121,10 @@ class ETradeClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None,
-        json_data: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None,
         retries: int = MAX_RETRIES,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Make an authenticated API request.
 
@@ -180,9 +177,7 @@ class ETradeClient:
 
                 if response.status_code == 429:
                     # Rate limited - wait and retry
-                    wait_time = float(
-                        response.headers.get("Retry-After", RETRY_DELAY * 2)
-                    )
+                    wait_time = float(response.headers.get("Retry-After", RETRY_DELAY * 2))
                     logger.warning(f"Rate limited - waiting {wait_time}s")
                     time.sleep(wait_time)
                     continue
@@ -209,7 +204,7 @@ class ETradeClient:
     # ACCOUNT METHODS
     # =========================================================================
 
-    def get_accounts(self) -> List[Account]:
+    def get_accounts(self) -> list[Account]:
         """
         Get list of accounts for the authenticated user.
 
@@ -223,9 +218,7 @@ class ETradeClient:
 
             accounts = []
             accounts_data = (
-                response.get("AccountListResponse", {})
-                .get("Accounts", {})
-                .get("Account", [])
+                response.get("AccountListResponse", {}).get("Accounts", {}).get("Account", [])
             )
 
             if isinstance(accounts_data, dict):
@@ -271,20 +264,12 @@ class ETradeClient:
 
             return AccountBalance(
                 accountId=balance_data.get("accountId", ""),
-                totalAccountValue=computed.get("RealTimeValues", {}).get(
-                    "totalAccountValue", 0
-                ),
+                totalAccountValue=computed.get("RealTimeValues", {}).get("totalAccountValue", 0),
                 netCash=computed.get("netCash", 0),
-                cashAvailableForInvestment=computed.get(
-                    "cashAvailableForInvestment", 0
-                ),
-                cashAvailableForWithdrawal=computed.get(
-                    "cashAvailableForWithdrawal", 0
-                ),
+                cashAvailableForInvestment=computed.get("cashAvailableForInvestment", 0),
+                cashAvailableForWithdrawal=computed.get("cashAvailableForWithdrawal", 0),
                 marginBuyingPower=computed.get("marginBuyingPower", 0),
-                optionBuyingPower=balance_data.get("Cash", {}).get(
-                    "fundsForOpenOrdersCash", 0
-                ),
+                optionBuyingPower=balance_data.get("Cash", {}).get("fundsForOpenOrdersCash", 0),
                 settledCash=computed.get("settledCash", 0),
                 unsettledCash=computed.get("unsettledCash", 0),
             )
@@ -296,8 +281,8 @@ class ETradeClient:
     def get_positions(
         self,
         account_id_key: str,
-        symbol: Optional[str] = None,
-    ) -> List[Position]:
+        symbol: str | None = None,
+    ) -> list[Position]:
         """
         Get positions for an account.
 
@@ -317,9 +302,7 @@ class ETradeClient:
             response = self._request("GET", endpoint, params=params if params else None)
 
             positions = []
-            portfolio_data = response.get("PortfolioResponse", {}).get(
-                "AccountPortfolio", []
-            )
+            portfolio_data = response.get("PortfolioResponse", {}).get("AccountPortfolio", [])
 
             if isinstance(portfolio_data, dict):
                 portfolio_data = [portfolio_data]
@@ -339,12 +322,10 @@ class ETradeClient:
                             symbolDescription=pos.get("symbolDescription"),
                             securityType=product.get("securityType"),
                             quantity=pos.get("quantity", 0),
-                            costBasis=pos.get("costPerShare", 0)
-                            * pos.get("quantity", 0),
+                            costBasis=pos.get("costPerShare", 0) * pos.get("quantity", 0),
                             marketValue=quick.get("marketValue", 0),
                             currentPrice=quick.get("lastTrade", 0),
-                            todayGainLoss=quick.get("change", 0)
-                            * pos.get("quantity", 0),
+                            todayGainLoss=quick.get("change", 0) * pos.get("quantity", 0),
                             totalGainLoss=quick.get("gainLoss", 0),
                             totalGainLossPct=quick.get("gainLossPct", 0),
                             pctOfPortfolio=pos.get("pctOfPortfolio", 0),
@@ -378,7 +359,7 @@ class ETradeClient:
     # MARKET DATA METHODS
     # =========================================================================
 
-    def get_quote(self, symbols: Union[str, List[str]]) -> List[Quote]:
+    def get_quote(self, symbols: str | list[str]) -> list[Quote]:
         """
         Get real-time quotes for symbols.
 
@@ -442,7 +423,7 @@ class ETradeClient:
             logger.error(f"Failed to get quotes: {e}")
             raise
 
-    def get_option_expiry_dates(self, symbol: str) -> List[OptionExpiration]:
+    def get_option_expiry_dates(self, symbol: str) -> list[OptionExpiration]:
         """
         Get available option expiration dates for a symbol.
 
@@ -459,9 +440,7 @@ class ETradeClient:
             response = self._request("GET", endpoint, params=params)
 
             expirations = []
-            expiry_data = response.get("OptionExpireDateResponse", {}).get(
-                "ExpirationDate", []
-            )
+            expiry_data = response.get("OptionExpireDateResponse", {}).get("ExpirationDate", [])
 
             if isinstance(expiry_data, dict):
                 expiry_data = [expiry_data]
@@ -495,10 +474,10 @@ class ETradeClient:
     def get_option_chains(
         self,
         symbol: str,
-        expiration_date: Optional[str] = None,
-        strike_price_near: Optional[float] = None,
+        expiration_date: str | None = None,
+        strike_price_near: float | None = None,
         no_of_strikes: int = 10,
-        option_type: Optional[str] = None,  # "CALL" or "PUT"
+        option_type: str | None = None,  # "CALL" or "PUT"
         include_weekly: bool = True,
     ) -> OptionChain:
         """
@@ -566,9 +545,7 @@ class ETradeClient:
                         puts.append(put)
                         chain_exp_date = chain_exp_date or put.expiration_date
 
-            logger.info(
-                f"Got option chain for {symbol}: {len(calls)} calls, {len(puts)} puts"
-            )
+            logger.info(f"Got option chain for {symbol}: {len(calls)} calls, {len(puts)} puts")
 
             return OptionChain(
                 symbol=symbol,
@@ -581,9 +558,7 @@ class ETradeClient:
             logger.error(f"Failed to get option chain: {e}")
             raise
 
-    def _parse_option_quote(
-        self, data: Dict[str, Any], opt_type: str
-    ) -> Optional[OptionQuote]:
+    def _parse_option_quote(self, data: dict[str, Any], opt_type: str) -> OptionQuote | None:
         """Parse option quote from API response."""
         try:
             exp_year = data.get("expirationYear", 0)
@@ -592,9 +567,7 @@ class ETradeClient:
 
             exp_date = ""
             if exp_year and exp_month and exp_day:
-                exp_date = (
-                    f"{exp_year}-{str(exp_month).zfill(2)}-{str(exp_day).zfill(2)}"
-                )
+                exp_date = f"{exp_year}-{str(exp_month).zfill(2)}-{str(exp_day).zfill(2)}"
 
             return OptionQuote(
                 symbol=data.get("symbol", ""),
@@ -649,9 +622,7 @@ class ETradeClient:
             preview_data = response.get("PreviewOrderResponse", {})
 
             return OrderPreview(
-                previewId=str(
-                    preview_data.get("PreviewIds", [{}])[0].get("previewId", "")
-                ),
+                previewId=str(preview_data.get("PreviewIds", [{}])[0].get("previewId", "")),
                 estimatedCommission=preview_data.get("Order", [{}])[0].get(
                     "estimatedCommission", 0
                 ),
@@ -659,10 +630,7 @@ class ETradeClient:
                     "estimatedTotalAmount", 0
                 ),
                 orderValue=preview_data.get("Order", [{}])[0].get("orderValue", 0),
-                messages=[
-                    msg.get("description", "")
-                    for msg in preview_data.get("Message", [])
-                ],
+                messages=[msg.get("description", "") for msg in preview_data.get("Message", [])],
             )
 
         except Exception as e:
@@ -673,7 +641,7 @@ class ETradeClient:
         self,
         account_id_key: str,
         order_request: OrderRequest,
-        preview_id: Optional[str] = None,
+        preview_id: str | None = None,
     ) -> Order:
         """
         Place an order.
@@ -709,9 +677,7 @@ class ETradeClient:
                 placedTime=order_info.get("placedTime"),
                 quantityOrdered=sum(leg.quantity for leg in order_request.legs),
                 legs=order_request.legs,
-                messages=[
-                    msg.get("description", "") for msg in order_data.get("Message", [])
-                ],
+                messages=[msg.get("description", "") for msg in order_data.get("Message", [])],
             )
 
         except Exception as e:
@@ -722,7 +688,7 @@ class ETradeClient:
         self,
         account_id_key: str,
         spread_request: SpreadOrderRequest,
-        preview_id: Optional[str] = None,
+        preview_id: str | None = None,
     ) -> Order:
         """
         Place a multi-leg spread order.
@@ -811,10 +777,10 @@ class ETradeClient:
     def get_orders(
         self,
         account_id_key: str,
-        status: Optional[str] = None,
-        from_date: Optional[str] = None,
-        to_date: Optional[str] = None,
-    ) -> List[Order]:
+        status: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[Order]:
         """
         Get orders for an account.
 
@@ -855,12 +821,8 @@ class ETradeClient:
                     legs.append(
                         OrderLeg(
                             symbol=product.get("symbol", ""),
-                            securityType=SecurityType(
-                                product.get("securityType", "EQ")
-                            ),
-                            orderAction=OrderAction(
-                                instrument.get("orderAction", "BUY")
-                            ),
+                            securityType=SecurityType(product.get("securityType", "EQ")),
+                            orderAction=OrderAction(instrument.get("orderAction", "BUY")),
                             quantity=instrument.get("orderedQuantity", 0),
                             optionType=product.get("callPut"),
                             strikePrice=product.get("strikePrice"),
@@ -902,8 +864,8 @@ class ETradeClient:
         self,
         order: OrderRequest,
         preview: bool = False,
-        preview_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        preview_id: str | None = None,
+    ) -> dict[str, Any]:
         """Build order payload for API request."""
         instruments = []
 
@@ -964,8 +926,8 @@ class ETradeClient:
     def _build_spread_payload(
         self,
         spread: SpreadOrderRequest,
-        preview_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        preview_id: str | None = None,
+    ) -> dict[str, Any]:
         """Build spread order payload for API request."""
         instruments = []
 
@@ -992,9 +954,7 @@ class ETradeClient:
             "orderTerm": spread.order_term.value,
             "marketSession": spread.market_session.value,
             "priceType": (
-                "NET_DEBIT"
-                if spread.limit_price and spread.limit_price > 0
-                else "NET_CREDIT"
+                "NET_DEBIT" if spread.limit_price and spread.limit_price > 0 else "NET_CREDIT"
             ),
             "Instrument": instruments,
         }

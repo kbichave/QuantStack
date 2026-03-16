@@ -10,25 +10,21 @@ Provides tools for agents to share observations, signals, and scenarios.
 from __future__ import annotations
 
 import json
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Type
 
-from loguru import logger
 from pydantic import BaseModel, Field
-from quant_pod.crewai_compat import BaseTool
 
-from quant_pod.knowledge.store import KnowledgeStore
+from quant_pod.crewai_compat import BaseTool
 from quant_pod.knowledge.models import (
     MarketObservation,
-    TradingSignal,
     TradeDirection,
-    WaveScenario,
+    TradingSignal,
     WavePosition,
+    WaveScenario,
 )
-
+from quant_pod.knowledge.store import KnowledgeStore
 
 # Global knowledge store instance
-_store: Optional[KnowledgeStore] = None
+_store: KnowledgeStore | None = None
 
 
 def get_store() -> KnowledgeStore:
@@ -53,17 +49,15 @@ class SaveObservationInput(BaseModel):
     )
     current_price: float = Field(..., description="Current price")
     alert_message: str = Field(..., description="Description of the observation")
-    price_change_pct: Optional[float] = Field(
-        None, description="Price change percentage"
-    )
-    volume_ratio: Optional[float] = Field(None, description="Volume vs average")
+    price_change_pct: float | None = Field(None, description="Price change percentage")
+    volume_ratio: float | None = Field(None, description="Volume vs average")
     severity: str = Field("INFO", description="INFO, WARNING, ALERT, CRITICAL")
 
 
 class GetObservationsInput(BaseModel):
     """Input for get_observations tool."""
 
-    symbol: Optional[str] = Field(None, description="Filter by symbol")
+    symbol: str | None = Field(None, description="Filter by symbol")
     hours: int = Field(24, description="Lookback hours")
     unprocessed_only: bool = Field(False, description="Only unprocessed observations")
 
@@ -73,21 +67,19 @@ class SaveSignalInput(BaseModel):
 
     symbol: str = Field(..., description="Symbol for signal")
     direction: str = Field(..., description="LONG or SHORT")
-    signal_type: str = Field(
-        ..., description="Signal type: WAVE_TARGET, REGIME_SHIFT, TECHNICAL"
-    )
+    signal_type: str = Field(..., description="Signal type: WAVE_TARGET, REGIME_SHIFT, TECHNICAL")
     strength: float = Field(0.5, description="Signal strength 0-1")
     confidence: float = Field(0.5, description="Confidence 0-1")
     rationale: str = Field(..., description="Why this signal was generated")
-    entry_price: Optional[float] = Field(None, description="Suggested entry price")
-    target_price: Optional[float] = Field(None, description="Target price")
-    stop_loss: Optional[float] = Field(None, description="Stop loss level")
+    entry_price: float | None = Field(None, description="Suggested entry price")
+    target_price: float | None = Field(None, description="Target price")
+    stop_loss: float | None = Field(None, description="Stop loss level")
 
 
 class GetSignalsInput(BaseModel):
     """Input for get_signals tool."""
 
-    symbol: Optional[str] = Field(None, description="Filter by symbol")
+    symbol: str | None = Field(None, description="Filter by symbol")
     unprocessed_only: bool = Field(False, description="Only unprocessed signals")
 
 
@@ -96,27 +88,21 @@ class SaveWaveScenarioInput(BaseModel):
 
     symbol: str = Field(..., description="Symbol")
     timeframe: str = Field(..., description="Timeframe: 1h, 4h, daily, weekly")
-    wave_position: str = Field(
-        ..., description="Current wave: WAVE_1, WAVE_2, ..., WAVE_C"
-    )
-    wave_degree: str = Field(
-        ..., description="Wave degree: Primary, Intermediate, Minor"
-    )
+    wave_position: str = Field(..., description="Current wave: WAVE_1, WAVE_2, ..., WAVE_C")
+    wave_degree: str = Field(..., description="Wave degree: Primary, Intermediate, Minor")
     confidence: float = Field(0.5, description="Confidence 0-1")
-    invalidation_level: float = Field(
-        ..., description="Price that invalidates this count"
-    )
+    invalidation_level: float = Field(..., description="Price that invalidates this count")
     scenario_type: str = Field(..., description="BULLISH, BEARISH, NEUTRAL")
     description: str = Field(..., description="Scenario description")
-    primary_target: Optional[float] = Field(None, description="Primary price target")
-    secondary_target: Optional[float] = Field(None, description="Secondary target")
+    primary_target: float | None = Field(None, description="Primary price target")
+    secondary_target: float | None = Field(None, description="Secondary target")
 
 
 class GetWaveScenariosInput(BaseModel):
     """Input for get_wave_scenarios tool."""
 
-    symbol: Optional[str] = Field(None, description="Filter by symbol")
-    timeframe: Optional[str] = Field(None, description="Filter by timeframe")
+    symbol: str | None = Field(None, description="Filter by symbol")
+    timeframe: str | None = Field(None, description="Filter by timeframe")
 
 
 # =============================================================================
@@ -131,7 +117,7 @@ class SaveObservationTool(BaseTool):
     description: str = (
         "Save a market observation (price alert, volume spike, etc.) for other agents."
     )
-    args_schema: Type[BaseModel] = SaveObservationInput
+    args_schema: type[BaseModel] = SaveObservationInput
 
     def _run(
         self,
@@ -139,8 +125,8 @@ class SaveObservationTool(BaseTool):
         observation_type: str,
         current_price: float,
         alert_message: str,
-        price_change_pct: Optional[float] = None,
-        volume_ratio: Optional[float] = None,
+        price_change_pct: float | None = None,
+        volume_ratio: float | None = None,
         severity: str = "INFO",
     ) -> str:
         """Save observation to knowledge store."""
@@ -173,11 +159,11 @@ class GetObservationsTool(BaseTool):
 
     name: str = "get_observations"
     description: str = "Get recent market observations from the knowledge store."
-    args_schema: Type[BaseModel] = GetObservationsInput
+    args_schema: type[BaseModel] = GetObservationsInput
 
     def _run(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         hours: int = 24,
         unprocessed_only: bool = False,
     ) -> str:
@@ -205,7 +191,7 @@ class SaveSignalTool(BaseTool):
 
     name: str = "save_signal"
     description: str = "Save a trading signal for other agents to process."
-    args_schema: Type[BaseModel] = SaveSignalInput
+    args_schema: type[BaseModel] = SaveSignalInput
 
     def _run(
         self,
@@ -215,9 +201,9 @@ class SaveSignalTool(BaseTool):
         strength: float = 0.5,
         confidence: float = 0.5,
         rationale: str = "",
-        entry_price: Optional[float] = None,
-        target_price: Optional[float] = None,
-        stop_loss: Optional[float] = None,
+        entry_price: float | None = None,
+        target_price: float | None = None,
+        stop_loss: float | None = None,
     ) -> str:
         """Save signal to knowledge store."""
         store = get_store()
@@ -251,11 +237,11 @@ class GetSignalsTool(BaseTool):
 
     name: str = "get_signals"
     description: str = "Get active trading signals from the knowledge store."
-    args_schema: Type[BaseModel] = GetSignalsInput
+    args_schema: type[BaseModel] = GetSignalsInput
 
     def _run(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         unprocessed_only: bool = False,
     ) -> str:
         """Get signals from knowledge store."""
@@ -280,10 +266,8 @@ class SaveWaveScenarioTool(BaseTool):
     """Tool to save an Elliott Wave scenario."""
 
     name: str = "save_wave_scenario"
-    description: str = (
-        "Save an Elliott Wave scenario with targets and invalidation levels."
-    )
-    args_schema: Type[BaseModel] = SaveWaveScenarioInput
+    description: str = "Save an Elliott Wave scenario with targets and invalidation levels."
+    args_schema: type[BaseModel] = SaveWaveScenarioInput
 
     def _run(
         self,
@@ -295,8 +279,8 @@ class SaveWaveScenarioTool(BaseTool):
         invalidation_level: float,
         scenario_type: str,
         description: str,
-        primary_target: Optional[float] = None,
-        secondary_target: Optional[float] = None,
+        primary_target: float | None = None,
+        secondary_target: float | None = None,
     ) -> str:
         """Save wave scenario to knowledge store."""
         store = get_store()
@@ -331,12 +315,12 @@ class GetWaveScenariosTool(BaseTool):
 
     name: str = "get_wave_scenarios"
     description: str = "Get active Elliott Wave scenarios from the knowledge store."
-    args_schema: Type[BaseModel] = GetWaveScenariosInput
+    args_schema: type[BaseModel] = GetWaveScenariosInput
 
     def _run(
         self,
-        symbol: Optional[str] = None,
-        timeframe: Optional[str] = None,
+        symbol: str | None = None,
+        timeframe: str | None = None,
     ) -> str:
         """Get wave scenarios from knowledge store."""
         store = get_store()

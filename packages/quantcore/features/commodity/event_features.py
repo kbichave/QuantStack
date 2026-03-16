@@ -4,14 +4,11 @@ Event features for commodity trading.
 Computes features based on proximity to key events (EIA, OPEC, FOMC, CPI).
 """
 
-from typing import List, Optional
-from datetime import datetime, timedelta
-import pandas as pd
 import numpy as np
-from loguru import logger
+import pandas as pd
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class EventFeatures(FeatureBase):
@@ -48,7 +45,7 @@ class EventFeatures(FeatureBase):
     def compute(
         self,
         df: pd.DataFrame,
-        event_calendar: Optional[pd.DataFrame] = None,
+        event_calendar: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
         Compute event features.
@@ -98,18 +95,18 @@ class EventFeatures(FeatureBase):
 
             # Days to next event
             result[f"days_to_{event_type.lower()}"] = result.index.map(
-                lambda x: self._days_to_next_event(x, event_dates)
+                lambda x: self._days_to_next_event(x, event_dates)  # noqa: B023
             )
 
             # Days since last event
             result[f"days_since_{event_type.lower()}"] = result.index.map(
-                lambda x: self._days_since_last_event(x, event_dates)
+                lambda x: self._days_since_last_event(x, event_dates)  # noqa: B023
             )
 
             # Is event day
             result[f"is_{event_type.lower()}_day"] = result.index.map(
                 lambda x: int(
-                    any(abs((x - pd.Timestamp(d)).days) == 0 for d in event_dates)
+                    any(abs((x - pd.Timestamp(d)).days) == 0 for d in event_dates)  # noqa: B023
                 )
             )
 
@@ -165,42 +162,26 @@ class EventFeatures(FeatureBase):
         result["days_to_opec"] = (7 - result.index.day) % 30
         result["days_since_opec"] = (result.index.day - 1) % 30
         result["is_opec_day"] = (result.index.day <= 5).astype(int)
-        result["is_pre_opec"] = (
-            (result.index.day >= 27) | (result.index.day <= 2)
-        ).astype(int)
-        result["is_post_opec"] = (
-            (result.index.day > 5) & (result.index.day <= 8)
-        ).astype(int)
+        result["is_pre_opec"] = ((result.index.day >= 27) | (result.index.day <= 2)).astype(int)
+        result["is_post_opec"] = ((result.index.day > 5) & (result.index.day <= 8)).astype(int)
         result["opec_proximity"] = np.exp(-np.minimum(result["days_to_opec"], 7) / 3)
 
         # FOMC: Estimate mid-month (around 15th, every 6 weeks)
         days_from_mid = np.abs(result.index.day - 15)
         result["days_to_fomc"] = np.minimum(days_from_mid, 30 - days_from_mid)
         result["days_since_fomc"] = result["days_to_fomc"]  # Symmetric
-        result["is_fomc_day"] = (
-            (result.index.day >= 14) & (result.index.day <= 16)
-        ).astype(int)
-        result["is_pre_fomc"] = (
-            (result.index.day >= 11) & (result.index.day <= 13)
-        ).astype(int)
-        result["is_post_fomc"] = (
-            (result.index.day >= 17) & (result.index.day <= 19)
-        ).astype(int)
+        result["is_fomc_day"] = ((result.index.day >= 14) & (result.index.day <= 16)).astype(int)
+        result["is_pre_fomc"] = ((result.index.day >= 11) & (result.index.day <= 13)).astype(int)
+        result["is_post_fomc"] = ((result.index.day >= 17) & (result.index.day <= 19)).astype(int)
         result["fomc_proximity"] = np.exp(-result["days_to_fomc"] / 5)
 
         # CPI: Estimate around 12th of month
         days_from_cpi = np.abs(result.index.day - 12)
         result["days_to_cpi"] = np.minimum(days_from_cpi, 30 - days_from_cpi)
         result["days_since_cpi"] = result["days_to_cpi"]
-        result["is_cpi_day"] = (
-            (result.index.day >= 11) & (result.index.day <= 13)
-        ).astype(int)
-        result["is_pre_cpi"] = (
-            (result.index.day >= 8) & (result.index.day <= 10)
-        ).astype(int)
-        result["is_post_cpi"] = (
-            (result.index.day >= 14) & (result.index.day <= 16)
-        ).astype(int)
+        result["is_cpi_day"] = ((result.index.day >= 11) & (result.index.day <= 13)).astype(int)
+        result["is_pre_cpi"] = ((result.index.day >= 8) & (result.index.day <= 10)).astype(int)
+        result["is_post_cpi"] = ((result.index.day >= 14) & (result.index.day <= 16)).astype(int)
         result["cpi_proximity"] = np.exp(-result["days_to_cpi"] / 5)
 
         # Combined scores
@@ -268,9 +249,7 @@ class EventFeatures(FeatureBase):
         next_event = min(future_events, key=lambda d: pd.Timestamp(d) - date)
         return (pd.Timestamp(next_event) - date).days
 
-    def _days_since_last_event(
-        self, date: pd.Timestamp, event_dates: np.ndarray
-    ) -> int:
+    def _days_since_last_event(self, date: pd.Timestamp, event_dates: np.ndarray) -> int:
         """Calculate days since last event."""
         past_events = [d for d in event_dates if pd.Timestamp(d) <= date]
         if not past_events:
@@ -287,7 +266,7 @@ class EventFeatures(FeatureBase):
         df[f"is_post_{event_type}"] = 0
         df[f"{event_type}_proximity"] = 0
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get list of feature names produced by this class."""
         features = []
 

@@ -28,7 +28,7 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -57,7 +57,7 @@ def get_broker_mode() -> str:
     return "etrade_sandbox" if sandbox else "etrade_live"
 
 
-def get_broker() -> Union[PaperBroker, "EtradeBroker"]:
+def get_broker() -> PaperBroker | EtradeBroker:
     """
     Return the active broker singleton.
 
@@ -77,6 +77,7 @@ def get_broker() -> Union[PaperBroker, "EtradeBroker"]:
 
     try:
         from quant_pod.execution.etrade_broker import get_etrade_broker
+
         broker = get_etrade_broker()
         mode = get_broker_mode()
         logger.info(f"[BROKER] Active broker: EtradeBroker (mode={mode})")

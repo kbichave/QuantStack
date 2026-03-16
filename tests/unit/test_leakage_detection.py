@@ -8,20 +8,18 @@ Tests verify:
 - Integrated detector runs all tests
 """
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
+from quantcore.validation.leakage import (
+    DistributionTest,
+    FeatureShiftTest,
+    LeakageDetector,
+    LeakageTestResult,
+    PermutationTest,
+)
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-
-from quantcore.validation.leakage import (
-    LeakageDetector,
-    FeatureShiftTest,
-    PermutationTest,
-    DistributionTest,
-    LeakageTestResult,
-)
-
 
 # =============================================================================
 # Fixtures
@@ -61,9 +59,7 @@ def clean_features():
 
     # Labels with some correlation to features (no lookahead)
     noise = np.random.randn(n_samples) * 0.5
-    y = pd.Series(
-        ((X["feature_1"] + X["feature_2"] + noise) > 0).astype(int), name="label"
-    )
+    y = pd.Series(((X["feature_1"] + X["feature_2"] + noise) > 0).astype(int), name="label")
 
     return X, y
 
@@ -302,9 +298,7 @@ class TestDistributionTest:
 class TestLeakageDetector:
     """Tests for integrated leakage detector."""
 
-    def test_run_all_tests_returns_structured_results(
-        self, simple_model, clean_features
-    ):
+    def test_run_all_tests_returns_structured_results(self, simple_model, clean_features):
         """
         Verify run_all_tests returns properly structured results.
         """
@@ -335,7 +329,7 @@ class TestLeakageDetector:
         assert "distribution_tests" in results
 
         # All results should be LeakageTestResult instances
-        for category, test_results in results.items():
+        for _category, test_results in results.items():
             assert isinstance(test_results, list)
             for r in test_results:
                 assert isinstance(r, LeakageTestResult)

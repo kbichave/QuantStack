@@ -4,16 +4,17 @@ Signal generator combining MR rules, filters, and ML predictions.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Literal
-import pandas as pd
+from typing import Literal
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_PARAMS
-from quantcore.strategy.rules import MeanReversionRules, EntrySignal
-from quantcore.strategy.filters import CombinedFilter, FilterResult
+from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
+from quantcore.hierarchy.cascade import SignalCascade
 from quantcore.models.predictor import Predictor
-from quantcore.hierarchy.cascade import SignalCascade, Signal
+from quantcore.strategy.filters import CombinedFilter, FilterResult
+from quantcore.strategy.rules import EntrySignal, MeanReversionRules
 
 
 @dataclass
@@ -41,7 +42,7 @@ class GeneratedSignal:
 
     # Context
     timeframe: Timeframe = Timeframe.H1
-    tf_breakdown: Dict[str, str] = field(default_factory=dict)
+    tf_breakdown: dict[str, str] = field(default_factory=dict)
 
     # Risk metrics
     risk_reward_ratio: float = 0.0
@@ -77,8 +78,8 @@ class SignalGenerator:
         timeframe: Timeframe = Timeframe.H1,
         probability_threshold: float = 0.6,
         filter_score_threshold: float = 0.4,
-        cascade: Optional[SignalCascade] = None,
-        predictor: Optional[Predictor] = None,
+        cascade: SignalCascade | None = None,
+        predictor: Predictor | None = None,
     ):
         """
         Initialize signal generator.
@@ -106,10 +107,10 @@ class SignalGenerator:
         self,
         symbol: str,
         df: pd.DataFrame,
-        mtf_data: Optional[Dict[Timeframe, pd.DataFrame]] = None,
+        mtf_data: dict[Timeframe, pd.DataFrame] | None = None,
         check_long: bool = True,
         check_short: bool = True,
-    ) -> List[GeneratedSignal]:
+    ) -> list[GeneratedSignal]:
         """
         Generate signals for current bar.
 
@@ -127,10 +128,8 @@ class SignalGenerator:
             return []
 
         signals = []
-        current = df.iloc[-1]
-        timestamp = (
-            df.index[-1] if isinstance(df.index[-1], datetime) else datetime.now()
-        )
+        df.iloc[-1]
+        timestamp = df.index[-1] if isinstance(df.index[-1], datetime) else datetime.now()
 
         # Check LONG
         if check_long:
@@ -152,8 +151,8 @@ class SignalGenerator:
         df: pd.DataFrame,
         direction: Literal["LONG", "SHORT"],
         timestamp: datetime,
-        mtf_data: Optional[Dict[Timeframe, pd.DataFrame]],
-    ) -> Optional[GeneratedSignal]:
+        mtf_data: dict[Timeframe, pd.DataFrame] | None,
+    ) -> GeneratedSignal | None:
         """Check signal for a specific direction."""
 
         # Step 1: Check MR rules
@@ -172,9 +171,7 @@ class SignalGenerator:
             return None
 
         if filter_result.score < self.filter_score_threshold:
-            logger.debug(
-                f"{symbol} {direction} filter score too low: {filter_result.score}"
-            )
+            logger.debug(f"{symbol} {direction} filter score too low: {filter_result.score}")
             return None
 
         # Step 3: Get ML probability (if predictor available)
@@ -195,16 +192,11 @@ class SignalGenerator:
         tf_breakdown = {}
 
         if self.cascade and mtf_data:
-            from quantcore.hierarchy.cascade import CascadeResult
-
-            cascade_result = self.cascade.evaluate(
-                symbol, mtf_data, direction, ml_probability
-            )
+            cascade_result = self.cascade.evaluate(symbol, mtf_data, direction, ml_probability)
 
             if not cascade_result.passed:
                 logger.debug(
-                    f"{symbol} {direction} cascade rejected: "
-                    f"{cascade_result.rejection_reason}"
+                    f"{symbol} {direction} cascade rejected: {cascade_result.rejection_reason}"
                 )
                 return None
 
@@ -259,7 +251,7 @@ class SignalGenerator:
         self,
         symbol: str,
         df: pd.DataFrame,
-        mtf_data: Optional[Dict[Timeframe, pd.DataFrame]] = None,
+        mtf_data: dict[Timeframe, pd.DataFrame] | None = None,
     ) -> pd.DataFrame:
         """
         Scan historical data for signals.
@@ -286,9 +278,7 @@ class SignalGenerator:
             subset = result.iloc[: i + 1]
 
             # Generate signals
-            signals = self.generate(
-                symbol, subset, mtf_data, check_long=True, check_short=True
-            )
+            signals = self.generate(symbol, subset, mtf_data, check_long=True, check_short=True)
 
             for sig in signals:
                 idx = result.index[i]

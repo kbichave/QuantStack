@@ -10,8 +10,8 @@ supporting the learning/adaptation cycle of QuantArena.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import date
+from typing import Any
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -21,12 +21,10 @@ class PolicySnapshot(BaseModel):
     """A snapshot of strategy policy at a point in time."""
 
     effective_date: date
-    pod_weights: Dict[str, float] = Field(
+    pod_weights: dict[str, float] = Field(
         default_factory=dict, description="Weight assigned to each strategy pod"
     )
-    thresholds: Dict[str, float] = Field(
-        default_factory=dict, description="Risk/entry thresholds"
-    )
+    thresholds: dict[str, float] = Field(default_factory=dict, description="Risk/entry thresholds")
     comment: str = ""
 
     class Config:
@@ -62,12 +60,12 @@ class PolicyStore:
             knowledge_store: KnowledgeStore instance for persistence
         """
         self.store = knowledge_store
-        self._cache: Dict[str, PolicySnapshot] = {}
-        self._last_update_date: Optional[date] = None
+        self._cache: dict[str, PolicySnapshot] = {}
+        self._last_update_date: date | None = None
 
         logger.info("PolicyStore initialized")
 
-    def get_current(self, as_of_date: date) -> Optional[PolicySnapshot]:
+    def get_current(self, as_of_date: date) -> PolicySnapshot | None:
         """
         Get the current policy as of a date.
 
@@ -149,8 +147,7 @@ class PolicyStore:
             current_quarter = (current_date.month - 1) // 3
             last_quarter = (self._last_update_date.month - 1) // 3
             return (
-                current_quarter != last_quarter
-                or current_date.year != self._last_update_date.year
+                current_quarter != last_quarter or current_date.year != self._last_update_date.year
             )
 
         return False
@@ -182,19 +179,16 @@ class PolicyStore:
             # Clear cache
             self._cache.clear()
 
-            logger.info(
-                f"Policy saved: {snapshot.effective_date}, "
-                f"weights={snapshot.pod_weights}"
-            )
+            logger.info(f"Policy saved: {snapshot.effective_date}, weights={snapshot.pod_weights}")
 
         except Exception as e:
             logger.error(f"Failed to save policy: {e}")
 
     def get_history(
         self,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-    ) -> List[PolicySnapshot]:
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[PolicySnapshot]:
         """
         Get policy evolution history.
 

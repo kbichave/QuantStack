@@ -17,12 +17,11 @@ from unittest.mock import MagicMock, patch
 import duckdb
 import numpy as np
 import pandas as pd
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_store_with_trades(n_trades: int = 30) -> Any:
     """Return a mock KnowledgeStore backed by in-memory DuckDB with trade data."""
@@ -121,6 +120,7 @@ def _make_store_with_signals(n_signals: int = 50) -> Any:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestKnowledgeStoreRLBridgeFactory:
     def test_from_knowledge_store(self):

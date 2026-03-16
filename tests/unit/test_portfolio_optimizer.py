@@ -12,14 +12,12 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-
 from quantcore.portfolio.optimizer import (
     MeanVarianceOptimizer,
     OptimizationObjective,
     OptimizationResult,
     PortfolioConstraints,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -34,7 +32,7 @@ def symbols():
 @pytest.fixture
 def signals(symbols):
     """Mildly positive expected returns for all symbols."""
-    return {s: v for s, v in zip(symbols, [0.08, 0.12, 0.04, 0.03, 0.09])}
+    return dict(zip(symbols, [0.08, 0.12, 0.04, 0.03, 0.09], strict=False))
 
 
 @pytest.fixture
@@ -74,9 +72,7 @@ class TestBasicOptimization:
             assert s in result.target_weights
 
     def test_weights_non_negative_long_only(self, optimizer, signals, cov_matrix):
-        result = optimizer.optimize(
-            signals, cov_matrix, PortfolioConstraints(min_weight=0.0)
-        )
+        result = optimizer.optimize(signals, cov_matrix, PortfolioConstraints(min_weight=0.0))
         for w in result.target_weights.values():
             assert w >= -1e-6  # Allow tiny floating point errors
 
@@ -153,9 +149,7 @@ class TestRequiredTrades:
         result = optimizer.optimize(signals, cov_matrix, current_weights=current)
         assert result.required_trades is not None
 
-    def test_required_trades_none_when_current_not_given(
-        self, optimizer, signals, cov_matrix
-    ):
+    def test_required_trades_none_when_current_not_given(self, optimizer, signals, cov_matrix):
         result = optimizer.optimize(signals, cov_matrix)
         assert result.required_trades is None
 

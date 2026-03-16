@@ -4,18 +4,19 @@ Position Sizing RL Agent.
 PPO-based agent for dynamic position sizing.
 """
 
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
+
 import numpy as np
 from loguru import logger
 
 from quantcore.rl.base import (
+    TORCH_AVAILABLE,
+    Action,
+    ActorCritic,
+    Experience,
     RLAgent,
     State,
-    Action,
-    Experience,
-    ActorCritic,
     compute_gae,
-    TORCH_AVAILABLE,
 )
 
 if TORCH_AVAILABLE:
@@ -42,7 +43,7 @@ class SizingRLAgent(RLAgent):
         self,
         state_dim: int = 10,
         action_dim: int = 1,
-        hidden_dims: List[int] = [256, 256],
+        hidden_dims: list[int] = None,
         learning_rate: float = 3e-4,
         gamma: float = 0.99,
         gae_lambda: float = 0.95,
@@ -72,6 +73,8 @@ class SizingRLAgent(RLAgent):
             batch_size: Mini-batch size
             device: Device to use
         """
+        if hidden_dims is None:
+            hidden_dims = [256, 256]
         super().__init__(state_dim, action_dim, learning_rate, gamma, device)
 
         self.gae_lambda = gae_lambda
@@ -86,7 +89,7 @@ class SizingRLAgent(RLAgent):
         self._build_networks()
 
         # Trajectory buffer
-        self.trajectory: List[Dict] = []
+        self.trajectory: list[dict] = []
 
     def _build_networks(self) -> None:
         """Build neural networks."""
@@ -189,8 +192,8 @@ class SizingRLAgent(RLAgent):
 
     def complete_trajectory(
         self,
-        rewards: List[float],
-        dones: List[bool],
+        rewards: list[float],
+        dones: list[bool],
         final_value: float,
     ) -> None:
         """
@@ -223,7 +226,7 @@ class SizingRLAgent(RLAgent):
                 t["reward"] = rewards[i]
                 t["done"] = dones[i]
 
-    def update(self, experiences: List[Experience]) -> Dict[str, float]:
+    def update(self, experiences: list[Experience]) -> dict[str, float]:
         """
         Update agent using PPO.
 
@@ -246,25 +249,19 @@ class SizingRLAgent(RLAgent):
             return {"loss": 0.0}
 
         # Prepare data
-        states = torch.FloatTensor(np.array([t["state"] for t in complete_traj])).to(
+        states = torch.FloatTensor(np.array([t["state"] for t in complete_traj])).to(self.device)
+
+        actions = torch.FloatTensor(np.array([t["action"] for t in complete_traj])).to(self.device)
+
+        old_log_probs = torch.FloatTensor(np.array([t["log_prob"] for t in complete_traj])).to(
             self.device
         )
 
-        actions = torch.FloatTensor(np.array([t["action"] for t in complete_traj])).to(
+        advantages = torch.FloatTensor(np.array([t["advantage"] for t in complete_traj])).to(
             self.device
         )
 
-        old_log_probs = torch.FloatTensor(
-            np.array([t["log_prob"] for t in complete_traj])
-        ).to(self.device)
-
-        advantages = torch.FloatTensor(
-            np.array([t["advantage"] for t in complete_traj])
-        ).to(self.device)
-
-        returns = torch.FloatTensor(np.array([t["return"] for t in complete_traj])).to(
-            self.device
-        )
+        returns = torch.FloatTensor(np.array([t["return"] for t in complete_traj])).to(self.device)
 
         # Normalize advantages
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -303,8 +300,7 @@ class SizingRLAgent(RLAgent):
                 ratio = torch.exp(new_log_probs - batch_old_log_probs.squeeze())
                 surr1 = ratio * batch_advantages
                 surr2 = (
-                    torch.clamp(ratio, 1 - self.clip_ratio, 1 + self.clip_ratio)
-                    * batch_advantages
+                    torch.clamp(ratio, 1 - self.clip_ratio, 1 + self.clip_ratio) * batch_advantages
                 )
                 policy_loss = -torch.min(surr1, surr2).mean()
 
@@ -312,18 +308,12 @@ class SizingRLAgent(RLAgent):
                 value_loss = nn.functional.mse_loss(values.squeeze(), batch_returns)
 
                 # Total loss
-                loss = (
-                    policy_loss
-                    + self.value_coef * value_loss
-                    - self.entropy_coef * entropy
-                )
+                loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
 
                 # Optimize
                 self.optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(
-                    self.actor_critic.parameters(), self.max_grad_norm
-                )
+                nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
                 self.optimizer.step()
 
                 total_loss += loss.item()
@@ -370,7 +360,7 @@ class SizingRLAgent(RLAgent):
         self.step_count = checkpoint.get("step_count", 0)
         logger.info(f"Agent loaded from {path}")
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get agent configuration."""
         config = super().get_config()
         config.update(

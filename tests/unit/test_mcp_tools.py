@@ -13,13 +13,12 @@ Note: MCP tools are decorated with @mcp.tool() which wraps them as FunctionTool 
 We test the underlying async function implementations directly.
 """
 
-import pytest
+import json
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pandas as pd
-import json
-from unittest.mock import patch, MagicMock, AsyncMock
-from datetime import datetime
-
+import pytest
 
 # ==============================================================================
 # Fixtures
@@ -258,7 +257,7 @@ class TestAdaptersForMCP:
 
         assert "structure_type" in result
         assert result["structure_type"] == "Bull Call Spread"
-        assert result["is_defined_risk"] == True
+        assert result["is_defined_risk"]
 
     def test_portfolio_stats_ffn(self, sample_equity_curve):
         """Test portfolio stats computation."""
@@ -320,9 +319,6 @@ class TestTradeTemplateLogic:
 
     def test_trade_validation_passes(self, sample_trade_template):
         """Test that valid trade passes validation."""
-        from quantcore.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
 
         # Simulate what validate_trade does internally
         template = sample_trade_template
@@ -339,8 +335,8 @@ class TestTradeTemplateLogic:
             "within_position_limit": max_loss <= max_position_value,
         }
 
-        assert checks["defined_risk"] == True
-        assert checks["within_position_limit"] == True
+        assert checks["defined_risk"]
+        assert checks["within_position_limit"]
 
     def test_trade_validation_rejects_oversized(self):
         """Test that oversized position fails validation."""
@@ -357,7 +353,7 @@ class TestTradeTemplateLogic:
 
         within_limit = max_loss <= max_position_value
 
-        assert within_limit == False
+        assert not within_limit
 
     def test_trade_template_structure(self, sample_trade_template):
         """Test trade template has required fields."""
@@ -511,8 +507,8 @@ class TestQuantAgentFeatures:
 
     def test_pattern_features_computation(self):
         """Test pattern feature computation."""
-        from quantcore.features.quantagents_pattern import QuantAgentsPatternFeatures
         from quantcore.config.timeframes import Timeframe
+        from quantcore.features.quantagents_pattern import QuantAgentsPatternFeatures
 
         # Create test data
         dates = pd.date_range("2024-01-01", periods=100, freq="D")
@@ -536,8 +532,8 @@ class TestQuantAgentFeatures:
 
     def test_trend_features_computation(self):
         """Test trend feature computation."""
-        from quantcore.features.quantagents_trend import QuantAgentsTrendFeatures
         from quantcore.config.timeframes import Timeframe
+        from quantcore.features.quantagents_trend import QuantAgentsTrendFeatures
 
         # Create test data (need more bars for trend calculation)
         dates = pd.date_range("2024-01-01", periods=150, freq="D")
@@ -589,10 +585,8 @@ class TestQuickFunctions:
 
     def test_quick_iv(self):
         """Test quick IV computation."""
-        from quantcore.options.engine import quick_iv
-
         # Price an option first
-        from quantcore.options.engine import quick_price
+        from quantcore.options.engine import quick_iv, quick_price
 
         price = quick_price(100, 100, 30, 0.25, "call")
 
@@ -667,7 +661,7 @@ class TestSignalValidation:
         result = adf_test(signal)
 
         assert result.test_name == "ADF"
-        assert result.is_significant == True  # White noise is stationary
+        assert result.is_significant  # White noise is stationary
 
     def test_adf_nonstationary_signal(self):
         """Test ADF on non-stationary signal."""
@@ -679,7 +673,7 @@ class TestSignalValidation:
 
         result = adf_test(signal)
 
-        assert result.is_significant == False  # Random walk is non-stationary
+        assert not result.is_significant  # Random walk is non-stationary
 
     def test_lagged_correlation(self):
         """Test lagged cross-correlation."""
@@ -744,7 +738,7 @@ class TestLeakageDiagnostics:
         report = diagnostics.run_full_diagnostics(features, labels, prices, returns)
 
         # Should detect leakage
-        assert report.has_leakage == True
+        assert report.has_leakage
 
 
 # ==============================================================================
@@ -783,8 +777,8 @@ class TestStressTesting:
 
     def test_stress_scenario_pnl(self):
         """Test stress scenario P&L calculation."""
-        from quantcore.options.pricing import black_scholes_price
         from quantcore.options.models import OptionType
+        from quantcore.options.pricing import black_scholes_price
 
         # Initial position: ATM call
         # Signature: black_scholes_price(S, K, T, r, sigma, option_type, q=0.0)
@@ -794,9 +788,7 @@ class TestStressTesting:
         # Stress scenario: -20% price, +50% vol
         S_stressed = S0 * 0.8
         vol_stressed = vol * 1.5
-        stressed_price = black_scholes_price(
-            S_stressed, K, T, r, vol_stressed, OptionType.CALL
-        )
+        stressed_price = black_scholes_price(S_stressed, K, T, r, vol_stressed, OptionType.CALL)
 
         # Call should lose value from price drop
         assert stressed_price < initial_price
@@ -815,7 +807,7 @@ class TestRiskControls:
 
     def test_normal_state(self):
         """Test normal risk state."""
-        from quantcore.risk.controls import RiskStatus, ExposureManager
+        from quantcore.risk.controls import ExposureManager
 
         manager = ExposureManager(
             max_concurrent_trades=5,
@@ -824,7 +816,7 @@ class TestRiskControls:
 
         can_open, reason = manager.can_open_position("SPY", 10.0, 100000)
 
-        assert can_open == True
+        assert can_open
 
     def test_position_limit_breach(self):
         """Test position limit enforcement."""
@@ -837,7 +829,7 @@ class TestRiskControls:
 
         can_open, reason = manager.can_open_position("AAPL", 10.0, 100000)
 
-        assert can_open == False
+        assert not can_open
         assert "concurrent" in reason.lower()
 
 

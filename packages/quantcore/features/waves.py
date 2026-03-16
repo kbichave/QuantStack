@@ -8,15 +8,16 @@ Implements:
 - Wave feature computation for ML
 """
 
-from dataclasses import dataclass, field
-from typing import List, Literal, Optional, Tuple
+from dataclasses import dataclass
 from enum import Enum
-import pandas as pd
+from typing import Literal
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class WaveRole(Enum):
@@ -62,9 +63,7 @@ class SwingLeg:
         return abs(self.ret_pct)
 
     def __repr__(self) -> str:
-        return (
-            f"Leg({self.direction}: {self.ret_pct:+.2%} over {self.length_bars} bars)"
-        )
+        return f"Leg({self.direction}: {self.ret_pct:+.2%} over {self.length_bars} bars)"
 
 
 @dataclass
@@ -72,11 +71,11 @@ class WavePattern:
     """Detected wave pattern (impulse or correction)."""
 
     type: Literal["impulse_up", "impulse_down", "abc_up", "abc_down"]
-    leg_indices: List[int]  # Indices in legs list
+    leg_indices: list[int]  # Indices in legs list
     start_idx: int  # DataFrame index where pattern starts
     end_idx: int  # DataFrame index where pattern ends
     confidence: float  # Pattern quality score 0-1
-    stages: List[int]  # Wave stages for each leg (1-5 or A-C encoded)
+    stages: list[int]  # Wave stages for each leg (1-5 or A-C encoded)
 
     def __repr__(self) -> str:
         return f"WavePattern({self.type}, conf={self.confidence:.2f})"
@@ -96,8 +95,8 @@ class WaveConfig:
     max_wave4_retrace: float = 1.0  # Wave 4 can't retrace 100% of wave 3
     min_wave3_vs_wave1: float = 1.0  # Wave 3 >= Wave 1 size
     max_wave5_vs_wave3: float = 1.5  # Wave 5 not excessively larger than 3
-    wave2_ideal_retrace: Tuple[float, float] = (0.382, 0.618)  # Fib range
-    wave4_ideal_retrace: Tuple[float, float] = (0.236, 0.50)  # Fib range
+    wave2_ideal_retrace: tuple[float, float] = (0.382, 0.618)  # Fib range
+    wave4_ideal_retrace: tuple[float, float] = (0.236, 0.50)  # Fib range
 
     # ABC correction constraints
     min_corr_pct: float = 0.005  # 0.5% minimum correction move
@@ -133,7 +132,7 @@ class SwingDetector:
     def __init__(self, config: WaveConfig):
         self.config = config
 
-    def detect(self, df: pd.DataFrame, atr_column: str = "atr") -> List[SwingPoint]:
+    def detect(self, df: pd.DataFrame, atr_column: str = "atr") -> list[SwingPoint]:
         """
         Detect swing points in OHLCV data.
 
@@ -160,12 +159,12 @@ class SwingDetector:
         times = df.index.to_list()
         n = len(df)
 
-        swings: List[SwingPoint] = []
+        swings: list[SwingPoint] = []
 
         # Initialize - find first significant move
         last_idx = 0
         last_price = closes[0]
-        direction: Optional[Literal["up", "down"]] = None
+        direction: Literal["up", "down"] | None = None
 
         for i in range(1, n):
             if np.isnan(atr[i]) or atr[i] <= 0:
@@ -262,18 +261,14 @@ class SwingDetector:
 
         return atr
 
-    def build_legs(self, swings: List[SwingPoint]) -> List[SwingLeg]:
+    def build_legs(self, swings: list[SwingPoint]) -> list[SwingLeg]:
         """Convert swing points to leg objects."""
         legs = []
         for i in range(1, len(swings)):
             sp_prev = swings[i - 1]
             sp_curr = swings[i]
 
-            ret_pct = (
-                (sp_curr.price - sp_prev.price) / sp_prev.price
-                if sp_prev.price != 0
-                else 0
-            )
+            ret_pct = (sp_curr.price - sp_prev.price) / sp_prev.price if sp_prev.price != 0 else 0
 
             legs.append(
                 SwingLeg(
@@ -303,7 +298,7 @@ class WaveLabeler:
     def __init__(self, config: WaveConfig):
         self.config = config
 
-    def detect_impulse_up(self, legs: List[SwingLeg]) -> List[WavePattern]:
+    def detect_impulse_up(self, legs: list[SwingLeg]) -> list[WavePattern]:
         """
         Detect impulse-up patterns (5 legs: up, down, up, down, up).
 
@@ -365,7 +360,7 @@ class WaveLabeler:
 
         return patterns
 
-    def detect_impulse_down(self, legs: List[SwingLeg]) -> List[WavePattern]:
+    def detect_impulse_down(self, legs: list[SwingLeg]) -> list[WavePattern]:
         """Detect impulse-down patterns (5 legs: down, up, down, up, down)."""
         patterns = []
         n = len(legs)
@@ -422,7 +417,7 @@ class WaveLabeler:
 
         return patterns
 
-    def detect_abc_down(self, legs: List[SwingLeg]) -> List[WavePattern]:
+    def detect_abc_down(self, legs: list[SwingLeg]) -> list[WavePattern]:
         """Detect ABC correction down (3 legs: down, up, down)."""
         patterns = []
         n = len(legs)
@@ -431,11 +426,7 @@ class WaveLabeler:
             LA, LB, LC = legs[i : i + 3]
 
             # Directions: down, up, down
-            if not (
-                LA.direction == "down"
-                and LB.direction == "up"
-                and LC.direction == "down"
-            ):
+            if not (LA.direction == "down" and LB.direction == "up" and LC.direction == "down"):
                 continue
 
             # Size constraints
@@ -466,7 +457,7 @@ class WaveLabeler:
 
         return patterns
 
-    def detect_abc_up(self, legs: List[SwingLeg]) -> List[WavePattern]:
+    def detect_abc_up(self, legs: list[SwingLeg]) -> list[WavePattern]:
         """Detect ABC correction up (3 legs: up, down, up)."""
         patterns = []
         n = len(legs)
@@ -475,9 +466,7 @@ class WaveLabeler:
             LA, LB, LC = legs[i : i + 3]
 
             # Directions: up, down, up
-            if not (
-                LA.direction == "up" and LB.direction == "down" and LC.direction == "up"
-            ):
+            if not (LA.direction == "up" and LB.direction == "down" and LC.direction == "up"):
                 continue
 
             if abs(LA.ret_pct) <= self.config.min_corr_pct:
@@ -513,20 +502,12 @@ class WaveLabeler:
 
         # Fibonacci alignment for wave 2 (ideal: 38.2%-61.8%)
         w2_retrace = abs(L2.ret_pct) / abs(L1.ret_pct) if L1.ret_pct != 0 else 0
-        if (
-            self.config.wave2_ideal_retrace[0]
-            <= w2_retrace
-            <= self.config.wave2_ideal_retrace[1]
-        ):
+        if self.config.wave2_ideal_retrace[0] <= w2_retrace <= self.config.wave2_ideal_retrace[1]:
             score += 0.15 * self.config.fib_weight
 
         # Fibonacci alignment for wave 4 (ideal: 23.6%-50%)
         w4_retrace = abs(L4.ret_pct) / abs(L3.ret_pct) if L3.ret_pct != 0 else 0
-        if (
-            self.config.wave4_ideal_retrace[0]
-            <= w4_retrace
-            <= self.config.wave4_ideal_retrace[1]
-        ):
+        if self.config.wave4_ideal_retrace[0] <= w4_retrace <= self.config.wave4_ideal_retrace[1]:
             score += 0.15 * self.config.fib_weight
 
         # Wave 3 being the largest is classic
@@ -557,19 +538,11 @@ class WaveLabeler:
         score = 0.5
 
         w2_retrace = abs(L2.ret_pct) / abs(L1.ret_pct) if L1.ret_pct != 0 else 0
-        if (
-            self.config.wave2_ideal_retrace[0]
-            <= w2_retrace
-            <= self.config.wave2_ideal_retrace[1]
-        ):
+        if self.config.wave2_ideal_retrace[0] <= w2_retrace <= self.config.wave2_ideal_retrace[1]:
             score += 0.15 * self.config.fib_weight
 
         w4_retrace = abs(L4.ret_pct) / abs(L3.ret_pct) if L3.ret_pct != 0 else 0
-        if (
-            self.config.wave4_ideal_retrace[0]
-            <= w4_retrace
-            <= self.config.wave4_ideal_retrace[1]
-        ):
+        if self.config.wave4_ideal_retrace[0] <= w4_retrace <= self.config.wave4_ideal_retrace[1]:
             score += 0.15 * self.config.fib_weight
 
         waves_down = [abs(L1.ret_pct), abs(L3.ret_pct), abs(L5.ret_pct)]
@@ -608,7 +581,7 @@ class WaveLabeler:
 
         return min(score, 1.0)
 
-    def detect_all_patterns(self, legs: List[SwingLeg]) -> List[WavePattern]:
+    def detect_all_patterns(self, legs: list[SwingLeg]) -> list[WavePattern]:
         """Detect all pattern types and return sorted by start index."""
         all_patterns = []
 
@@ -634,7 +607,7 @@ class PartialPatternScorer:
     def __init__(self, config: WaveConfig):
         self.config = config
 
-    def score_partial_impulse_up(self, legs: List[SwingLeg]) -> float:
+    def score_partial_impulse_up(self, legs: list[SwingLeg]) -> float:
         """
         Score how much the recent legs look like an in-progress impulse up.
 
@@ -686,7 +659,7 @@ class PartialPatternScorer:
 
         return min(score, 1.0)
 
-    def score_partial_impulse_down(self, legs: List[SwingLeg]) -> float:
+    def score_partial_impulse_down(self, legs: list[SwingLeg]) -> float:
         """Score partial impulse down pattern."""
         if len(legs) < self.config.partial_min_legs:
             return 0.0
@@ -724,7 +697,7 @@ class PartialPatternScorer:
 
         return min(score, 1.0)
 
-    def score_partial_corr_down(self, legs: List[SwingLeg]) -> float:
+    def score_partial_corr_down(self, legs: list[SwingLeg]) -> float:
         """Score partial correction down (pullback in uptrend)."""
         if len(legs) < 1:
             return 0.0
@@ -760,7 +733,7 @@ class PartialPatternScorer:
 
         return min(score, 1.0)
 
-    def score_partial_corr_up(self, legs: List[SwingLeg]) -> float:
+    def score_partial_corr_up(self, legs: list[SwingLeg]) -> float:
         """Score partial correction up (bounce in downtrend)."""
         if len(legs) < 1:
             return 0.0
@@ -845,17 +818,15 @@ class WaveFeatures(FeatureBase):
         # Compute partial pattern scores for each bar
         result = self._compute_partial_scores(result, legs)
 
-        logger.debug(
-            f"Wave features: {len(swings)} swings, {len(patterns)} patterns detected"
-        )
+        logger.debug(f"Wave features: {len(swings)} swings, {len(patterns)} patterns detected")
 
         return result
 
     def _assign_pattern_labels(
         self,
         df: pd.DataFrame,
-        legs: List[SwingLeg],
-        patterns: List[WavePattern],
+        legs: list[SwingLeg],
+        patterns: list[WavePattern],
     ) -> pd.DataFrame:
         """Assign wave labels from detected patterns."""
         # Create arrays for labels
@@ -923,7 +894,7 @@ class WaveFeatures(FeatureBase):
     def _compute_partial_scores(
         self,
         df: pd.DataFrame,
-        legs: List[SwingLeg],
+        legs: list[SwingLeg],
     ) -> pd.DataFrame:
         """Compute partial pattern probabilities for each bar."""
         n = len(df)
@@ -934,14 +905,14 @@ class WaveFeatures(FeatureBase):
         prob_corr_up = np.zeros(n)
 
         # For efficiency, compute at leg boundaries and forward fill
-        leg_ends = sorted(set([leg.end_idx for leg in legs]))
+        leg_ends = sorted({leg.end_idx for leg in legs})
 
         for leg_end in leg_ends:
             if leg_end >= n:
                 continue
 
             # Get legs up to this point
-            legs_to_here = [l for l in legs if l.end_idx <= leg_end]
+            legs_to_here = [l for l in legs if l.end_idx <= leg_end]  # noqa: E741
             if not legs_to_here:
                 continue
 
@@ -984,7 +955,7 @@ class WaveFeatures(FeatureBase):
 
         return df
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return wave feature names."""
         return [
             "wave_role",
@@ -999,7 +970,7 @@ class WaveFeatures(FeatureBase):
     def get_swings_and_legs(
         self,
         df: pd.DataFrame,
-    ) -> Tuple[List[SwingPoint], List[SwingLeg]]:
+    ) -> tuple[list[SwingPoint], list[SwingLeg]]:
         """
         Get raw swings and legs for analysis.
 
@@ -1009,7 +980,7 @@ class WaveFeatures(FeatureBase):
         legs = self.swing_detector.build_legs(swings)
         return swings, legs
 
-    def get_patterns(self, df: pd.DataFrame) -> List[WavePattern]:
+    def get_patterns(self, df: pd.DataFrame) -> list[WavePattern]:
         """Get detected wave patterns for analysis."""
         swings = self.swing_detector.detect(df)
         legs = self.swing_detector.build_legs(swings)

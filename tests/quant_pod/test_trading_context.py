@@ -20,16 +20,13 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from quant_pod.context import TradingContext, create_trading_context
 from quant_pod.execution.portfolio_state import Position
-from quant_pod.execution.signal_cache import SignalCache, TradeSignal
+from quant_pod.execution.signal_cache import TradeSignal
 from quant_pod.execution.tick_executor import Tick, TickExecutor
-
 
 # =============================================================================
 # Fixtures
@@ -169,8 +166,7 @@ class TestPortfolioState:
 
     def test_snapshot_is_internally_consistent(self, ctx):
         ctx.portfolio.upsert_position(
-            Position(symbol="QQQ", quantity=50, avg_cost=380.0, side="long",
-                     current_price=390.0)
+            Position(symbol="QQQ", quantity=50, avg_cost=380.0, side="long", current_price=390.0)
         )
         snap = ctx.portfolio.get_snapshot()
         assert snap.position_count == 1
@@ -189,8 +185,11 @@ class TestSignalCache:
     def test_get_returns_signal_within_ttl(self, ctx):
         ctx.signal_cache.update(
             TradeSignal.create(
-                symbol="SPY", action="BUY", confidence=0.8,
-                position_size_pct=0.05, expires_in_seconds=300,
+                symbol="SPY",
+                action="BUY",
+                confidence=0.8,
+                position_size_pct=0.05,
+                expires_in_seconds=300,
                 session_id=ctx.session_id,
             )
         )
@@ -199,14 +198,14 @@ class TestSignalCache:
         assert sig.action == "BUY"
 
     def test_get_returns_none_for_expired_signal(self, ctx):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expired = TradeSignal(
             symbol="SPY",
             action="BUY",
             confidence=0.8,
             position_size_pct=0.05,
             generated_at=now - timedelta(seconds=600),
-            expires_at=now - timedelta(seconds=1),   # already expired
+            expires_at=now - timedelta(seconds=1),  # already expired
             session_id=ctx.session_id,
         )
         ctx.signal_cache.update(expired)
@@ -220,8 +219,11 @@ class TestSignalCache:
         symbols = ["SPY", "QQQ", "AAPL"]
         signals = [
             TradeSignal.create(
-                symbol=s, action="BUY", confidence=0.7,
-                position_size_pct=0.03, expires_in_seconds=300,
+                symbol=s,
+                action="BUY",
+                confidence=0.7,
+                position_size_pct=0.03,
+                expires_in_seconds=300,
                 session_id=ctx.session_id,
             )
             for s in symbols
@@ -239,8 +241,11 @@ class TestSignalCache:
 class TestRiskState:
     def _buy_signal(self, symbol: str, session_id: str) -> TradeSignal:
         return TradeSignal.create(
-            symbol=symbol, action="BUY", confidence=0.8,
-            position_size_pct=0.05, expires_in_seconds=300,
+            symbol=symbol,
+            action="BUY",
+            confidence=0.8,
+            position_size_pct=0.05,
+            expires_in_seconds=300,
             session_id=session_id,
         )
 
@@ -283,8 +288,11 @@ class TestTickExecutor:
         # Write a BUY signal for SPY
         ctx.signal_cache.update(
             TradeSignal.create(
-                symbol="SPY", action="BUY", confidence=0.8,
-                position_size_pct=0.05, expires_in_seconds=300,
+                symbol="SPY",
+                action="BUY",
+                confidence=0.8,
+                position_size_pct=0.05,
+                expires_in_seconds=300,
                 session_id=ctx.session_id,
             )
         )
@@ -315,8 +323,11 @@ class TestTickExecutor:
     async def test_hold_signal_produces_no_order(self, ctx):
         ctx.signal_cache.update(
             TradeSignal.create(
-                symbol="SPY", action="HOLD", confidence=0.5,
-                position_size_pct=0.0, expires_in_seconds=300,
+                symbol="SPY",
+                action="HOLD",
+                confidence=0.5,
+                position_size_pct=0.0,
+                expires_in_seconds=300,
                 session_id=ctx.session_id,
             )
         )
@@ -349,8 +360,11 @@ class TestTickExecutor:
 
         ctx.signal_cache.update(
             TradeSignal.create(
-                symbol="SPY", action="BUY", confidence=0.9,
-                position_size_pct=0.05, expires_in_seconds=300,
+                symbol="SPY",
+                action="BUY",
+                confidence=0.9,
+                position_size_pct=0.05,
+                expires_in_seconds=300,
                 session_id=ctx.session_id,
             )
         )

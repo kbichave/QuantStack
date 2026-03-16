@@ -29,11 +29,9 @@ Failure modes:
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from loguru import logger
@@ -57,7 +55,7 @@ class ISBenchmark:
 
     strategy_id: str
     predicted_annual_sharpe: float
-    predicted_max_drawdown: float        # As fraction (e.g. 0.08 = 8%)
+    predicted_max_drawdown: float  # As fraction (e.g. 0.08 = 8%)
     predicted_win_rate: float
     registered_at: datetime = field(default_factory=datetime.now)
     n_backtest_trades: int = 0
@@ -79,22 +77,23 @@ class DegradationReport:
     rolling_window_days: int
 
     # IS benchmark (None if not registered)
-    is_benchmark: Optional[ISBenchmark]
+    is_benchmark: ISBenchmark | None
 
     # Derived ratios
-    sharpe_ratio_oos_vs_is: Optional[float]    # OOS / IS — < 0.5 = WARNING
-    drawdown_ratio_vs_predicted: Optional[float]  # actual / predicted — > 2 = WARNING
+    sharpe_ratio_oos_vs_is: float | None  # OOS / IS — < 0.5 = WARNING
+    drawdown_ratio_vs_predicted: float | None  # actual / predicted — > 2 = WARNING
 
     # Human-readable findings
-    findings: List[str] = field(default_factory=list)
+    findings: list[str] = field(default_factory=list)
 
     # Recommended size adjustment (fraction, e.g. 0.5 = reduce to 50%)
     recommended_size_multiplier: float = 1.0
 
     @property
     def emoji(self) -> str:
-        return {"clean": "✅", "warning": "⚠️", "critical": "🚨",
-                "insufficient_data": "📊"}[self.status.value]
+        return {"clean": "✅", "warning": "⚠️", "critical": "🚨", "insufficient_data": "📊"}[
+            self.status.value
+        ]
 
 
 class DegradationDetector:
@@ -110,10 +109,10 @@ class DegradationDetector:
     MIN_TRADES_FOR_SHARPE = 10  # Need at least 10 trades to compute Sharpe
 
     # IS/OOS ratio thresholds
-    WARNING_OOS_IS_RATIO = 0.50    # OOS / IS < 0.5 → WARNING
-    CRITICAL_OOS_IS_RATIO = 0.25   # OOS / IS < 0.25 → CRITICAL
-    WARNING_DD_RATIO = 2.0         # actual DD > 2× predicted → WARNING
-    CRITICAL_DD_RATIO = 3.0        # actual DD > 3× predicted → CRITICAL
+    WARNING_OOS_IS_RATIO = 0.50  # OOS / IS < 0.5 → WARNING
+    CRITICAL_OOS_IS_RATIO = 0.25  # OOS / IS < 0.25 → CRITICAL
+    WARNING_DD_RATIO = 2.0  # actual DD > 2× predicted → WARNING
+    CRITICAL_DD_RATIO = 3.0  # actual DD > 3× predicted → CRITICAL
 
     def __init__(self, conn=None) -> None:
         """
@@ -121,7 +120,7 @@ class DegradationDetector:
             conn: DuckDB connection. If None, opens the default portfolio DB.
         """
         self._conn = conn
-        self._benchmarks: Dict[str, ISBenchmark] = {}
+        self._benchmarks: dict[str, ISBenchmark] = {}
         self._ensure_benchmark_table()
         self._load_benchmarks()
 
@@ -193,7 +192,9 @@ class DegradationDetector:
                 is_benchmark=benchmark,
                 sharpe_ratio_oos_vs_is=None,
                 drawdown_ratio_vs_predicted=None,
-                findings=[f"Only {len(trades)} trades in last {rolling_days}d — need {self.MIN_TRADES_FOR_SHARPE} for analysis"],
+                findings=[
+                    f"Only {len(trades)} trades in last {rolling_days}d — need {self.MIN_TRADES_FOR_SHARPE} for analysis"
+                ],
                 recommended_size_multiplier=1.0,
             )
 
@@ -237,8 +238,10 @@ class DegradationDetector:
             recommended_size_multiplier=size_mult,
         )
 
-        level = "critical" if status == DegradationStatus.CRITICAL else (
-            "warning" if status == DegradationStatus.WARNING else "info"
+        level = (
+            "critical"
+            if status == DegradationStatus.CRITICAL
+            else ("warning" if status == DegradationStatus.WARNING else "info")
         )
         getattr(logger, level)(
             f"[DEGRADE] {strategy_id}: {status.value.upper()} | "
@@ -247,7 +250,7 @@ class DegradationDetector:
         )
         return report
 
-    def check_all(self, rolling_days: int = DEFAULT_ROLLING_DAYS) -> List[DegradationReport]:
+    def check_all(self, rolling_days: int = DEFAULT_ROLLING_DAYS) -> list[DegradationReport]:
         """
         Check all registered benchmarks plus a "default" strategy check.
         Returns list of DegradationReport sorted by severity.
@@ -272,10 +275,10 @@ class DegradationDetector:
         live_sharpe: float,
         live_win_rate: float,
         live_max_dd: float,
-        oos_is_ratio: Optional[float],
-        dd_ratio: Optional[float],
-        benchmark: Optional[ISBenchmark],
-    ) -> Tuple[DegradationStatus, List[str], float]:
+        oos_is_ratio: float | None,
+        dd_ratio: float | None,
+        benchmark: ISBenchmark | None,
+    ) -> tuple[DegradationStatus, list[str], float]:
         """
         Return (status, findings list, recommended_size_multiplier).
 
@@ -308,14 +311,14 @@ class DegradationDetector:
             if oos_is_ratio < self.CRITICAL_OOS_IS_RATIO:
                 findings.append(
                     f"IS/OOS Sharpe ratio = {oos_is_ratio:.2f} (< {self.CRITICAL_OOS_IS_RATIO:.2f}). "
-                    f"Live Sharpe is {(1-oos_is_ratio):.0%} below backtest. Likely overfitted or regime change."
+                    f"Live Sharpe is {(1 - oos_is_ratio):.0%} below backtest. Likely overfitted or regime change."
                 )
                 status = DegradationStatus.CRITICAL
                 size_mult = min(size_mult, 0.25)
             elif oos_is_ratio < self.WARNING_OOS_IS_RATIO:
                 findings.append(
                     f"IS/OOS Sharpe ratio = {oos_is_ratio:.2f} (< {self.WARNING_OOS_IS_RATIO:.2f}). "
-                    f"Live underperforming backtest by {(1-oos_is_ratio):.0%}. Monitor closely."
+                    f"Live underperforming backtest by {(1 - oos_is_ratio):.0%}. Monitor closely."
                 )
                 if status == DegradationStatus.CLEAN:
                     status = DegradationStatus.WARNING
@@ -364,7 +367,7 @@ class DegradationDetector:
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _rolling_sharpe(pnls: List[float], annualisation: int = 252) -> float:
+    def _rolling_sharpe(pnls: list[float], annualisation: int = 252) -> float:
         """
         Annualised Sharpe from a list of per-trade P&L values.
 
@@ -386,7 +389,7 @@ class DegradationDetector:
         return mean / std
 
     @staticmethod
-    def _max_drawdown(pnls: List[float]) -> float:
+    def _max_drawdown(pnls: list[float]) -> float:
         """Max drawdown from cumulative P&L series."""
         if not pnls:
             return 0.0
@@ -399,7 +402,7 @@ class DegradationDetector:
     # Data access
     # -------------------------------------------------------------------------
 
-    def _load_closed_trades(self, since: datetime) -> List[Dict]:
+    def _load_closed_trades(self, since: datetime) -> list[dict]:
         """Load closed trades from PortfolioState DuckDB within the window."""
         conn = self._get_conn()
         if conn is None:
@@ -415,9 +418,13 @@ class DegradationDetector:
             ).fetchall()
             return [
                 {
-                    "symbol": r[0], "side": r[1], "quantity": r[2],
-                    "entry_price": r[3], "exit_price": r[4],
-                    "realized_pnl": r[5], "closed_at": r[6],
+                    "symbol": r[0],
+                    "side": r[1],
+                    "quantity": r[2],
+                    "entry_price": r[3],
+                    "exit_price": r[4],
+                    "realized_pnl": r[5],
+                    "closed_at": r[6],
                 }
                 for r in rows
             ]
@@ -431,6 +438,7 @@ class DegradationDetector:
             return self._conn
         try:
             from quant_pod.execution.portfolio_state import get_portfolio_state
+
             return get_portfolio_state().conn
         except Exception as e:
             logger.warning(f"[DEGRADE] Could not get portfolio DB conn: {e}")
@@ -498,8 +506,14 @@ class DegradationDetector:
                     n_backtest_trades       = excluded.n_backtest_trades,
                     registered_at           = excluded.registered_at
                 """,
-                [b.strategy_id, b.predicted_annual_sharpe, b.predicted_max_drawdown,
-                 b.predicted_win_rate, b.n_backtest_trades, b.registered_at],
+                [
+                    b.strategy_id,
+                    b.predicted_annual_sharpe,
+                    b.predicted_max_drawdown,
+                    b.predicted_win_rate,
+                    b.n_backtest_trades,
+                    b.registered_at,
+                ],
             )
         except Exception as e:
             logger.debug(f"[DEGRADE] Could not persist benchmark: {e}")

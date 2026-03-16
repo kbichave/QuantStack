@@ -5,8 +5,9 @@ Handles price and feature scaling across different equity price ranges
 to ensure ML/RL models work properly across all symbols.
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Literal
+from dataclasses import dataclass
+from typing import Literal
+
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -19,7 +20,7 @@ class ScalerConfig:
     method: Literal["zscore", "minmax", "robust", "rank"] = "zscore"
     clip_outliers: bool = True
     clip_std: float = 3.0
-    rolling_window: Optional[int] = None  # If set, use rolling normalization
+    rolling_window: int | None = None  # If set, use rolling normalization
 
 
 class FeatureScaler:
@@ -77,7 +78,7 @@ class FeatureScaler:
 
     def __init__(
         self,
-        config: Optional[ScalerConfig] = None,
+        config: ScalerConfig | None = None,
     ):
         """
         Initialize feature scaler.
@@ -86,12 +87,12 @@ class FeatureScaler:
             config: Scaler configuration
         """
         self.config = config or ScalerConfig()
-        self._fit_params: Dict[str, Tuple[float, float]] = {}
+        self._fit_params: dict[str, tuple[float, float]] = {}
 
     def fit(
         self,
         df: pd.DataFrame,
-        feature_columns: Optional[List[str]] = None,
+        feature_columns: list[str] | None = None,
     ) -> "FeatureScaler":
         """
         Fit scaler to training data.
@@ -131,7 +132,7 @@ class FeatureScaler:
     def transform(
         self,
         df: pd.DataFrame,
-        feature_columns: Optional[List[str]] = None,
+        feature_columns: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         Transform features using fitted parameters.
@@ -165,16 +166,14 @@ class FeatureScaler:
 
             # Clip outliers
             if self.config.clip_outliers:
-                result[col] = result[col].clip(
-                    -self.config.clip_std, self.config.clip_std
-                )
+                result[col] = result[col].clip(-self.config.clip_std, self.config.clip_std)
 
         return result
 
     def fit_transform(
         self,
         df: pd.DataFrame,
-        feature_columns: Optional[List[str]] = None,
+        feature_columns: list[str] | None = None,
     ) -> pd.DataFrame:
         """Fit and transform in one step."""
         return self.fit(df, feature_columns).transform(df, feature_columns)
@@ -199,23 +198,17 @@ class FeatureScaler:
         result = df.copy()
 
         if price_column not in result.columns:
-            logger.warning(
-                f"Price column {price_column} not found, skipping normalization"
-            )
+            logger.warning(f"Price column {price_column} not found, skipping normalization")
             return result
 
         price = result[price_column].replace(0, np.nan)
 
         for col in result.columns:
             # Check if column is price-dependent
-            is_price_dependent = any(
-                pattern in col.lower() for pattern in self.PRICE_DEPENDENT
-            )
+            is_price_dependent = any(pattern in col.lower() for pattern in self.PRICE_DEPENDENT)
 
             # Skip if already normalized
-            is_normalized = any(
-                pattern in col.lower() for pattern in self.ALREADY_NORMALIZED
-            )
+            is_normalized = any(pattern in col.lower() for pattern in self.ALREADY_NORMALIZED)
 
             if is_price_dependent and not is_normalized:
                 # Convert to percentage of price
@@ -234,7 +227,7 @@ class MultiSymbolScaler:
 
     def __init__(
         self,
-        config: Optional[ScalerConfig] = None,
+        config: ScalerConfig | None = None,
     ):
         """
         Initialize multi-symbol scaler.
@@ -243,13 +236,13 @@ class MultiSymbolScaler:
             config: Scaler configuration
         """
         self.config = config or ScalerConfig()
-        self._fit_params: Dict[str, Tuple[float, float]] = {}
-        self._per_symbol_params: Dict[str, Dict[str, Tuple[float, float]]] = {}
+        self._fit_params: dict[str, tuple[float, float]] = {}
+        self._per_symbol_params: dict[str, dict[str, tuple[float, float]]] = {}
 
     def fit(
         self,
-        symbol_data: Dict[str, pd.DataFrame],
-        feature_columns: List[str],
+        symbol_data: dict[str, pd.DataFrame],
+        feature_columns: list[str],
         pooled: bool = True,
     ) -> "MultiSymbolScaler":
         """
@@ -266,7 +259,7 @@ class MultiSymbolScaler:
         if pooled:
             # Pool all data for universal scaling
             all_data = []
-            for symbol, df in symbol_data.items():
+            for _symbol, df in symbol_data.items():
                 if len(df) > 0:
                     all_data.append(df[feature_columns].dropna())
 
@@ -320,7 +313,7 @@ class MultiSymbolScaler:
         self,
         symbol: str,
         df: pd.DataFrame,
-        feature_columns: Optional[List[str]] = None,
+        feature_columns: list[str] | None = None,
     ) -> pd.DataFrame:
         """
         Transform features for a symbol.
@@ -359,17 +352,15 @@ class MultiSymbolScaler:
 
             # Clip outliers
             if self.config.clip_outliers:
-                result[col] = result[col].clip(
-                    -self.config.clip_std, self.config.clip_std
-                )
+                result[col] = result[col].clip(-self.config.clip_std, self.config.clip_std)
 
         return result
 
     def transform_all(
         self,
-        symbol_data: Dict[str, pd.DataFrame],
-        feature_columns: Optional[List[str]] = None,
-    ) -> Dict[str, pd.DataFrame]:
+        symbol_data: dict[str, pd.DataFrame],
+        feature_columns: list[str] | None = None,
+    ) -> dict[str, pd.DataFrame]:
         """
         Transform all symbols.
 
@@ -386,7 +377,7 @@ class MultiSymbolScaler:
         }
 
 
-def get_feature_groups() -> Dict[str, List[str]]:
+def get_feature_groups() -> dict[str, list[str]]:
     """
     Get feature groups for selective scaling.
 
@@ -452,7 +443,7 @@ def select_features_for_ml(
     df: pd.DataFrame,
     exclude_raw_prices: bool = True,
     exclude_identifiers: bool = True,
-) -> List[str]:
+) -> list[str]:
     """
     Select features suitable for ML training.
 

@@ -4,11 +4,9 @@ Matching Engine for Order Book.
 Price-time priority matching with support for multiple order types.
 """
 
-import numpy as np
-from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass
 
-from quantcore.microstructure.order_book import OrderBook, Order, OrderType, Side
+from quantcore.microstructure.order_book import Order, OrderBook, OrderType, Side
 
 
 @dataclass
@@ -27,7 +25,7 @@ class ExecutionReport:
     """Report of order execution."""
 
     order_id: int
-    fills: List[Fill]
+    fills: list[Fill]
     total_filled: float
     avg_price: float
     remaining: float
@@ -48,7 +46,7 @@ class MatchingEngine:
     def __init__(self):
         self.book = OrderBook()
         self.order_counter = 0
-        self.fills: List[Fill] = []
+        self.fills: list[Fill] = []
 
     def submit_order(self, order: Order) -> ExecutionReport:
         """Submit order to matching engine."""
@@ -67,15 +65,15 @@ class MatchingEngine:
 
         total_filled = sum(f.quantity for f in fills)
         avg_price = (
-            sum(f.price * f.quantity for f in fills) / total_filled
-            if total_filled > 0
-            else 0
+            sum(f.price * f.quantity for f in fills) / total_filled if total_filled > 0 else 0
         )
 
         status = (
             "filled"
             if total_filled >= order.quantity
-            else "partial" if total_filled > 0 else "resting"
+            else "partial"
+            if total_filled > 0
+            else "resting"
         )
 
         return ExecutionReport(
@@ -87,14 +85,12 @@ class MatchingEngine:
             status=status,
         )
 
-    def _execute_market_order(self, order: Order) -> List[Fill]:
+    def _execute_market_order(self, order: Order) -> list[Fill]:
         """Execute market order against resting orders."""
         fills = []
         levels = self.book.asks if order.side == Side.BID else self.book.bids
         prices = (
-            sorted(levels.keys())
-            if order.side == Side.BID
-            else sorted(levels.keys(), reverse=True)
+            sorted(levels.keys()) if order.side == Side.BID else sorted(levels.keys(), reverse=True)
         )
 
         for price in prices:
@@ -129,23 +125,15 @@ class MatchingEngine:
 
         return fills
 
-    def _process_limit_order(self, order: Order) -> List[Fill]:
+    def _process_limit_order(self, order: Order) -> list[Fill]:
         """Process limit order (may cross or rest)."""
         fills = []
 
         if order.side == Side.BID:
-            while (
-                order.remaining > 0
-                and self.book.best_ask
-                and order.price >= self.book.best_ask
-            ):
+            while order.remaining > 0 and self.book.best_ask and order.price >= self.book.best_ask:
                 fills.extend(self._match_at_price(order, self.book.best_ask, Side.ASK))
         else:
-            while (
-                order.remaining > 0
-                and self.book.best_bid
-                and order.price <= self.book.best_bid
-            ):
+            while order.remaining > 0 and self.book.best_bid and order.price <= self.book.best_bid:
                 fills.extend(self._match_at_price(order, self.book.best_bid, Side.BID))
 
         if order.remaining > 0:
@@ -153,9 +141,7 @@ class MatchingEngine:
 
         return fills
 
-    def _match_at_price(
-        self, aggressor: Order, price: float, passive_side: Side
-    ) -> List[Fill]:
+    def _match_at_price(self, aggressor: Order, price: float, passive_side: Side) -> list[Fill]:
         """Match aggressor order against passive orders at price."""
         fills = []
         levels = self.book.bids if passive_side == Side.BID else self.book.asks

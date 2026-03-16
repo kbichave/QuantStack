@@ -5,7 +5,6 @@ Portfolio optimization and constrained minimization.
 """
 
 import numpy as np
-from typing import Optional
 from scipy.optimize import minimize
 
 
@@ -47,16 +46,12 @@ def portfolio_optimize(
 
     w0 = np.ones(n_assets) / n_assets
 
-    result = minimize(
-        objective, w0, method="SLSQP", bounds=bounds, constraints=constraints
-    )
+    result = minimize(objective, w0, method="SLSQP", bounds=bounds, constraints=constraints)
 
     return result.x
 
 
-def minimum_variance_portfolio(
-    covariance: np.ndarray, long_only: bool = True
-) -> np.ndarray:
+def minimum_variance_portfolio(covariance: np.ndarray, long_only: bool = True) -> np.ndarray:
     """Compute minimum variance portfolio."""
     n = covariance.shape[0]
 
@@ -107,9 +102,7 @@ def maximum_sharpe_portfolio(
 
     for _ in range(5):
         w0 = np.random.dirichlet(np.ones(n))
-        result = minimize(
-            neg_sharpe, w0, method="SLSQP", bounds=bounds, constraints=constraints
-        )
+        result = minimize(neg_sharpe, w0, method="SLSQP", bounds=bounds, constraints=constraints)
 
         if result.success and -result.fun > best_sharpe:
             best_sharpe = -result.fun

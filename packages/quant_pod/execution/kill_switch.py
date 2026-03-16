@@ -30,11 +30,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Optional
 
 from loguru import logger
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel
 
 # =============================================================================
 # DATA MODELS
@@ -45,10 +43,10 @@ class KillSwitchStatus(BaseModel):
     """Current state of the kill switch."""
 
     active: bool = False
-    triggered_at: Optional[datetime] = None
-    reason: Optional[str] = None
-    reset_at: Optional[datetime] = None
-    reset_by: Optional[str] = None
+    triggered_at: datetime | None = None
+    reason: str | None = None
+    reset_at: datetime | None = None
+    reset_by: str | None = None
 
 
 # =============================================================================
@@ -147,8 +145,7 @@ class KillSwitch:
                 pass  # Already absent — that's fine
 
         logger.info(
-            f"[KILL SWITCH] Reset by '{reset_by}' at {self._status.reset_at}. "
-            f"Trading may resume."
+            f"[KILL SWITCH] Reset by '{reset_by}' at {self._status.reset_at}. Trading may resume."
         )
 
     def is_active(self) -> bool:
@@ -225,10 +222,7 @@ class KillSwitch:
     def _write_sentinel(self) -> None:
         self.SENTINEL_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(self.SENTINEL_FILE, "w") as f:
-            f.write(
-                f"triggered_at={self._status.triggered_at}\n"
-                f"reason={self._status.reason}\n"
-            )
+            f.write(f"triggered_at={self._status.triggered_at}\nreason={self._status.reason}\n")
 
     def _load_from_file(self) -> None:
         try:
@@ -253,7 +247,7 @@ class KillSwitch:
 
 
 # Singleton
-_kill_switch: Optional[KillSwitch] = None
+_kill_switch: KillSwitch | None = None
 
 
 def get_kill_switch() -> KillSwitch:

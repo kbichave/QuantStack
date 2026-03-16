@@ -5,13 +5,13 @@ Uses PPO from Stable Baselines3 with a simple equity trading environment.
 """
 
 import warnings
-from typing import Dict, Any, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.equity.reports import TickerStrategyResult, StrategyResult
+from quantcore.equity.reports import StrategyResult, TickerStrategyResult
 
 # RL imports with fallback
 try:
@@ -136,7 +136,7 @@ class EquityTradingEnv(gym.Env if GYM_AVAILABLE else object):
 
         return obs
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict]:
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
         """Execute one step."""
         target_position = float(action[0])  # -1 to +1
 
@@ -196,11 +196,11 @@ class EquityTradingEnv(gym.Env if GYM_AVAILABLE else object):
 
 
 def run_rl_strategy(
-    symbol_data: Dict[str, Any],
+    symbol_data: dict[str, Any],
     initial_equity: float = 100000,
     total_timesteps: int = 20000,
     calculate_data_split: callable = None,
-) -> Optional[StrategyResult]:
+) -> StrategyResult | None:
     """
     Train and run RL strategy using PPO.
 
@@ -224,7 +224,6 @@ def run_rl_strategy(
     per_ticker = {}
     total_pnl = 0
     total_trades = 0
-    max_dd = 0
 
     for symbol, data in symbol_data.items():
         if data.features is None or data.features.empty:
@@ -260,9 +259,7 @@ def run_rl_strategy(
         test_features = clean_features.iloc[split.test_start : split.test_end]
 
         if len(train_data) < 100 or len(test_data) < 20:
-            logger.warning(
-                f"  Insufficient data: train={len(train_data)}, test={len(test_data)}"
-            )
+            logger.warning(f"  Insufficient data: train={len(train_data)}, test={len(test_data)}")
             continue
 
         try:
@@ -275,7 +272,7 @@ def run_rl_strategy(
             )
 
             # Wrap for stable-baselines3
-            vec_env = DummyVecEnv([lambda: train_env])
+            vec_env = DummyVecEnv([lambda: train_env])  # noqa: B023
 
             # Train PPO agent
             logger.info(f"  Training for {total_timesteps} timesteps...")
@@ -292,7 +289,7 @@ def run_rl_strategy(
                 )
                 model.learn(total_timesteps=total_timesteps)
 
-            logger.info(f"  Training complete")
+            logger.info("  Training complete")
 
             # Evaluate on test data
             test_env = EquityTradingEnv(
@@ -316,9 +313,7 @@ def run_rl_strategy(
             # Calculate metrics
             pnl = info["pnl"]
             trades = sum(
-                1
-                for i in range(1, len(positions))
-                if abs(positions[i] - positions[i - 1]) > 0.1
+                1 for i in range(1, len(positions)) if abs(positions[i] - positions[i - 1]) > 0.1
             )
 
             # Calculate win rate (simplified)

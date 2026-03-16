@@ -28,14 +28,12 @@ References:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -44,11 +42,12 @@ from loguru import logger
 
 class ExecAlgo(str, Enum):
     """Execution algorithm recommendation."""
-    IMMEDIATE = "IMMEDIATE"   # Market order now — low market impact, high timing cost
-    TWAP = "TWAP"             # Time-weighted — uniform slicing across horizon
-    VWAP = "VWAP"             # Volume-weighted — matches intraday volume curve
-    POV = "POV"               # Percentage of volume — tracks live volume
-    LIMIT = "LIMIT"           # Passive limit order — cheapest, uncertain fill
+
+    IMMEDIATE = "IMMEDIATE"  # Market order now — low market impact, high timing cost
+    TWAP = "TWAP"  # Time-weighted — uniform slicing across horizon
+    VWAP = "VWAP"  # Volume-weighted — matches intraday volume curve
+    POV = "POV"  # Percentage of volume — tracks live volume
+    LIMIT = "LIMIT"  # Passive limit order — cheapest, uncertain fill
 
 
 class OrderSide(str, Enum):
@@ -68,26 +67,26 @@ class PreTradeForecast:
     symbol: str
     side: OrderSide
     shares: float
-    arrival_price: float        # Price at signal-fire time
+    arrival_price: float  # Price at signal-fire time
 
     # Cost components (all in basis points)
-    spread_cost_bps: float      # Half-spread (one-way)
-    market_impact_bps: float    # Estimated market impact (square-root law)
-    timing_cost_bps: float      # Volatility-driven execution uncertainty
-    commission_bps: float       # Broker fee
-    total_expected_bps: float   # Sum of all one-way cost components
+    spread_cost_bps: float  # Half-spread (one-way)
+    market_impact_bps: float  # Estimated market impact (square-root law)
+    timing_cost_bps: float  # Volatility-driven execution uncertainty
+    commission_bps: float  # Broker fee
+    total_expected_bps: float  # Sum of all one-way cost components
 
     # Participation / liquidity
-    participation_rate: float   # Order / estimated daily volume
-    adv_fraction: float         # participation_rate alias (same value)
-    is_liquid: bool             # True when participation < 1%
+    participation_rate: float  # Order / estimated daily volume
+    adv_fraction: float  # participation_rate alias (same value)
+    is_liquid: bool  # True when participation < 1%
 
     # Algo recommendation
     recommended_algo: ExecAlgo
     algo_rationale: str
 
     # Break-even
-    min_alpha_bps: float        # Alpha needed to overcome round-trip costs
+    min_alpha_bps: float  # Alpha needed to overcome round-trip costs
 
 
 def pre_trade_forecast(
@@ -95,9 +94,9 @@ def pre_trade_forecast(
     side: OrderSide,
     shares: float,
     arrival_price: float,
-    adv: float,                  # Average daily volume (shares)
-    daily_volatility_pct: float, # Daily return volatility in percent (e.g. 1.5)
-    spread_bps: float = 5.0,     # Current bid-ask spread estimate in bps
+    adv: float,  # Average daily volume (shares)
+    daily_volatility_pct: float,  # Daily return volatility in percent (e.g. 1.5)
+    spread_bps: float = 5.0,  # Current bid-ask spread estimate in bps
     commission_per_share: float = 0.005,  # Broker commission $/share
 ) -> PreTradeForecast:
     """
@@ -155,25 +154,25 @@ def pre_trade_forecast(
     if participation_rate < 0.002:
         algo = ExecAlgo.IMMEDIATE
         rationale = (
-            f"Order is {participation_rate*100:.2f}% of ADV — negligible market impact. "
+            f"Order is {participation_rate * 100:.2f}% of ADV — negligible market impact. "
             "Immediate execution captures signal timing with minimal cost."
         )
     elif participation_rate < 0.01:
         algo = ExecAlgo.TWAP
         rationale = (
-            f"Order is {participation_rate*100:.2f}% of ADV. "
+            f"Order is {participation_rate * 100:.2f}% of ADV. "
             "TWAP spreads impact uniformly; suitable for low-urgency signals."
         )
     elif participation_rate < 0.05:
         algo = ExecAlgo.VWAP
         rationale = (
-            f"Order is {participation_rate*100:.2f}% of ADV. "
+            f"Order is {participation_rate * 100:.2f}% of ADV. "
             "VWAP tracks intraday volume profile to minimise market impact."
         )
     else:
         algo = ExecAlgo.POV
         rationale = (
-            f"Order is {participation_rate*100:.2f}% of ADV — large relative size. "
+            f"Order is {participation_rate * 100:.2f}% of ADV — large relative size. "
             "POV (10% participation cap) spreads execution across the day."
         )
 
@@ -209,12 +208,12 @@ class TradeRecord:
     symbol: str
     side: OrderSide
     shares: float
-    arrival_price: float       # Price at signal-fire (arrival benchmark)
-    fill_price: float          # Actual average execution price
-    vwap_price: Optional[float] = None   # Interval VWAP if available
-    twap_price: Optional[float] = None   # Interval TWAP if available
-    prev_close: Optional[float] = None   # Previous day close
-    timestamp: Optional[pd.Timestamp] = None
+    arrival_price: float  # Price at signal-fire (arrival benchmark)
+    fill_price: float  # Actual average execution price
+    vwap_price: float | None = None  # Interval VWAP if available
+    twap_price: float | None = None  # Interval TWAP if available
+    prev_close: float | None = None  # Previous day close
+    timestamp: pd.Timestamp | None = None
 
 
 @dataclass
@@ -227,9 +226,9 @@ class TradeTCAResult:
 
     # Implementation shortfall vs. each benchmark (bps, positive = cost)
     shortfall_vs_arrival_bps: float
-    shortfall_vs_vwap_bps: Optional[float]
-    shortfall_vs_twap_bps: Optional[float]
-    shortfall_vs_prev_close_bps: Optional[float]
+    shortfall_vs_vwap_bps: float | None
+    shortfall_vs_twap_bps: float | None
+    shortfall_vs_prev_close_bps: float | None
 
     # Dollar cost
     shortfall_dollar: float  # (fill_price - arrival_price) × shares × direction
@@ -336,9 +335,9 @@ class TCAEngine:
     """
 
     def __init__(self) -> None:
-        self._arrivals: Dict[str, TradeRecord] = {}
-        self._results: List[TradeTCAResult] = []
-        self._forecasts: Dict[str, PreTradeForecast] = {}
+        self._arrivals: dict[str, TradeRecord] = {}
+        self._results: list[TradeTCAResult] = []
+        self._forecasts: dict[str, PreTradeForecast] = {}
 
     def record_arrival(
         self,
@@ -347,7 +346,7 @@ class TCAEngine:
         side: OrderSide,
         shares: float,
         arrival_price: float,
-        timestamp: Optional[pd.Timestamp] = None,
+        timestamp: pd.Timestamp | None = None,
     ) -> None:
         """
         Record the arrival price (price when the signal fired).
@@ -373,7 +372,7 @@ class TCAEngine:
         daily_vol_pct: float,
         spread_bps: float = 5.0,
         commission_per_share: float = 0.005,
-    ) -> Optional[PreTradeForecast]:
+    ) -> PreTradeForecast | None:
         """
         Run pre-trade cost forecast for a pending trade.
 
@@ -415,10 +414,10 @@ class TCAEngine:
         self,
         trade_id: str,
         fill_price: float,
-        vwap_price: Optional[float] = None,
-        twap_price: Optional[float] = None,
-        prev_close: Optional[float] = None,
-    ) -> Optional[TradeTCAResult]:
+        vwap_price: float | None = None,
+        twap_price: float | None = None,
+        prev_close: float | None = None,
+    ) -> TradeTCAResult | None:
         """
         Record the actual fill price and compute post-trade TCA.
 
@@ -463,7 +462,7 @@ class TCAEngine:
 
         return result
 
-    def aggregate_report(self) -> Dict:
+    def aggregate_report(self) -> dict:
         """
         Compute aggregate TCA statistics across all recorded trades.
 
@@ -474,11 +473,13 @@ class TCAEngine:
             return {"n_trades": 0, "message": "No completed trades recorded"}
 
         arrivals = [r.shortfall_vs_arrival_bps for r in self._results]
-        vwap_vals = [r.shortfall_vs_vwap_bps for r in self._results if r.shortfall_vs_vwap_bps is not None]
+        vwap_vals = [
+            r.shortfall_vs_vwap_bps for r in self._results if r.shortfall_vs_vwap_bps is not None
+        ]
         dollar_costs = [r.shortfall_dollar for r in self._results]
         favorable_count = sum(1 for r in self._results if r.is_favorable)
 
-        report: Dict = {
+        report: dict = {
             "n_trades": len(self._results),
             "avg_shortfall_vs_arrival_bps": float(np.mean(arrivals)),
             "median_shortfall_vs_arrival_bps": float(np.median(arrivals)),
@@ -508,7 +509,7 @@ class TCAEngine:
         self,
         trade_id: str,
         expected_alpha_bps: float,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Check whether expected alpha clears the pre-trade cost forecast.
 

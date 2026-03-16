@@ -25,16 +25,14 @@ Auth (environment variables):
 
 from __future__ import annotations
 
-import json
 import os
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any
 
 from fastmcp import FastMCP
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Server context
@@ -42,7 +40,7 @@ from loguru import logger
 
 
 class ServerContext:
-    broker: Any = None          # AlpacaBrokerClient
+    broker: Any = None  # AlpacaBrokerClient
     account_id: str = ""
 
 
@@ -55,7 +53,6 @@ async def lifespan(server: FastMCP):
     logger.info("[alpaca_mcp] Starting…")
     try:
         from alpaca_mcp.client import AlpacaBrokerClient
-        from quantcore.execution.broker import BrokerAuthError
 
         paper = os.getenv("ALPACA_PAPER", "true").lower() == "true"
         _ctx.broker = AlpacaBrokerClient(paper=paper)
@@ -63,9 +60,7 @@ async def lifespan(server: FastMCP):
         # Resolve the account_id once at startup
         accounts = _ctx.broker.get_accounts()
         _ctx.account_id = accounts[0].account_id if accounts else ""
-        logger.info(
-            f"[alpaca_mcp] Connected  account={_ctx.account_id}  paper={paper}"
-        )
+        logger.info(f"[alpaca_mcp] Connected  account={_ctx.account_id}  paper={paper}")
     except Exception as exc:
         logger.warning(f"[alpaca_mcp] Startup error: {exc}. Tools will return errors.")
 
@@ -112,8 +107,8 @@ def get_auth_status() -> dict:
         broker = _require_broker()
         ok = broker.check_auth()
         return {
-            "success":    ok,
-            "paper":      os.getenv("ALPACA_PAPER", "true").lower() == "true",
+            "success": ok,
+            "paper": os.getenv("ALPACA_PAPER", "true").lower() == "true",
             "account_id": _ctx.account_id,
         }
     except Exception as exc:
@@ -124,10 +119,10 @@ def get_auth_status() -> dict:
 def get_account() -> dict:
     """Return Alpaca account summary including status and account type."""
     try:
-        broker   = _require_broker()
+        broker = _require_broker()
         accounts = broker.get_accounts()
         return {
-            "success":  True,
+            "success": True,
             "accounts": [_dc_to_dict(a) for a in accounts],
         }
     except Exception as exc:
@@ -138,7 +133,7 @@ def get_account() -> dict:
 def get_balance() -> dict:
     """Return cash, buying power, and portfolio value."""
     try:
-        broker  = _require_broker()
+        broker = _require_broker()
         balance = broker.get_balance(_ctx.account_id)
         return {"success": True, "balance": _dc_to_dict(balance)}
     except Exception as exc:
@@ -149,19 +144,19 @@ def get_balance() -> dict:
 def get_positions() -> dict:
     """Return all open positions with quantity, entry price, and unrealised P&L."""
     try:
-        broker    = _require_broker()
+        broker = _require_broker()
         positions = broker.get_positions(_ctx.account_id)
         return {
-            "success":   True,
+            "success": True,
             "positions": [_dc_to_dict(p) for p in positions],
-            "count":     len(positions),
+            "count": len(positions),
         }
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 
 
 @mcp.tool()
-def get_quote(symbols: List[str]) -> dict:
+def get_quote(symbols: list[str]) -> dict:
     """Return real-time best-bid/offer quotes for up to 50 symbols.
 
     Args:
@@ -172,7 +167,7 @@ def get_quote(symbols: List[str]) -> dict:
         quotes = broker.get_quote(symbols)
         return {
             "success": True,
-            "quotes":  [_dc_to_dict(q) for q in quotes],
+            "quotes": [_dc_to_dict(q) for q in quotes],
         }
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -182,8 +177,8 @@ def get_quote(symbols: List[str]) -> dict:
 def get_bars(
     symbol: str,
     timeframe: str = "1h",
-    start: Optional[str] = None,
-    end: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
     limit: int = 200,
 ) -> dict:
     """Return historical OHLCV bars for a symbol.
@@ -200,9 +195,14 @@ def get_bars(
         from quantcore.data.adapters.alpaca import AlpacaAdapter
 
         _TF_MAP = {
-            "1m": Timeframe.M1, "5m": Timeframe.M5, "15m": Timeframe.M15,
-            "30m": Timeframe.M30, "1h": Timeframe.H1, "4h": Timeframe.H4,
-            "1d": Timeframe.D1, "1w": Timeframe.W1,
+            "1m": Timeframe.M1,
+            "5m": Timeframe.M5,
+            "15m": Timeframe.M15,
+            "30m": Timeframe.M30,
+            "1h": Timeframe.H1,
+            "4h": Timeframe.H4,
+            "1d": Timeframe.D1,
+            "1w": Timeframe.W1,
         }
         tf = _TF_MAP.get(timeframe.lower())
         if tf is None:
@@ -210,11 +210,11 @@ def get_bars(
 
         broker = _require_broker()
         adapter = AlpacaAdapter(
-            api_key    = broker._api_key,
-            secret_key = broker._secret_key,
+            api_key=broker._api_key,
+            secret_key=broker._secret_key,
         )
         start_dt = datetime.fromisoformat(start) if start else None
-        end_dt   = datetime.fromisoformat(end)   if end   else None
+        end_dt = datetime.fromisoformat(end) if end else None
         df = adapter.fetch_ohlcv(symbol, tf, start_date=start_dt, end_date=end_dt)
         df = df.tail(limit)
 
@@ -235,7 +235,7 @@ def preview_order(
     side: str,
     quantity: float,
     order_type: str = "market",
-    limit_price: Optional[float] = None,
+    limit_price: float | None = None,
 ) -> dict:
     """Estimate cost and commission for an order without submitting it.
 
@@ -248,13 +248,14 @@ def preview_order(
     """
     try:
         from quantcore.execution.unified_models import UnifiedOrder
+
         broker = _require_broker()
-        order  = UnifiedOrder(
-            symbol      = symbol,
-            side        = side,
-            quantity    = quantity,
-            order_type  = order_type,
-            limit_price = limit_price,
+        order = UnifiedOrder(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            limit_price=limit_price,
         )
         preview = broker.preview_order(_ctx.account_id, order)
         return {"success": True, "preview": _dc_to_dict(preview)}
@@ -268,7 +269,7 @@ def place_order(
     side: str,
     quantity: float,
     order_type: str = "market",
-    limit_price: Optional[float] = None,
+    limit_price: float | None = None,
     time_in_force: str = "day",
     extended_hours: bool = False,
 ) -> dict:
@@ -285,15 +286,16 @@ def place_order(
     """
     try:
         from quantcore.execution.unified_models import UnifiedOrder
+
         broker = _require_broker()
-        order  = UnifiedOrder(
-            symbol          = symbol,
-            side            = side,
-            quantity        = quantity,
-            order_type      = order_type,
-            limit_price     = limit_price,
-            time_in_force   = time_in_force,
-            extended_hours  = extended_hours,
+        order = UnifiedOrder(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            limit_price=limit_price,
+            time_in_force=time_in_force,
+            extended_hours=extended_hours,
         )
         result = broker.place_order(_ctx.account_id, order)
         return {"success": True, "order": _dc_to_dict(result)}
@@ -310,7 +312,7 @@ def cancel_order(order_id: str) -> dict:
     """
     try:
         broker = _require_broker()
-        ok     = broker.cancel_order(_ctx.account_id, order_id)
+        ok = broker.cancel_order(_ctx.account_id, order_id)
         return {"success": ok, "order_id": order_id}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -318,7 +320,7 @@ def cancel_order(order_id: str) -> dict:
 
 @mcp.tool()
 def get_orders(
-    status: Optional[str] = None,
+    status: str | None = None,
     limit: int = 50,
 ) -> dict:
     """Return order history.
@@ -332,8 +334,8 @@ def get_orders(
         orders = broker.get_orders(_ctx.account_id, status=status)
         return {
             "success": True,
-            "orders":  [_dc_to_dict(o) for o in orders[:limit]],
-            "count":   len(orders),
+            "orders": [_dc_to_dict(o) for o in orders[:limit]],
+            "count": len(orders),
         }
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -342,7 +344,7 @@ def get_orders(
 @mcp.tool()
 def get_option_chains(
     symbol: str,
-    expiry: Optional[str] = None,
+    expiry: str | None = None,
 ) -> dict:
     """Return an options chain snapshot for a symbol.
 
@@ -361,16 +363,18 @@ def get_option_chains(
         req_kwargs = {"underlying_symbol": symbol}
         if expiry:
             req_kwargs["expiration_date"] = expiry
-        req   = OptionChainRequest(**req_kwargs)
+        req = OptionChainRequest(**req_kwargs)
         chain = cli.get_option_chain(req)
         # Normalise to a list of dicts
         contracts = []
         for sym, snap in chain.items():
-            contracts.append({
-                "symbol":       sym,
-                "bid":          float(snap.latest_quote.bid_price) if snap.latest_quote else None,
-                "ask":          float(snap.latest_quote.ask_price) if snap.latest_quote else None,
-            })
+            contracts.append(
+                {
+                    "symbol": sym,
+                    "bid": float(snap.latest_quote.bid_price) if snap.latest_quote else None,
+                    "ask": float(snap.latest_quote.ask_price) if snap.latest_quote else None,
+                }
+            )
         return {"success": True, "underlying": symbol, "contracts": contracts}
     except Exception as exc:
         return {"success": False, "error": str(exc)}

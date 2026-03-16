@@ -3,9 +3,8 @@
 
 """Unit tests for pysabr adapter."""
 
-import pytest
-import numpy as np
 import pandas as pd
+import pytest
 
 
 class TestPySABRAdapter:

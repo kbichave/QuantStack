@@ -10,13 +10,12 @@ References:
     QuantAgent: https://github.com/Y-Research-SBU/QuantAgent
 """
 
-from typing import List, Tuple, Optional
-import pandas as pd
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class TrendlineFeatures(FeatureBase):
@@ -103,31 +102,21 @@ class TrendlineFeatures(FeatureBase):
 
             # Fit trendlines on close prices
             try:
-                support_coef_c, resist_coef_c = self._fit_trendlines_single(
-                    window_close
-                )
+                support_coef_c, resist_coef_c = self._fit_trendlines_single(window_close)
 
                 # Store slope and intercept
-                result.iloc[i, result.columns.get_loc("tl_support_slope_close")] = (
-                    support_coef_c[0]
-                )
-                result.iloc[i, result.columns.get_loc("tl_resist_slope_close")] = (
-                    resist_coef_c[0]
-                )
+                result.iloc[i, result.columns.get_loc("tl_support_slope_close")] = support_coef_c[0]
+                result.iloc[i, result.columns.get_loc("tl_resist_slope_close")] = resist_coef_c[0]
                 result.iloc[i, result.columns.get_loc("tl_support_intercept_close")] = (
                     support_coef_c[1]
                 )
-                result.iloc[i, result.columns.get_loc("tl_resist_intercept_close")] = (
-                    resist_coef_c[1]
-                )
+                result.iloc[i, result.columns.get_loc("tl_resist_intercept_close")] = resist_coef_c[
+                    1
+                ]
 
                 # Project trendlines to current bar
-                support_val = (
-                    support_coef_c[0] * (len(window_close) - 1) + support_coef_c[1]
-                )
-                resist_val = (
-                    resist_coef_c[0] * (len(window_close) - 1) + resist_coef_c[1]
-                )
+                support_val = support_coef_c[0] * (len(window_close) - 1) + support_coef_c[1]
+                resist_val = resist_coef_c[0] * (len(window_close) - 1) + resist_coef_c[1]
 
                 # Distance to trendlines (normalized by price)
                 result.iloc[i, result.columns.get_loc("tl_dist_to_support")] = (
@@ -139,46 +128,30 @@ class TrendlineFeatures(FeatureBase):
 
                 # Channel width (normalized)
                 channel_width = (resist_val - support_val) / current_close * 100
-                result.iloc[i, result.columns.get_loc("tl_channel_width")] = (
-                    channel_width
-                )
+                result.iloc[i, result.columns.get_loc("tl_channel_width")] = channel_width
 
                 # Price position in channel (0=support, 1=resistance)
                 if channel_width > 0:
-                    price_pos = (current_close - support_val) / (
-                        resist_val - support_val
-                    )
-                    result.iloc[i, result.columns.get_loc("tl_price_position")] = (
-                        np.clip(price_pos, 0, 1)
+                    price_pos = (current_close - support_val) / (resist_val - support_val)
+                    result.iloc[i, result.columns.get_loc("tl_price_position")] = np.clip(
+                        price_pos, 0, 1
                     )
 
                 # Trendline angles (degrees)
                 # Use average bar-to-bar price change for normalization
                 avg_price_change = np.mean(np.abs(np.diff(window_close)))
                 if avg_price_change > 0:
-                    support_angle = np.degrees(
-                        np.arctan(support_coef_c[0] / avg_price_change)
-                    )
-                    resist_angle = np.degrees(
-                        np.arctan(resist_coef_c[0] / avg_price_change)
-                    )
-                    result.iloc[i, result.columns.get_loc("tl_support_angle")] = (
-                        support_angle
-                    )
-                    result.iloc[i, result.columns.get_loc("tl_resist_angle")] = (
-                        resist_angle
-                    )
+                    support_angle = np.degrees(np.arctan(support_coef_c[0] / avg_price_change))
+                    resist_angle = np.degrees(np.arctan(resist_coef_c[0] / avg_price_change))
+                    result.iloc[i, result.columns.get_loc("tl_support_angle")] = support_angle
+                    result.iloc[i, result.columns.get_loc("tl_resist_angle")] = resist_angle
 
                 # Breakout detection (price crosses trendline)
                 if i > self.lookback_period:
                     prev_high = result["high"].iloc[i - 1]
                     prev_low = result["low"].iloc[i - 1]
-                    prev_resist = (
-                        resist_coef_c[0] * (len(window_close) - 2) + resist_coef_c[1]
-                    )
-                    prev_support = (
-                        support_coef_c[0] * (len(window_close) - 2) + support_coef_c[1]
-                    )
+                    prev_resist = resist_coef_c[0] * (len(window_close) - 2) + resist_coef_c[1]
+                    prev_support = support_coef_c[0] * (len(window_close) - 2) + support_coef_c[1]
 
                     # Breakout above resistance
                     if prev_high <= prev_resist and current_high > resist_val:
@@ -197,12 +170,8 @@ class TrendlineFeatures(FeatureBase):
                 support_coef_hl, resist_coef_hl = self._fit_trendlines_high_low(
                     window_high, window_low, window_close
                 )
-                result.iloc[i, result.columns.get_loc("tl_support_slope_hl")] = (
-                    support_coef_hl[0]
-                )
-                result.iloc[i, result.columns.get_loc("tl_resist_slope_hl")] = (
-                    resist_coef_hl[0]
-                )
+                result.iloc[i, result.columns.get_loc("tl_support_slope_hl")] = support_coef_hl[0]
+                result.iloc[i, result.columns.get_loc("tl_resist_slope_hl")] = resist_coef_hl[0]
             except Exception as e:
                 logger.debug(f"H/L trendline fitting failed at index {i}: {e}")
                 continue
@@ -211,7 +180,7 @@ class TrendlineFeatures(FeatureBase):
 
     def _fit_trendlines_single(
         self, data: np.ndarray
-    ) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
         """
         Fit support and resistance trendlines to a single price series.
 
@@ -245,7 +214,7 @@ class TrendlineFeatures(FeatureBase):
         high: np.ndarray,
         low: np.ndarray,
         close: np.ndarray,
-    ) -> Tuple[Tuple[float, float], Tuple[float, float]]:
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
         """
         Fit trendlines using high/low data.
 
@@ -277,7 +246,7 @@ class TrendlineFeatures(FeatureBase):
         pivot: int,
         init_slope: float,
         y: np.ndarray,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """
         Optimize trendline slope to minimize error while respecting constraints.
 
@@ -390,7 +359,7 @@ class TrendlineFeatures(FeatureBase):
         err = (diffs**2.0).sum()
         return err
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of trendline feature names."""
         return [
             "tl_support_slope_close",

@@ -37,15 +37,13 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
 from threading import RLock
-from typing import Dict, Optional
 
+import duckdb
 from loguru import logger
 
 from quant_pod.execution.risk_gate import RiskLimits, RiskVerdict, RiskViolation
 from quant_pod.execution.signal_cache import TradeSignal
-
 
 # ---------------------------------------------------------------------------
 # In-memory position snapshot (lighter than the full Position model)
@@ -57,8 +55,8 @@ class PositionSlot:
     """Minimal position info needed for risk checks in the hot path."""
 
     symbol: str
-    side: str         # "long" or "short"
-    quantity: int     # absolute value (sign encoded in side)
+    side: str  # "long" or "short"
+    quantity: int  # absolute value (sign encoded in side)
     avg_cost: float
     current_price: float = 0.0
 
@@ -83,7 +81,7 @@ class RiskState:
 
     # Current portfolio metrics
     cash: float = 100_000.0
-    positions: Dict[str, PositionSlot] = field(default_factory=dict)
+    positions: dict[str, PositionSlot] = field(default_factory=dict)
     daily_realized_pnl: float = 0.0
 
     # Flags
@@ -103,9 +101,9 @@ class RiskState:
     @classmethod
     def from_portfolio(
         cls,
-        portfolio: "PortfolioState",  # type: ignore[name-defined]
-        limits: Optional[RiskLimits] = None,
-    ) -> "RiskState":
+        portfolio: PortfolioState,  # type: ignore[name-defined]  # noqa: F821
+        limits: RiskLimits | None = None,
+    ) -> RiskState:
         """
         Initialise from a live PortfolioState snapshot.
 
@@ -116,7 +114,7 @@ class RiskState:
         snapshot = portfolio.get_snapshot()
         db_positions = portfolio.get_positions()
 
-        slots: Dict[str, PositionSlot] = {}
+        slots: dict[str, PositionSlot] = {}
         for p in db_positions:
             slots[p.symbol] = PositionSlot(
                 symbol=p.symbol,
@@ -272,16 +270,17 @@ class RiskState:
                 existing = self.positions.get(sym)
                 if existing and existing.side == "long":
                     new_qty = existing.quantity + quantity
-                    new_avg = (
-                        (existing.avg_cost * existing.quantity + price * quantity) / new_qty
-                    )
+                    new_avg = (existing.avg_cost * existing.quantity + price * quantity) / new_qty
                     existing.quantity = new_qty
                     existing.avg_cost = new_avg
                     existing.current_price = price
                 else:
                     self.positions[sym] = PositionSlot(
-                        symbol=sym, side="long", quantity=quantity,
-                        avg_cost=price, current_price=price,
+                        symbol=sym,
+                        side="long",
+                        quantity=quantity,
+                        avg_cost=price,
+                        current_price=price,
                     )
             elif side == "sell":
                 self.cash += cost - abs(realized_pnl)  # rough cash adjustment
@@ -295,7 +294,7 @@ class RiskState:
                         existing.current_price = price
                 self.daily_realized_pnl += realized_pnl
 
-    def mark_to_market(self, prices: Dict[str, float]) -> None:
+    def mark_to_market(self, prices: dict[str, float]) -> None:
         """Update current prices for open positions. No I/O."""
         with self._lock:
             for sym, price in prices.items():
@@ -318,13 +317,14 @@ class RiskState:
     # Persistence (async background flusher — NOT called in hot path)
     # ---------------------------------------------------------------------------
 
-    def flush_to_db(self, conn: "duckdb.DuckDBPyConnection") -> None:  # type: ignore
+    def flush_to_db(self, conn: duckdb.DuckDBPyConnection) -> None:  # type: ignore
         """
         Persist current risk state to the system_state table.
 
         Called periodically by the background flusher, never in the hot path.
         """
         import json as _json
+
         with self._lock:
             conn.execute(
                 """

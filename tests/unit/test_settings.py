@@ -6,8 +6,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
-
 from quantcore.config.settings import Settings, get_settings
 
 
@@ -55,9 +53,7 @@ class TestSettings:
 
         # Default: (2 + 1 + 2) * 2 = 10 bps round trip
         expected = (
-            settings.spread_cost_bps
-            + settings.slippage_cost_bps
-            + settings.fee_cost_bps
+            settings.spread_cost_bps + settings.slippage_cost_bps + settings.fee_cost_bps
         ) * 2
         assert settings.total_transaction_cost_bps == expected
         assert settings.total_transaction_cost_bps == 10.0

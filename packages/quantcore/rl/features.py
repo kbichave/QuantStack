@@ -37,8 +37,6 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 import numpy as np
 import pandas as pd
 
@@ -98,11 +96,7 @@ class RLFeatureExtractor:
         time_frac = remaining_time / max(time_horizon, 1)
         price_dev = (current_price - arrival_price) / max(arrival_price, 1e-8)
         spread_frac = spread_bps / 10_000.0
-        vwap_dev = (
-            (current_price - vwap) / max(vwap, 1e-8)
-            if vwap > 0
-            else 0.0
-        )
+        vwap_dev = (current_price - vwap) / max(vwap, 1e-8) if vwap > 0 else 0.0
 
         return np.array(
             [
@@ -190,7 +184,7 @@ class RLFeatureExtractor:
     def sizing_features(
         signal_confidence: float,
         signal_direction: str,
-        returns_window: List[float],
+        returns_window: list[float],
         current_position_pct: float,
         drawdown: float,
         risk_budget_used: float,
@@ -217,10 +211,7 @@ class RLFeatureExtractor:
         9: win_rate                                    — 0..1 rolling win rate
         """
         # Direction encoding — matches SizingEnvironment exactly
-        dir_enc = (
-            1 if signal_direction == "LONG"
-            else (-1 if signal_direction == "SHORT" else 0)
-        )
+        dir_enc = 1 if signal_direction == "LONG" else (-1 if signal_direction == "SHORT" else 0)
 
         # Volatility from returns window
         if len(returns_window) >= 5:
@@ -263,9 +254,9 @@ class RLFeatureExtractor:
     @staticmethod
     def alpha_selection_features(
         regime_idx: int,
-        alpha_names: List[str],
-        alpha_returns_history: Dict[str, List[float]],
-        alpha_regime_alignments: Dict[str, float],
+        alpha_names: list[str],
+        alpha_returns_history: dict[str, list[float]],
+        alpha_regime_alignments: dict[str, float],
         market_volatility: float,
         vix_normalized: float,
         correlation_regime: float = 0.0,
@@ -283,7 +274,7 @@ class RLFeatureExtractor:
 
         normalization matches AlphaSelectionEnvironment._get_state() exactly.
         """
-        features: List[float] = []
+        features: list[float] = []
 
         # Regime one-hot (4) — regime_idx in [0, 1, 2, 3]
         regime_one_hot = [0.0, 0.0, 0.0, 0.0]
@@ -297,9 +288,7 @@ class RLFeatureExtractor:
             # Recent Sharpe — matches AlphaSelectionEnvironment
             if len(returns) >= lookback:
                 recent = returns[-lookback:]
-                sharpe = (
-                    float(np.mean(recent) / (np.std(recent) + 1e-8) * np.sqrt(252))
-                )
+                sharpe = float(np.mean(recent) / (np.std(recent) + 1e-8) * np.sqrt(252))
             else:
                 sharpe = 0.0
 

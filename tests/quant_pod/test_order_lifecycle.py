@@ -10,14 +10,10 @@ All tests use in-memory DuckDB.
 
 from __future__ import annotations
 
-import time
-
 import duckdb
 import pytest
-
 from quant_pod.execution.order_lifecycle import (
     ExecAlgoOMS,
-    Order,
     OrderLifecycle,
     OrderStatus,
 )
@@ -61,24 +57,33 @@ class TestSubmit:
     def test_small_order_gets_immediate_algo(self, oms):
         """< 0.2% of ADV → IMMEDIATE."""
         order = oms.submit(
-            symbol="SPY", side="buy", quantity=100,
-            arrival_price=450.0, adv=80_000_000,  # 100/80M = 0.000125%
+            symbol="SPY",
+            side="buy",
+            quantity=100,
+            arrival_price=450.0,
+            adv=80_000_000,  # 100/80M = 0.000125%
         )
         assert order.exec_algo == ExecAlgoOMS.IMMEDIATE
 
     def test_medium_order_gets_twap_or_vwap(self, oms):
         """~0.5% of ADV → TWAP."""
         order = oms.submit(
-            symbol="SPY", side="buy", quantity=400_000,
-            arrival_price=450.0, adv=80_000_000,  # 400k/80M = 0.5%
+            symbol="SPY",
+            side="buy",
+            quantity=400_000,
+            arrival_price=450.0,
+            adv=80_000_000,  # 400k/80M = 0.5%
         )
         assert order.exec_algo in (ExecAlgoOMS.TWAP, ExecAlgoOMS.VWAP)
 
     def test_large_order_gets_vwap_or_pov(self, oms):
         """~3% of ADV → VWAP or POV."""
         order = oms.submit(
-            symbol="SPY", side="buy", quantity=2_400_000,
-            arrival_price=450.0, adv=80_000_000,
+            symbol="SPY",
+            side="buy",
+            quantity=2_400_000,
+            arrival_price=450.0,
+            adv=80_000_000,
         )
         assert order.exec_algo in (ExecAlgoOMS.VWAP, ExecAlgoOMS.POV)
 
@@ -173,8 +178,12 @@ class TestSessionSummary:
     def test_session_summary_after_fills(self, oms):
         for i in range(3):
             o = oms.submit(
-                symbol=f"SYM{i}", side="buy", quantity=100,
-                arrival_price=100.0, signal_id=f"sig{i}", adv=10_000_000,
+                symbol=f"SYM{i}",
+                side="buy",
+                quantity=100,
+                arrival_price=100.0,
+                signal_id=f"sig{i}",
+                adv=10_000_000,
             )
             oms.record_fill(o.order_id, fill_price=100.5)
 

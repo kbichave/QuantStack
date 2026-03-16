@@ -26,9 +26,7 @@ class SuperTrader:
 
 def create_all_pods():
     """Deprecated placeholder for legacy API."""
-    raise NotImplementedError(
-        "create_all_pods is deprecated; use TradingCrew().crew() instead."
-    )
+    raise NotImplementedError("create_all_pods is deprecated; use TradingCrew().crew() instead.")
 
 
 def get_super_trader():

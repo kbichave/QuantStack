@@ -65,6 +65,7 @@ dependencies = [
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
     "pyyaml>=6.0.0",
+    "litellm>=1.82.2",
 ]
 
 [project.optional-dependencies]
@@ -137,8 +138,10 @@ where = ["packages"]
 quantcore = ["config/*.yaml"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -154,11 +157,11 @@ ignore = [
     "C901",  # too complex
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
@@ -167,6 +170,7 @@ ignore_missing_imports = true
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
     "hypothesis>=6.90.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",

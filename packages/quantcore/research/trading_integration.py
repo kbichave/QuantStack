@@ -18,15 +18,14 @@ Usage:
     schedule = enhancer.optimal_execution_schedule(shares=1000, horizon=20)
 """
 
-import numpy as np
-import pandas as pd
-from typing import Dict, Optional, Tuple, List
 from dataclasses import dataclass
 
-# Import quant modules
-from quantcore.math.kalman_filter import KalmanFilter, LocalLevelModel
-from quantcore.math.stochastic_vol import HestonModel
+import numpy as np
+import pandas as pd
 from microstructure.impact_models import ImpactModel, ImpactParams
+
+# Import quant modules
+from quantcore.math.kalman_filter import LocalLevelModel
 from quantcore.research.paper_replications.almgren_chriss import AlmgrenChrissExecutor
 from quantcore.research.paper_replications.avellaneda_stoikov import reservation_price
 
@@ -38,9 +37,9 @@ class EnhancedSignal:
     raw_signal: float
     adjusted_signal: float
     position_size: float
-    execution_schedule: Optional[List[float]]
+    execution_schedule: list[float] | None
     estimated_cost_bps: float
-    spread_estimate: Optional[float]
+    spread_estimate: float | None
 
 
 class TradingEnhancer:
@@ -119,7 +118,7 @@ class TradingEnhancer:
 
         return filtered.reindex(spread_series.index).ffill()
 
-    def get_spread_confidence(self) -> Optional[np.ndarray]:
+    def get_spread_confidence(self) -> np.ndarray | None:
         """Get confidence intervals for spread estimates."""
         if self._spread_states is None:
             return None
@@ -131,7 +130,7 @@ class TradingEnhancer:
         self,
         order_size: float,
         execution_time: float = 1.0,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Estimate execution cost for a given order.
 
@@ -192,8 +191,8 @@ class TradingEnhancer:
         self,
         shares: float,
         horizon: int = 20,
-        risk_aversion: Optional[float] = None,
-    ) -> Tuple[np.ndarray, Dict]:
+        risk_aversion: float | None = None,
+    ) -> tuple[np.ndarray, dict]:
         """
         Compute optimal execution schedule using Almgren-Chriss.
 
@@ -250,7 +249,7 @@ class TradingEnhancer:
         raw_signal: float,
         max_position: float = 100,
         current_position: float = 0,
-        spread_value: Optional[float] = None,
+        spread_value: float | None = None,
         execution_horizon: int = 20,
     ) -> EnhancedSignal:
         """
@@ -267,9 +266,7 @@ class TradingEnhancer:
             EnhancedSignal with all adjustments
         """
         # Compute impact-adjusted position
-        position = self.compute_position_with_impact(
-            raw_signal, max_position, current_position
-        )
+        position = self.compute_position_with_impact(raw_signal, max_position, current_position)
         trade_size = position - current_position
 
         # Compute execution cost
@@ -278,9 +275,7 @@ class TradingEnhancer:
         # Generate execution schedule if trade is significant
         schedule = None
         if abs(trade_size) > max_position * 0.1:
-            schedule, _ = self.optimal_execution_schedule(
-                abs(trade_size), execution_horizon
-            )
+            schedule, _ = self.optimal_execution_schedule(abs(trade_size), execution_horizon)
             if trade_size < 0:
                 schedule = -schedule
 

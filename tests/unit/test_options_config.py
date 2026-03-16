@@ -5,17 +5,15 @@
 
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
 import pytest
 import yaml
-
 from quantcore.config.options_config import (
-    VolatilityRegime,
+    OptionsConfigLoader,
     Sector,
     SymbolConfig,
     UniverseConfig,
-    OptionsConfigLoader,
+    VolatilityRegime,
     get_options_config,
     get_symbol_config,
 )

@@ -6,10 +6,9 @@ Avoids trading around high-impact events that destroy MR edge.
 
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
-from typing import List, Optional, Set
 from enum import Enum
+
 import pandas as pd
-from loguru import logger
 
 
 class EventType(Enum):
@@ -35,7 +34,7 @@ class MarketEvent:
 
     event_type: EventType
     timestamp: datetime
-    symbol: Optional[str] = None  # None = affects all symbols
+    symbol: str | None = None  # None = affects all symbols
     impact: str = "HIGH"  # HIGH, MEDIUM, LOW
     blackout_hours_before: int = 1
     blackout_hours_after: int = 2
@@ -73,7 +72,7 @@ class EventCalendar:
 
     def __init__(self):
         """Initialize event calendar."""
-        self._events: List[MarketEvent] = []
+        self._events: list[MarketEvent] = []
         self._load_recurring_events()
 
     def _load_recurring_events(self) -> None:
@@ -85,7 +84,7 @@ class EventCalendar:
         self,
         event_type: EventType,
         timestamp: datetime,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         impact: str = "HIGH",
     ) -> None:
         """
@@ -110,21 +109,21 @@ class EventCalendar:
 
         self._events.append(event)
 
-    def add_fomc_dates(self, dates: List[datetime]) -> None:
+    def add_fomc_dates(self, dates: list[datetime]) -> None:
         """Add FOMC meeting dates."""
         for date in dates:
             # FOMC announcements are typically at 2:00 PM ET
             timestamp = datetime.combine(date.date(), time(14, 0))
             self.add_event(EventType.FOMC, timestamp)
 
-    def add_cpi_dates(self, dates: List[datetime]) -> None:
+    def add_cpi_dates(self, dates: list[datetime]) -> None:
         """Add CPI release dates."""
         for date in dates:
             # CPI is released at 8:30 AM ET
             timestamp = datetime.combine(date.date(), time(8, 30))
             self.add_event(EventType.CPI, timestamp)
 
-    def add_nfp_dates(self, dates: List[datetime]) -> None:
+    def add_nfp_dates(self, dates: list[datetime]) -> None:
         """Add Non-Farm Payrolls dates (first Friday of month)."""
         for date in dates:
             timestamp = datetime.combine(date.date(), time(8, 30))
@@ -163,8 +162,8 @@ class EventCalendar:
     def is_blackout(
         self,
         check_time: datetime,
-        symbol: Optional[str] = None,
-    ) -> tuple[bool, Optional[MarketEvent]]:
+        symbol: str | None = None,
+    ) -> tuple[bool, MarketEvent | None]:
         """
         Check if a time is in a blackout window.
 
@@ -185,7 +184,7 @@ class EventCalendar:
 
         return False, None
 
-    def get_events_for_date(self, date: datetime) -> List[MarketEvent]:
+    def get_events_for_date(self, date: datetime) -> list[MarketEvent]:
         """Get all events for a specific date."""
         target_date = date.date()
         return [e for e in self._events if e.timestamp.date() == target_date]
@@ -194,7 +193,7 @@ class EventCalendar:
         self,
         from_time: datetime,
         hours_ahead: int = 24,
-    ) -> List[MarketEvent]:
+    ) -> list[MarketEvent]:
         """Get events within the next N hours."""
         end_time = from_time + timedelta(hours=hours_ahead)
         return [e for e in self._events if from_time <= e.timestamp <= end_time]
@@ -202,7 +201,7 @@ class EventCalendar:
     def get_blackout_series(
         self,
         index: pd.DatetimeIndex,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
     ) -> pd.Series:
         """
         Get blackout status for a datetime index.
@@ -252,7 +251,7 @@ class TradingCalendar:
 
     def __init__(self):
         """Initialize trading calendar."""
-        self._holidays: Set[datetime] = set()
+        self._holidays: set[datetime] = set()
         self._load_holidays()
 
     def _load_holidays(self) -> None:
@@ -283,7 +282,7 @@ class TradingCalendar:
         self,
         start: datetime,
         end: datetime,
-    ) -> List[datetime]:
+    ) -> list[datetime]:
         """Get list of trading days between two dates."""
         days = []
         current = start

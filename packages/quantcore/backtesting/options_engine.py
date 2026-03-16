@@ -10,39 +10,28 @@ Key features:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Any, Tuple
+from datetime import date, datetime
 from enum import Enum
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.strategy.base import (
-    Strategy,
-    MarketState,
-    TargetPosition,
-    PositionDirection,
-    RegimeState,
-)
-from quantcore.options.models import (
-    OptionContract,
-    OptionLeg,
-    OptionsPosition,
-    OptionType,
-)
 from quantcore.options.contract_selector import (
     ContractSelector,
-    Direction,
-    VolRegime,
-    TrendRegime,
 )
-from quantcore.options.pricing import (
-    black_scholes_price,
-    black_scholes_greeks,
-    estimate_slippage,
+from quantcore.options.models import (
+    OptionsPosition,
 )
-from quantcore.risk.position_sizing import ATRPositionSizer, PositionSize
+from quantcore.risk.position_sizing import ATRPositionSizer
+from quantcore.strategy.base import (
+    MarketState,
+    PositionDirection,
+    RegimeState,
+    Strategy,
+    TargetPosition,
+)
 
 
 class FillType(Enum):
@@ -68,8 +57,8 @@ class Trade:
     slippage: float
 
     # Position tracking
-    exit_timestamp: Optional[datetime] = None
-    exit_price: Optional[float] = None
+    exit_timestamp: datetime | None = None
+    exit_price: float | None = None
     pnl: float = 0.0
 
     # Greeks at entry
@@ -85,8 +74,8 @@ class BacktestState:
 
     equity: float
     cash: float
-    positions: Dict[str, OptionsPosition] = field(default_factory=dict)
-    trades: List[Trade] = field(default_factory=list)
+    positions: dict[str, OptionsPosition] = field(default_factory=dict)
+    trades: list[Trade] = field(default_factory=list)
 
     # Greeks
     total_delta: float = 0.0
@@ -95,8 +84,8 @@ class BacktestState:
     total_vega: float = 0.0
 
     # Tracking
-    equity_curve: List[float] = field(default_factory=list)
-    drawdown_curve: List[float] = field(default_factory=list)
+    equity_curve: list[float] = field(default_factory=list)
+    drawdown_curve: list[float] = field(default_factory=list)
     peak_equity: float = 0.0
     max_drawdown: float = 0.0
 
@@ -144,7 +133,7 @@ class OptionsBacktester:
 
     def __init__(
         self,
-        config: Optional[BacktestConfig] = None,
+        config: BacktestConfig | None = None,
     ):
         """
         Initialize backtester.
@@ -153,7 +142,7 @@ class OptionsBacktester:
             config: Backtest configuration
         """
         self.config = config or BacktestConfig()
-        self.state: Optional[BacktestState] = None
+        self.state: BacktestState | None = None
         self.contract_selector = ContractSelector()
 
         # ATR-based position sizer
@@ -163,11 +152,11 @@ class OptionsBacktester:
         )
 
         # Pending signals (for T+1 execution)
-        self._pending_signals: List[TargetPosition] = []
+        self._pending_signals: list[TargetPosition] = []
 
         # Risk tracking
         self._daily_pnl = 0.0
-        self._last_date: Optional[date] = None
+        self._last_date: date | None = None
         self._cumulative_theta: float = 0.0  # Track total theta paid/received
 
     def run(
@@ -175,9 +164,9 @@ class OptionsBacktester:
         strategy: Strategy,
         data: pd.DataFrame,
         features: pd.DataFrame,
-        options_data: Optional[Dict[str, pd.DataFrame]] = None,
-        regime_data: Optional[pd.DataFrame] = None,
-    ) -> Dict[str, Any]:
+        options_data: dict[str, pd.DataFrame] | None = None,
+        regime_data: pd.DataFrame | None = None,
+    ) -> dict[str, Any]:
         """
         Run backtest.
 
@@ -271,8 +260,8 @@ class OptionsBacktester:
         timestamp: datetime,
         bar: pd.Series,
         bar_index: int,
-        features: Optional[pd.Series],
-        regime_data: Optional[pd.Series],
+        features: pd.Series | None,
+        regime_data: pd.Series | None,
     ) -> MarketState:
         """Build MarketState from current data."""
         # Get regime
@@ -311,9 +300,7 @@ class OptionsBacktester:
             current_gamma=self.state.total_gamma,
             current_theta=self.state.total_theta,
             current_vega=self.state.total_vega,
-            unrealized_pnl=sum(
-                pos.unrealized_pnl() for pos in self.state.positions.values()
-            ),
+            unrealized_pnl=sum(pos.unrealized_pnl() for pos in self.state.positions.values()),
             portfolio_equity=self.state.equity,
             drawdown_pct=self.state.max_drawdown,
         )
@@ -322,8 +309,8 @@ class OptionsBacktester:
         self,
         execution_price: float,
         timestamp: datetime,
-        options_chain: Optional[pd.DataFrame],
-        atr: Optional[float] = None,
+        options_chain: pd.DataFrame | None,
+        atr: float | None = None,
     ) -> None:
         """Execute pending signals at current bar open."""
         for signal in self._pending_signals:
@@ -334,12 +321,8 @@ class OptionsBacktester:
 
             # Check delta limits
             if abs(self.state.total_delta) > self.config.max_total_delta:
-                if (
-                    signal.direction == PositionDirection.LONG
-                    and self.state.total_delta > 0
-                ) or (
-                    signal.direction == PositionDirection.SHORT
-                    and self.state.total_delta < 0
+                if (signal.direction == PositionDirection.LONG and self.state.total_delta > 0) or (
+                    signal.direction == PositionDirection.SHORT and self.state.total_delta < 0
                 ):
                     logger.warning("Delta limit reached, skipping signal")
                     continue
@@ -354,17 +337,16 @@ class OptionsBacktester:
         signal: TargetPosition,
         underlying_price: float,
         timestamp: datetime,
-        options_chain: Optional[pd.DataFrame],
-        atr: Optional[float] = None,
+        options_chain: pd.DataFrame | None,
+        atr: float | None = None,
     ) -> None:
         """Execute a single trade."""
         # Determine contract selection
-        vol_regime = VolRegime.MEDIUM
         if hasattr(signal, "iv_rank") and signal.iv_rank is not None:
             if signal.iv_rank < 30:
-                vol_regime = VolRegime.LOW
+                pass
             elif signal.iv_rank > 70:
-                vol_regime = VolRegime.HIGH
+                pass
 
         # Calculate position size
         if self.config.use_atr_sizing and atr is not None and atr > 0:
@@ -395,9 +377,7 @@ class OptionsBacktester:
             value_based_contracts = max(
                 1,
                 int(
-                    self.config.max_trade_value
-                    * signal.confidence
-                    / (option_price_estimate * 100)
+                    self.config.max_trade_value * signal.confidence / (option_price_estimate * 100)
                 ),
             )
 
@@ -431,9 +411,7 @@ class OptionsBacktester:
             quantity=position_size,
             commission=commission,
             slippage=abs(entry_price - underlying_price) * position_size,
-            delta=50
-            * (1 if signal.direction == PositionDirection.LONG else -1)
-            * position_size,
+            delta=50 * (1 if signal.direction == PositionDirection.LONG else -1) * position_size,
         )
 
         # Update state
@@ -441,9 +419,7 @@ class OptionsBacktester:
         self.state.cash -= commission
         self.state.total_delta += trade.delta
 
-        logger.debug(
-            f"Executed trade: {trade_id} {signal.direction.value} {signal.symbol}"
-        )
+        logger.debug(f"Executed trade: {trade_id} {signal.direction.value} {signal.symbol}")
 
     def _handle_expirations(self, current_date: date, underlying_price: float) -> None:
         """Handle options expiration."""
@@ -489,9 +465,7 @@ class OptionsBacktester:
 
         # Apply theta decay to cash (theta is already in daily terms)
         if self.config.apply_theta_decay and daily_theta_impact != 0:
-            self.state.cash += (
-                daily_theta_impact  # Theta is neg for longs, adds to shorts
-            )
+            self.state.cash += daily_theta_impact  # Theta is neg for longs, adds to shorts
             self._cumulative_theta += daily_theta_impact
 
             # Log significant theta impact
@@ -566,7 +540,7 @@ class OptionsBacktester:
         self.state.equity_curve.append(self.state.equity)
         self.state.drawdown_curve.append(drawdown)
 
-    def _calculate_results(self, data: pd.DataFrame) -> Dict[str, Any]:
+    def _calculate_results(self, data: pd.DataFrame) -> dict[str, Any]:
         """Calculate backtest results and metrics."""
         equity_curve = np.array(self.state.equity_curve)
 
@@ -622,7 +596,7 @@ def run_options_backtest(
     features: pd.DataFrame,
     initial_equity: float = 100000,
     **kwargs,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Convenience function to run options backtest.
 

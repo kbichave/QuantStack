@@ -8,11 +8,11 @@ Provides:
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from scipy import interpolate
 from loguru import logger
+from scipy import interpolate
 
 
 @dataclass
@@ -22,7 +22,7 @@ class IVPoint:
     strike: float
     expiry_days: int
     iv: float
-    delta: Optional[float] = None
+    delta: float | None = None
     option_type: str = "call"  # 'call' or 'put'
 
 
@@ -68,15 +68,15 @@ class IVSurface:
         self.risk_free_rate = risk_free_rate
 
         # Surface data
-        self._iv_points: List[IVPoint] = []
-        self._interpolator: Optional[interpolate.RectBivariateSpline] = None
-        self._call_interpolator: Optional[interpolate.RectBivariateSpline] = None
-        self._put_interpolator: Optional[interpolate.RectBivariateSpline] = None
+        self._iv_points: list[IVPoint] = []
+        self._interpolator: interpolate.RectBivariateSpline | None = None
+        self._call_interpolator: interpolate.RectBivariateSpline | None = None
+        self._put_interpolator: interpolate.RectBivariateSpline | None = None
 
         # Cached grids
-        self._log_moneyness_grid: Optional[np.ndarray] = None
-        self._sqrt_time_grid: Optional[np.ndarray] = None
-        self._iv_grid: Optional[np.ndarray] = None
+        self._log_moneyness_grid: np.ndarray | None = None
+        self._sqrt_time_grid: np.ndarray | None = None
+        self._iv_grid: np.ndarray | None = None
 
     def build_from_chain(self, options_chain: pd.DataFrame) -> None:
         """
@@ -99,9 +99,7 @@ class IVSurface:
             if "expiry" in df.columns:
                 df["dte"] = (pd.to_datetime(df["expiry"]) - pd.Timestamp.now()).dt.days
             elif "expiration" in df.columns:
-                df["dte"] = (
-                    pd.to_datetime(df["expiration"]) - pd.Timestamp.now()
-                ).dt.days
+                df["dte"] = (pd.to_datetime(df["expiration"]) - pd.Timestamp.now()).dt.days
             else:
                 raise ValueError("Options chain must have 'dte' or 'expiry' column")
 
@@ -133,11 +131,7 @@ class IVSurface:
                 continue
 
             opt_type = str(row[type_col]).lower() if type_col else "call"
-            delta = (
-                float(row["delta"])
-                if "delta" in row and pd.notna(row["delta"])
-                else None
-            )
+            delta = float(row["delta"]) if "delta" in row and pd.notna(row["delta"]) else None
 
             self._iv_points.append(
                 IVPoint(
@@ -159,9 +153,7 @@ class IVSurface:
             return
 
         # Convert to arrays
-        log_moneyness = np.array(
-            [np.log(p.strike / self.spot_price) for p in self._iv_points]
-        )
+        log_moneyness = np.array([np.log(p.strike / self.spot_price) for p in self._iv_points])
         sqrt_time = np.array([np.sqrt(p.expiry_days / 365) for p in self._iv_points])
         ivs = np.array([p.iv for p in self._iv_points])
 
@@ -215,7 +207,7 @@ class IVSurface:
             points = np.column_stack([log_moneyness, sqrt_time])
             self._interpolator = LinearNDInterpolator(points, ivs, fill_value=np.nan)
 
-    def interpolate(self, strike: float, dte: int) -> Optional[float]:
+    def interpolate(self, strike: float, dte: int) -> float | None:
         """
         Interpolate IV for given strike and days to expiry.
 
@@ -248,7 +240,7 @@ class IVSurface:
         except Exception:
             return self._get_nearest_iv(strike, dte)
 
-    def _get_nearest_iv(self, strike: float, dte: int) -> Optional[float]:
+    def _get_nearest_iv(self, strike: float, dte: int) -> float | None:
         """Get IV from nearest point as fallback."""
         if not self._iv_points:
             return None
@@ -269,7 +261,7 @@ class IVSurface:
 
         return best_iv
 
-    def get_atm_iv(self, dte: int) -> Optional[float]:
+    def get_atm_iv(self, dte: int) -> float | None:
         """
         Get ATM implied volatility for given DTE.
 
@@ -281,7 +273,7 @@ class IVSurface:
         """
         return self.interpolate(self.spot_price, dte)
 
-    def get_skew(self, dte: int, delta_target: float = 0.25) -> Optional[float]:
+    def get_skew(self, dte: int, delta_target: float = 0.25) -> float | None:
         """
         Get volatility skew for given DTE.
 
@@ -319,7 +311,7 @@ class IVSurface:
 
         return put_iv - atm_iv
 
-    def get_term_structure(self, dtes: Optional[List[int]] = None) -> pd.Series:
+    def get_term_structure(self, dtes: list[int] | None = None) -> pd.Series:
         """
         Get ATM IV term structure.
 
@@ -340,7 +332,7 @@ class IVSurface:
 
         return pd.Series(term_structure, name="atm_iv")
 
-    def get_metrics(self) -> Optional[IVSurfaceMetrics]:
+    def get_metrics(self) -> IVSurfaceMetrics | None:
         """
         Calculate comprehensive IV surface metrics.
 
@@ -409,7 +401,7 @@ def build_iv_surface_from_chain(
     return surface
 
 
-def extract_iv_features(surface: IVSurface) -> Dict[str, float]:
+def extract_iv_features(surface: IVSurface) -> dict[str, float]:
     """
     Extract trading features from IV surface.
 

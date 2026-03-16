@@ -10,11 +10,9 @@ Provides:
 
 import math
 from dataclasses import dataclass
-from typing import Literal, Optional, Tuple
 
-import numpy as np
-from scipy.stats import norm
 from scipy.optimize import brentq
+from scipy.stats import norm
 
 from quantcore.options.models import OptionType
 
@@ -121,14 +119,10 @@ def black_scholes_price(
 
     if option_type == OptionType.CALL:
         # C = S*e^(-qT)*N(d1) - K*e^(-rT)*N(d2)
-        price = S * math.exp(-q * T) * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(
-            d2
-        )
+        price = S * math.exp(-q * T) * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(d2)
     else:
         # P = K*e^(-rT)*N(-d2) - S*e^(-qT)*N(-d1)
-        price = K * math.exp(-r * T) * norm.cdf(-d2) - S * math.exp(-q * T) * norm.cdf(
-            -d1
-        )
+        price = K * math.exp(-r * T) * norm.cdf(-d2) - S * math.exp(-q * T) * norm.cdf(-d1)
 
     return price
 
@@ -324,7 +318,7 @@ def implied_volatility(
     q: float = 0.0,
     tol: float = 1e-6,
     max_iter: int = 100,
-) -> Optional[float]:
+) -> float | None:
     """
     Calculate implied volatility using Brent's method with dividend adjustment.
 
@@ -346,7 +340,7 @@ def implied_volatility(
         return None
 
     # Check for arbitrage violations (with dividend adjustment)
-    forward_S = S * math.exp((r - q) * T)
+    S * math.exp((r - q) * T)
     if option_type == OptionType.CALL:
         intrinsic = max(0, S * math.exp(-q * T) - K * math.exp(-r * T))
     else:
@@ -376,7 +370,7 @@ def implied_volatility_with_symbol(
     T: float,
     r: float,
     option_type: OptionType,
-) -> Optional[float]:
+) -> float | None:
     """
     Calculate implied volatility using symbol's dividend yield.
 

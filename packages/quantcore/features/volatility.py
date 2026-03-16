@@ -4,12 +4,10 @@ Volatility-related features.
 Includes ATR, Bollinger Bands, and realized volatility.
 """
 
-from typing import List
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from quantcore.features.base import FeatureBase
-from quantcore.config.timeframes import Timeframe
 
 
 class VolatilityFeatures(FeatureBase):
@@ -96,9 +94,7 @@ class VolatilityFeatures(FeatureBase):
         result["intraday_range"] = (high - low) / close * 100
 
         # Range expansion/contraction
-        result["range_ma"] = (
-            result["intraday_range"].rolling(window=self.params.atr_period).mean()
-        )
+        result["range_ma"] = result["intraday_range"].rolling(window=self.params.atr_period).mean()
         result["range_expansion"] = result["intraday_range"] / result["range_ma"]
 
         return result
@@ -191,7 +187,7 @@ class VolatilityFeatures(FeatureBase):
             labels=[-1, 0, 1],
         ).astype(float)
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of volatility feature names."""
         return [
             "true_range",

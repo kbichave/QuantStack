@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -50,7 +50,7 @@ class HoldingPeriodConfig:
 
 
 # Default configurations for each holding type
-HOLDING_CONFIGS: Dict[HoldingType, HoldingPeriodConfig] = {
+HOLDING_CONFIGS: dict[HoldingType, HoldingPeriodConfig] = {
     HoldingType.INTRADAY: HoldingPeriodConfig(
         type=HoldingType.INTRADAY,
         min_bars=1,
@@ -102,13 +102,13 @@ class HoldingDecision:
     entry_price: float
 
     # Target and stop
-    target_price: Optional[float] = None
-    stop_price: Optional[float] = None
-    trailing_stop_price: Optional[float] = None
+    target_price: float | None = None
+    stop_price: float | None = None
+    trailing_stop_price: float | None = None
 
     # Expected exit
-    expected_exit_date: Optional[date] = None
-    max_exit_date: Optional[date] = None
+    expected_exit_date: date | None = None
+    max_exit_date: date | None = None
 
     # Current state
     bars_held: int = 0
@@ -173,7 +173,7 @@ class HoldingDecision:
                 # Ratchet up only
                 self.trailing_stop_price = max(self.trailing_stop_price, new_stop)
 
-    def get_scale_out_levels(self) -> List[tuple[float, float]]:
+    def get_scale_out_levels(self) -> list[tuple[float, float]]:
         """
         Get scale-out levels if enabled.
 
@@ -203,7 +203,7 @@ class HoldingPeriodManager:
 
     def __init__(self):
         """Initialize manager."""
-        self._active_holdings: Dict[str, HoldingDecision] = {}  # symbol -> decision
+        self._active_holdings: dict[str, HoldingDecision] = {}  # symbol -> decision
 
     def determine_holding_period(
         self,
@@ -213,7 +213,7 @@ class HoldingPeriodManager:
         signal_source: str,
         mtf_alignment: float,
         atr: float,
-        mtf_context: Optional[Any] = None,
+        mtf_context: Any | None = None,
     ) -> HoldingDecision:
         """
         Determine appropriate holding period for a trade.
@@ -235,7 +235,6 @@ class HoldingPeriodManager:
         config = HOLDING_CONFIGS[holding_type]
 
         # Calculate target and stop
-        is_long = True  # Assume long, would need trade direction in production
 
         target_price = entry_price + (atr * config.target_atr_multiple)
         stop_price = entry_price - (atr * config.stop_atr_multiple)
@@ -325,7 +324,7 @@ class HoldingPeriodManager:
         mtf_alignment: float,
         holding_type: HoldingType,
         config: HoldingPeriodConfig,
-        mtf_context: Optional[Any],
+        mtf_context: Any | None,
     ) -> str:
         """Build reasoning string for holding decision."""
         parts = [
@@ -348,7 +347,7 @@ class HoldingPeriodManager:
 
         return " | ".join(parts)
 
-    def get_holding(self, symbol: str) -> Optional[HoldingDecision]:
+    def get_holding(self, symbol: str) -> HoldingDecision | None:
         """Get active holding decision for a symbol."""
         return self._active_holdings.get(symbol)
 
@@ -388,7 +387,7 @@ class HoldingPeriodManager:
             del self._active_holdings[symbol]
             logger.info(f"Closed holding tracking for {symbol}")
 
-    def get_all_holdings(self) -> Dict[str, HoldingDecision]:
+    def get_all_holdings(self) -> dict[str, HoldingDecision]:
         """Get all active holdings."""
         return self._active_holdings.copy()
 
@@ -397,7 +396,7 @@ class HoldingPeriodManager:
 # SINGLETON
 # =============================================================================
 
-_manager_instance: Optional[HoldingPeriodManager] = None
+_manager_instance: HoldingPeriodManager | None = None
 
 
 def get_holding_manager() -> HoldingPeriodManager:

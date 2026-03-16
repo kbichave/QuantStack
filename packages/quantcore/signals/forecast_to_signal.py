@@ -4,10 +4,9 @@ Forecast to Signal Conversion.
 Transform ML forecasts into tradeable position signals.
 """
 
-import numpy as np
-import pandas as pd
-from typing import Optional, Tuple, Dict
 from dataclasses import dataclass
+
+import pandas as pd
 
 
 @dataclass
@@ -78,7 +77,7 @@ def normalize_forecast(
 
 def forecast_to_position(
     forecast: pd.Series,
-    config: Optional[SignalConfig] = None,
+    config: SignalConfig | None = None,
 ) -> pd.Series:
     """
     Convert forecast to position signal.
@@ -111,9 +110,7 @@ def forecast_to_position(
 
     elif config.position_sizing == "quantile":
         # Position based on forecast quantile
-        quantile = signal.rolling(252, min_periods=20).apply(
-            lambda x: (x.iloc[-1] > x).mean()
-        )
+        quantile = signal.rolling(252, min_periods=20).apply(lambda x: (x.iloc[-1] > x).mean())
         position = (quantile - 0.5) * 2 * config.max_position
 
     else:
@@ -172,13 +169,13 @@ class ForecastToSignal:
             normalize=normalize,
         )
 
-        self.forecast_weights: Dict[str, float] = {}
-        self.ic_history: Dict[str, pd.Series] = {}
+        self.forecast_weights: dict[str, float] = {}
+        self.ic_history: dict[str, pd.Series] = {}
 
     def combine_forecasts(
         self,
-        forecasts: Dict[str, pd.Series],
-        weights: Optional[Dict[str, float]] = None,
+        forecasts: dict[str, pd.Series],
+        weights: dict[str, float] | None = None,
     ) -> pd.Series:
         """
         Combine multiple forecasts into single signal.
@@ -218,13 +215,13 @@ class ForecastToSignal:
     def _compute_ic_weights(
         self,
         forecasts: pd.DataFrame,
-        returns: Optional[pd.Series] = None,
+        returns: pd.Series | None = None,
         lookback: int = 63,
     ) -> pd.Series:
         """Compute IC-based weights."""
         # Default to equal weights if no returns
         if returns is None:
-            return pd.Series({c: 1.0 for c in forecasts.columns})
+            return pd.Series(dict.fromkeys(forecasts.columns, 1.0))
 
         weights = {}
         for col in forecasts.columns:
@@ -237,8 +234,8 @@ class ForecastToSignal:
 
     def convert(
         self,
-        forecasts: Dict[str, pd.Series],
-        returns: Optional[pd.Series] = None,
+        forecasts: dict[str, pd.Series],
+        returns: pd.Series | None = None,
     ) -> pd.Series:
         """
         Convert forecasts to position signal.
@@ -255,7 +252,7 @@ class ForecastToSignal:
 
         return position
 
-    def get_weights(self) -> Dict[str, float]:
+    def get_weights(self) -> dict[str, float]:
         """Get current forecast weights."""
         return self.forecast_weights
 

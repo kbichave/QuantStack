@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Dict, List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -48,13 +48,11 @@ class HistoricalConfig:
     """
 
     # Symbol universe (logical names, mapped in universe.py)
-    symbols: List[str] = field(
-        default_factory=lambda: ["SPY", "QQQ", "IWM", "WTI", "BRENT"]
-    )
+    symbols: list[str] = field(default_factory=lambda: ["SPY", "QQQ", "IWM", "WTI", "BRENT"])
 
     # Date range
-    start_date: Optional[str] = None  # YYYY-MM-DD or None for earliest
-    end_date: Optional[str] = None  # YYYY-MM-DD or None for today
+    start_date: str | None = None  # YYYY-MM-DD or None for earliest
+    end_date: str | None = None  # YYYY-MM-DD or None for today
 
     # Capital settings
     initial_equity: float = 100_000.0
@@ -79,7 +77,7 @@ class HistoricalConfig:
     use_crewai_flow: bool = True  # Use CrewAI Flows for orchestration (recommended)
 
     # Active strategy pods
-    active_pods: List[str] = field(
+    active_pods: list[str] = field(
         default_factory=lambda: [
             "trend_following",
             "mean_reversion",
@@ -109,25 +107,25 @@ class HistoricalConfig:
     # The single-pass simulation still runs on the full date range; walk-forward
     # runs as an additional post-hoc analysis using daily return snapshots.
     walk_forward_mode: bool = False
-    walk_forward_n_folds: int = 5   # Number of folds
+    walk_forward_n_folds: int = 5  # Number of folds
     walk_forward_test_days: int = 63  # Test window per fold (~1 quarter)
 
     # Storage
-    db_path: Optional[str] = None  # Path to DuckDB, None = default location
+    db_path: str | None = None  # Path to DuckDB, None = default location
 
-    def get_start_date(self) -> Optional[date]:
+    def get_start_date(self) -> date | None:
         """Parse start_date string to date object."""
         if self.start_date is None:
             return None
         return date.fromisoformat(self.start_date)
 
-    def get_end_date(self) -> Optional[date]:
+    def get_end_date(self) -> date | None:
         """Parse end_date string to date object."""
         if self.end_date is None:
             return None
         return date.fromisoformat(self.end_date)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "symbols": self.symbols,
@@ -147,7 +145,7 @@ class HistoricalConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "HistoricalConfig":
+    def from_dict(cls, data: dict) -> HistoricalConfig:
         """Create from dictionary."""
         return cls(**data)
 
@@ -166,35 +164,35 @@ class SimulationContext(BaseModel):
     """
 
     date: date
-    market_data: Dict[str, Dict] = Field(
+    market_data: dict[str, dict] = Field(
         default_factory=dict,
         description="OHLCV data per symbol: {symbol: {open, high, low, close, volume}}",
     )
-    features: Dict[str, Dict] = Field(
+    features: dict[str, dict] = Field(
         default_factory=dict, description="Computed features per symbol from QuantCore"
     )
-    portfolio: Dict = Field(
+    portfolio: dict = Field(
         default_factory=dict,
         description="Current portfolio state: {equity, cash, positions, drawdown}",
     )
-    policy: Dict = Field(
+    policy: dict = Field(
         default_factory=dict, description="Current policy weights: {pod_name: weight}"
     )
-    regimes: Dict[str, Dict] = Field(
+    regimes: dict[str, dict] = Field(
         default_factory=dict,
         description="Regime state per symbol: {symbol: {trend, volatility}}",
     )
 
     # Multi-timeframe fields (optional, used when MTF is enabled)
-    mtf_data: Optional[Dict] = Field(
+    mtf_data: dict | None = Field(
         default=None,
         description="Multi-timeframe data per symbol: {symbol: {timeframe: DataFrame}}",
     )
-    bar_hour: Optional[int] = Field(
+    bar_hour: int | None = Field(
         default=None,
         description="Current bar hour for intraday processing (e.g., 10, 14)",
     )
-    execution_timeframe: Optional[str] = Field(
+    execution_timeframe: str | None = Field(
         default=None, description="Execution timeframe (daily, 4h, 1h)"
     )
 
@@ -213,19 +211,15 @@ class DayResult(BaseModel):
     - Signal funnel metrics
     """
 
-    trades: List[Dict] = Field(
-        default_factory=list, description="List of trades to execute"
-    )
-    agent_logs: List[Dict] = Field(
+    trades: list[dict] = Field(default_factory=list, description="List of trades to execute")
+    agent_logs: list[dict] = Field(
         default_factory=list, description="Agent messages for chat timeline"
     )
-    regimes: Dict[str, Dict] = Field(
+    regimes: dict[str, dict] = Field(
         default_factory=dict, description="Regime classification per symbol"
     )
-    signals: List[Dict] = Field(
-        default_factory=list, description="Generated signals (for logging)"
-    )
-    signal_funnel: Dict[str, int] = Field(
+    signals: list[dict] = Field(default_factory=list, description="Generated signals (for logging)")
+    signal_funnel: dict[str, int] = Field(
         default_factory=dict,
         description="Signal funnel metrics: generated, validated, approved, executed",
     )

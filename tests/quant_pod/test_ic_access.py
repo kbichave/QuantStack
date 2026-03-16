@@ -11,11 +11,9 @@ helper functions and MCP tool logic with mocked dependencies.
 from __future__ import annotations
 
 import time
-from typing import Any, Dict
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # =============================================================================
 # IC Output Cache helpers
@@ -23,7 +21,7 @@ import pytest
 
 
 def test_ic_cache_set_and_get():
-    from quant_pod.mcp.server import _ic_cache_set, _ic_cache_get, _ic_output_cache
+    from quant_pod.mcp.server import _ic_cache_get, _ic_cache_set
 
     symbol, ic_name = "TEST", "regime_detector_ic"
     _ic_cache_set(symbol, ic_name, "trending_up, confidence 0.85")
@@ -73,6 +71,7 @@ def test_populate_ic_cache_from_result():
 
     # First 3 ICs in IC_AGENT_ORDER should be cached
     from quant_pod.crews.trading_crew import IC_AGENT_ORDER
+
     for i in range(3):
         ic_name = IC_AGENT_ORDER[i]
         cached = srv._ic_cache_get(symbol, ic_name)
@@ -234,6 +233,7 @@ async def test_get_fill_quality_order_not_found():
 
     with patch("quant_pod.mcp.server._require_ctx", return_value=mock_ctx):
         from quant_pod.mcp.server import get_fill_quality
+
         result = await get_fill_quality.fn("nonexistent_order_id")
 
     assert result["success"] is False
@@ -245,12 +245,20 @@ async def test_get_fill_quality_returns_analysis():
     """Returns quality analysis for a known fill."""
     mock_ctx = MagicMock()
     mock_ctx.db.execute.return_value.fetchone.return_value = (
-        "order_123", "SPY", "buy", 450.25, 10, 2.5, 1.0, "2026-03-15 09:30:00"
+        "order_123",
+        "SPY",
+        "buy",
+        450.25,
+        10,
+        2.5,
+        1.0,
+        "2026-03-15 09:30:00",
     )
 
     with patch("quant_pod.mcp.server._require_ctx", return_value=mock_ctx):
         # Don't mock DataStore — let it fail gracefully (no VWAP data in test env)
         from quant_pod.mcp.server import get_fill_quality
+
         result = await get_fill_quality.fn("order_123")
 
     assert result["success"] is True
@@ -274,6 +282,7 @@ async def test_get_position_monitor_no_position():
 
     with patch("quant_pod.mcp.server._require_ctx", return_value=mock_ctx):
         from quant_pod.mcp.server import get_position_monitor
+
         result = await get_position_monitor.fn("MISSING")
 
     assert result["success"] is True
@@ -296,11 +305,15 @@ async def test_get_position_monitor_open_position():
 
     with (
         patch("quant_pod.mcp.server._require_ctx", return_value=mock_ctx),
-        patch("quant_pod.mcp.server._detect_regime_for_symbol", new=AsyncMock(
-            return_value={"trend": "trending_up", "volatility": "normal", "confidence": 0.82}
-        )),
+        patch(
+            "quant_pod.mcp.server._detect_regime_for_symbol",
+            new=AsyncMock(
+                return_value={"trend": "trending_up", "volatility": "normal", "confidence": 0.82}
+            ),
+        ),
     ):
         from quant_pod.mcp.server import get_position_monitor
+
         result = await get_position_monitor.fn("SPY")
 
     assert result["success"] is True

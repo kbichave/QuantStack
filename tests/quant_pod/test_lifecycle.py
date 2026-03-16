@@ -8,13 +8,10 @@ RL status, and regime matrix performance analysis.
 
 from __future__ import annotations
 
-import json
 import uuid
 
 import pytest
-
 from quant_pod.context import create_trading_context
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -31,6 +28,7 @@ def ctx():
 @pytest.fixture
 def _inject_ctx(ctx):
     import quant_pod.mcp.server as srv
+
     original = srv._ctx
     srv._ctx = ctx
     yield ctx
@@ -55,7 +53,11 @@ async def _create_strategy(name, status="draft", bt_sharpe=None, wf_oos_sharpe=N
 
     updates = {"strategy_id": sid, "status": status}
     if bt_sharpe is not None:
-        updates["backtest_summary"] = {"sharpe_ratio": bt_sharpe, "max_drawdown": 5.0, "symbol": "SPY"}
+        updates["backtest_summary"] = {
+            "sharpe_ratio": bt_sharpe,
+            "max_drawdown": 5.0,
+            "symbol": "SPY",
+        }
     if wf_oos_sharpe is not None:
         updates["walkforward_summary"] = {"oos_sharpe_mean": wf_oos_sharpe}
 
@@ -71,10 +73,14 @@ async def _create_strategy(name, status="draft", bt_sharpe=None, wf_oos_sharpe=N
 class TestPromoteStrategy:
     @pytest.mark.asyncio
     async def test_promote_forward_testing_with_good_backtest(self, _inject_ctx):
-        from quant_pod.mcp.server import promote_strategy, get_strategy
+        from quant_pod.mcp.server import get_strategy, promote_strategy
 
-        sid = await _create_strategy("promo_good", status="forward_testing", bt_sharpe=1.5, wf_oos_sharpe=0.8)
-        result = await _fn(promote_strategy)(strategy_id=sid, evidence="3 weeks forward test, Sharpe 1.2")
+        sid = await _create_strategy(
+            "promo_good", status="forward_testing", bt_sharpe=1.5, wf_oos_sharpe=0.8
+        )
+        result = await _fn(promote_strategy)(
+            strategy_id=sid, evidence="3 weeks forward test, Sharpe 1.2"
+        )
         assert result["success"] is True
         assert result["new_status"] == "live"
 
@@ -116,10 +122,12 @@ class TestPromoteStrategy:
 class TestRetireStrategy:
     @pytest.mark.asyncio
     async def test_retire_updates_status(self, _inject_ctx):
-        from quant_pod.mcp.server import retire_strategy, get_strategy
+        from quant_pod.mcp.server import get_strategy, retire_strategy
 
         sid = await _create_strategy("retire_test", status="live", bt_sharpe=0.5)
-        result = await _fn(retire_strategy)(strategy_id=sid, reason="4 weeks underperformance, Sharpe 0.1")
+        result = await _fn(retire_strategy)(
+            strategy_id=sid, reason="4 weeks underperformance, Sharpe 0.1"
+        )
         assert result["success"] is True
         assert result["new_status"] == "retired"
 
@@ -128,7 +136,11 @@ class TestRetireStrategy:
 
     @pytest.mark.asyncio
     async def test_retire_removes_from_matrix(self, _inject_ctx, ctx):
-        from quant_pod.mcp.server import retire_strategy, set_regime_allocation, get_regime_strategies
+        from quant_pod.mcp.server import (
+            get_regime_strategies,
+            retire_strategy,
+            set_regime_allocation,
+        )
 
         sid = await _create_strategy("retire_matrix", status="live")
 

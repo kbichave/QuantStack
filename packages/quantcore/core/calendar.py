@@ -27,13 +27,11 @@ Usage:
 """
 
 from datetime import date, datetime, time, timedelta
-from typing import List, Optional, Tuple, Dict, Set
 from functools import lru_cache
 
 from loguru import logger
 
 from quantcore.core.errors import CalendarError
-
 
 # Try to import exchange_calendars, fall back to basic implementation
 try:
@@ -49,7 +47,7 @@ except ImportError:
 
 
 # Exchange name mappings to exchange_calendars codes
-EXCHANGE_CODES: Dict[str, str] = {
+EXCHANGE_CODES: dict[str, str] = {
     "NYSE": "XNYS",
     "NASDAQ": "XNAS",
     "CME": "CMES",  # CME equity futures
@@ -59,10 +57,10 @@ EXCHANGE_CODES: Dict[str, str] = {
 }
 
 # Supported exchanges
-SUPPORTED_EXCHANGES: Set[str] = {"NYSE", "NASDAQ", "CME", "ICE"}
+SUPPORTED_EXCHANGES: set[str] = {"NYSE", "NASDAQ", "CME", "ICE"}
 
 # US market holidays (basic fallback)
-US_HOLIDAYS_2024: Set[date] = {
+US_HOLIDAYS_2024: set[date] = {
     date(2024, 1, 1),  # New Year's Day
     date(2024, 1, 15),  # MLK Day
     date(2024, 2, 19),  # Presidents' Day
@@ -75,7 +73,7 @@ US_HOLIDAYS_2024: Set[date] = {
     date(2024, 12, 25),  # Christmas
 }
 
-US_HOLIDAYS_2025: Set[date] = {
+US_HOLIDAYS_2025: set[date] = {
     date(2025, 1, 1),  # New Year's Day
     date(2025, 1, 20),  # MLK Day
     date(2025, 2, 17),  # Presidents' Day
@@ -89,10 +87,10 @@ US_HOLIDAYS_2025: Set[date] = {
 }
 
 # Basic US holidays (static fallback)
-BASIC_US_HOLIDAYS: Set[date] = US_HOLIDAYS_2024 | US_HOLIDAYS_2025
+BASIC_US_HOLIDAYS: set[date] = US_HOLIDAYS_2024 | US_HOLIDAYS_2025
 
 # Standard session times by exchange
-SESSION_TIMES: Dict[str, Tuple[time, time]] = {
+SESSION_TIMES: dict[str, tuple[time, time]] = {
     "NYSE": (time(9, 30), time(16, 0)),
     "NASDAQ": (time(9, 30), time(16, 0)),
     "CME": (time(17, 0), time(16, 0)),  # 23-hour session
@@ -128,7 +126,7 @@ class TradingCalendar:
             )
 
         self.default_exchange = default_exchange
-        self._calendars: Dict[str, any] = {}
+        self._calendars: dict[str, any] = {}
 
         # Load calendars if exchange_calendars is available
         if XCALS_AVAILABLE:
@@ -146,7 +144,7 @@ class TradingCalendar:
     def is_trading_day(
         self,
         dt: date,
-        exchange: Optional[str] = None,
+        exchange: str | None = None,
     ) -> bool:
         """
         Check if a date is a trading day.
@@ -189,8 +187,8 @@ class TradingCalendar:
         self,
         start: date,
         end: date,
-        exchange: Optional[str] = None,
-    ) -> List[date]:
+        exchange: str | None = None,
+    ) -> list[date]:
         """
         Get all trading days in a date range.
 
@@ -240,7 +238,7 @@ class TradingCalendar:
     def next_trading_day(
         self,
         dt: date,
-        exchange: Optional[str] = None,
+        exchange: str | None = None,
     ) -> date:
         """
         Get the next trading day after a given date.
@@ -284,7 +282,7 @@ class TradingCalendar:
     def prev_trading_day(
         self,
         dt: date,
-        exchange: Optional[str] = None,
+        exchange: str | None = None,
     ) -> date:
         """
         Get the previous trading day before a given date.
@@ -328,8 +326,8 @@ class TradingCalendar:
     def get_session_times(
         self,
         dt: date,
-        exchange: Optional[str] = None,
-    ) -> Tuple[time, time]:
+        exchange: str | None = None,
+    ) -> tuple[time, time]:
         """
         Get trading session open and close times.
 
@@ -364,7 +362,7 @@ class TradingCalendar:
         self,
         start: date,
         end: date,
-        exchange: Optional[str] = None,
+        exchange: str | None = None,
     ) -> int:
         """
         Count trading days between two dates.
@@ -390,7 +388,7 @@ class TradingCalendar:
         self,
         dt: date,
         days: int,
-        exchange: Optional[str] = None,
+        exchange: str | None = None,
     ) -> date:
         """
         Add a number of trading days to a date.
@@ -431,7 +429,7 @@ class TradingCalendar:
             )
 
     @staticmethod
-    def get_supported_exchanges() -> List[str]:
+    def get_supported_exchanges() -> list[str]:
         """Get list of supported exchanges."""
         return list(SUPPORTED_EXCHANGES)
 

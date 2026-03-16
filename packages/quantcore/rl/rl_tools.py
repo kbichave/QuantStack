@@ -28,13 +28,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
 import numpy as np
 from loguru import logger
 from pydantic import BaseModel, Field
-
 from quant_pod.crewai_compat import BaseTool
+
 from quantcore.rl.config import RLProductionConfig, get_rl_config
 from quantcore.rl.features import RLFeatureExtractor
 
@@ -45,15 +45,15 @@ from quantcore.rl.features import RLFeatureExtractor
 # Written by RL tools at inference time; consumed by PostTradeRLAdapter
 # in TradingDayFlow._run_post_trade_learning() via pop().
 # ---------------------------------------------------------------------------
-_PRETRADE_SNAPSHOTS: Dict[str, Any] = {}
+_PRETRADE_SNAPSHOTS: dict[str, Any] = {}
 
 
-def save_pretrade_snapshot(tool_name: str, snapshot: Dict[str, Any]) -> None:
+def save_pretrade_snapshot(tool_name: str, snapshot: dict[str, Any]) -> None:
     """Store a pre-trade snapshot for later retrieval by PostTradeRLAdapter."""
     _PRETRADE_SNAPSHOTS[tool_name] = snapshot
 
 
-def pop_pretrade_snapshot(tool_name: str) -> Optional[Dict[str, Any]]:
+def pop_pretrade_snapshot(tool_name: str) -> dict[str, Any] | None:
     """Retrieve and remove the snapshot for a given tool. Returns None if absent."""
     return _PRETRADE_SNAPSHOTS.pop(tool_name, None)
 
@@ -67,12 +67,8 @@ class RLPositionSizeInput(BaseModel):
     signal_confidence: float = Field(
         ..., ge=0.0, le=1.0, description="IC/pod manager signal confidence (0–1)"
     )
-    signal_direction: str = Field(
-        ..., description="Signal direction: LONG, SHORT, or NEUTRAL"
-    )
-    regime: str = Field(
-        default="normal", description="Current market regime label"
-    )
+    signal_direction: str = Field(..., description="Signal direction: LONG, SHORT, or NEUTRAL")
+    regime: str = Field(default="normal", description="Current market regime label")
     current_drawdown: float = Field(
         default=0.0, ge=0.0, description="Current portfolio drawdown fraction (e.g. 0.05)"
     )
@@ -85,36 +81,25 @@ class RLPositionSizeInput(BaseModel):
     win_rate: float = Field(
         default=0.5, ge=0.0, le=1.0, description="Rolling win rate over recent trades"
     )
-    rolling_sharpe: float = Field(
-        default=0.0, description="Rolling 20-period Sharpe ratio"
-    )
-    time_since_trade: int = Field(
-        default=0, ge=0, description="Number of bars since last trade"
-    )
+    rolling_sharpe: float = Field(default=0.0, description="Rolling 20-period Sharpe ratio")
+    time_since_trade: int = Field(default=0, ge=0, description="Number of bars since last trade")
 
 
 class RLExecutionStrategyInput(BaseModel):
     symbol: str = Field(..., description="Trading symbol (e.g. SPY)")
     quantity: float = Field(..., gt=0, description="Order quantity (shares)")
-    urgency: str = Field(
-        default="normal",
-        description="Urgency level: low, normal, high"
-    )
+    urgency: str = Field(default="normal", description="Urgency level: low, normal, high")
     arrival_price: float = Field(
         default=0.0, description="Price at decision time (0 = use last known)"
     )
     time_horizon_bars: int = Field(
-        default=10,
-        ge=1,
-        description="Number of bars available to execute"
+        default=10, ge=1, description="Number of bars available to execute"
     )
 
 
 class RLAlphaWeightInput(BaseModel):
     regime: str = Field(..., description="Current market regime (e.g. trending_up, ranging)")
-    competing_signals: List[str] = Field(
-        ..., description="List of IC/alpha signal names to weight"
-    )
+    competing_signals: list[str] = Field(..., description="List of IC/alpha signal names to weight")
     market_volatility: float = Field(
         default=0.3, ge=0.0, description="Current normalized volatility"
     )
@@ -151,11 +136,11 @@ class RLPositionSizeTool(BaseTool):
         "regime (string), current_drawdown (fraction), risk_budget_used (0-1). "
         "Output: JSON with scale, confidence, shadow flag."
     )
-    args_schema: Type[BaseModel] = RLPositionSizeInput
+    args_schema: type[BaseModel] = RLPositionSizeInput
 
     # Lazy-loaded agent (initialized once per session on first call)
-    _agent: Optional[Any] = None
-    _config: Optional[RLProductionConfig] = None
+    _agent: Any | None = None
+    _config: RLProductionConfig | None = None
 
     def _run(
         self,
@@ -172,19 +157,29 @@ class RLPositionSizeTool(BaseTool):
         cfg = self._get_config()
 
         if not cfg.enable_sizing_rl:
-            return json.dumps({"scale": signal_confidence, "shadow": True,
-                               "reasoning": "Sizing RL disabled in config."})
+            return json.dumps(
+                {
+                    "scale": signal_confidence,
+                    "shadow": True,
+                    "reasoning": "Sizing RL disabled in config.",
+                }
+            )
 
         agent = self._load_agent(cfg)
         if agent is None:
-            return json.dumps({"scale": signal_confidence, "shadow": True,
-                               "reasoning": "Sizing agent not loaded — no checkpoint."})
+            return json.dumps(
+                {
+                    "scale": signal_confidence,
+                    "shadow": True,
+                    "reasoning": "Sizing agent not loaded — no checkpoint.",
+                }
+            )
 
         # Build feature vector using canonical extractor
         features = RLFeatureExtractor.sizing_features(
             signal_confidence=signal_confidence,
             signal_direction=signal_direction,
-            returns_window=[],   # no live returns at inference time — use defaults
+            returns_window=[],  # no live returns at inference time — use defaults
             current_position_pct=current_position_pct,
             drawdown=current_drawdown,
             risk_budget_used=risk_budget_used,
@@ -195,6 +190,7 @@ class RLPositionSizeTool(BaseTool):
         )
 
         from quantcore.rl.base import State
+
         state = State(features=features)
 
         try:
@@ -206,19 +202,23 @@ class RLPositionSizeTool(BaseTool):
                 scale = float(np.clip(action.value, 0.0, 1.0))
         except Exception as exc:
             logger.warning(f"[RLPositionSizeTool] Inference failed: {exc}")
-            return json.dumps({"scale": signal_confidence, "shadow": True,
-                               "reasoning": f"Inference error: {exc}"})
+            return json.dumps(
+                {"scale": signal_confidence, "shadow": True, "reasoning": f"Inference error: {exc}"}
+            )
 
         is_shadow = cfg.sizing_shadow
 
         # Save pre-trade snapshot for PostTradeRLAdapter
-        save_pretrade_snapshot("rl_position_size", {
-            "tool_name": "rl_position_size",
-            "state_vector": features.tolist(),
-            "action_value": scale,
-            "volatility_at_entry": current_drawdown,  # best proxy available at call time
-            "signal_confidence": signal_confidence,
-        })
+        save_pretrade_snapshot(
+            "rl_position_size",
+            {
+                "tool_name": "rl_position_size",
+                "state_vector": features.tolist(),
+                "action_value": scale,
+                "volatility_at_entry": current_drawdown,  # best proxy available at call time
+                "signal_confidence": signal_confidence,
+            },
+        )
 
         result = {
             "scale": round(scale, 4),
@@ -238,7 +238,7 @@ class RLPositionSizeTool(BaseTool):
             object.__setattr__(self, "_config", get_rl_config())
         return self._config
 
-    def _load_agent(self, cfg: RLProductionConfig) -> Optional[Any]:
+    def _load_agent(self, cfg: RLProductionConfig) -> Any | None:
         """Lazy-load sizing agent from checkpoint (once per session)."""
         if self._agent is not None:
             return self._agent
@@ -250,6 +250,7 @@ class RLPositionSizeTool(BaseTool):
 
         try:
             from quantcore.rl.sizing.agent import SizingRLAgent
+
             agent = SizingRLAgent(state_dim=cfg.sizing_state_dim, action_dim=1)
             agent.load(str(checkpoint))
             agent.eval()
@@ -285,17 +286,17 @@ class RLExecutionStrategyTool(BaseTool):
         "arrival_price (float, optional), time_horizon_bars (int, default 10). "
         "Output: JSON with strategy, order_fraction, confidence, shadow flag."
     )
-    args_schema: Type[BaseModel] = RLExecutionStrategyInput
+    args_schema: type[BaseModel] = RLExecutionStrategyInput
 
-    _agent: Optional[Any] = None
-    _config: Optional[RLProductionConfig] = None
+    _agent: Any | None = None
+    _config: RLProductionConfig | None = None
 
     _STRATEGY_MAP = {
-        0: ("PASSIVE", 0.0),    # Wait
-        1: ("PASSIVE", 0.10),   # Small limit
+        0: ("PASSIVE", 0.0),  # Wait
+        1: ("PASSIVE", 0.10),  # Small limit
         2: ("BALANCED", 0.25),  # Medium limit
         3: ("BALANCED", 0.50),  # Large limit
-        4: ("AGGRESSIVE", 1.0), # Market order
+        4: ("AGGRESSIVE", 1.0),  # Market order
     }
 
     def _run(
@@ -312,15 +313,25 @@ class RLExecutionStrategyTool(BaseTool):
             strategy = {"low": "PASSIVE", "normal": "BALANCED", "high": "AGGRESSIVE"}.get(
                 urgency, "BALANCED"
             )
-            return json.dumps({"strategy": strategy, "order_fraction": 0.25,
-                               "shadow": True, "reasoning": "Execution RL disabled in config."})
+            return json.dumps(
+                {
+                    "strategy": strategy,
+                    "order_fraction": 0.25,
+                    "shadow": True,
+                    "reasoning": "Execution RL disabled in config.",
+                }
+            )
 
         agent = self._load_agent(cfg)
         if agent is None:
-            return json.dumps({
-                "strategy": "BALANCED", "order_fraction": 0.25,
-                "shadow": True, "reasoning": "Execution agent not loaded — no checkpoint."
-            })
+            return json.dumps(
+                {
+                    "strategy": "BALANCED",
+                    "order_fraction": 0.25,
+                    "shadow": True,
+                    "reasoning": "Execution agent not loaded — no checkpoint.",
+                }
+            )
 
         # Urgency-adjusted timing approximation
         remaining_time = {
@@ -337,13 +348,14 @@ class RLExecutionStrategyTool(BaseTool):
             current_price=arrival_price if arrival_price > 0 else 100.0,
             arrival_price=arrival_price if arrival_price > 0 else 100.0,
             spread_bps=5.0,
-            volatility=0.015,   # conservative default; real value from market data
+            volatility=0.015,  # conservative default; real value from market data
             volume_ratio=1.0,
             vwap=arrival_price if arrival_price > 0 else 100.0,
             shortfall=0.0,
         )
 
         from quantcore.rl.base import State
+
         state = State(features=features)
 
         try:
@@ -352,10 +364,14 @@ class RLExecutionStrategyTool(BaseTool):
             action_idx = int(action.value)
         except Exception as exc:
             logger.warning(f"[RLExecutionStrategyTool] Inference failed: {exc}")
-            return json.dumps({
-                "strategy": "BALANCED", "order_fraction": 0.25,
-                "shadow": True, "reasoning": f"Inference error: {exc}"
-            })
+            return json.dumps(
+                {
+                    "strategy": "BALANCED",
+                    "order_fraction": 0.25,
+                    "shadow": True,
+                    "reasoning": f"Inference error: {exc}",
+                }
+            )
 
         strategy_label, order_fraction = self._STRATEGY_MAP.get(action_idx, ("BALANCED", 0.25))
         is_shadow = cfg.execution_shadow
@@ -378,7 +394,7 @@ class RLExecutionStrategyTool(BaseTool):
             object.__setattr__(self, "_config", get_rl_config())
         return self._config
 
-    def _load_agent(self, cfg: RLProductionConfig) -> Optional[Any]:
+    def _load_agent(self, cfg: RLProductionConfig) -> Any | None:
         if self._agent is not None:
             return self._agent
 
@@ -389,6 +405,7 @@ class RLExecutionStrategyTool(BaseTool):
 
         try:
             from quantcore.rl.execution.agent import ExecutionRLAgent
+
             agent = ExecutionRLAgent(state_dim=cfg.execution_state_dim, action_dim=5)
             agent.load(str(checkpoint))
             agent.eval()
@@ -424,13 +441,13 @@ class RLAlphaWeightTool(BaseTool):
         "market_volatility (float 0-1, optional), vix_normalized (float 0-1, optional). "
         "Output: JSON with selected_alpha, weights dict, confidence, shadow flag."
     )
-    args_schema: Type[BaseModel] = RLAlphaWeightInput
+    args_schema: type[BaseModel] = RLAlphaWeightInput
 
-    _agent: Optional[Any] = None
-    _alpha_names: Optional[List[str]] = None
-    _config: Optional[RLProductionConfig] = None
+    _agent: Any | None = None
+    _alpha_names: list[str] | None = None
+    _config: RLProductionConfig | None = None
 
-    _REGIME_MAP: Dict[str, int] = {
+    _REGIME_MAP: dict[str, int] = {
         "trending_up": 0,
         "low_vol_bull": 0,
         "trending_down": 2,
@@ -445,7 +462,7 @@ class RLAlphaWeightTool(BaseTool):
     def _run(
         self,
         regime: str,
-        competing_signals: List[str],
+        competing_signals: list[str],
         market_volatility: float = 0.3,
         vix_normalized: float = 0.3,
     ) -> str:
@@ -454,31 +471,35 @@ class RLAlphaWeightTool(BaseTool):
         if not cfg.enable_meta_rl:
             # Fallback: equal weights
             equal_w = 1.0 / len(competing_signals) if competing_signals else 0.0
-            return json.dumps({
-                "selected_alpha": competing_signals[0] if competing_signals else "NONE",
-                "weights": {s: round(equal_w, 4) for s in competing_signals},
-                "confidence": 0.5,
-                "shadow": True,
-                "reasoning": "Alpha selection RL disabled in config — using equal weights.",
-            })
+            return json.dumps(
+                {
+                    "selected_alpha": competing_signals[0] if competing_signals else "NONE",
+                    "weights": {s: round(equal_w, 4) for s in competing_signals},
+                    "confidence": 0.5,
+                    "shadow": True,
+                    "reasoning": "Alpha selection RL disabled in config — using equal weights.",
+                }
+            )
 
         agent = self._load_agent(cfg, competing_signals)
         if agent is None:
             equal_w = 1.0 / len(competing_signals) if competing_signals else 0.0
-            return json.dumps({
-                "selected_alpha": competing_signals[0] if competing_signals else "NONE",
-                "weights": {s: round(equal_w, 4) for s in competing_signals},
-                "confidence": 0.5,
-                "shadow": True,
-                "reasoning": "Alpha selection agent not loaded — using equal weights.",
-            })
+            return json.dumps(
+                {
+                    "selected_alpha": competing_signals[0] if competing_signals else "NONE",
+                    "weights": {s: round(equal_w, 4) for s in competing_signals},
+                    "confidence": 0.5,
+                    "shadow": True,
+                    "reasoning": "Alpha selection agent not loaded — using equal weights.",
+                }
+            )
 
         # Map regime string to index
         regime_idx = self._REGIME_MAP.get(regime.lower().replace(" ", "_"), 1)
 
         # Build alpha return history from in-memory agent tracking
-        alpha_histories: Dict[str, List[float]] = {name: [] for name in competing_signals}
-        alpha_alignments: Dict[str, float] = {name: 0.5 for name in competing_signals}
+        alpha_histories: dict[str, list[float]] = {name: [] for name in competing_signals}
+        alpha_alignments: dict[str, float] = dict.fromkeys(competing_signals, 0.5)
 
         features = RLFeatureExtractor.alpha_selection_features(
             regime_idx=regime_idx,
@@ -490,6 +511,7 @@ class RLAlphaWeightTool(BaseTool):
         )
 
         from quantcore.rl.base import State
+
         state = State(features=features)
 
         try:
@@ -499,12 +521,15 @@ class RLAlphaWeightTool(BaseTool):
         except Exception as exc:
             logger.warning(f"[RLAlphaWeightTool] Inference failed: {exc}")
             equal_w = 1.0 / len(competing_signals) if competing_signals else 0.0
-            return json.dumps({
-                "selected_alpha": competing_signals[0] if competing_signals else "NONE",
-                "weights": {s: round(equal_w, 4) for s in competing_signals},
-                "confidence": 0.5, "shadow": True,
-                "reasoning": f"Inference error: {exc}",
-            })
+            return json.dumps(
+                {
+                    "selected_alpha": competing_signals[0] if competing_signals else "NONE",
+                    "weights": {s: round(equal_w, 4) for s in competing_signals},
+                    "confidence": 0.5,
+                    "shadow": True,
+                    "reasoning": f"Inference error: {exc}",
+                }
+            )
 
         # Build output
         n = len(competing_signals)
@@ -539,8 +564,8 @@ class RLAlphaWeightTool(BaseTool):
     def _load_agent(
         self,
         cfg: RLProductionConfig,
-        signal_names: List[str],
-    ) -> Optional[Any]:
+        signal_names: list[str],
+    ) -> Any | None:
         if self._agent is not None:
             return self._agent
 
@@ -551,7 +576,6 @@ class RLAlphaWeightTool(BaseTool):
 
         try:
             from quantcore.rl.meta.agent import AlphaSelectionAgent
-            from quantcore.rl.meta.environment import AlphaSelectionEnvironment
 
             # Use signal names to compute correct state dim
             n_alphas = len(signal_names)
@@ -575,7 +599,7 @@ class RLAlphaWeightTool(BaseTool):
 # ---------------------------------------------------------------------------
 
 
-def get_rl_tools(config: Optional[RLProductionConfig] = None) -> List[BaseTool]:
+def get_rl_tools(config: RLProductionConfig | None = None) -> list[BaseTool]:
     """
     Get RL agent tools for crew registration.
 

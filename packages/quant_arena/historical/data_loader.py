@@ -10,9 +10,9 @@ Provides an iterator interface for stepping through trading days.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from datetime import date, datetime
 
 import pandas as pd
 from loguru import logger
@@ -30,16 +30,16 @@ class MarketSnapshot:
     """
 
     date: date
-    data: Dict[str, Dict[str, float]]  # {symbol: {open, high, low, close, volume}}
-    available_symbols: List[str]
+    data: dict[str, dict[str, float]]  # {symbol: {open, high, low, close, volume}}
+    available_symbols: list[str]
 
-    def get_close(self, symbol: str) -> Optional[float]:
+    def get_close(self, symbol: str) -> float | None:
         """Get closing price for a symbol."""
         if symbol in self.data:
             return self.data[symbol].get("close")
         return None
 
-    def get_prices(self) -> Dict[str, float]:
+    def get_prices(self) -> dict[str, float]:
         """Get closing prices for all symbols."""
         return {sym: data["close"] for sym, data in self.data.items()}
 
@@ -61,16 +61,16 @@ class MTFSnapshot:
 
     date: date
     hour: int  # Hour of day (e.g., 10, 14)
-    data: Dict[str, Dict[str, pd.DataFrame]]  # {symbol: {timeframe: DataFrame}}
-    available_symbols: List[str]
+    data: dict[str, dict[str, pd.DataFrame]]  # {symbol: {timeframe: DataFrame}}
+    available_symbols: list[str]
 
-    def get_timeframe_data(self, symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
+    def get_timeframe_data(self, symbol: str, timeframe: str) -> pd.DataFrame | None:
         """Get data for a specific symbol and timeframe."""
         if symbol in self.data and timeframe in self.data[symbol]:
             return self.data[symbol][timeframe]
         return None
 
-    def get_latest_close(self, symbol: str, timeframe: str = "1H") -> Optional[float]:
+    def get_latest_close(self, symbol: str, timeframe: str = "1H") -> float | None:
         """Get latest closing price for a symbol at specified timeframe."""
         df = self.get_timeframe_data(symbol, timeframe)
         if df is not None and not df.empty:
@@ -78,7 +78,7 @@ class MTFSnapshot:
             return float(df[close_col].iloc[-1])
         return None
 
-    def to_dict(self, symbol: str) -> Dict[str, pd.DataFrame]:
+    def to_dict(self, symbol: str) -> dict[str, pd.DataFrame]:
         """Get all timeframe data for a symbol as dict."""
         return self.data.get(symbol, {})
 
@@ -106,8 +106,8 @@ class DataLoader:
     def __init__(
         self,
         universe: SymbolUniverse,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
+        start_date: date | None = None,
+        end_date: date | None = None,
         enable_mtf: bool = False,
     ):
         """
@@ -125,16 +125,16 @@ class DataLoader:
         self.enable_mtf = enable_mtf
 
         # Data storage: {ticker: DataFrame with DatetimeIndex}
-        self._data: Dict[str, pd.DataFrame] = {}
+        self._data: dict[str, pd.DataFrame] = {}
 
         # MTF data storage: {ticker: {timeframe: DataFrame}}
-        self._mtf_data: Dict[str, Dict[str, pd.DataFrame]] = {}
+        self._mtf_data: dict[str, dict[str, pd.DataFrame]] = {}
 
         # Aligned trading calendar
-        self._trading_days: List[date] = []
+        self._trading_days: list[date] = []
 
         # Pre-computed snapshots for fast iteration
-        self._snapshots: Dict[date, MarketSnapshot] = {}
+        self._snapshots: dict[date, MarketSnapshot] = {}
 
         self._loaded = False
         self._mtf_loaded = False
@@ -177,15 +177,16 @@ class DataLoader:
         self._loaded = True
         logger.info(f"Data loaded: {len(self._trading_days)} trading days")
 
-    async def _fetch_ticker_data(self, ticker: str) -> Optional[pd.DataFrame]:
+    async def _fetch_ticker_data(self, ticker: str) -> pd.DataFrame | None:
         """
         Fetch OHLCV data for a single ticker from DuckDB.
 
         Uses the local DuckDB database which contains daily and hourly data.
         """
         try:
-            import duckdb
             from pathlib import Path
+
+            import duckdb
 
             # Use simulation copy of database to avoid lock conflicts with MCP server
             base_path = Path(__file__).parent.parent.parent.parent / "data"
@@ -235,7 +236,7 @@ class DataLoader:
 
         # Use SPY as reference if available, otherwise first symbol
         reference = "SPY" if "SPY" in self._data else list(self._data.keys())[0]
-        ref_dates = set(self._data[reference].index.date)
+        set(self._data[reference].index.date)
 
         # Get union of all dates (for symbols that may have different calendars)
         all_dates: set = set()
@@ -247,9 +248,7 @@ class DataLoader:
         if effective_start is None:
             effective_start = self.universe.get_earliest_common_date()
 
-        filtered_dates = [
-            d for d in sorted(all_dates) if effective_start <= d <= self.end_date
-        ]
+        filtered_dates = [d for d in sorted(all_dates) if effective_start <= d <= self.end_date]
 
         self._trading_days = filtered_dates
         logger.info(
@@ -259,7 +258,7 @@ class DataLoader:
 
     def _build_snapshots(self) -> None:
         """Pre-compute market snapshots for each trading day."""
-        ticker_to_logical = self.universe.ticker_to_logical_map()
+        self.universe.ticker_to_logical_map()
 
         for day in self._trading_days:
             day_data = {}
@@ -293,7 +292,7 @@ class DataLoader:
                 available_symbols=available,
             )
 
-    def iterate_days(self) -> Iterator[Tuple[date, MarketSnapshot]]:
+    def iterate_days(self) -> Iterator[tuple[date, MarketSnapshot]]:
         """
         Iterate through trading days chronologically.
 
@@ -306,7 +305,7 @@ class DataLoader:
         for day in self._trading_days:
             yield day, self._snapshots[day]
 
-    def get_day(self, day: date) -> Optional[MarketSnapshot]:
+    def get_day(self, day: date) -> MarketSnapshot | None:
         """Get market snapshot for a specific day."""
         return self._snapshots.get(day)
 
@@ -314,7 +313,7 @@ class DataLoader:
         self,
         current_date: date,
         days: int,
-    ) -> List[MarketSnapshot]:
+    ) -> list[MarketSnapshot]:
         """
         Get lookback window of snapshots.
 
@@ -369,17 +368,17 @@ class DataLoader:
         return filtered[close_col]
 
     @property
-    def trading_days(self) -> List[date]:
+    def trading_days(self) -> list[date]:
         """Get list of trading days."""
         return self._trading_days.copy()
 
     @property
-    def start(self) -> Optional[date]:
+    def start(self) -> date | None:
         """Get actual start date of loaded data."""
         return self._trading_days[0] if self._trading_days else None
 
     @property
-    def end(self) -> Optional[date]:
+    def end(self) -> date | None:
         """Get actual end date of loaded data."""
         return self._trading_days[-1] if self._trading_days else None
 
@@ -436,9 +435,7 @@ class DataLoader:
                     df = await self._fetch_ticker_data_tf(ticker, tf)
                     if df is not None and not df.empty:
                         self._mtf_data[logical_name][tf] = df
-                        logger.info(
-                            f"Created {logical_name} {tf}: {len(df):,} bars (resampled)"
-                        )
+                        logger.info(f"Created {logical_name} {tf}: {len(df):,} bars (resampled)")
                 except Exception as e:
                     logger.warning(f"Failed to create {logical_name} {tf}: {e}")
 
@@ -449,7 +446,7 @@ class DataLoader:
         self,
         ticker: str,
         timeframe: str,
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """
         Fetch OHLCV data for a ticker at a specific timeframe from DuckDB.
 
@@ -464,8 +461,9 @@ class DataLoader:
             DataFrame with OHLCV data or None
         """
         try:
-            import duckdb
             from pathlib import Path
+
+            import duckdb
 
             base_path = Path(__file__).parent.parent.parent.parent / "data"
             db_path = str(base_path / "trader_sim.duckdb")
@@ -512,9 +510,7 @@ class DataLoader:
                 # Resample if needed
                 if needs_resample:
                     df = self._resample_data(df, timeframe)
-                    logger.debug(
-                        f"Resampled {ticker} from {db_tf} to {timeframe}: {len(df)} bars"
-                    )
+                    logger.debug(f"Resampled {ticker} from {db_tf} to {timeframe}: {len(df)} bars")
                 else:
                     logger.debug(f"Loaded {ticker} {timeframe}: {len(df)} bars")
 
@@ -616,7 +612,7 @@ class DataLoader:
         self,
         current_date: date,
         hour: int = 10,
-        lookback_bars: Dict[str, int] = None,
+        lookback_bars: dict[str, int] = None,
     ) -> MTFSnapshot:
         """
         Get multi-timeframe data snapshot for a specific date/time.
@@ -634,9 +630,7 @@ class DataLoader:
             lookback_bars = {"1H": 50, "4H": 30, "1D": 50, "1W": 20}
 
         # Target datetime
-        target_dt = datetime.combine(
-            current_date, datetime.min.time().replace(hour=hour)
-        )
+        target_dt = datetime.combine(current_date, datetime.min.time().replace(hour=hour))
 
         snapshot_data = {}
         available = []
@@ -682,8 +676,8 @@ class DataLoader:
         self,
         symbol: str,
         end_date: date,
-        lookback_bars: Dict[str, int] = None,
-    ) -> Dict[str, pd.DataFrame]:
+        lookback_bars: dict[str, int] = None,
+    ) -> dict[str, pd.DataFrame]:
         """
         Get MTF data for a single symbol up to a specific date.
 
@@ -725,7 +719,7 @@ class DataLoader:
         current_date: date,
         symbol: str,
         timeframe: str = "4H",
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Get list of intraday bar hours for a date.
 

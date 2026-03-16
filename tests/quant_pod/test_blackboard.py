@@ -12,7 +12,6 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-
 from quant_pod.context import create_trading_context
 from quant_pod.memory.blackboard import Blackboard
 
@@ -139,6 +138,7 @@ class TestClear:
 
     def test_clear_before_date(self, bb):
         from datetime import date
+
         bb.write("IC", "SPY", "old", sim_date=date(2024, 1, 1))
         bb.write("IC", "SPY", "new", sim_date=date(2025, 1, 1))
         bb.clear_before_date(date(2024, 6, 1))

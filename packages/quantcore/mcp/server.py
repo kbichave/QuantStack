@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -33,8 +33,7 @@ from loguru import logger
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from quantcore.config.settings import Settings, get_settings
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_PARAMS
-
+from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
 
 # =============================================================================
 # MCP Server Initialization
@@ -115,7 +114,7 @@ def _parse_timeframe(tf_str: str) -> Timeframe:
     return tf_map.get(tf_str.lower(), Timeframe.D1)
 
 
-def _dataframe_to_dict(df: pd.DataFrame, max_rows: int = 100) -> Dict[str, Any]:
+def _dataframe_to_dict(df: pd.DataFrame, max_rows: int = 100) -> dict[str, Any]:
     """Convert DataFrame to serializable dict with truncation."""
     if df.empty:
         return {"data": [], "columns": [], "rows": 0}
@@ -169,7 +168,7 @@ async def fetch_market_data(
     symbol: str,
     timeframe: str = "daily",
     outputsize: str = "compact",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Fetch OHLCV market data from Alpha Vantage API.
 
@@ -215,9 +214,9 @@ async def fetch_market_data(
 async def load_market_data(
     symbol: str,
     timeframe: str = "daily",
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Load OHLCV data from local DuckDB storage.
 
@@ -263,7 +262,7 @@ async def load_market_data(
 
 
 @mcp.tool()
-async def list_stored_symbols() -> Dict[str, Any]:
+async def list_stored_symbols() -> dict[str, Any]:
     """
     List all symbols stored in the local database with their metadata.
 
@@ -278,7 +277,7 @@ async def list_stored_symbols() -> Dict[str, Any]:
         # Query metadata table
         result = store.conn.execute(
             """
-            SELECT symbol, timeframe, 
+            SELECT symbol, timeframe,
                    first_timestamp, last_timestamp, row_count
             FROM data_metadata
             ORDER BY symbol, timeframe
@@ -315,9 +314,9 @@ async def list_stored_symbols() -> Dict[str, Any]:
 async def compute_technical_indicators(
     symbol: str,
     timeframe: str = "daily",
-    indicators: List[str] = None,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    indicators: list[str] = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Compute technical indicators for a symbol.
 
@@ -385,9 +384,7 @@ async def compute_technical_indicators(
             "symbol": symbol,
             "timeframe": tf.value,
             "indicators_computed": [
-                c
-                for c in result_df.columns
-                if c not in ["open", "high", "low", "close", "volume"]
+                c for c in result_df.columns if c not in ["open", "high", "low", "close", "volume"]
             ],
             "rows": len(result_df),
             "data": _dataframe_to_dict(result_df),
@@ -402,8 +399,8 @@ async def compute_technical_indicators(
 async def compute_all_features(
     symbol: str,
     timeframe: str = "daily",
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Compute all available features for a symbol (200+ indicators).
 
@@ -475,7 +472,7 @@ async def compute_all_features(
 
 
 @mcp.tool()
-async def list_available_indicators() -> Dict[str, Any]:
+async def list_available_indicators() -> dict[str, Any]:
     """
     List all available technical indicators and their descriptions.
 
@@ -605,8 +602,8 @@ async def run_backtest(
     take_profit_atr: float = 3.0,
     zscore_entry: float = 2.0,
     zscore_exit: float = 0.5,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Run a backtest on historical data.
 
@@ -626,8 +623,8 @@ async def run_backtest(
     Returns:
         Dictionary with backtest results and metrics
     """
+    from quantcore.backtesting.engine import BacktestConfig, BacktestEngine
     from quantcore.data.storage import DataStore
-    from quantcore.backtesting.engine import BacktestEngine, BacktestConfig
     from quantcore.features.factory import MultiTimeframeFeatureFactory
 
     store = DataStore()
@@ -682,9 +679,7 @@ async def run_backtest(
                 "profit_factor": round(result.profit_factor, 2),
             },
             "trades": result.trades[:20] if result.trades else [],
-            "equity_curve_sample": (
-                result.equity_curve[-50:] if result.equity_curve else []
-            ),
+            "equity_curve_sample": (result.equity_curve[-50:] if result.equity_curve else []),
         }
     except Exception as e:
         return {"error": str(e), "symbol": symbol}
@@ -758,7 +753,7 @@ async def get_backtest_metrics(
     max_drawdown: float,
     win_rate: float,
     total_trades: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze and interpret backtest metrics.
 
@@ -851,9 +846,9 @@ async def run_adf_test(
     symbol: str,
     timeframe: str = "daily",
     column: str = "close",
-    max_lags: Optional[int] = None,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    max_lags: int | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Run Augmented Dickey-Fuller test for stationarity.
 
@@ -907,9 +902,7 @@ async def run_adf_test(
             "symbol": symbol,
             "column": column,
             "test_name": result.test_name,
-            "statistic": (
-                round(result.statistic, 4) if not np.isnan(result.statistic) else None
-            ),
+            "statistic": (round(result.statistic, 4) if not np.isnan(result.statistic) else None),
             "p_value": round(result.p_value, 4),
             "is_stationary": result.is_significant,
             "critical_values": result.critical_values,
@@ -932,8 +925,8 @@ async def compute_alpha_decay(
     timeframe: str = "daily",
     signal_column: str = "rsi_14",
     max_lag: int = 20,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Analyze how a trading signal's predictive power decays over time.
 
@@ -948,8 +941,8 @@ async def compute_alpha_decay(
         Dictionary with IC decay curve, half-life, and optimal holding period
     """
     from quantcore.data.storage import DataStore
-    from quantcore.research.alpha_decay import AlphaDecayAnalyzer
     from quantcore.features.factory import MultiTimeframeFeatureFactory
+    from quantcore.research.alpha_decay import AlphaDecayAnalyzer
 
     store = DataStore()
     tf = _parse_timeframe(timeframe)
@@ -977,9 +970,7 @@ async def compute_alpha_decay(
         # Get signal and returns
         if signal_column not in features_df.columns:
             # Try to find a matching column
-            matches = [
-                c for c in features_df.columns if signal_column.lower() in c.lower()
-            ]
+            matches = [c for c in features_df.columns if signal_column.lower() in c.lower()]
             if matches:
                 signal_column = matches[0]
             else:
@@ -1025,8 +1016,8 @@ async def compute_information_coefficient(
     timeframe: str = "daily",
     signal_column: str = "rsi_14",
     forward_return_periods: int = 5,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Compute Information Coefficient (IC) between a signal and forward returns.
 
@@ -1043,9 +1034,10 @@ async def compute_information_coefficient(
     Returns:
         Dictionary with IC value, t-statistic, and interpretation
     """
+    from scipy import stats
+
     from quantcore.data.storage import DataStore
     from quantcore.features.factory import MultiTimeframeFeatureFactory
-    from scipy import stats
 
     store = DataStore()
     tf = _parse_timeframe(timeframe)
@@ -1072,9 +1064,7 @@ async def compute_information_coefficient(
 
         # Get signal
         if signal_column not in features_df.columns:
-            matches = [
-                c for c in features_df.columns if signal_column.lower() in c.lower()
-            ]
+            matches = [c for c in features_df.columns if signal_column.lower() in c.lower()]
             if matches:
                 signal_column = matches[0]
             else:
@@ -1082,9 +1072,7 @@ async def compute_information_coefficient(
 
         signal = features_df[signal_column]
         forward_returns = (
-            df["close"]
-            .pct_change(forward_return_periods)
-            .shift(-forward_return_periods)
+            df["close"].pct_change(forward_return_periods).shift(-forward_return_periods)
         )
 
         # Align and clean
@@ -1129,9 +1117,9 @@ async def run_monte_carlo(
     symbol: str,
     timeframe: str = "daily",
     n_simulations: int = 1000,
-    strategy_params: Optional[Dict[str, float]] = None,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    strategy_params: dict[str, float] | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Run Monte Carlo simulation to test strategy robustness.
 
@@ -1148,8 +1136,8 @@ async def run_monte_carlo(
     Returns:
         Dictionary with simulation statistics
     """
-    from quantcore.data.storage import DataStore
     from quantcore.analysis.monte_carlo import run_monte_carlo_simulation
+    from quantcore.data.storage import DataStore
     from quantcore.features.factory import MultiTimeframeFeatureFactory
 
     store = DataStore()
@@ -1230,7 +1218,7 @@ async def price_option(
     option_type: str = "call",
     dividend_yield: float = 0.0,
     exercise_style: str = "european",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculate option price using production-grade pricing engine.
 
@@ -1295,7 +1283,7 @@ async def compute_greeks(
     risk_free_rate: float = 0.05,
     option_type: str = "call",
     dividend_yield: float = 0.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute option Greeks (sensitivities) using production-grade engine.
 
@@ -1343,7 +1331,7 @@ async def compute_implied_vol(
     risk_free_rate: float = 0.05,
     dividend_yield: float = 0.0,
     option_type: str = "call",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculate implied volatility from market option price.
 
@@ -1385,10 +1373,10 @@ async def compute_implied_vol(
 async def fit_vol_surface(
     symbol: str,
     spot_price: float,
-    quotes: Dict[str, Any],
+    quotes: dict[str, Any],
     risk_free_rate: float = 0.05,
     beta: float = 1.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Fit SABR volatility surface to market IV quotes.
 
@@ -1406,11 +1394,12 @@ async def fit_vol_surface(
     Returns:
         Dictionary with SABR parameters, fit quality, and interpolated smile
     """
+    import pandas as pd
+
     from quantcore.options.adapters.pysabr_adapter import (
         fit_sabr_surface,
         get_sabr_skew_metrics,
     )
-    import pandas as pd
 
     try:
         # Validate inputs
@@ -1457,9 +1446,9 @@ async def fit_vol_surface(
 
 @mcp.tool()
 async def analyze_option_structure(
-    structure_spec: Dict[str, Any],
+    structure_spec: dict[str, Any],
     price_range_pct: float = 0.30,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Analyze multi-leg option structure for payoff, Greeks, and key metrics.
 
@@ -1516,10 +1505,10 @@ async def analyze_option_structure(
 
 @mcp.tool()
 async def compute_portfolio_stats(
-    equity_curve: List[float],
+    equity_curve: list[float],
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute comprehensive portfolio performance statistics.
 
@@ -1539,8 +1528,9 @@ async def compute_portfolio_stats(
             - Distribution: skewness, kurtosis, best/worst day
             - Drawdown details: duration, recovery time
     """
-    from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
     import pandas as pd
+
+    from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
 
     try:
         # Convert to pandas Series
@@ -1568,7 +1558,7 @@ async def price_american_option(
     dividend_yield: float = 0.0,
     option_type: str = "call",
     num_steps: int = 100,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Price American option using binomial tree method.
 
@@ -1638,7 +1628,7 @@ async def compute_position_size(
     risk_per_trade_pct: float = 1.0,
     max_position_pct: float = 20.0,
     alignment_score: float = 1.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Calculate position size using ATR-based risk management.
 
@@ -1672,9 +1662,7 @@ async def compute_position_size(
             "position": {
                 "shares": round(result.shares, 2),
                 "notional_value": round(result.notional_value, 2),
-                "position_pct_of_equity": round(
-                    result.notional_value / equity * 100, 2
-                ),
+                "position_pct_of_equity": round(result.notional_value / equity * 100, 2),
             },
             "risk": {
                 "risk_amount": round(result.risk_amount, 2),
@@ -1699,8 +1687,8 @@ async def compute_position_size(
 
 @mcp.tool()
 async def compute_max_drawdown(
-    equity_curve: List[float],
-) -> Dict[str, Any]:
+    equity_curve: list[float],
+) -> dict[str, Any]:
     """
     Compute maximum drawdown and drawdown statistics.
 
@@ -1744,9 +1732,7 @@ async def compute_max_drawdown(
             "trough_value": round(equity[max_dd_idx], 2),
             "recovery_idx": int(recovery_idx) if recovery_idx else None,
             "drawdown_duration": int(max_dd_idx - peak_idx),
-            "recovery_duration": (
-                int(recovery_idx - max_dd_idx) if recovery_idx else None
-            ),
+            "recovery_duration": (int(recovery_idx - max_dd_idx) if recovery_idx else None),
             "current_drawdown_pct": round(current_dd, 2),
             "is_in_drawdown": current_dd < 0,
         }
@@ -1763,8 +1749,8 @@ async def compute_max_drawdown(
 async def get_symbol_snapshot(
     symbol: str,
     timeframe: str = "daily",
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Get a unified snapshot of a symbol for fast MAS reasoning.
 
@@ -1863,9 +1849,7 @@ async def get_symbol_snapshot(
         if "ema_20" in latest_features.index and "ema_50" in latest_features.index:
             ema_20 = float(latest_features["ema_20"])
             ema_50 = float(latest_features["ema_50"])
-            snapshot["trend"]["ema_alignment"] = (
-                "bullish" if ema_20 > ema_50 else "bearish"
-            )
+            snapshot["trend"]["ema_alignment"] = "bullish" if ema_20 > ema_50 else "bearish"
             snapshot["trend"]["above_ema_20"] = latest["close"] > ema_20
 
         # Support/Resistance (simple high/low levels)
@@ -1883,8 +1867,8 @@ async def get_symbol_snapshot(
 
 @mcp.tool()
 async def get_market_regime_snapshot(
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Get high-level market regime for global filters in MAS.
 
@@ -1903,8 +1887,8 @@ async def get_market_regime_snapshot(
             - risk_appetite: Risk-on or risk-off signal
     """
     from quantcore.data.storage import DataStore
-    from quantcore.hierarchy.regime_classifier import WeeklyRegimeClassifier
     from quantcore.features.factory import MultiTimeframeFeatureFactory
+    from quantcore.hierarchy.regime_classifier import WeeklyRegimeClassifier
 
     store = DataStore()
 
@@ -1932,9 +1916,7 @@ async def get_market_regime_snapshot(
 
         # Calculate volatility regime
         returns = df["close"].pct_change().dropna()
-        current_vol = (
-            float(returns.tail(20).std() * np.sqrt(252)) if len(returns) > 20 else 0.15
-        )
+        current_vol = float(returns.tail(20).std() * np.sqrt(252)) if len(returns) > 20 else 0.15
 
         if current_vol < 0.12:
             vol_regime = "low"
@@ -1975,9 +1957,7 @@ async def get_market_regime_snapshot(
                 "allows_long": regime_ctx.allows_long(),
                 "allows_short": regime_ctx.allows_short(),
                 "risk_appetite": (
-                    "risk_on"
-                    if trend == "bull" and vol_regime != "high"
-                    else "risk_off"
+                    "risk_on" if trend == "bull" and vol_regime != "high" else "risk_off"
                 ),
             },
         }
@@ -1995,10 +1975,10 @@ async def generate_trade_template(
     structure_type: str = "vertical",
     expiry_days: int = 30,
     risk_amount: float = 500.0,
-    underlying_price: Optional[float] = None,
+    underlying_price: float | None = None,
     iv_estimate: float = 0.25,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Generate a fully structured trade template for MAS approval workflow.
 
@@ -2025,7 +2005,6 @@ async def generate_trade_template(
     """
     from quantcore.data.storage import DataStore
     from quantcore.options.adapters.quantsbin_adapter import analyze_structure_quantsbin
-    from quantcore.options.engine import price_option_dispatch
 
     try:
         # Get current price if not provided
@@ -2218,8 +2197,7 @@ async def generate_trade_template(
             "greeks": analysis.get("greeks", {}),
             "validation": {
                 "is_defined_risk": analysis.get("is_defined_risk", False),
-                "within_risk_limit": abs(analysis.get("max_loss", 0))
-                <= risk_amount * 1.1,
+                "within_risk_limit": abs(analysis.get("max_loss", 0)) <= risk_amount * 1.1,
                 "has_positive_expectancy": analysis.get("max_profit", 0)
                 > abs(analysis.get("max_loss", 0)) * 0.3,
             },
@@ -2240,12 +2218,12 @@ async def generate_trade_template(
 
 @mcp.tool()
 async def validate_trade(
-    trade_template: Dict[str, Any],
+    trade_template: dict[str, Any],
     account_equity: float = 100000.0,
     max_position_pct: float = 5.0,
     max_daily_loss_pct: float = 2.0,
     current_daily_pnl: float = 0.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Validate a trade template against risk rules before execution.
 
@@ -2272,12 +2250,8 @@ async def validate_trade(
         rejection_reasons = []
 
         # Extract key metrics
-        max_loss = abs(
-            trade_template.get("risk_profile", {}).get("max_loss", float("inf"))
-        )
-        is_defined_risk = trade_template.get("validation", {}).get(
-            "is_defined_risk", False
-        )
+        max_loss = abs(trade_template.get("risk_profile", {}).get("max_loss", float("inf")))
+        is_defined_risk = trade_template.get("validation", {}).get("is_defined_risk", False)
         symbol = trade_template.get("symbol", "UNKNOWN")
 
         # Check 1: Defined risk
@@ -2294,9 +2268,7 @@ async def validate_trade(
             )
 
         # Check 3: Daily loss limit
-        remaining_daily_risk = (
-            account_equity * max_daily_loss_pct / 100 + current_daily_pnl
-        )
+        remaining_daily_risk = account_equity * max_daily_loss_pct / 100 + current_daily_pnl
         checks["within_daily_limit"] = max_loss <= remaining_daily_risk
         if not checks["within_daily_limit"]:
             rejection_reasons.append(
@@ -2365,8 +2337,8 @@ async def compute_feature_matrix(
     symbol: str,
     timeframe: str = "daily",
     include_all: bool = False,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Compute full feature matrix for ML/multi-factor agents.
 
@@ -2439,15 +2411,15 @@ async def compute_feature_matrix(
 
 @mcp.tool()
 async def run_screener(
-    symbols: Optional[List[str]] = None,
+    symbols: list[str] | None = None,
     min_price: float = 10.0,
     max_price: float = 500.0,
     min_volume: int = 100000,
-    trend_filter: Optional[str] = None,
-    rsi_oversold: Optional[float] = None,
-    rsi_overbought: Optional[float] = None,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    trend_filter: str | None = None,
+    rsi_oversold: float | None = None,
+    rsi_overbought: float | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Run multi-factor screener across symbols.
 
@@ -2467,8 +2439,8 @@ async def run_screener(
     Returns:
         Dictionary with matching symbols and their key metrics
     """
-    from quantcore.data.storage import DataStore
     from quantcore.config.settings import get_settings
+    from quantcore.data.storage import DataStore
     from quantcore.features.technical_indicators import TechnicalIndicators
 
     store = DataStore()
@@ -2541,14 +2513,12 @@ async def run_screener(
                         "rsi": round(rsi, 1),
                         "trend": "bullish" if price > ema_20 else "bearish",
                         "change_1d": (
-                            round((price / df["close"].iloc[-2] - 1) * 100, 2)
-                            if len(df) > 1
-                            else 0
+                            round((price / df["close"].iloc[-2] - 1) * 100, 2) if len(df) > 1 else 0
                         ),
                     }
                 )
 
-            except Exception as e:
+            except Exception:
                 continue
 
         # Sort by volume
@@ -2576,10 +2546,10 @@ async def run_screener(
 @mcp.tool()
 async def compute_option_chain(
     symbol: str,
-    expiry_date: Optional[str] = None,
+    expiry_date: str | None = None,
     min_delta: float = 0.05,
     max_delta: float = 0.95,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute normalized option chain data for a symbol.
 
@@ -2603,8 +2573,6 @@ async def compute_option_chain(
     from quantcore.data.storage import DataStore
     from quantcore.options.engine import (
         price_option_dispatch,
-        compute_greeks_dispatch,
-        compute_iv_dispatch,
     )
 
     store = DataStore()
@@ -2722,11 +2690,11 @@ async def compute_option_chain(
 
 @mcp.tool()
 async def compute_multi_leg_price(
-    legs: List[Dict[str, Any]],
+    legs: list[dict[str, Any]],
     underlying_price: float,
     rate: float = 0.05,
     dividend_yield: float = 0.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Price a multi-leg options structure in one call.
 
@@ -2857,10 +2825,10 @@ async def compute_multi_leg_price(
 
 @mcp.tool()
 async def score_trade_structure(
-    structure_spec: Dict[str, Any],
-    vol_surface: Optional[Dict[str, Any]] = None,
-    market_regime: Optional[str] = None,
-) -> Dict[str, Any]:
+    structure_spec: dict[str, Any],
+    vol_surface: dict[str, Any] | None = None,
+    market_regime: str | None = None,
+) -> dict[str, Any]:
     """
     Score an options structure for trade quality.
 
@@ -3000,11 +2968,11 @@ async def score_trade_structure(
 
 @mcp.tool()
 async def simulate_trade_outcome(
-    trade_template: Dict[str, Any],
+    trade_template: dict[str, Any],
     num_scenarios: int = 1000,
     holding_days: int = 30,
     vol_shock_range: float = 0.10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Simulate trade P&L distribution using Monte Carlo.
 
@@ -3027,16 +2995,13 @@ async def simulate_trade_outcome(
             - var_95: 95% Value at Risk
             - scenario_stats: Summary statistics
     """
-    from quantcore.options.engine import price_option_dispatch
 
     try:
         legs = trade_template.get("legs", [])
         underlying_price = trade_template.get("underlying_price")
 
         if not legs or not underlying_price:
-            return {
-                "error": "Invalid trade template - missing legs or underlying_price"
-            }
+            return {"error": "Invalid trade template - missing legs or underlying_price"}
 
         # Entry premium (current value)
         entry_result = await compute_multi_leg_price(
@@ -3068,9 +3033,7 @@ async def simulate_trade_outcome(
             new_legs = []
             for leg in legs:
                 new_leg = leg.copy()
-                new_leg["expiry_days"] = max(
-                    1, leg.get("expiry_days", 30) - holding_days
-                )
+                new_leg["expiry_days"] = max(1, leg.get("expiry_days", 30) - holding_days)
                 new_leg["iv"] = new_vol
                 new_legs.append(new_leg)
 
@@ -3100,9 +3063,7 @@ async def simulate_trade_outcome(
             "expected_pnl": round(float(np.mean(pnl_array)), 2),
             "median_pnl": round(float(np.median(pnl_array)), 2),
             "std_pnl": round(float(np.std(pnl_array)), 2),
-            "probability_profit": round(
-                float(np.sum(pnl_array > 0) / len(pnl_array) * 100), 1
-            ),
+            "probability_profit": round(float(np.sum(pnl_array > 0) / len(pnl_array) * 100), 1),
             "var_95": round(float(np.percentile(pnl_array, 5)), 2),  # 5th percentile
             "cvar_95": round(
                 float(np.mean(pnl_array[pnl_array <= np.percentile(pnl_array, 5)])), 2
@@ -3120,8 +3081,8 @@ async def simulate_trade_outcome(
 async def compute_quantagent_features(
     symbol: str,
     timeframe: str = "daily",
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Compute QuantAgent pattern and trend features.
 
@@ -3185,16 +3146,12 @@ async def compute_quantagent_features(
         pattern_dict = {}
         for name in pattern_calc.get_feature_names():
             val = latest_pattern.get(name)
-            pattern_dict[name.replace("qa_pattern_", "")] = (
-                float(val) if pd.notna(val) else None
-            )
+            pattern_dict[name.replace("qa_pattern_", "")] = float(val) if pd.notna(val) else None
 
         trend_dict = {}
         for name in trend_calc.get_feature_names():
             val = latest_trend.get(name)
-            trend_dict[name.replace("qa_trend_", "")] = (
-                float(val) if pd.notna(val) else None
-            )
+            trend_dict[name.replace("qa_trend_", "")] = float(val) if pd.notna(val) else None
 
         # Interpret key signals
         signals = []
@@ -3240,9 +3197,7 @@ async def compute_quantagent_features(
             "signals": signals,
             "summary": {
                 "trend_regime": (
-                    "up"
-                    if trend_regime == 1
-                    else "down" if trend_regime == -1 else "sideways"
+                    "up" if trend_regime == 1 else "down" if trend_regime == -1 else "sideways"
                 ),
                 "trend_strength": round(trend_dict.get("strength_med", 0) or 0, 2),
                 "trend_quality": round(trend_dict.get("quality_med", 0) or 0, 2),
@@ -3271,8 +3226,8 @@ async def run_walkforward(
     test_size: int = 252,
     min_train_size: int = 504,
     expanding: bool = True,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Run walk-forward validation for a trading signal.
 
@@ -3292,7 +3247,7 @@ async def run_walkforward(
         Dictionary with fold results, OOS performance, and stability metrics
     """
     from quantcore.data.storage import DataStore
-    from quantcore.research.walkforward import WalkForwardValidator, WalkForwardFold
+    from quantcore.research.walkforward import WalkForwardValidator
 
     store = DataStore()
     tf = _parse_timeframe(timeframe)
@@ -3312,9 +3267,7 @@ async def run_walkforward(
 
         required_size = min_train_size + n_splits * test_size
         if len(df) < required_size:
-            return {
-                "error": f"Insufficient data: need {required_size} bars, have {len(df)}"
-            }
+            return {"error": f"Insufficient data: need {required_size} bars, have {len(df)}"}
 
         # Initialize validator
         validator = WalkForwardValidator(
@@ -3361,10 +3314,10 @@ async def run_walkforward(
 
 @mcp.tool()
 async def validate_signal(
-    signal: List[float],
-    returns: List[float],
+    signal: list[float],
+    returns: list[float],
     significance_level: float = 0.05,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run comprehensive signal validation suite.
 
@@ -3384,9 +3337,8 @@ async def validate_signal(
     """
     from quantcore.research.stat_tests import (
         adf_test,
-        lagged_cross_correlation,
-        harvey_liu_correction,
         information_coefficient_test,
+        lagged_cross_correlation,
     )
 
     try:
@@ -3413,15 +3365,11 @@ async def validate_signal(
             "sample_size": len(signal_series),
             "stationarity": {
                 "adf_statistic": (
-                    float(adf_result.statistic)
-                    if not np.isnan(adf_result.statistic)
-                    else None
+                    float(adf_result.statistic) if not np.isnan(adf_result.statistic) else None
                 ),
                 "p_value": float(adf_result.p_value),
                 "is_stationary": adf_result.is_significant,
-                "interpretation": adf_result.additional_info.get(
-                    "interpretation", "unknown"
-                ),
+                "interpretation": adf_result.additional_info.get("interpretation", "unknown"),
             },
             "information_coefficient": {
                 "ic": float(ic_result.statistic),
@@ -3433,8 +3381,7 @@ async def validate_signal(
                 "is_significant": ic_result.is_significant,
             },
             "lagged_correlations": {
-                str(k): float(v) if not np.isnan(v) else None
-                for k, v in lag_corrs.items()
+                str(k): float(v) if not np.isnan(v) else None for k, v in lag_corrs.items()
             },
             "recommendations": [],
         }
@@ -3450,9 +3397,7 @@ async def validate_signal(
                 "IC not significant - signal may have weak predictive power"
             )
         else:
-            results["recommendations"].append(
-                f"IC is significant at {significance_level} level"
-            )
+            results["recommendations"].append(f"IC is significant at {significance_level} level")
 
         # Check for decay pattern
         if lag_corrs:
@@ -3471,10 +3416,10 @@ async def validate_signal(
 
 @mcp.tool()
 async def diagnose_signal(
-    signal: List[float],
-    returns: List[float],
+    signal: list[float],
+    returns: list[float],
     cost_bps: float = 5.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run comprehensive signal diagnostics.
 
@@ -3521,9 +3466,9 @@ async def diagnose_signal(
 async def detect_leakage(
     symbol: str,
     timeframe: str = "daily",
-    feature_columns: Optional[List[str]] = None,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    feature_columns: list[str] | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Detect data leakage and lookahead bias in features.
 
@@ -3543,8 +3488,8 @@ async def detect_leakage(
         LeakageReport with findings, severity, and recommendations
     """
     from quantcore.data.storage import DataStore
-    from quantcore.research.leak_diagnostics import LeakageDiagnostics
     from quantcore.features.factory import MultiTimeframeFeatureFactory
+    from quantcore.research.leak_diagnostics import LeakageDiagnostics
 
     store = DataStore()
     tf = _parse_timeframe(timeframe)
@@ -3613,11 +3558,11 @@ async def detect_leakage(
 
 @mcp.tool()
 async def compute_var(
-    returns: List[float],
-    confidence_levels: List[float] = [0.95, 0.99],
+    returns: list[float],
+    confidence_levels: list[float] = None,
     method: str = "historical",
     horizon_days: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute Value at Risk (VaR) and Expected Shortfall (CVaR).
 
@@ -3637,6 +3582,8 @@ async def compute_var(
     """
     from scipy.stats import norm
 
+    if confidence_levels is None:
+        confidence_levels = [0.95, 0.99]
     try:
         returns_arr = np.array(returns)
 
@@ -3682,9 +3629,7 @@ async def compute_var(
             else:
                 return {"error": f"Unknown method: {method}"}
 
-            result["var"][conf_str] = round(
-                float(var) * 100, 4
-            )  # Convert to percentage
+            result["var"][conf_str] = round(float(var) * 100, 4)  # Convert to percentage
             result["cvar"][conf_str] = round(float(cvar) * 100, 4)
 
         result["statistics"] = {
@@ -3703,9 +3648,9 @@ async def compute_var(
 
 @mcp.tool()
 async def stress_test_portfolio(
-    positions: List[Dict[str, Any]],
-    scenarios: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    positions: list[dict[str, Any]],
+    scenarios: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Run stress tests on an options portfolio.
 
@@ -3728,8 +3673,8 @@ async def stress_test_portfolio(
     Returns:
         Dictionary with P&L under each scenario
     """
-    from quantcore.risk.stress_testing import STRESS_SCENARIOS, PortfolioStressTester
     from quantcore.options.models import OptionsPosition, OptionType
+    from quantcore.risk.stress_testing import STRESS_SCENARIOS
 
     try:
         if not positions:
@@ -3759,9 +3704,7 @@ async def stress_test_portfolio(
 
         # Select scenarios
         if scenarios:
-            test_scenarios = {
-                k: v for k, v in STRESS_SCENARIOS.items() if k in scenarios
-            }
+            test_scenarios = {k: v for k, v in STRESS_SCENARIOS.items() if k in scenarios}
         else:
             test_scenarios = STRESS_SCENARIOS
 
@@ -3836,7 +3779,7 @@ async def check_risk_limits(
     max_drawdown_pct: float = 10.0,
     max_concurrent_trades: int = 5,
     max_exposure_pct: float = 80.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Check current risk state against limits.
 
@@ -3860,7 +3803,6 @@ async def check_risk_limits(
     Returns:
         RiskState with status, breaches, and recommendations
     """
-    from quantcore.risk.controls import RiskStatus
 
     try:
         messages = []
@@ -3884,9 +3826,7 @@ async def check_risk_limits(
         # Check drawdown
         if abs(drawdown_pct) >= max_drawdown_pct:
             breaches.append("drawdown")
-            messages.append(
-                f"Drawdown limit breached: {drawdown_pct:.2f}% >= {max_drawdown_pct}%"
-            )
+            messages.append(f"Drawdown limit breached: {drawdown_pct:.2f}% >= {max_drawdown_pct}%")
             status = "HALTED"
         elif abs(drawdown_pct) >= max_drawdown_pct * 0.8:
             messages.append(f"Approaching drawdown limit: {drawdown_pct:.2f}%")
@@ -3896,9 +3836,7 @@ async def check_risk_limits(
         # Check position count
         if open_trades >= max_concurrent_trades:
             breaches.append("position_count")
-            messages.append(
-                f"Position limit reached: {open_trades} >= {max_concurrent_trades}"
-            )
+            messages.append(f"Position limit reached: {open_trades} >= {max_concurrent_trades}")
             if status not in ["HALTED"]:
                 status = "RESTRICTED"
 
@@ -3912,9 +3850,7 @@ async def check_risk_limits(
                 status = "RESTRICTED"
 
         can_trade = status in ["NORMAL", "CAUTION"]
-        size_multiplier = (
-            1.0 if status == "NORMAL" else 0.5 if status == "CAUTION" else 0.0
-        )
+        size_multiplier = 1.0 if status == "NORMAL" else 0.5 if status == "CAUTION" else 0.0
 
         return {
             "status": status,
@@ -3952,8 +3888,8 @@ async def analyze_liquidity(
     symbol: str,
     timeframe: str = "daily",
     window: int = 20,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Analyze liquidity characteristics of a symbol.
 
@@ -4011,9 +3947,7 @@ async def analyze_liquidity(
             "spread_estimates": {
                 "corwin_schultz_bps": round(float(latest.get("cs_spread_bps", 0)), 2),
                 "roll_spread_bps": round(float(latest.get("roll_spread_bps", 0)), 2),
-                "combined_spread_bps": round(
-                    float(latest.get("estimated_spread_bps", 0)), 2
-                ),
+                "combined_spread_bps": round(float(latest.get("estimated_spread_bps", 0)), 2),
             },
             "volume": {
                 "current": int(df["volume"].iloc[-1]),
@@ -4023,11 +3957,7 @@ async def analyze_liquidity(
             "liquidity_score": round(float(latest.get("liquidity_score", 0.5)), 2),
             "is_liquid": bool(latest.get("is_liquid", True)),
             "recommendations": [
-                (
-                    "Liquid"
-                    if latest.get("is_liquid", True)
-                    else "Low liquidity - widen stops"
-                ),
+                ("Liquid" if latest.get("is_liquid", True) else "Low liquidity - widen stops"),
                 f"Estimated round-trip cost: {latest.get('estimated_spread_bps', 0) * 2:.1f} bps",
             ],
         }
@@ -4043,8 +3973,8 @@ async def analyze_volume_profile(
     symbol: str,
     timeframe: str = "daily",
     lookback_days: int = 20,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Analyze volume profile and VWAP levels.
 
@@ -4063,7 +3993,6 @@ async def analyze_volume_profile(
         Volume profile with VWAP levels and key nodes
     """
     from quantcore.data.storage import DataStore
-    from quantcore.microstructure.volume_profile import VolumeProfileAnalyzer
 
     store = DataStore()
     tf = _parse_timeframe(timeframe)
@@ -4147,9 +4076,9 @@ async def analyze_volume_profile(
 
 @mcp.tool()
 async def get_trading_calendar(
-    year: Optional[int] = None,
-    month: Optional[int] = None,
-) -> Dict[str, Any]:
+    year: int | None = None,
+    month: int | None = None,
+) -> dict[str, Any]:
     """
     Get market trading calendar information.
 
@@ -4166,8 +4095,8 @@ async def get_trading_calendar(
     Returns:
         Calendar with holidays and trading hours
     """
-    from datetime import datetime, time as dt_time
-    from quantcore.microstructure.events import TradingCalendar
+    from datetime import datetime
+    from datetime import time as dt_time
 
     try:
         now = datetime.now()
@@ -4253,9 +4182,9 @@ async def get_trading_calendar(
 
 @mcp.tool()
 async def get_event_calendar(
-    symbol: Optional[str] = None,
+    symbol: str | None = None,
     days_ahead: int = 14,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get upcoming economic and earnings events.
 
@@ -4274,7 +4203,6 @@ async def get_event_calendar(
         Calendar of upcoming events with impact ratings
     """
     from datetime import datetime, timedelta
-    from quantcore.microstructure.events import EventType
 
     try:
         now = datetime.now()
@@ -4362,9 +4290,7 @@ async def get_event_calendar(
             },
             "economic_events": filtered_events,
             "event_count": len(filtered_events),
-            "high_impact_count": len(
-                [e for e in filtered_events if e["impact"] == "HIGH"]
-            ),
+            "high_impact_count": len([e for e in filtered_events if e["impact"] == "HIGH"]),
         }
 
         # Add blackout recommendations
@@ -4395,7 +4321,7 @@ async def execute_paper_trade(
     structure_type: str = "single",
     confidence: float = 0.5,
     reason: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Execute a paper trade for testing strategies.
 
@@ -4418,8 +4344,9 @@ async def execute_paper_trade(
     Returns:
         Order confirmation with simulated fill
     """
-    from datetime import datetime
     import uuid
+    from datetime import datetime
+
     from quantcore.data.storage import DataStore
 
     store = DataStore()
@@ -4483,7 +4410,7 @@ async def execute_paper_trade(
 async def get_order_book_snapshot(
     symbol: str,
     levels: int = 5,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get simulated order book snapshot.
 
@@ -4500,7 +4427,6 @@ async def get_order_book_snapshot(
         Order book with bid/ask levels, spread, and depth
     """
     from quantcore.data.storage import DataStore
-    from quantcore.microstructure.order_book import OrderBook, Side, Order
 
     store = DataStore()
 
@@ -4592,8 +4518,8 @@ async def run_purged_cv(
     timeframe: str = "daily",
     n_splits: int = 5,
     embargo_pct: float = 0.01,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Run purged K-Fold cross-validation.
 
@@ -4633,9 +4559,7 @@ async def run_purged_cv(
                 return {"error": f"No data for {symbol} before {end_date}"}
 
         if len(df) < n_splits * 50:
-            return {
-                "error": f"Need at least {n_splits * 50} bars for {n_splits}-fold CV"
-            }
+            return {"error": f"Need at least {n_splits * 50} bars for {n_splits}-fold CV"}
 
         # Initialize CV
         cv = PurgedKFoldCV(
@@ -4698,9 +4622,9 @@ async def run_purged_cv(
 async def check_lookahead_bias(
     symbol: str,
     timeframe: str = "daily",
-    feature_columns: Optional[List[str]] = None,
-    end_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    feature_columns: list[str] | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     """
     Check for lookahead bias in features.
 
@@ -4718,10 +4642,10 @@ async def check_lookahead_bias(
     Returns:
         Report with suspect features and recommendations
     """
-    from quantcore.data.storage import DataStore
-    from quantcore.validation.integrity import validate_no_lookahead
-    from quantcore.features.factory import MultiTimeframeFeatureFactory
     from scipy import stats
+
+    from quantcore.data.storage import DataStore
+    from quantcore.features.factory import MultiTimeframeFeatureFactory
 
     store = DataStore()
     tf = _parse_timeframe(timeframe)
@@ -4877,7 +4801,6 @@ async def get_timeframes_resource() -> str:
 
 def main():
     """Run the MCP server."""
-    import asyncio
 
     # Configure logging
     logger.remove()

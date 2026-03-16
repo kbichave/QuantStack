@@ -8,13 +8,11 @@ Features:
 - Skew metrics
 """
 
-from typing import List, Optional
-import pandas as pd
 import numpy as np
-from loguru import logger
+import pandas as pd
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class OptionsFeatures(FeatureBase):
@@ -50,7 +48,7 @@ class OptionsFeatures(FeatureBase):
     def compute(
         self,
         df: pd.DataFrame,
-        options_data: Optional[pd.DataFrame] = None,
+        options_data: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
         Compute options features.
@@ -189,12 +187,8 @@ class OptionsFeatures(FeatureBase):
         front_expiry = expiries[0]
         back_expiry = expiries[-1] if len(expiries) > 2 else expiries[1]
 
-        front_options = options_data[
-            pd.to_datetime(options_data["expiry"]) == front_expiry
-        ]
-        back_options = options_data[
-            pd.to_datetime(options_data["expiry"]) == back_expiry
-        ]
+        front_options = options_data[pd.to_datetime(options_data["expiry"]) == front_expiry]
+        back_options = options_data[pd.to_datetime(options_data["expiry"]) == back_expiry]
 
         front_iv = front_options["iv"].mean() if not front_options.empty else np.nan
         back_iv = back_options["iv"].mean() if not back_options.empty else np.nan
@@ -204,7 +198,7 @@ class OptionsFeatures(FeatureBase):
 
         return np.nan
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of feature names."""
         return [
             "opt_atm_iv",
@@ -296,9 +290,7 @@ def compute_skew(
     if options_chain.empty:
         return np.nan
 
-    options = options_chain[
-        options_chain["option_type"].str.upper() == option_type.upper()
-    ]
+    options = options_chain[options_chain["option_type"].str.upper() == option_type.upper()]
 
     if options.empty or "delta" not in options.columns or "iv" not in options.columns:
         return np.nan

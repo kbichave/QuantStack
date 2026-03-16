@@ -5,10 +5,8 @@ Includes RRG-based and swing-based filters.
 """
 
 from dataclasses import dataclass
-from typing import Optional, List
+
 import pandas as pd
-import numpy as np
-from loguru import logger
 
 
 @dataclass
@@ -80,17 +78,11 @@ class RRGFilter:
         if quadrant in self.LONG_ALLOWED:
             return FilterResult(passed=True, reason=f"RRG {quadrant}", score=1.0)
         elif quadrant in self.LONG_BLOCKED:
-            return FilterResult(
-                passed=False, reason=f"RRG {quadrant} blocks long", score=0.0
-            )
+            return FilterResult(passed=False, reason=f"RRG {quadrant} blocks long", score=0.0)
         elif quadrant in self.LONG_CAUTIOUS:
             if self.strict_mode:
-                return FilterResult(
-                    passed=False, reason=f"RRG {quadrant} (strict)", score=0.3
-                )
-            return FilterResult(
-                passed=True, reason=f"RRG {quadrant} (cautious)", score=0.5
-            )
+                return FilterResult(passed=False, reason=f"RRG {quadrant} (strict)", score=0.3)
+            return FilterResult(passed=True, reason=f"RRG {quadrant} (cautious)", score=0.5)
 
         return FilterResult(passed=True, reason="Unknown quadrant", score=0.5)
 
@@ -120,17 +112,11 @@ class RRGFilter:
         if quadrant in self.SHORT_ALLOWED:
             return FilterResult(passed=True, reason=f"RRG {quadrant}", score=1.0)
         elif quadrant in self.SHORT_BLOCKED:
-            return FilterResult(
-                passed=False, reason=f"RRG {quadrant} blocks short", score=0.0
-            )
+            return FilterResult(passed=False, reason=f"RRG {quadrant} blocks short", score=0.0)
         elif quadrant in self.SHORT_CAUTIOUS:
             if self.strict_mode:
-                return FilterResult(
-                    passed=False, reason=f"RRG {quadrant} (strict)", score=0.3
-                )
-            return FilterResult(
-                passed=True, reason=f"RRG {quadrant} (cautious)", score=0.5
-            )
+                return FilterResult(passed=False, reason=f"RRG {quadrant} (strict)", score=0.3)
+            return FilterResult(passed=True, reason=f"RRG {quadrant} (cautious)", score=0.5)
 
         return FilterResult(passed=True, reason="Unknown quadrant", score=0.5)
 
@@ -434,9 +420,9 @@ class CombinedFilter:
 
     def __init__(
         self,
-        rrg_filter: Optional[RRGFilter] = None,
-        swing_filter: Optional[SwingFilter] = None,
-        wave_filter: Optional[WaveFilter] = None,
+        rrg_filter: RRGFilter | None = None,
+        swing_filter: SwingFilter | None = None,
+        wave_filter: WaveFilter | None = None,
         min_combined_score: float = 0.4,
     ):
         """

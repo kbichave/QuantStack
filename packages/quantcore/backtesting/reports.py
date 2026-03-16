@@ -3,8 +3,7 @@
 
 """Performance reporting for backtests."""
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
@@ -27,7 +26,7 @@ class PerformanceReport:
         """
         self.result = result
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """Get summary statistics as dictionary."""
         return {
             "total_trades": self.result.total_trades,
@@ -51,11 +50,11 @@ class PerformanceReport:
         print(f"Profit Factor:   {self.result.profit_factor:.2f}")
         print("=" * 60 + "\n")
 
-    def get_trades(self) -> List[Dict]:
+    def get_trades(self) -> list[dict]:
         """Get list of trades."""
         return self.result.trades
 
-    def get_equity_curve(self) -> List[float]:
+    def get_equity_curve(self) -> list[float]:
         """Get equity curve."""
         return self.result.equity_curve
 

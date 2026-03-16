@@ -7,11 +7,13 @@ installed. When CrewAI is available we simply re-export the real symbols.
 
 from __future__ import annotations
 
-from typing import Any, Callable, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 try:  # pragma: no cover - prefer real CrewAI when present
     from crewai import Agent, Crew, Process, Task  # type: ignore
     from crewai.agents.agent_builder.base_agent import BaseAgent  # type: ignore
+    from crewai.flow.flow import Flow, listen, router, start  # type: ignore
     from crewai.project import (  # type: ignore
         CrewBase,
         after_kickoff,
@@ -21,7 +23,6 @@ try:  # pragma: no cover - prefer real CrewAI when present
         task,
     )
     from crewai.tools import BaseTool  # type: ignore
-    from crewai.flow.flow import Flow, listen, router, start  # type: ignore
 except ImportError:  # pragma: no cover - executed in test environments without CrewAI
 
     class _Stub:
@@ -51,8 +52,8 @@ except ImportError:  # pragma: no cover - executed in test environments without 
 
         def __init__(
             self,
-            agents: Optional[List[Any]] = None,
-            tasks: Optional[List[Any]] = None,
+            agents: list[Any] | None = None,
+            tasks: list[Any] | None = None,
             process: Any = None,
             **kwargs: Any,
         ) -> None:

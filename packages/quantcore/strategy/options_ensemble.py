@@ -11,12 +11,9 @@ Combines signals from multiple technical analysis strategies with configurable w
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 from enum import Enum
 
-import numpy as np
 import pandas as pd
-from loguru import logger
 
 
 class SignalDirection(Enum):
@@ -42,7 +39,7 @@ class EnsembleSignal:
 
     direction: SignalDirection
     confidence: float
-    component_signals: Dict[str, SignalResult] = field(default_factory=dict)
+    component_signals: dict[str, SignalResult] = field(default_factory=dict)
     weighted_score: float = 0.0
     reason: str = ""
 
@@ -77,7 +74,7 @@ class EnsembleWeights:
             self.candlestick /= total
             self.wave /= total
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary."""
         return {
             "mean_reversion": self.mean_reversion,
@@ -104,7 +101,7 @@ class MeanReversionSignal:
         self.zscore_threshold = zscore_threshold
         self.reversion_delta = reversion_delta
 
-    def generate(self, features: Dict[str, float]) -> SignalResult:
+    def generate(self, features: dict[str, float]) -> SignalResult:
         """Generate mean reversion signal from features."""
         # Get z-score (try multiple feature names)
         zscore = features.get("mr_zscore", features.get("zscore_price", 0))
@@ -147,9 +144,7 @@ class MeanReversionSignal:
                 reason=f"MR Short (manual): zscore={zscore:.2f}",
             )
 
-        return SignalResult(
-            direction=SignalDirection.FLAT, confidence=0.0, reason="No MR signal"
-        )
+        return SignalResult(direction=SignalDirection.FLAT, confidence=0.0, reason="No MR signal")
 
 
 class MomentumSignal:
@@ -167,7 +162,7 @@ class MomentumSignal:
         self.rsi_oversold = rsi_oversold
         self.rsi_overbought = rsi_overbought
 
-    def generate(self, features: Dict[str, float]) -> SignalResult:
+    def generate(self, features: dict[str, float]) -> SignalResult:
         """Generate momentum signal from features."""
         # Get RSI (try multiple names)
         rsi = None
@@ -185,9 +180,7 @@ class MomentumSignal:
         macd_hist = macd - macd_signal
 
         # Get momentum score if available
-        momentum_score = features.get(
-            "momentum_score", features.get("1H_momentum_score", 0)
-        )
+        momentum_score = features.get("momentum_score", features.get("1H_momentum_score", 0))
 
         # Long signal: RSI oversold + bullish MACD
         if rsi < self.rsi_oversold and macd_hist > 0:
@@ -209,9 +202,7 @@ class MomentumSignal:
 
         # Use momentum score as secondary signal
         if abs(momentum_score) > 0.5:
-            direction = (
-                SignalDirection.LONG if momentum_score > 0 else SignalDirection.SHORT
-            )
+            direction = SignalDirection.LONG if momentum_score > 0 else SignalDirection.SHORT
             return SignalResult(
                 direction=direction,
                 confidence=min(abs(momentum_score), 1.0) * 0.5,  # Reduced confidence
@@ -232,16 +223,12 @@ class RRGSignal:
     Uses quadrant position for relative strength signals.
     """
 
-    def generate(self, features: Dict[str, float]) -> SignalResult:
+    def generate(self, features: dict[str, float]) -> SignalResult:
         """Generate RRG signal from features."""
         # Check RRG quadrant indicators
         rrg_leading = features.get("rrg_leading", features.get("1H_rrg_leading", 0))
-        rrg_improving = features.get(
-            "rrg_improving", features.get("1H_rrg_improving", 0)
-        )
-        rrg_weakening = features.get(
-            "rrg_weakening", features.get("1H_rrg_weakening", 0)
-        )
+        rrg_improving = features.get("rrg_improving", features.get("1H_rrg_improving", 0))
+        rrg_weakening = features.get("rrg_weakening", features.get("1H_rrg_weakening", 0))
         rrg_lagging = features.get("rrg_lagging", features.get("1H_rrg_lagging", 0))
 
         # Get RS ratio and momentum
@@ -279,9 +266,7 @@ class RRGSignal:
                 reason="RRG favorable for longs",
             )
 
-        return SignalResult(
-            direction=SignalDirection.FLAT, confidence=0.0, reason="No RRG signal"
-        )
+        return SignalResult(direction=SignalDirection.FLAT, confidence=0.0, reason="No RRG signal")
 
 
 class GannSignal:
@@ -291,29 +276,19 @@ class GannSignal:
     Uses swing points, retracement levels, and price-time analysis.
     """
 
-    def generate(self, features: Dict[str, float]) -> SignalResult:
+    def generate(self, features: dict[str, float]) -> SignalResult:
         """Generate Gann signal from features."""
         # Get Gann features
-        gann_oversold = features.get(
-            "gann_oversold", features.get("1H_gann_oversold", 0)
-        )
-        gann_overbought = features.get(
-            "gann_overbought", features.get("1H_gann_overbought", 0)
-        )
+        gann_oversold = features.get("gann_oversold", features.get("1H_gann_oversold", 0))
+        gann_overbought = features.get("gann_overbought", features.get("1H_gann_overbought", 0))
         gann_near_level = features.get(
             "gann_near_any_level", features.get("1H_gann_near_any_level", 0)
         )
 
         # Retracement levels
-        near_382 = features.get(
-            "gann_retracement_382", features.get("1H_gann_retracement_382", 0)
-        )
-        near_500 = features.get(
-            "gann_retracement_500", features.get("1H_gann_retracement_500", 0)
-        )
-        near_618 = features.get(
-            "gann_retracement_618", features.get("1H_gann_retracement_618", 0)
-        )
+        near_382 = features.get("gann_retracement_382", features.get("1H_gann_retracement_382", 0))
+        near_500 = features.get("gann_retracement_500", features.get("1H_gann_retracement_500", 0))
+        near_618 = features.get("gann_retracement_618", features.get("1H_gann_retracement_618", 0))
 
         # Range position (0-1 scale)
         range_position = features.get(
@@ -321,12 +296,8 @@ class GannSignal:
         )
 
         # Gann angles
-        vs_1x1_low = features.get(
-            "gann_vs_1x1_low", features.get("1H_gann_vs_1x1_low", 0)
-        )
-        vs_1x1_high = features.get(
-            "gann_vs_1x1_high", features.get("1H_gann_vs_1x1_high", 0)
-        )
+        vs_1x1_low = features.get("gann_vs_1x1_low", features.get("1H_gann_vs_1x1_low", 0))
+        vs_1x1_high = features.get("gann_vs_1x1_high", features.get("1H_gann_vs_1x1_high", 0))
 
         # Long: Near support level + oversold
         if gann_oversold > 0 and gann_near_level > 0:
@@ -342,7 +313,7 @@ class GannSignal:
             return SignalResult(
                 direction=SignalDirection.LONG,
                 confidence=0.4,
-                reason=f"Gann Long: above 1x1 angle from low",
+                reason="Gann Long: above 1x1 angle from low",
             )
 
         # Short: Near resistance level + overbought
@@ -359,12 +330,10 @@ class GannSignal:
             return SignalResult(
                 direction=SignalDirection.SHORT,
                 confidence=0.4,
-                reason=f"Gann Short: below 1x1 angle from high",
+                reason="Gann Short: below 1x1 angle from high",
             )
 
-        return SignalResult(
-            direction=SignalDirection.FLAT, confidence=0.0, reason="No Gann signal"
-        )
+        return SignalResult(direction=SignalDirection.FLAT, confidence=0.0, reason="No Gann signal")
 
 
 class CandlestickSignal:
@@ -374,23 +343,15 @@ class CandlestickSignal:
     Uses recognized candlestick patterns for reversal signals.
     """
 
-    def generate(self, features: Dict[str, float]) -> SignalResult:
+    def generate(self, features: dict[str, float]) -> SignalResult:
         """Generate candlestick signal from features."""
         # Get candlestick pattern counts
-        bullish_count = features.get(
-            "cdl_bullish_count", features.get("1H_cdl_bullish_count", 0)
-        )
-        bearish_count = features.get(
-            "cdl_bearish_count", features.get("1H_cdl_bearish_count", 0)
-        )
-        net_signal = features.get(
-            "cdl_net_signal", features.get("1H_cdl_net_signal", 0)
-        )
+        bullish_count = features.get("cdl_bullish_count", features.get("1H_cdl_bullish_count", 0))
+        bearish_count = features.get("cdl_bearish_count", features.get("1H_cdl_bearish_count", 0))
+        net_signal = features.get("cdl_net_signal", features.get("1H_cdl_net_signal", 0))
 
         # Specific patterns
-        double_bottom = features.get(
-            "cdl_double_bottom", features.get("1H_cdl_double_bottom", 0)
-        )
+        double_bottom = features.get("cdl_double_bottom", features.get("1H_cdl_double_bottom", 0))
 
         # Strong bullish patterns
         if double_bottom > 0:
@@ -419,9 +380,7 @@ class CandlestickSignal:
 
         # Single pattern with net signal
         if abs(net_signal) > 0.5:
-            direction = (
-                SignalDirection.LONG if net_signal > 0 else SignalDirection.SHORT
-            )
+            direction = SignalDirection.LONG if net_signal > 0 else SignalDirection.SHORT
             return SignalResult(
                 direction=direction,
                 confidence=0.3,
@@ -442,19 +401,15 @@ class WaveSignal:
     Uses wave stage and probabilities for trend context.
     """
 
-    def generate(self, features: Dict[str, float]) -> SignalResult:
+    def generate(self, features: dict[str, float]) -> SignalResult:
         """Generate wave signal from features."""
         # Get wave probabilities
-        prob_impulse_up = features.get(
-            "prob_impulse_up", features.get("4H_prob_impulse_up", 0)
-        )
+        prob_impulse_up = features.get("prob_impulse_up", features.get("4H_prob_impulse_up", 0))
         prob_impulse_down = features.get(
             "prob_impulse_down", features.get("4H_prob_impulse_down", 0)
         )
         prob_corr_up = features.get("prob_corr_up", features.get("4H_prob_corr_up", 0))
-        prob_corr_down = features.get(
-            "prob_corr_down", features.get("4H_prob_corr_down", 0)
-        )
+        prob_corr_down = features.get("prob_corr_down", features.get("4H_prob_corr_down", 0))
 
         # Wave stage and confidence
         wave_conf = features.get("wave_conf", features.get("4H_wave_conf", 0))
@@ -491,9 +446,7 @@ class WaveSignal:
                 reason=f"Wave Short: correction down prob={prob_corr_down:.2f}",
             )
 
-        return SignalResult(
-            direction=SignalDirection.FLAT, confidence=0.0, reason="No wave signal"
-        )
+        return SignalResult(direction=SignalDirection.FLAT, confidence=0.0, reason="No wave signal")
 
 
 class EnsembleSignalGenerator:
@@ -506,7 +459,7 @@ class EnsembleSignalGenerator:
 
     def __init__(
         self,
-        weights: Optional[EnsembleWeights] = None,
+        weights: EnsembleWeights | None = None,
         min_confidence: float = 0.3,
         min_agreement: int = 2,
         zscore_threshold: float = 2.0,
@@ -538,7 +491,7 @@ class EnsembleSignalGenerator:
         self.candlestick = CandlestickSignal()
         self.wave = WaveSignal()
 
-    def generate_signal(self, features: Dict[str, float]) -> EnsembleSignal:
+    def generate_signal(self, features: dict[str, float]) -> EnsembleSignal:
         """
         Generate ensemble signal from features.
 
@@ -639,7 +592,7 @@ class EnsembleSignalGenerator:
 
         return result_df
 
-    def get_signal_breakdown(self, features: Dict[str, float]) -> Dict[str, Dict]:
+    def get_signal_breakdown(self, features: dict[str, float]) -> dict[str, dict]:
         """
         Get detailed breakdown of signals from each strategy.
 
@@ -669,7 +622,7 @@ class EnsembleSignalGenerator:
         return breakdown
 
 
-def create_ensemble_from_config(config: Dict) -> EnsembleSignalGenerator:
+def create_ensemble_from_config(config: dict) -> EnsembleSignalGenerator:
     """
     Create ensemble generator from configuration dictionary.
 

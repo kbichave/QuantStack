@@ -34,17 +34,16 @@ from __future__ import annotations
 import statistics
 from collections import Counter
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
-
 
 # =============================================================================
 # Signal data model
 # =============================================================================
 
 
-def _parse_signal(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _parse_signal(raw: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize a raw signal dict, parsing timestamps and computing P&L."""
     try:
         entry_time = raw.get("entry_time")
@@ -110,7 +109,7 @@ def _parse_signal(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 # =============================================================================
 
 
-def _analyze_entry_patterns(signals: List[Dict]) -> Dict[str, Any]:
+def _analyze_entry_patterns(signals: list[dict]) -> dict[str, Any]:
     """Identify entry timing and condition patterns."""
     if not signals:
         return {"error": "No signals to analyze"}
@@ -163,13 +162,13 @@ def _analyze_entry_patterns(signals: List[Dict]) -> Dict[str, Any]:
 # =============================================================================
 
 
-def _analyze_exit_patterns(signals: List[Dict]) -> Dict[str, Any]:
+def _analyze_exit_patterns(signals: list[dict]) -> dict[str, Any]:
     """Classify exit patterns and compute holding period distribution."""
     if not signals:
         return {"error": "No signals"}
 
     holdings = [s["holding_minutes"] for s in signals]
-    pnls = [s["pnl_pct"] for s in signals]
+    [s["pnl_pct"] for s in signals]
     winners = [s for s in signals if s["is_winner"]]
     losers = [s for s in signals if not s["is_winner"]]
 
@@ -216,7 +215,7 @@ def _analyze_exit_patterns(signals: List[Dict]) -> Dict[str, Any]:
 # =============================================================================
 
 
-def _analyze_sizing_patterns(signals: List[Dict]) -> Dict[str, Any]:
+def _analyze_sizing_patterns(signals: list[dict]) -> dict[str, Any]:
     """Analyze position sizing patterns if size data is available."""
     sized_signals = [s for s in signals if s.get("size") is not None]
 
@@ -241,7 +240,7 @@ def _analyze_sizing_patterns(signals: List[Dict]) -> Dict[str, Any]:
 
     # Size data available — correlate size with outcome
     sizes = [float(s["size"]) for s in sized_signals]
-    pnls = [s["pnl_pct"] for s in sized_signals]
+    [s["pnl_pct"] for s in sized_signals]
 
     avg_size = statistics.mean(sizes)
     big_trades = [s for s in sized_signals if float(s["size"]) > avg_size]
@@ -271,7 +270,7 @@ def _analyze_sizing_patterns(signals: List[Dict]) -> Dict[str, Any]:
 # =============================================================================
 
 
-def _analyze_regime_affinity(signals: List[Dict]) -> Dict[str, Any]:
+def _analyze_regime_affinity(signals: list[dict]) -> dict[str, Any]:
     """
     Cross-reference trades with market regime at entry time.
 
@@ -331,13 +330,13 @@ def _analyze_regime_affinity(signals: List[Dict]) -> Dict[str, Any]:
 
 
 def _synthesize(
-    signals: List[Dict],
-    entry_analysis: Dict,
-    exit_analysis: Dict,
-    sizing_analysis: Dict,
-    regime_analysis: Dict,
+    signals: list[dict],
+    entry_analysis: dict,
+    exit_analysis: dict,
+    sizing_analysis: dict,
+    regime_analysis: dict,
     source_name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Combine IC outputs into a DecodedStrategy."""
     total = len(signals)
     winners = sum(1 for s in signals if s["is_winner"])
@@ -380,7 +379,11 @@ def _synthesize(
         "win_rate": round(win_rate, 2),
         "avg_win": round(avg_win, 3),
         "avg_loss": round(avg_loss, 3),
-        "best_regime": max(regime_analysis.get("regime_affinity", {}), key=regime_analysis.get("regime_affinity", {}).get, default="unknown"),
+        "best_regime": max(
+            regime_analysis.get("regime_affinity", {}),
+            key=regime_analysis.get("regime_affinity", {}).get,
+            default="unknown",
+        ),
         "regime_affinity": regime_analysis.get("regime_affinity", {}),
         "edge_hypothesis": edge_hypothesis,
         "confidence": round(confidence, 2),
@@ -397,9 +400,9 @@ def _synthesize(
 
 
 def decode_signals(
-    raw_signals: List[Dict[str, Any]],
+    raw_signals: list[dict[str, Any]],
     source_name: str = "unknown",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Decode a list of trade signals into a strategy specification.
 

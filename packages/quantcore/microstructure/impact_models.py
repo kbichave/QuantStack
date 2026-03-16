@@ -4,9 +4,9 @@ Market Impact Models.
 Models for estimating price impact of trades.
 """
 
-import numpy as np
-from typing import Tuple, Optional, Dict
 from dataclasses import dataclass
+
+import numpy as np
 
 
 def square_root_impact(
@@ -86,7 +86,7 @@ class ImpactModel:
         self,
         volatility: float,
         daily_volume: float,
-        params: Optional[ImpactParams] = None,
+        params: ImpactParams | None = None,
     ):
         self.volatility = volatility
         self.daily_volume = daily_volume
@@ -96,7 +96,7 @@ class ImpactModel:
         self,
         order_size: float,
         execution_time: float = 1.0,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Estimate total price impact."""
         if self.daily_volume <= 0 or execution_time <= 0:
             return {"permanent": 0, "temporary": 0, "total": 0}

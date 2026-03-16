@@ -20,13 +20,11 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 from scipy.stats import norm
-
 
 # ---------------------------------------------------------------------------
 # Deflated Sharpe Ratio
@@ -74,8 +72,9 @@ def benchmark_sharpe_ratio(
     euler_mascheroni = 0.5772156649
 
     # Expected maximum of n standard normals
-    e_max = (1.0 - euler_mascheroni) * norm.ppf(1.0 - 1.0 / n_trials) + \
-            euler_mascheroni * norm.ppf(1.0 - 1.0 / (n_trials * np.e))
+    e_max = (1.0 - euler_mascheroni) * norm.ppf(1.0 - 1.0 / n_trials) + euler_mascheroni * norm.ppf(
+        1.0 - 1.0 / (n_trials * np.e)
+    )
 
     # Scale by annualised SR standard deviation
     # Var(SR) ≈ 1/T × (1 + 0.5×SR²) for large T — use sr_std directly
@@ -134,9 +133,9 @@ def deflated_sharpe_ratio(
     # where γ₃ = skewness, γ₄ = excess kurtosis  (simplified form)
     sr_var = (1.0 / n_obs) * (
         1.0
-        + 0.5 * observed_sharpe ** 2
+        + 0.5 * observed_sharpe**2
         - skewness * observed_sharpe
-        + (excess_kurtosis / 4.0) * (observed_sharpe ** 2 - 1.0) ** 2
+        + (excess_kurtosis / 4.0) * (observed_sharpe**2 - 1.0) ** 2
     )
     sr_var = max(sr_var, 1e-9)  # Guard against numerical zero
 
@@ -155,7 +154,7 @@ def deflated_sharpe_ratio(
     )
 
 
-def returns_statistics(returns: pd.Series) -> Tuple[float, float, float, float]:
+def returns_statistics(returns: pd.Series) -> tuple[float, float, float, float]:
     """
     Compute annualised Sharpe, skewness, excess kurtosis, and SR std
     from a daily return series.
@@ -199,9 +198,9 @@ class PBOResult:
     pbo: float  # Probability of overfitting in [0, 1]
     is_overfit: bool  # True when pbo > 0.5
     n_paths: int  # Number of CPCV paths evaluated
-    oos_sharpes: List[float]  # Out-of-sample Sharpe per path
-    is_sharpes: List[float]  # In-sample Sharpe per path (for best strategy each path)
-    logit_values: List[float]  # Logit(ω) per path (for diagnostic)
+    oos_sharpes: list[float]  # Out-of-sample Sharpe per path
+    is_sharpes: list[float]  # In-sample Sharpe per path (for best strategy each path)
+    logit_values: list[float]  # Logit(ω) per path (for diagnostic)
     pbo_curve: pd.Series  # CDF of logit values (for plotting)
 
 
@@ -253,9 +252,9 @@ def probability_of_backtest_overfitting(
         end = (i + 1) * group_size if i < n_splits - 1 else T
         groups.append((start, end))
 
-    logit_values: List[float] = []
-    oos_sharpes: List[float] = []
-    is_sharpes: List[float] = []
+    logit_values: list[float] = []
+    oos_sharpes: list[float] = []
+    is_sharpes: list[float] = []
 
     for test_group_ids in combinations(range(n_splits), n_test_splits):
         test_idx = []
@@ -289,10 +288,10 @@ def probability_of_backtest_overfitting(
         # Rank of the IS-best strategy in OOS distribution
         oos_rank = float(np.sum(oos_sr < best_oos_sr)) / max(N - 1, 1)
         # ω = rank of best_oos_sr relative to median of OOS SRs
-        oos_median = float(np.median(oos_sr))
+        float(np.median(oos_sr))
 
         # Logit(ω) where ω is the relative rank vs median (0 = at median, <0 = below)
-        omega = oos_rank - 0.5
+        oos_rank - 0.5
         logit = float(np.log(max(1e-9, oos_rank) / max(1e-9, 1.0 - oos_rank)))
 
         logit_values.append(logit)
@@ -351,7 +350,7 @@ class OverfittingReport:
     """Combined DSR + PBO overfitting analysis."""
 
     dsr_result: DSRResult
-    pbo_result: Optional[PBOResult]
+    pbo_result: PBOResult | None
     verdict: str  # "GENUINE" | "SUSPECT" | "OVERFIT"
     summary: str
 
@@ -359,7 +358,7 @@ class OverfittingReport:
 def run_overfitting_analysis(
     strategy_returns: pd.Series,
     n_trials: int,
-    all_strategy_returns: Optional[np.ndarray] = None,
+    all_strategy_returns: np.ndarray | None = None,
     n_cpcv_splits: int = 6,
     significance_level: float = 0.95,
 ) -> OverfittingReport:
@@ -391,7 +390,7 @@ def run_overfitting_analysis(
         significance_level=significance_level,
     )
 
-    pbo: Optional[PBOResult] = None
+    pbo: PBOResult | None = None
     if all_strategy_returns is not None:
         pbo = probability_of_backtest_overfitting(
             all_strategy_returns,
@@ -407,7 +406,7 @@ def run_overfitting_analysis(
         verdict = "GENUINE"
 
     lines = [
-        f"=== Overfitting Analysis ===",
+        "=== Overfitting Analysis ===",
         f"Observed Sharpe  : {dsr.observed_sharpe:.3f}",
         f"Benchmark SR*    : {dsr.benchmark_sharpe:.3f}  (n_trials={n_trials})",
         f"Deflated SR (DSR): {dsr.dsr:.3f}  {'✓ GENUINE' if dsr.is_genuine else '✗ FAIL'}",
@@ -420,7 +419,7 @@ def run_overfitting_analysis(
             f"  {'✓ NOT OVERFIT' if not pbo.is_overfit else '✗ OVERFIT'}",
         ]
     lines += [
-        f"",
+        "",
         f"VERDICT: {verdict}",
     ]
 

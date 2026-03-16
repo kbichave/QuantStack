@@ -8,13 +8,9 @@ Uses an in-memory DuckDB KnowledgeStore so no file I/O occurs.
 
 from __future__ import annotations
 
-import math
 import duckdb
 import pytest
-
-from quant_pod.guardrails.mcp_response_validator import MCPResponseValidator
 from quant_pod.learning.skill_tracker import AgentSkill, SkillTracker
-
 
 # ---------------------------------------------------------------------------
 # AgentSkill: IC / ICIR property tests (no DB required)

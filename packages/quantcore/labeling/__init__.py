@@ -2,8 +2,8 @@
 
 from quantcore.labeling.event_labeler import EventLabeler, TradeOutcome
 from quantcore.labeling.wave_event_labeler import (
-    WaveEventLabeler,
     WaveEventLabel,
+    WaveEventLabeler,
     WavePerformanceAnalyzer,
 )
 

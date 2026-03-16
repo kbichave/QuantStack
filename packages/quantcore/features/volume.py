@@ -4,12 +4,10 @@ Volume-related features.
 Includes volume ratio, OBV, and volume-price analysis.
 """
 
-from typing import List
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 from quantcore.features.base import FeatureBase
-from quantcore.config.timeframes import Timeframe
 
 
 class VolumeFeatures(FeatureBase):
@@ -240,7 +238,7 @@ class VolumeFeatures(FeatureBase):
         """
         return close.diff() * volume
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of volume feature names."""
         return [
             "volume_ma",

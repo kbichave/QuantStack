@@ -12,7 +12,8 @@ Provides unified interface for options pricing that can route to different backe
 This engine is the main entry point for all options calculations in QuantCore MCP.
 """
 
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Literal
+
 from loguru import logger
 
 # Type aliases
@@ -31,7 +32,7 @@ def price_option_dispatch(
     option_type: OptionType = "call",
     exercise_style: ExerciseStyle = "european",
     backend: PricingBackend = "auto",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Price an option using the specified or auto-selected backend.
 
@@ -92,7 +93,7 @@ def _price_with_vollib(
     rate: float,
     dividend_yield: float,
     option_type: OptionType,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Price using vollib backend."""
     try:
         from quantcore.options.adapters.vollib_adapter import (
@@ -104,9 +105,7 @@ def _price_with_vollib(
             spot, strike, time_to_expiry, vol, rate, dividend_yield, option_type
         )
 
-        greeks = greeks_vollib(
-            spot, strike, time_to_expiry, vol, rate, dividend_yield, option_type
-        )
+        greeks = greeks_vollib(spot, strike, time_to_expiry, vol, rate, dividend_yield, option_type)
 
         return {
             "price": round(price, 4),
@@ -140,12 +139,12 @@ def _price_with_financepy(
     dividend_yield: float,
     option_type: OptionType,
     exercise_style: ExerciseStyle,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Price using financepy backend."""
     try:
         from quantcore.options.adapters.financepy_adapter import (
-            price_vanilla_financepy,
             price_american_option,
+            price_vanilla_financepy,
         )
 
         if exercise_style == "american":
@@ -235,10 +234,10 @@ def _price_with_internal(
     rate: float,
     dividend_yield: float,
     option_type: OptionType,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Price using internal QuantCore implementation."""
-    from quantcore.options.pricing import black_scholes_price, black_scholes_greeks
     from quantcore.options.models import OptionType as OptType
+    from quantcore.options.pricing import black_scholes_greeks, black_scholes_price
 
     opt_enum = OptType.CALL if option_type.lower() in ("call", "c") else OptType.PUT
 
@@ -294,7 +293,7 @@ def compute_greeks_dispatch(
     dividend_yield: float = 0.0,
     option_type: OptionType = "call",
     backend: PricingBackend = "auto",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute option Greeks using the specified backend.
 
@@ -333,8 +332,8 @@ def compute_greeks_dispatch(
             logger.warning(f"vollib Greeks failed: {e}, using internal")
 
     # Fallback to internal
-    from quantcore.options.pricing import black_scholes_greeks
     from quantcore.options.models import OptionType as OptType
+    from quantcore.options.pricing import black_scholes_greeks
 
     opt_enum = OptType.CALL if option_type.lower() in ("call", "c") else OptType.PUT
 
@@ -373,7 +372,7 @@ def compute_iv_dispatch(
     option_price: float,
     option_type: OptionType = "call",
     backend: PricingBackend = "auto",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute implied volatility from market price.
 
@@ -426,8 +425,8 @@ def compute_iv_dispatch(
             logger.warning(f"vollib IV failed: {e}")
 
     # Fallback to internal
-    from quantcore.options.pricing import implied_volatility
     from quantcore.options.models import OptionType as OptType
+    from quantcore.options.pricing import implied_volatility
 
     opt_enum = OptType.CALL if option_type.lower() in ("call", "c") else OptType.PUT
 
@@ -462,7 +461,7 @@ def compute_iv_dispatch(
     }
 
 
-def _interpret_greeks(greeks: Dict[str, float], option_type: str) -> Dict[str, str]:
+def _interpret_greeks(greeks: dict[str, float], option_type: str) -> dict[str, str]:
     """Generate human-readable interpretations of Greeks."""
     delta = greeks.get("delta", 0)
     gamma = greeks.get("gamma", 0)
@@ -476,11 +475,11 @@ def _interpret_greeks(greeks: Dict[str, float], option_type: str) -> Dict[str, s
         "theta": f"Option loses ${abs(theta):.2f} per day from time decay",
         "vega": f"Option moves ${vega:.2f} for 1% IV change",
         "rho": f"Option moves ${rho:.2f} for 1% rate change",
-        "probability_itm": f"~{abs(delta)*100:.0f}% implied probability of expiring ITM",
+        "probability_itm": f"~{abs(delta) * 100:.0f}% implied probability of expiring ITM",
     }
 
 
-def _compute_risk_metrics(greeks: Dict[str, float], spot: float) -> Dict[str, float]:
+def _compute_risk_metrics(greeks: dict[str, float], spot: float) -> dict[str, float]:
     """Compute position risk metrics from Greeks."""
     delta = greeks.get("delta", 0)
     gamma = greeks.get("gamma", 0)
@@ -496,7 +495,7 @@ def _compute_risk_metrics(greeks: Dict[str, float], spot: float) -> Dict[str, fl
     }
 
 
-def _analyze_iv(iv: float, spot: float, strike: float, tte: float) -> Dict[str, Any]:
+def _analyze_iv(iv: float, spot: float, strike: float, tte: float) -> dict[str, Any]:
     """Analyze implied volatility context."""
     import numpy as np
 
@@ -563,7 +562,7 @@ def quick_greeks(
     days_to_expiry: int,
     vol: float,
     option_type: OptionType = "call",
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Quick Greeks calculation with minimal parameters.
 
@@ -581,7 +580,7 @@ def quick_iv(
     days_to_expiry: int,
     option_price: float,
     option_type: OptionType = "call",
-) -> Optional[float]:
+) -> float | None:
     """
     Quick IV calculation with minimal parameters.
 
@@ -589,7 +588,5 @@ def quick_iv(
         Implied volatility or None if not solvable
     """
     tte = days_to_expiry / 365.0
-    result = compute_iv_dispatch(
-        spot, strike, tte, 0.05, 0.0, option_price, option_type
-    )
+    result = compute_iv_dispatch(spot, strike, tte, 0.05, 0.0, option_price, option_type)
     return result.get("implied_volatility")

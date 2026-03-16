@@ -12,17 +12,16 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from quantcore.core.config import (
     BacktestConfig,
     FeatureConfig,
-    RLConfig,
     RiskConfig,
+    RLConfig,
     SpreadTradingConfig,
-    load_config_from_yaml,
-    save_config_to_yaml,
     config_to_dict,
+    load_config_from_yaml,
     merge_configs,
+    save_config_to_yaml,
 )
 from quantcore.core.errors import ConfigurationError
 

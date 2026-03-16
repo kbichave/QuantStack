@@ -4,26 +4,26 @@ Commodity regime detector integrating HMM, changepoint, and TFT models.
 Provides unified regime detection for commodity trading.
 """
 
-from typing import Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.hierarchy.regime.hmm_model import (
-    HMMRegimeModel,
-    HMMRegimeState,
-    HMMRegimeResult,
-)
 from quantcore.hierarchy.regime.changepoint import (
     BayesianChangepointDetector,
     ChangepointResult,
 )
+from quantcore.hierarchy.regime.hmm_model import (
+    HMMRegimeModel,
+    HMMRegimeResult,
+    HMMRegimeState,
+)
 from quantcore.hierarchy.regime.tft_regime import (
     TFTRegimeModel,
-    TFTRegimeState,
     TFTRegimeResult,
+    TFTRegimeState,
 )
 
 
@@ -44,27 +44,23 @@ class CommodityRegimeResult:
 
     primary_regime: CommodityRegimeType
     regime_confidence: float
-    hmm_result: Optional[HMMRegimeResult]
-    changepoint_result: Optional[ChangepointResult]
-    tft_result: Optional[TFTRegimeResult]
+    hmm_result: HMMRegimeResult | None
+    changepoint_result: ChangepointResult | None
+    tft_result: TFTRegimeResult | None
     regime_stability: float
     expected_regime_duration: int
-    regime_context: Dict
+    regime_context: dict
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary."""
         return {
             "primary_regime": self.primary_regime.value,
             "regime_confidence": self.regime_confidence,
             "hmm_state": self.hmm_result.state.name if self.hmm_result else None,
             "changepoint_prob": (
-                self.changepoint_result.regime_change_probability
-                if self.changepoint_result
-                else 0
+                self.changepoint_result.regime_change_probability if self.changepoint_result else 0
             ),
-            "tft_regime": (
-                self.tft_result.predicted_regime.name if self.tft_result else None
-            ),
+            "tft_regime": (self.tft_result.predicted_regime.name if self.tft_result else None),
             "regime_stability": self.regime_stability,
             "expected_duration": self.expected_regime_duration,
             **self.regime_context,
@@ -118,9 +114,7 @@ class CommodityRegimeDetector:
             self.hmm = None
 
         if use_changepoint:
-            self.changepoint = BayesianChangepointDetector(
-                hazard_rate=changepoint_hazard
-            )
+            self.changepoint = BayesianChangepointDetector(hazard_rate=changepoint_hazard)
         else:
             self.changepoint = None
 
@@ -166,9 +160,7 @@ class CommodityRegimeDetector:
         """
         # Get results from each model
         hmm_result = self.hmm.predict(df) if self.hmm is not None else None
-        cp_result = (
-            self.changepoint.detect(df) if self.changepoint is not None else None
-        )
+        cp_result = self.changepoint.detect(df) if self.changepoint is not None else None
         tft_result = self.tft.predict(df) if self.tft is not None else None
 
         # Extract context from features
@@ -196,7 +188,7 @@ class CommodityRegimeDetector:
             regime_context=regime_context,
         )
 
-    def _extract_context(self, df: pd.DataFrame) -> Dict:
+    def _extract_context(self, df: pd.DataFrame) -> dict:
         """Extract regime context from features."""
         if len(df) == 0:
             return {}
@@ -233,10 +225,10 @@ class CommodityRegimeDetector:
 
     def _determine_primary_regime(
         self,
-        hmm_result: Optional[HMMRegimeResult],
-        cp_result: Optional[ChangepointResult],
-        tft_result: Optional[TFTRegimeResult],
-        context: Dict,
+        hmm_result: HMMRegimeResult | None,
+        cp_result: ChangepointResult | None,
+        tft_result: TFTRegimeResult | None,
+        context: dict,
     ) -> tuple:
         """Determine primary regime from all sources."""
 
@@ -252,9 +244,7 @@ class CommodityRegimeDetector:
         # Check for regime transition (changepoint)
         if cp_result is not None:
             if cp_result.regime_change_probability > 0.3:
-                scores[
-                    CommodityRegimeType.TRANSITION
-                ] += cp_result.regime_change_probability
+                scores[CommodityRegimeType.TRANSITION] += cp_result.regime_change_probability
 
         # Inventory-driven (event proximity)
         eia_proximity = context.get("eia_proximity", 0)
@@ -278,9 +268,7 @@ class CommodityRegimeDetector:
         vol_regime = context.get("vol_regime", 1)
         vol_zscore = abs(context.get("vol_zscore", 0))
         if vol_regime == 2 or vol_zscore > 1.5:
-            scores[CommodityRegimeType.VOLATILITY_DRIVEN] += 0.4 + min(
-                vol_zscore / 4, 0.3
-            )
+            scores[CommodityRegimeType.VOLATILITY_DRIVEN] += 0.4 + min(vol_zscore / 4, 0.3)
 
         # Add HMM contribution
         if hmm_result is not None:
@@ -289,14 +277,10 @@ class CommodityRegimeDetector:
                 HMMRegimeState.HIGH_VOL_BULL,
                 HMMRegimeState.HIGH_VOL_BEAR,
             ]:
-                scores[CommodityRegimeType.VOLATILITY_DRIVEN] += (
-                    0.2 * hmm_result.regime_stability
-                )
+                scores[CommodityRegimeType.VOLATILITY_DRIVEN] += 0.2 * hmm_result.regime_stability
             else:
                 # Low vol states favor other regimes
-                scores[CommodityRegimeType.MACRO_DRIVEN] += (
-                    0.1 * hmm_result.regime_stability
-                )
+                scores[CommodityRegimeType.MACRO_DRIVEN] += 0.1 * hmm_result.regime_stability
 
         # Add TFT contribution
         if tft_result is not None:
@@ -309,9 +293,7 @@ class CommodityRegimeDetector:
                 scores[CommodityRegimeType.SEASONAL] += 0.1 * tft_conf
 
         # Seasonal (if in seasonal period and no dominant regime)
-        is_seasonal = context.get("is_driving_season", 0) or context.get(
-            "is_heating_season", 0
-        )
+        is_seasonal = context.get("is_driving_season", 0) or context.get("is_heating_season", 0)
         if is_seasonal:
             scores[CommodityRegimeType.SEASONAL] += 0.2
 
@@ -335,9 +317,9 @@ class CommodityRegimeDetector:
 
     def _calculate_stability(
         self,
-        hmm_result: Optional[HMMRegimeResult],
-        cp_result: Optional[ChangepointResult],
-        tft_result: Optional[TFTRegimeResult],
+        hmm_result: HMMRegimeResult | None,
+        cp_result: ChangepointResult | None,
+        tft_result: TFTRegimeResult | None,
     ) -> float:
         """Calculate regime stability."""
         stability_scores = []
@@ -359,7 +341,7 @@ class CommodityRegimeDetector:
 
     def _estimate_duration(
         self,
-        hmm_result: Optional[HMMRegimeResult],
+        hmm_result: HMMRegimeResult | None,
         regime: CommodityRegimeType,
     ) -> int:
         """Estimate expected regime duration (in bars)."""
@@ -438,9 +420,7 @@ class CommodityRegimeDetector:
                 regimes.append("USD_DRIVEN")
             elif recent.get("vol_regime", 1) == 2:
                 regimes.append("VOLATILITY_DRIVEN")
-            elif recent.get("is_driving_season", 0) or recent.get(
-                "is_heating_season", 0
-            ):
+            elif recent.get("is_driving_season", 0) or recent.get("is_heating_season", 0):
                 regimes.append("SEASONAL")
             else:
                 regimes.append("MACRO_DRIVEN")

@@ -8,13 +8,11 @@ Verifies:
 4. No lookahead bias
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-from datetime import datetime
-
+import pandas as pd
 from quantcore.config.timeframes import Timeframe
 from quantcore.features.quantagents_trend import QuantAgentsTrendFeatures
+
 from tests.conftest import make_ohlcv_df
 
 
@@ -45,17 +43,17 @@ class TestQuantAgentsTrendFeatures:
 
         # After warmup, should have positive slopes
         last_idx = len(result) - 1
-        assert (
-            result["qa_trend_slope_short"].iloc[last_idx] > 0
-        ), "Uptrend should have positive short slope"
-        assert (
-            result["qa_trend_slope_med"].iloc[last_idx] > 0
-        ), "Uptrend should have positive med slope"
+        assert result["qa_trend_slope_short"].iloc[last_idx] > 0, (
+            "Uptrend should have positive short slope"
+        )
+        assert result["qa_trend_slope_med"].iloc[last_idx] > 0, (
+            "Uptrend should have positive med slope"
+        )
 
         # Trend regime should be uptrend (+1)
-        assert (
-            result["qa_trend_regime"].iloc[last_idx] == 1
-        ), "Strong uptrend should be classified as +1"
+        assert result["qa_trend_regime"].iloc[last_idx] == 1, (
+            "Strong uptrend should be classified as +1"
+        )
 
     def test_feature_computation_downtrend(self):
         """Test feature computation on downtrend data."""
@@ -68,17 +66,17 @@ class TestQuantAgentsTrendFeatures:
 
         # Should have negative slopes
         last_idx = len(result) - 1
-        assert (
-            result["qa_trend_slope_short"].iloc[last_idx] < 0
-        ), "Downtrend should have negative short slope"
-        assert (
-            result["qa_trend_slope_med"].iloc[last_idx] < 0
-        ), "Downtrend should have negative med slope"
+        assert result["qa_trend_slope_short"].iloc[last_idx] < 0, (
+            "Downtrend should have negative short slope"
+        )
+        assert result["qa_trend_slope_med"].iloc[last_idx] < 0, (
+            "Downtrend should have negative med slope"
+        )
 
         # Trend regime should be downtrend (-1)
-        assert (
-            result["qa_trend_regime"].iloc[last_idx] == -1
-        ), "Strong downtrend should be classified as -1"
+        assert result["qa_trend_regime"].iloc[last_idx] == -1, (
+            "Strong downtrend should be classified as -1"
+        )
 
     def test_feature_computation_sideways(self):
         """Test feature computation on sideways/choppy data."""
@@ -92,15 +90,15 @@ class TestQuantAgentsTrendFeatures:
         last_idx = len(result) - 1
 
         # Slopes should be close to zero
-        assert (
-            abs(result["qa_trend_slope_med"].iloc[last_idx]) < 0.1
-        ), "Sideways market should have near-zero slope"
+        assert abs(result["qa_trend_slope_med"].iloc[last_idx]) < 0.1, (
+            "Sideways market should have near-zero slope"
+        )
 
         # Trend regime should be sideways (0) or low quality
         regime = result["qa_trend_regime"].iloc[last_idx]
-        assert (
-            regime == 0 or result["qa_trend_quality_med"].iloc[last_idx] < 0.3
-        ), "Choppy market should be sideways or low quality"
+        assert regime == 0 or result["qa_trend_quality_med"].iloc[last_idx] < 0.3, (
+            "Choppy market should be sideways or low quality"
+        )
 
     def test_trend_quality_high_for_linear(self):
         """Test that trend quality (R²) is high for linear trends."""
@@ -145,9 +143,9 @@ class TestQuantAgentsTrendFeatures:
         # All horizons should agree on uptrend
         last_idx = len(result) - 1
         alignment = result["qa_trend_alignment_score"].iloc[last_idx]
-        assert (
-            alignment >= 0.67
-        ), f"Consistent uptrend should have high alignment, got {alignment:.2f}"
+        assert alignment >= 0.67, (
+            f"Consistent uptrend should have high alignment, got {alignment:.2f}"
+        )
 
     def test_trend_consistency(self):
         """Test trend consistency measurement."""
@@ -161,9 +159,9 @@ class TestQuantAgentsTrendFeatures:
         # Consistency should be high (most bars move in trend direction)
         last_idx = len(result) - 1
         consistency = result["qa_trend_consistency"].iloc[last_idx]
-        assert (
-            consistency > 0.7
-        ), f"Consistent uptrend should have consistency > 0.7, got {consistency:.2f}"
+        assert consistency > 0.7, (
+            f"Consistent uptrend should have consistency > 0.7, got {consistency:.2f}"
+        )
 
     def test_no_lookahead_bias(self):
         """Test that features don't use future data."""
@@ -175,17 +173,14 @@ class TestQuantAgentsTrendFeatures:
 
         # First window_med-1 bars should have NaN for medium-term features
         # (need window_med data points, so first valid value is at index window_med-1)
-        assert (
-            result["qa_trend_slope_med"].iloc[: qa_trend.window_med - 1].isna().all()
-        ), "Early bars should have NaN (no lookahead)"
+        assert result["qa_trend_slope_med"].iloc[: qa_trend.window_med - 1].isna().all(), (
+            "Early bars should have NaN (no lookahead)"
+        )
 
         # After warmup, should have values
-        assert (
-            not result["qa_trend_slope_med"]
-            .iloc[qa_trend.window_med - 1 :]
-            .isna()
-            .all()
-        ), "After warmup should have values"
+        assert not result["qa_trend_slope_med"].iloc[qa_trend.window_med - 1 :].isna().all(), (
+            "After warmup should have values"
+        )
 
     def test_with_atr_for_trend_strength(self):
         """Test trend strength calculation when ATR is available."""
@@ -201,9 +196,7 @@ class TestQuantAgentsTrendFeatures:
         # Trend strength should be computed
         last_idx = len(result) - 1
         strength = result["qa_trend_strength_med"].iloc[last_idx]
-        assert pd.notna(
-            strength
-        ), "Trend strength should be computed when ATR available"
+        assert pd.notna(strength), "Trend strength should be computed when ATR available"
         assert strength > 0, "Uptrend should have positive trend strength"
 
     def test_without_atr_fallback(self):
@@ -217,9 +210,9 @@ class TestQuantAgentsTrendFeatures:
 
         # Should still compute features
         last_idx = len(result) - 1
-        assert pd.notna(
-            result["qa_trend_slope_med"].iloc[last_idx]
-        ), "Should compute slope even without ATR"
+        assert pd.notna(result["qa_trend_slope_med"].iloc[last_idx]), (
+            "Should compute slope even without ATR"
+        )
 
     def test_timeframe_specific_windows(self):
         """Test that different timeframes use appropriate windows."""
@@ -276,9 +269,9 @@ class TestQuantAgentsTrendFeatures:
 
         # All feature columns should be numeric
         for feature_name in qa_trend.get_feature_names():
-            assert pd.api.types.is_numeric_dtype(
-                result[feature_name]
-            ), f"{feature_name} should be numeric"
+            assert pd.api.types.is_numeric_dtype(result[feature_name]), (
+                f"{feature_name} should be numeric"
+            )
 
     def test_no_inf_values(self):
         """Test that features don't produce infinite values."""
@@ -290,7 +283,5 @@ class TestQuantAgentsTrendFeatures:
 
         # Check for infinite values (NaN is ok during warmup)
         for feature_name in qa_trend.get_feature_names():
-            finite_values = (
-                result[feature_name].replace([np.inf, -np.inf], np.nan).dropna()
-            )
+            finite_values = result[feature_name].replace([np.inf, -np.inf], np.nan).dropna()
             assert len(finite_values) > 0, f"All values are inf/nan for {feature_name}"

@@ -21,7 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from enum import Enum
-from typing import Dict, List, Optional, Set
 
 
 class AssetClass(Enum):
@@ -51,10 +50,10 @@ class SymbolInfo:
     ticker: str
     description: str
     asset_class: AssetClass
-    inception_date: Optional[str] = None  # YYYY-MM-DD
+    inception_date: str | None = None  # YYYY-MM-DD
     is_etf: bool = True
 
-    def get_inception_date(self) -> Optional[date]:
+    def get_inception_date(self) -> date | None:
         """Parse inception date to date object."""
         if self.inception_date is None:
             return None
@@ -62,7 +61,7 @@ class SymbolInfo:
 
 
 # Default symbol mappings for historical QuantArena
-DEFAULT_SYMBOL_MAP: Dict[str, SymbolInfo] = {
+DEFAULT_SYMBOL_MAP: dict[str, SymbolInfo] = {
     # US Equity Index ETFs
     "SPY": SymbolInfo(
         logical_name="SPY",
@@ -147,8 +146,8 @@ class SymbolUniverse:
 
     def __init__(
         self,
-        symbols: List[str],
-        custom_mappings: Optional[Dict[str, SymbolInfo]] = None,
+        symbols: list[str],
+        custom_mappings: dict[str, SymbolInfo] | None = None,
     ):
         """
         Initialize symbol universe.
@@ -162,26 +161,24 @@ class SymbolUniverse:
             self._mappings.update(custom_mappings)
 
         # Validate requested symbols
-        self._symbols: List[str] = []
+        self._symbols: list[str] = []
         for sym in symbols:
             if sym in self._mappings:
                 self._symbols.append(sym)
             else:
-                raise ValueError(
-                    f"Unknown symbol: {sym}. Available: {list(self._mappings.keys())}"
-                )
+                raise ValueError(f"Unknown symbol: {sym}. Available: {list(self._mappings.keys())}")
 
         self._symbols = sorted(set(self._symbols))
 
     @property
-    def symbols(self) -> List[str]:
+    def symbols(self) -> list[str]:
         """Get list of logical symbol names."""
         return self._symbols.copy()
 
     @property
-    def tickers(self) -> List[str]:
+    def tickers(self) -> list[str]:
         """Get list of actual tickers for data fetching."""
-        return sorted(set(self.get_ticker(s) for s in self._symbols))
+        return sorted({self.get_ticker(s) for s in self._symbols})
 
     def get_ticker(self, logical_name: str) -> str:
         """
@@ -197,7 +194,7 @@ class SymbolUniverse:
             raise KeyError(f"Unknown symbol: {logical_name}")
         return self._mappings[logical_name].ticker
 
-    def get_logical_name(self, ticker: str) -> Optional[str]:
+    def get_logical_name(self, ticker: str) -> str | None:
         """
         Reverse lookup: get logical name from ticker.
 
@@ -218,7 +215,7 @@ class SymbolUniverse:
             raise KeyError(f"Unknown symbol: {logical_name}")
         return self._mappings[logical_name]
 
-    def get_available_symbols(self, as_of_date: date) -> List[str]:
+    def get_available_symbols(self, as_of_date: date) -> list[str]:
         """
         Get symbols that have data available as of a date.
 
@@ -236,10 +233,10 @@ class SymbolUniverse:
                 available.append(sym)
         return available
 
-    def get_available_tickers(self, as_of_date: date) -> List[str]:
+    def get_available_tickers(self, as_of_date: date) -> list[str]:
         """Get actual tickers available as of a date."""
         available_symbols = self.get_available_symbols(as_of_date)
-        return sorted(set(self.get_ticker(s) for s in available_symbols))
+        return sorted({self.get_ticker(s) for s in available_symbols})
 
     def get_earliest_common_date(self) -> date:
         """
@@ -260,19 +257,15 @@ class SymbolUniverse:
         """Get asset class for a symbol."""
         return self._mappings[logical_name].asset_class
 
-    def get_symbols_by_asset_class(self, asset_class: AssetClass) -> List[str]:
+    def get_symbols_by_asset_class(self, asset_class: AssetClass) -> list[str]:
         """Get all symbols of a given asset class."""
-        return [
-            sym
-            for sym in self._symbols
-            if self._mappings[sym].asset_class == asset_class
-        ]
+        return [sym for sym in self._symbols if self._mappings[sym].asset_class == asset_class]
 
-    def ticker_to_logical_map(self) -> Dict[str, str]:
+    def ticker_to_logical_map(self) -> dict[str, str]:
         """Get mapping from tickers to logical names."""
         return {self.get_ticker(s): s for s in self._symbols}
 
-    def logical_to_ticker_map(self) -> Dict[str, str]:
+    def logical_to_ticker_map(self) -> dict[str, str]:
         """Get mapping from logical names to tickers."""
         return {s: self.get_ticker(s) for s in self._symbols}
 

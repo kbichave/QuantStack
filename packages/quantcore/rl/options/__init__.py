@@ -8,8 +8,8 @@ Provides:
 - SACOptionsAgent: SAC/PPO/TD3 agent using Stable Baselines3
 """
 
-from quantcore.rl.options.environment import OptionsEnvironment
 from quantcore.rl.options.agent import DirectionAgent
+from quantcore.rl.options.environment import OptionsEnvironment
 
 # Try to import Gymnasium-based components (require extra dependencies)
 try:

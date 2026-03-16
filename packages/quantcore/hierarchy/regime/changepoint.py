@@ -4,11 +4,10 @@ Bayesian changepoint detection for regime shifts.
 Implements online Bayesian changepoint detection algorithm.
 """
 
-from typing import List, Optional, Tuple, Dict
 from dataclasses import dataclass
-import pandas as pd
+
 import numpy as np
-from loguru import logger
+import pandas as pd
 
 
 @dataclass
@@ -26,7 +25,7 @@ class ChangePoint:
 class ChangepointResult:
     """Result from changepoint detection."""
 
-    changepoints: List[ChangePoint]
+    changepoints: list[ChangePoint]
     current_run_length: int
     run_length_probabilities: np.ndarray
     regime_change_probability: float
@@ -76,10 +75,10 @@ class BayesianChangepointDetector:
         self.threshold = threshold
 
         # State variables (reset on fit)
-        self.run_length_probs: Optional[np.ndarray] = None
-        self.posterior_means: Optional[np.ndarray] = None
-        self.posterior_vars: Optional[np.ndarray] = None
-        self.changepoints: List[ChangePoint] = []
+        self.run_length_probs: np.ndarray | None = None
+        self.posterior_means: np.ndarray | None = None
+        self.posterior_vars: np.ndarray | None = None
+        self.changepoints: list[ChangePoint] = []
 
     def detect(self, df: pd.DataFrame, feature: str = "returns") -> ChangepointResult:
         """
@@ -144,9 +143,7 @@ class BayesianChangepointDetector:
             changepoints=mapped_changepoints,
             current_run_length=current_run_length,
             run_length_probabilities=(
-                run_length_history[-1]
-                if len(run_length_history) > 0
-                else np.array([1.0])
+                run_length_history[-1] if len(run_length_history) > 0 else np.array([1.0])
             ),
             regime_change_probability=regime_change_prob,
             time_since_last_change=time_since_last,
@@ -155,7 +152,7 @@ class BayesianChangepointDetector:
     def _run_detection(
         self,
         data: np.ndarray,
-    ) -> Tuple[List[ChangePoint], List[np.ndarray]]:
+    ) -> tuple[list[ChangePoint], list[np.ndarray]]:
         """Run online Bayesian changepoint detection."""
         T = len(data)
 
@@ -258,9 +255,7 @@ class BayesianChangepointDetector:
         variances: np.ndarray,
     ) -> np.ndarray:
         """Compute Gaussian PDF values."""
-        return np.exp(-0.5 * (x - means) ** 2 / variances) / np.sqrt(
-            2 * np.pi * variances
-        )
+        return np.exp(-0.5 * (x - means) ** 2 / variances) / np.sqrt(2 * np.pi * variances)
 
     def _empty_result(self) -> ChangepointResult:
         """Return empty result."""

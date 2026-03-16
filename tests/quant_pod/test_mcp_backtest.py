@@ -15,9 +15,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import pytest
-
 from quant_pod.context import create_trading_context
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -34,6 +32,7 @@ def ctx():
 @pytest.fixture
 def _inject_ctx(ctx):
     import quant_pod.mcp.server as srv
+
     original = srv._ctx
     srv._ctx = ctx
     yield ctx
@@ -174,8 +173,10 @@ class TestRunBacktest:
         assert result["bars_tested"] == len(synthetic_data)
 
     @pytest.mark.asyncio
-    async def test_backtest_updates_strategy_record(self, _inject_ctx, registered_strategy, synthetic_data):
-        from quant_pod.mcp.server import run_backtest, get_strategy
+    async def test_backtest_updates_strategy_record(
+        self, _inject_ctx, registered_strategy, synthetic_data
+    ):
+        from quant_pod.mcp.server import get_strategy, run_backtest
 
         with patch("quant_pod.mcp.server._fetch_price_data", return_value=synthetic_data):
             await _fn(run_backtest)(strategy_id=registered_strategy, symbol="TEST")
@@ -189,9 +190,7 @@ class TestRunBacktest:
         from quant_pod.mcp.server import run_backtest
 
         with patch("quant_pod.mcp.server._fetch_price_data", return_value=None):
-            result = await _fn(run_backtest)(
-                strategy_id=registered_strategy, symbol="NODATA"
-            )
+            result = await _fn(run_backtest)(strategy_id=registered_strategy, symbol="NODATA")
         assert result["success"] is False
         assert "No price data" in result["error"]
 
@@ -268,7 +267,7 @@ class TestRunWalkforward:
 
     @pytest.mark.asyncio
     async def test_walkforward_updates_strategy_record(self, _inject_ctx, registered_strategy):
-        from quant_pod.mcp.server import run_walkforward, get_strategy
+        from quant_pod.mcp.server import get_strategy, run_walkforward
 
         big_data = _make_trending_ohlcv(n_bars=800)
 
@@ -285,7 +284,9 @@ class TestRunWalkforward:
         assert strat["strategy"]["walkforward_summary"] is not None
 
     @pytest.mark.asyncio
-    async def test_walkforward_fold_metrics_have_expected_keys(self, _inject_ctx, registered_strategy):
+    async def test_walkforward_fold_metrics_have_expected_keys(
+        self, _inject_ctx, registered_strategy
+    ):
         from quant_pod.mcp.server import run_walkforward
 
         big_data = _make_trending_ohlcv(n_bars=800)
@@ -300,6 +301,16 @@ class TestRunWalkforward:
             )
 
         fold = result["fold_results"][0]
-        expected_keys = {"fold", "train_bars", "test_bars", "is_sharpe", "oos_sharpe",
-                         "is_return_pct", "oos_return_pct", "is_trades", "oos_trades", "oos_max_dd"}
+        expected_keys = {
+            "fold",
+            "train_bars",
+            "test_bars",
+            "is_sharpe",
+            "oos_sharpe",
+            "is_return_pct",
+            "oos_return_pct",
+            "is_trades",
+            "oos_trades",
+            "oos_max_dd",
+        }
         assert expected_keys.issubset(fold.keys())

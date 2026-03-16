@@ -33,7 +33,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from loguru import logger
@@ -45,8 +44,8 @@ class PromotionCheckResult:
 
     name: str
     passed: bool
-    value: Optional[float]
-    threshold: Optional[float]
+    value: float | None
+    threshold: float | None
     message: str
 
 
@@ -56,15 +55,15 @@ class PromotionResult:
 
     agent_type: str
     passes: bool
-    checks: List[PromotionCheckResult] = field(default_factory=list)
+    checks: list[PromotionCheckResult] = field(default_factory=list)
     evaluated_at: datetime = field(default_factory=datetime.utcnow)
 
     @property
-    def passed_checks(self) -> List[PromotionCheckResult]:
+    def passed_checks(self) -> list[PromotionCheckResult]:
         return [c for c in self.checks if c.passed]
 
     @property
-    def failed_checks(self) -> List[PromotionCheckResult]:
+    def failed_checks(self) -> list[PromotionCheckResult]:
         return [c for c in self.checks if not c.passed]
 
     def summary(self) -> str:
@@ -117,9 +116,9 @@ class PromotionGate:
     def evaluate(
         self,
         agent_type: str,
-        shadow_result: "ShadowEvaluationResult",  # type: ignore[name-defined]
-        simulated_returns: Optional[List[float]] = None,
-        walk_forward_folds: Optional[List[Tuple[float, float]]] = None,
+        shadow_result: ShadowEvaluationResult,  # type: ignore[name-defined]  # noqa: F821
+        simulated_returns: list[float] | None = None,
+        walk_forward_folds: list[tuple[float, float]] | None = None,
     ) -> PromotionResult:
         """
         Run all promotion checks for the given agent type.
@@ -135,7 +134,7 @@ class PromotionGate:
         Returns:
             PromotionResult with pass/fail and per-check details.
         """
-        checks: List[PromotionCheckResult] = []
+        checks: list[PromotionCheckResult] = []
         min_obs = self.MIN_OBSERVATIONS.get(agent_type, 63)
 
         # ------------------------------------------------------------------
@@ -226,8 +225,8 @@ class PromotionGate:
 
     def _check_sharpe(
         self,
-        returns: List[float],
-        point_estimate: Optional[float],
+        returns: list[float],
+        point_estimate: float | None,
         agent_type: str,
     ) -> PromotionCheckResult:
         """Check Sharpe using Lo (2002) CI lower bound when possible."""
@@ -288,7 +287,7 @@ class PromotionGate:
             ),
         )
 
-    def _check_monte_carlo(self, returns: List[float]) -> PromotionCheckResult:
+    def _check_monte_carlo(self, returns: list[float]) -> PromotionCheckResult:
         """Monte Carlo permutation test: p-value must be <= MAX_PVALUE."""
         try:
             from quantcore.backtesting.stats import monte_carlo_permutation, sharpe_ratio_with_ci
@@ -319,7 +318,7 @@ class PromotionGate:
 
     def _check_walk_forward(
         self,
-        folds: List[Tuple[float, float]],
+        folds: list[tuple[float, float]],
     ) -> PromotionCheckResult:
         """
         Walk-forward: at least MIN_WF_POSITIVE_FOLDS must be positive OOS,

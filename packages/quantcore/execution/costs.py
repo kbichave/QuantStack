@@ -5,12 +5,11 @@ For realistic P&L estimation in backtests.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
-import pandas as pd
-import numpy as np
-from loguru import logger
 
-from quantcore.execution.slippage import SlippageModel, CompositeSlippageModel
+import numpy as np
+import pandas as pd
+
+from quantcore.execution.slippage import CompositeSlippageModel, SlippageModel
 
 
 @dataclass
@@ -38,7 +37,7 @@ class TransactionCostModel:
         self,
         base_spread_bps: float = 2.0,
         base_commission_bps: float = 1.0,
-        slippage_model: Optional[SlippageModel] = None,
+        slippage_model: SlippageModel | None = None,
     ):
         """
         Initialize transaction cost model.
@@ -58,7 +57,7 @@ class TransactionCostModel:
         price: float,
         volume: float,
         volatility: float,
-        spread_bps: Optional[float] = None,
+        spread_bps: float | None = None,
     ) -> TransactionCosts:
         """
         Estimate total transaction costs.
@@ -76,9 +75,7 @@ class TransactionCostModel:
         spread = spread_bps or self.base_spread_bps
 
         # Get slippage estimate
-        slippage_est = self.slippage_model.estimate(
-            trade_size, price, volume, volatility, spread
-        )
+        slippage_est = self.slippage_model.estimate(trade_size, price, volume, volatility, spread)
 
         one_way = spread + slippage_est.market_impact_bps + self.base_commission_bps
         round_trip = one_way * 2
@@ -223,7 +220,7 @@ class CostAwareLabeler:
 
     def __init__(
         self,
-        cost_model: Optional[TransactionCostModel] = None,
+        cost_model: TransactionCostModel | None = None,
         tp_atr_multiple: float = 1.5,
         sl_atr_multiple: float = 1.0,
         max_hold_bars: int = 6,
@@ -250,7 +247,7 @@ class CostAwareLabeler:
         volume: float,
         volatility: float,
         trade_size: float = 100,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """
         Compute cost-adjusted TP and SL levels.
 
@@ -266,9 +263,7 @@ class CostAwareLabeler:
             Tuple of (adjusted_tp, adjusted_sl)
         """
         # Get cost estimate
-        costs = self.cost_model.estimate_costs(
-            trade_size, entry_price, volume, volatility
-        )
+        costs = self.cost_model.estimate_costs(trade_size, entry_price, volume, volatility)
 
         # Round trip cost adjustment
         cost_adjustment = entry_price * (costs.total_round_trip_bps / 10000)

@@ -4,12 +4,11 @@
 """Tests for quantcore.config.timeframes module."""
 
 import pytest
-
 from quantcore.config.timeframes import (
-    Timeframe,
-    TimeframeParams,
     TIMEFRAME_HIERARCHY,
     TIMEFRAME_PARAMS,
+    Timeframe,
+    TimeframeParams,
     get_higher_timeframes,
     get_lower_timeframes,
     get_next_higher_timeframe,
@@ -112,7 +111,7 @@ class TestTimeframeParams:
 
     def test_all_params_have_resample_rule(self):
         """Test all params have valid resample rules."""
-        for tf, params in TIMEFRAME_PARAMS.items():
+        for _tf, params in TIMEFRAME_PARAMS.items():
             assert params.resample_rule is not None
             assert len(params.resample_rule) > 0
 
@@ -147,17 +146,41 @@ class TestGetLowerTimeframes:
     def test_from_weekly(self):
         """Test getting lower timeframes from W1."""
         lower = get_lower_timeframes(Timeframe.W1)
-        assert lower == [Timeframe.D1, Timeframe.H4, Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1, Timeframe.S5]
+        assert lower == [
+            Timeframe.D1,
+            Timeframe.H4,
+            Timeframe.H1,
+            Timeframe.M30,
+            Timeframe.M15,
+            Timeframe.M5,
+            Timeframe.M1,
+            Timeframe.S5,
+        ]
 
     def test_from_daily(self):
         """Test getting lower timeframes from D1."""
         lower = get_lower_timeframes(Timeframe.D1)
-        assert lower == [Timeframe.H4, Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1, Timeframe.S5]
+        assert lower == [
+            Timeframe.H4,
+            Timeframe.H1,
+            Timeframe.M30,
+            Timeframe.M15,
+            Timeframe.M5,
+            Timeframe.M1,
+            Timeframe.S5,
+        ]
 
     def test_from_four_hour(self):
         """Test getting lower timeframes from H4."""
         lower = get_lower_timeframes(Timeframe.H4)
-        assert lower == [Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1, Timeframe.S5]
+        assert lower == [
+            Timeframe.H1,
+            Timeframe.M30,
+            Timeframe.M15,
+            Timeframe.M5,
+            Timeframe.M1,
+            Timeframe.S5,
+        ]
 
     def test_from_hourly(self):
         """Test getting lower timeframes from H1."""

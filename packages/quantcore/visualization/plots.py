@@ -4,18 +4,16 @@ Plotting functions for WTI trading system.
 
 import io
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import matplotlib.patches as mpatches
-from matplotlib.patches import Rectangle
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from loguru import logger
+from matplotlib.patches import Rectangle
 
 from quantcore.backtesting.engine import run_backtest_with_params
 
@@ -31,18 +29,16 @@ except ImportError:
 def plot_strategy_signals(
     data: pd.DataFrame,
     strategy_name: str,
-    trades: List[Dict],
-    equity_curve: List[float],
+    trades: list[dict],
+    equity_curve: list[float],
     output_dir: Path,
     report_timestamp: str,
-) -> Optional[str]:
+) -> str | None:
     """
     Plot strategy signals on price chart.
     """
     try:
-        fig, axes = plt.subplots(
-            3, 1, figsize=(14, 10), gridspec_kw={"height_ratios": [2, 1, 1]}
-        )
+        fig, axes = plt.subplots(3, 1, figsize=(14, 10), gridspec_kw={"height_ratios": [2, 1, 1]})
         fig.suptitle(
             f"{strategy_name} - Trading Signals (Test Period)",
             fontsize=14,
@@ -52,13 +48,9 @@ def plot_strategy_signals(
         plt.style.use("seaborn-v0_8-darkgrid")
 
         dates = data.index if hasattr(data.index, "date") else range(len(data))
-        spread = (
-            data["spread"].values if "spread" in data.columns else data["wti"].values
-        )
+        spread = data["spread"].values if "spread" in data.columns else data["wti"].values
         zscore = (
-            data["spread_zscore"].values
-            if "spread_zscore" in data.columns
-            else np.zeros(len(data))
+            data["spread_zscore"].values if "spread_zscore" in data.columns else np.zeros(len(data))
         )
 
         # Panel 1: Price/Spread with Signals
@@ -156,9 +148,7 @@ def plot_strategy_signals(
                 else range(len(equity_curve))
             )
             ax3.plot(eq_dates, equity_curve, "purple", linewidth=2, label="Equity")
-            ax3.fill_between(
-                eq_dates, equity_curve[0], equity_curve, alpha=0.3, color="purple"
-            )
+            ax3.fill_between(eq_dates, equity_curve[0], equity_curve, alpha=0.3, color="purple")
         ax3.set_ylabel("Equity ($)", fontsize=10)
         ax3.set_xlabel("Date", fontsize=10)
         ax3.legend(loc="upper left")
@@ -174,10 +164,7 @@ def plot_strategy_signals(
         plt.tight_layout()
 
         safe_name = (
-            strategy_name.replace(" ", "_")
-            .replace("/", "_")
-            .replace("(", "")
-            .replace(")", "")
+            strategy_name.replace(" ", "_").replace("/", "_").replace("(", "").replace(")", "")
         )
         filename = output_dir / f"strategy_{safe_name}_{report_timestamp}.png"
         plt.savefig(filename, dpi=150, bbox_inches="tight", facecolor="white")
@@ -240,7 +227,7 @@ def _draw_candlestick(
 
 def generate_candlestick_gif(
     data: pd.DataFrame,
-    trades: List[Dict],
+    trades: list[dict],
     output_dir: Path,
     report_timestamp: str,
     strategy_name: str = "Spread",
@@ -248,7 +235,7 @@ def generate_candlestick_gif(
     initial_capital: float = 100000,
     use_full_data: bool = True,  # Use full test period
     show_zscore: bool = False,  # Hide Z-score panel by default
-) -> Optional[str]:
+) -> str | None:
     """
     Generate TradingView-style animated GIF showing backtest with proper candlesticks,
     trade markers, P&L labels, and running equity curve.
@@ -280,9 +267,7 @@ def generate_candlestick_gif(
             step = 2
 
         # Check if we have OHLC data for proper candlesticks
-        has_ohlc = all(
-            col in plot_data.columns for col in ["open", "high", "low", "close"]
-        )
+        has_ohlc = all(col in plot_data.columns for col in ["open", "high", "low", "close"])
 
         # Extract price data
         if "spread" in plot_data.columns:
@@ -353,9 +338,7 @@ def generate_candlestick_gif(
             # Create figure with dark theme - layout depends on whether we show Z-score
             if show_zscore:
                 fig = plt.figure(figsize=(14, 9), facecolor=bg_color)
-                gs = fig.add_gridspec(
-                    4, 1, height_ratios=[3.5, 1, 1.2, 0.6], hspace=0.05
-                )
+                gs = fig.add_gridspec(4, 1, height_ratios=[3.5, 1, 1.2, 0.6], hspace=0.05)
                 ax_price = fig.add_subplot(gs[0])
                 ax_zscore = fig.add_subplot(gs[1])
                 ax_equity = fig.add_subplot(gs[2])
@@ -516,31 +499,25 @@ def generate_candlestick_gif(
                         fontsize=10,
                         color=pnl_color,
                         fontweight="bold",
-                        bbox=dict(
-                            boxstyle="round,pad=0.3",
-                            facecolor=bg_color,
-                            edgecolor=pnl_color,
-                            alpha=0.9,
-                        ),
-                        arrowprops=dict(arrowstyle="-", color=pnl_color, alpha=0.5),
+                        bbox={
+                            "boxstyle": "round,pad=0.3",
+                            "facecolor": bg_color,
+                            "edgecolor": pnl_color,
+                            "alpha": 0.9,
+                        },
+                        arrowprops={"arrowstyle": "-", "color": pnl_color, "alpha": 0.5},
                     )
 
             # Price axis formatting
             y_range = max(window_highs) - min(window_lows)
-            ax_price.set_ylabel(
-                price_label, fontsize=10, color=text_color, fontweight="bold"
-            )
+            ax_price.set_ylabel(price_label, fontsize=10, color=text_color, fontweight="bold")
             ax_price.set_xlim(-2, window_size + 5)
-            ax_price.set_ylim(
-                min(window_lows) - y_range * 0.2, max(window_highs) + y_range * 0.2
-            )
+            ax_price.set_ylim(min(window_lows) - y_range * 0.2, max(window_highs) + y_range * 0.2)
             ax_price.set_xticklabels([])
 
             # Current price indicator on right
             current_price = window_closes[-1]
-            price_color = (
-                green_color if current_price >= window_opens[-1] else red_color
-            )
+            price_color = green_color if current_price >= window_opens[-1] else red_color
             ax_price.axhline(
                 y=current_price,
                 color=price_color,
@@ -557,12 +534,12 @@ def generate_candlestick_gif(
                 fontsize=10,
                 color=price_color,
                 fontweight="bold",
-                bbox=dict(
-                    boxstyle="round,pad=0.2",
-                    facecolor=price_color,
-                    edgecolor="none",
-                    alpha=0.2,
-                ),
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "facecolor": price_color,
+                    "edgecolor": "none",
+                    "alpha": 0.2,
+                },
             )
 
             # Title with date and strategy
@@ -582,9 +559,7 @@ def generate_candlestick_gif(
             # === Z-SCORE PANEL (optional) ===
             current_z = window_zscore[-1]  # Always compute for stats
             z_color = (
-                green_color
-                if current_z < -2
-                else (red_color if current_z > 2 else text_color)
+                green_color if current_z < -2 else (red_color if current_z > 2 else text_color)
             )
 
             if show_zscore and ax_zscore is not None:
@@ -629,17 +604,13 @@ def generate_candlestick_gif(
                     linewidth=2,
                     label="Buy Zone",
                 )
-                ax_zscore.axhline(
-                    y=0, color=text_dim, linestyle="-", alpha=0.5, linewidth=1
-                )
+                ax_zscore.axhline(y=0, color=text_dim, linestyle="-", alpha=0.5, linewidth=1)
 
                 # Zone shading
                 ax_zscore.axhspan(2, 5, color=red_color, alpha=0.1)
                 ax_zscore.axhspan(-5, -2, color=green_color, alpha=0.1)
 
-                ax_zscore.set_ylabel(
-                    "Z-Score", fontsize=10, color=text_color, fontweight="bold"
-                )
+                ax_zscore.set_ylabel("Z-Score", fontsize=10, color=text_color, fontweight="bold")
                 ax_zscore.set_xlim(-2, window_size + 5)
                 ax_zscore.set_ylim(-4.5, 4.5)
                 ax_zscore.set_xticklabels([])
@@ -654,12 +625,12 @@ def generate_candlestick_gif(
                     fontsize=10,
                     color=z_color,
                     fontweight="bold",
-                    bbox=dict(
-                        boxstyle="round,pad=0.2",
-                        facecolor=z_color,
-                        edgecolor="none",
-                        alpha=0.2,
-                    ),
+                    bbox={
+                        "boxstyle": "round,pad=0.2",
+                        "facecolor": z_color,
+                        "edgecolor": "none",
+                        "alpha": 0.2,
+                    },
                 )
 
                 # Zone labels
@@ -729,28 +700,22 @@ def generate_candlestick_gif(
             ax_equity.text(
                 -1,
                 initial_capital,
-                f"${initial_capital/1000:.0f}K",
+                f"${initial_capital / 1000:.0f}K",
                 fontsize=8,
                 color=text_dim,
                 va="center",
                 ha="right",
             )
 
-            ax_equity.set_ylabel(
-                "Equity ($)", fontsize=10, color=text_color, fontweight="bold"
-            )
+            ax_equity.set_ylabel("Equity ($)", fontsize=10, color=text_color, fontweight="bold")
             ax_equity.set_xlim(-2, window_size + 5)
 
             # Add date labels on X-axis
             if hasattr(window_dates[0], "strftime"):
                 # Show ~5 evenly spaced date labels
                 n_labels = 5
-                label_indices = np.linspace(
-                    0, len(window_dates) - 1, n_labels, dtype=int
-                )
-                date_labels = [
-                    window_dates[idx].strftime("%b %y") for idx in label_indices
-                ]
+                label_indices = np.linspace(0, len(window_dates) - 1, n_labels, dtype=int)
+                date_labels = [window_dates[idx].strftime("%b %y") for idx in label_indices]
                 ax_equity.set_xticks(label_indices)
                 ax_equity.set_xticklabels(date_labels, fontsize=8, color=text_dim)
             else:
@@ -767,12 +732,12 @@ def generate_candlestick_gif(
                 fontsize=10,
                 color=eq_color,
                 fontweight="bold",
-                bbox=dict(
-                    boxstyle="round,pad=0.2",
-                    facecolor=eq_color,
-                    edgecolor="none",
-                    alpha=0.2,
-                ),
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "facecolor": eq_color,
+                    "edgecolor": "none",
+                    "alpha": 0.2,
+                },
             )
 
             # === STATS PANEL ===
@@ -784,9 +749,7 @@ def generate_candlestick_gif(
             # Count trades up to current point
             trades_so_far = sum(1 for idx in trade_exits if idx < end_idx)
             wins_so_far = sum(
-                1
-                for idx in trade_exits
-                if idx < end_idx and trade_exits[idx].get("pnl", 0) > 0
+                1 for idx in trade_exits if idx < end_idx and trade_exits[idx].get("pnl", 0) > 0
             )
             win_rate = (wins_so_far / trades_so_far * 100) if trades_so_far > 0 else 0
 
@@ -803,7 +766,7 @@ def generate_candlestick_gif(
             ]
 
             x_positions = np.linspace(0.1, 0.9, len(stats_items))
-            for (text, color), x_pos in zip(stats_items, x_positions):
+            for (text, color), x_pos in zip(stats_items, x_positions, strict=False):
                 ax_stats.text(
                     x_pos,
                     0.5,
@@ -817,14 +780,10 @@ def generate_candlestick_gif(
                 )
 
             # Adjust spacing
-            plt.subplots_adjust(
-                left=0.07, right=0.93, top=0.94, bottom=0.04, hspace=0.12
-            )
+            plt.subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.04, hspace=0.12)
 
             buf = io.BytesIO()
-            plt.savefig(
-                buf, format="png", dpi=100, facecolor=bg_color, edgecolor="none"
-            )
+            plt.savefig(buf, format="png", dpi=100, facecolor=bg_color, edgecolor="none")
             buf.seek(0)
             frames.append(Image.open(buf).copy())
             buf.close()
@@ -859,7 +818,7 @@ def plot_all_strategies_comparison(
     strategy_results: pd.DataFrame,
     output_dir: Path,
     report_timestamp: str,
-) -> Optional[str]:
+) -> str | None:
     """
     Plot comparison bar chart of all strategies.
     """
@@ -905,12 +864,9 @@ def plot_all_strategies_comparison(
         ax4.set_title("Win Rate")
 
         legend_elements = [
-            plt.Rectangle((0, 0), 1, 1, facecolor=c, label=t)
-            for t, c in type_colors.items()
+            plt.Rectangle((0, 0), 1, 1, facecolor=c, label=t) for t, c in type_colors.items()
         ]
-        fig.legend(
-            handles=legend_elements, loc="upper right", bbox_to_anchor=(0.99, 0.99)
-        )
+        fig.legend(handles=legend_elements, loc="upper right", bbox_to_anchor=(0.99, 0.99))
 
         plt.tight_layout()
 
@@ -931,9 +887,9 @@ def generate_strategy_plots(
     strategy_results: pd.DataFrame,
     output_dir: Path,
     report_timestamp: str,
-    regime_models: Dict[str, object] = None,
-    rl_agents: Dict[str, object] = None,
-) -> List[str]:
+    regime_models: dict[str, object] = None,
+    rl_agents: dict[str, object] = None,
+) -> list[str]:
     """
     Generate all strategy plots and GIF animations for winning strategies.
     Creates one GIF per winning strategy category: Rule-Based, ML-Based, RL-Based.
@@ -941,7 +897,6 @@ def generate_strategy_plots(
     """
     from quantcore.backtesting.strategies import (
         backtest_changepoint_strategy,
-        backtest_rl_spread_strategy,
     )
 
     generated_files = []
@@ -962,9 +917,7 @@ def generate_strategy_plots(
 
     # Strategy Comparison Chart
     if strategy_results is not None and not strategy_results.empty:
-        comp_plot = plot_all_strategies_comparison(
-            strategy_results, output_dir, report_timestamp
-        )
+        comp_plot = plot_all_strategies_comparison(strategy_results, output_dir, report_timestamp)
         if comp_plot:
             generated_files.append(comp_plot)
 
@@ -1009,9 +962,7 @@ def generate_strategy_plots(
     if regime_models and "changepoint" in regime_models:
         logger.info("Generating plots for ML-Based winner: Changepoint Strategy...")
         try:
-            cp_result = backtest_changepoint_strategy(
-                test_data, regime_models["changepoint"], 100000
-            )
+            backtest_changepoint_strategy(test_data, regime_models["changepoint"], 100000)
             # Run again to get trades list (need to modify or re-run with tracking)
             # For now, create trades from the strategy manually
             capital = 100000
@@ -1034,12 +985,10 @@ def generate_strategy_plots(
                 try:
                     cp_result_local = regime_models["changepoint"].detect(recent_data)
                     high_change_prob = cp_result_local.change_probability > 0.5
-                except:
+                except Exception:
                     high_change_prob = False
 
-                effective_size = (
-                    POSITION_SIZE // 2 if high_change_prob else POSITION_SIZE
-                )
+                effective_size = POSITION_SIZE // 2 if high_change_prob else POSITION_SIZE
 
                 if position == 0:
                     if zscore < -2:
@@ -1056,9 +1005,7 @@ def generate_strategy_plots(
                         capital -= SPREAD_COST * entry_size
                 elif position == 1:
                     if zscore > 0 or high_change_prob:
-                        pnl = (
-                            spread - entry_price
-                        ) * entry_size - SPREAD_COST * entry_size
+                        pnl = (spread - entry_price) * entry_size - SPREAD_COST * entry_size
                         capital += pnl
                         trades_ml.append(
                             {
@@ -1071,9 +1018,7 @@ def generate_strategy_plots(
                         position = 0
                 elif position == -1:
                     if zscore < 0 or high_change_prob:
-                        pnl = (
-                            entry_price - spread
-                        ) * entry_size - SPREAD_COST * entry_size
+                        pnl = (entry_price - spread) * entry_size - SPREAD_COST * entry_size
                         capital += pnl
                         trades_ml.append(
                             {
@@ -1086,9 +1031,7 @@ def generate_strategy_plots(
                         position = 0
 
                 mtm = capital + (
-                    position * (spread - entry_price) * entry_size
-                    if position != 0
-                    else 0
+                    position * (spread - entry_price) * entry_size if position != 0 else 0
                 )
                 equity_ml.append(mtm)
 
@@ -1144,8 +1087,8 @@ def generate_strategy_plots(
             spread_agent = rl_agents["spread"]
 
             # Use the agent's thresholds
-            zscore_entry = getattr(spread_agent, "zscore_entry_threshold", 1.5)
-            zscore_exit = getattr(spread_agent, "zscore_exit_threshold", 0.5)
+            getattr(spread_agent, "zscore_entry_threshold", 1.5)
+            getattr(spread_agent, "zscore_exit_threshold", 0.5)
 
             for i in range(60, len(test_data)):
                 row = test_data.iloc[i]
@@ -1154,15 +1097,11 @@ def generate_strategy_plots(
 
                 # Calculate momentum
                 if i >= 5:
-                    mom_5 = (
-                        test_data.iloc[i]["spread"] - test_data.iloc[i - 5]["spread"]
-                    )
+                    mom_5 = test_data.iloc[i]["spread"] - test_data.iloc[i - 5]["spread"]
                 else:
                     mom_5 = 0
                 if i >= 20:
-                    mom_20 = (
-                        test_data.iloc[i]["spread"] - test_data.iloc[i - 20]["spread"]
-                    )
+                    mom_20 = test_data.iloc[i]["spread"] - test_data.iloc[i - 20]["spread"]
                 else:
                     mom_20 = 0
 
@@ -1209,13 +1148,9 @@ def generate_strategy_plots(
                     capital -= SPREAD_COST * POSITION_SIZE
                 elif action == 0 and position != 0:  # Close
                     if position == 1:
-                        pnl = (
-                            spread - entry_price
-                        ) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
+                        pnl = (spread - entry_price) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
                     else:
-                        pnl = (
-                            entry_price - spread
-                        ) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
+                        pnl = (entry_price - spread) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
                     capital += pnl
                     trades_rl.append(
                         {
@@ -1289,7 +1224,7 @@ def generate_strategy_plots(
             SPREAD_COST = 0.05
 
             sizing_agent = rl_agents.get("sizing")
-            exec_agent = rl_agents.get("execution")
+            rl_agents.get("execution")
 
             for i in range(60, len(test_data)):
                 row = test_data.iloc[i]
@@ -1337,10 +1272,8 @@ def generate_strategy_plots(
                             action_val = action_obj.value
                             if isinstance(action_val, np.ndarray):
                                 action_val = float(action_val[0])
-                            size_scale = (
-                                0.5 + float(action_val) * 0.5
-                            )  # Scale 0.5x to 1.5x
-                    except Exception as sizing_err:
+                            size_scale = 0.5 + float(action_val) * 0.5  # Scale 0.5x to 1.5x
+                    except Exception:
                         size_scale = 1.0
 
                 current_position_size = int(BASE_POSITION_SIZE * size_scale)
@@ -1379,9 +1312,7 @@ def generate_strategy_plots(
                     entry_position_size = 0
 
                 mtm = capital + (
-                    position * (spread - entry_price) * entry_position_size
-                    if position != 0
-                    else 0
+                    position * (spread - entry_price) * entry_position_size if position != 0 else 0
                 )
                 equity_enhanced.append(mtm)
 

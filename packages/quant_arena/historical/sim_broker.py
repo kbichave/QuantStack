@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -46,7 +46,7 @@ class Position:
     quantity: int
     avg_entry_price: float
     current_price: float = 0.0
-    opened_at: Optional[date] = None
+    opened_at: date | None = None
 
     @property
     def market_value(self) -> float:
@@ -80,13 +80,13 @@ class Order:
     side: OrderSide
     quantity: int
     status: OrderStatus = OrderStatus.PENDING
-    limit_price: Optional[float] = None
-    fill_price: Optional[float] = None
+    limit_price: float | None = None
+    fill_price: float | None = None
     filled_quantity: int = 0
     commission: float = 0.0
-    created_at: Optional[date] = None
-    filled_at: Optional[date] = None
-    rejection_reason: Optional[str] = None
+    created_at: date | None = None
+    filled_at: date | None = None
+    rejection_reason: str | None = None
 
 
 @dataclass
@@ -101,7 +101,7 @@ class Trade:
     commission: float
     date: date
     order_id: str
-    pnl: Optional[float] = None  # Realized P&L for closes
+    pnl: float | None = None  # Realized P&L for closes
 
 
 @dataclass
@@ -115,8 +115,8 @@ class PortfolioState:
     unrealized_pnl: float
     realized_pnl: float
     max_drawdown: float
-    positions: Dict[str, Position] = field(default_factory=dict)
-    exposures: Dict[str, float] = field(default_factory=dict)  # symbol -> % of equity
+    positions: dict[str, Position] = field(default_factory=dict)
+    exposures: dict[str, float] = field(default_factory=dict)  # symbol -> % of equity
 
 
 class SimBroker:
@@ -180,35 +180,35 @@ class SimBroker:
 
         # Portfolio state
         self.cash = initial_equity
-        self._positions: Dict[str, Position] = {}
-        self._prices: Dict[str, float] = {}
+        self._positions: dict[str, Position] = {}
+        self._prices: dict[str, float] = {}
 
         # Performance tracking
         self.high_water_mark = initial_equity
         self.realized_pnl = 0.0
-        self._current_date: Optional[date] = None
+        self._current_date: date | None = None
 
         # Daily loss limit tracking — reset each new trading day
         self._day_open_equity: float = initial_equity
-        self._last_reset_date: Optional[date] = None
+        self._last_reset_date: date | None = None
 
         # Volume and volatility per symbol — populated by update_prices() when
         # a full market snapshot is provided. Used for Almgren-Chriss slippage.
-        self._volumes: Dict[str, float] = {}        # daily volume per symbol
-        self._volatilities: Dict[str, float] = {}   # annualised vol per symbol
+        self._volumes: dict[str, float] = {}  # daily volume per symbol
+        self._volatilities: dict[str, float] = {}  # annualised vol per symbol
 
         # History
-        self._orders: List[Order] = []
-        self._trades: List[Trade] = []
-        self._daily_snapshots: List[PortfolioState] = []
+        self._orders: list[Order] = []
+        self._trades: list[Trade] = []
+        self._daily_snapshots: list[PortfolioState] = []
 
         # Audit trail — every order attempt recorded with full lifecycle details.
         # This is separate from _orders so it is never filtered/modified.
-        self._order_audit: List[Dict[str, Any]] = []
+        self._order_audit: list[dict[str, Any]] = []
 
         # Trading state
         self._trading_halted = False
-        self._halt_reason: Optional[str] = None
+        self._halt_reason: str | None = None
 
         logger.info(
             f"SimBroker initialized: equity=${initial_equity:,.0f}, "
@@ -218,11 +218,11 @@ class SimBroker:
 
     def update_prices(
         self,
-        prices: Dict[str, float],
+        prices: dict[str, float],
         current_date: date,
         *,
-        volumes: Optional[Dict[str, float]] = None,
-        volatilities: Optional[Dict[str, float]] = None,
+        volumes: dict[str, float] | None = None,
+        volatilities: dict[str, float] | None = None,
     ) -> None:
         """
         Update current prices (and optionally volume/volatility) for all symbols.
@@ -286,7 +286,7 @@ class SimBroker:
         symbol: str,
         side: OrderSide,
         quantity: int,
-        limit_price: Optional[float] = None,
+        limit_price: float | None = None,
     ) -> Order:
         """
         Submit an order for execution.
@@ -326,7 +326,7 @@ class SimBroker:
 
         return order
 
-    def _validate_order(self, order: Order) -> Optional[str]:
+    def _validate_order(self, order: Order) -> str | None:
         """Validate order against risk limits. Returns rejection reason or None."""
         # Check trading halt (drawdown halt takes precedence)
         if self._trading_halted:
@@ -436,9 +436,7 @@ class SimBroker:
             self._add_to_position(order.symbol, order.quantity, fill_price)
         else:
             self.cash += trade_value - commission
-            realized_pnl = self._reduce_position(
-                order.symbol, order.quantity, fill_price
-            )
+            realized_pnl = self._reduce_position(order.symbol, order.quantity, fill_price)
             self.realized_pnl += realized_pnl
 
         # Record trade
@@ -490,7 +488,7 @@ class SimBroker:
 
         return realized_pnl
 
-    def close_position(self, symbol: str) -> Optional[Order]:
+    def close_position(self, symbol: str) -> Order | None:
         """Close entire position in a symbol."""
         if symbol not in self._positions:
             return None
@@ -498,7 +496,7 @@ class SimBroker:
         position = self._positions[symbol]
         return self.submit_order(symbol, OrderSide.SELL, position.quantity)
 
-    def close_all_positions(self) -> List[Order]:
+    def close_all_positions(self) -> list[Order]:
         """Close all open positions."""
         orders = []
         for symbol in list(self._positions.keys()):
@@ -507,17 +505,15 @@ class SimBroker:
                 orders.append(order)
         return orders
 
-    def get_position(self, symbol: str) -> Optional[Position]:
+    def get_position(self, symbol: str) -> Position | None:
         """Get position for a symbol."""
         return self._positions.get(symbol)
 
-    def get_positions(self) -> Dict[str, Position]:
+    def get_positions(self) -> dict[str, Position]:
         """Get all open positions."""
         return self._positions.copy()
 
-    def get_portfolio_state(
-        self, current_date: Optional[date] = None
-    ) -> PortfolioState:
+    def get_portfolio_state(self, current_date: date | None = None) -> PortfolioState:
         """
         Get current portfolio state snapshot.
 
@@ -557,15 +553,15 @@ class SimBroker:
         self._daily_snapshots.append(state)
         return state
 
-    def get_trade_history(self) -> List[Trade]:
+    def get_trade_history(self) -> list[Trade]:
         """Get complete trade history."""
         return self._trades.copy()
 
-    def get_daily_snapshots(self) -> List[PortfolioState]:
+    def get_daily_snapshots(self) -> list[PortfolioState]:
         """Get all daily snapshots."""
         return self._daily_snapshots.copy()
 
-    def get_equity_curve(self) -> List[Dict[str, Any]]:
+    def get_equity_curve(self) -> list[dict[str, Any]]:
         """Get equity curve data for charting."""
         return [
             {
@@ -588,7 +584,7 @@ class SimBroker:
         """Check if trading is halted."""
         return self._trading_halted
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get summary statistics."""
         equity = self.get_equity()
         total_return = (equity - self.initial_equity) / self.initial_equity
@@ -597,11 +593,7 @@ class SimBroker:
         winning_trades = [t for t in self._trades if t.pnl and t.pnl > 0]
         losing_trades = [t for t in self._trades if t.pnl and t.pnl < 0]
         total_closing_trades = len(winning_trades) + len(losing_trades)
-        win_rate = (
-            len(winning_trades) / total_closing_trades
-            if total_closing_trades > 0
-            else 0
-        )
+        win_rate = len(winning_trades) / total_closing_trades if total_closing_trades > 0 else 0
 
         return {
             "initial_equity": self.initial_equity,
@@ -614,9 +606,9 @@ class SimBroker:
             "is_halted": self._trading_halted,
         }
 
-    def _record_audit(self, order: Order, mid_price: Optional[float]) -> None:
+    def _record_audit(self, order: Order, mid_price: float | None) -> None:
         """Append a complete order lifecycle record to the audit trail."""
-        slippage_bps_actual: Optional[float] = None
+        slippage_bps_actual: float | None = None
         if order.fill_price is not None and mid_price and mid_price > 0:
             diff = order.fill_price - mid_price
             # For sells, slippage is negative (worse price)
@@ -639,11 +631,11 @@ class SimBroker:
             }
         )
 
-    def get_order_audit(self) -> List[Dict[str, Any]]:
+    def get_order_audit(self) -> list[dict[str, Any]]:
         """Return the complete order audit trail (all attempts, fills, and rejections)."""
         return self._order_audit.copy()
 
-    def get_trade_analytics(self) -> Dict[str, Any]:
+    def get_trade_analytics(self) -> dict[str, Any]:
         """
         Compute institutional-grade trade analytics beyond the basic win rate.
 
@@ -692,8 +684,8 @@ class SimBroker:
         # Hold duration — requires both open and close trade records.
         # We approximate using entry date from Position.opened_at if available;
         # otherwise we use consecutive same-symbol trade pairs.
-        durations: List[int] = []
-        open_dates: Dict[str, date] = {}
+        durations: list[int] = []
+        open_dates: dict[str, date] = {}
         for t in self._trades:
             if t.side == "buy":
                 open_dates[t.symbol] = t.date
@@ -707,14 +699,14 @@ class SimBroker:
         max_hold_days = max(durations, default=0)
 
         # Per-symbol breakdown
-        by_symbol: Dict[str, Dict] = {}
+        by_symbol: dict[str, dict] = {}
         for t in closed_trades:
             entry = by_symbol.setdefault(t.symbol, {"trades": 0, "pnl": 0.0, "wins": 0})
             entry["trades"] += 1
             entry["pnl"] += t.pnl
             if t.pnl > 0:
                 entry["wins"] += 1
-        for sym, entry in by_symbol.items():
+        for _sym, entry in by_symbol.items():
             n = entry["trades"]
             entry["win_rate"] = entry["wins"] / n if n else 0.0
 

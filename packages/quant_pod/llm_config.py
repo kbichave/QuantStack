@@ -85,13 +85,13 @@ _SYNTHESIS_AGENTS = {"trading_assistant", "super_trader"}
 
 # Tier → env var name for per-tier override
 _TIER_ENV_OVERRIDE = {
-    "ic":        "LLM_MODEL_IC",
-    "pod":       "LLM_MODEL_POD",
+    "ic": "LLM_MODEL_IC",
+    "pod": "LLM_MODEL_POD",
     "assistant": "LLM_MODEL_ASSISTANT",
-    "decoder":   "LLM_MODEL_DECODER",
+    "decoder": "LLM_MODEL_DECODER",
     # Workshop is not a CrewAI agent tier — it is resolved via get_llm_for_role("workshop")
     # by the /workshop skill for deep strategy research (always routes to cloud model).
-    "workshop":  "LLM_MODEL_WORKSHOP",
+    "workshop": "LLM_MODEL_WORKSHOP",
 }
 
 
@@ -210,17 +210,17 @@ def _url_reachable(url: str, timeout: float = 2.0) -> bool:
 
 
 _AVAILABILITY_CHECKS = {
-    "bedrock":       _check_bedrock,
-    "anthropic":     _check_anthropic,
-    "openai":        _check_openai,
-    "vertex_ai":     _check_vertex_ai,
-    "gemini":        _check_gemini,
-    "azure":         _check_azure,
-    "groq":          _check_groq,
-    "together_ai":   _check_together_ai,
-    "fireworks_ai":  _check_fireworks_ai,
-    "mistral":       _check_mistral,
-    "ollama":        _check_ollama,
+    "bedrock": _check_bedrock,
+    "anthropic": _check_anthropic,
+    "openai": _check_openai,
+    "vertex_ai": _check_vertex_ai,
+    "gemini": _check_gemini,
+    "azure": _check_azure,
+    "groq": _check_groq,
+    "together_ai": _check_together_ai,
+    "fireworks_ai": _check_fireworks_ai,
+    "mistral": _check_mistral,
+    "ollama": _check_ollama,
     "custom_openai": _check_custom_openai,
 }
 
@@ -273,8 +273,8 @@ def _model_gemini(_tier: str) -> str:
 def _model_azure(_tier: str) -> str:
     deployment = os.getenv("AZURE_DEPLOYMENT_NAME", "gpt-4o")
     # LiteLLM reads AZURE_API_KEY, AZURE_API_BASE, AZURE_API_VERSION from env
-    os.environ.setdefault("AZURE_API_KEY",     os.getenv("AZURE_API_KEY", ""))
-    os.environ.setdefault("AZURE_API_BASE",    os.getenv("AZURE_API_BASE", ""))
+    os.environ.setdefault("AZURE_API_KEY", os.getenv("AZURE_API_KEY", ""))
+    os.environ.setdefault("AZURE_API_BASE", os.getenv("AZURE_API_BASE", ""))
     os.environ.setdefault("AZURE_API_VERSION", os.getenv("AZURE_API_VERSION", "2024-02-15-preview"))
     return f"azure/{deployment}"
 
@@ -321,17 +321,17 @@ def _model_custom_openai(_tier: str) -> str:
 
 
 _MODEL_BUILDERS = {
-    "bedrock":       _model_bedrock,
-    "anthropic":     _model_anthropic,
-    "openai":        _model_openai,
-    "vertex_ai":     _model_vertex_ai,
-    "gemini":        _model_gemini,
-    "azure":         _model_azure,
-    "groq":          _model_groq,
-    "together_ai":   _model_together_ai,
-    "fireworks_ai":  _model_fireworks_ai,
-    "mistral":       _model_mistral,
-    "ollama":        _model_ollama,
+    "bedrock": _model_bedrock,
+    "anthropic": _model_anthropic,
+    "openai": _model_openai,
+    "vertex_ai": _model_vertex_ai,
+    "gemini": _model_gemini,
+    "azure": _model_azure,
+    "groq": _model_groq,
+    "together_ai": _model_together_ai,
+    "fireworks_ai": _model_fireworks_ai,
+    "mistral": _model_mistral,
+    "ollama": _model_ollama,
     "custom_openai": _model_custom_openai,
 }
 
@@ -499,8 +499,7 @@ def log_llm_config_summary() -> None:
     chain = _fallback_chain()
 
     logger.info(
-        f"[llm_config] LLM_PROVIDER={provider}"
-        + (f" | fallback_chain={chain}" if chain else "")
+        f"[llm_config] LLM_PROVIDER={provider}" + (f" | fallback_chain={chain}" if chain else "")
     )
 
     # Show availability for every known provider
@@ -509,10 +508,10 @@ def log_llm_config_summary() -> None:
 
     # Log resolved model per tier
     for agent_name, tier in [
-        ("data_ingestion_ic",    "ic"),
-        ("risk_pod_manager",     "pod"),
-        ("trading_assistant",    "assistant"),
-        ("decoder_ic",           "decoder"),
+        ("data_ingestion_ic", "ic"),
+        ("risk_pod_manager", "pod"),
+        ("trading_assistant", "assistant"),
+        ("decoder_ic", "decoder"),
     ]:
         try:
             model = get_llm_for_agent(agent_name)

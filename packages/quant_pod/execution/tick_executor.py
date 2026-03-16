@@ -42,16 +42,14 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from loguru import logger
 
 from quant_pod.execution.kill_switch import KillSwitch
-from quant_pod.execution.paper_broker import PaperBroker, OrderRequest
+from quant_pod.execution.paper_broker import OrderRequest, PaperBroker
 from quant_pod.execution.risk_state import RiskState
-from quant_pod.execution.signal_cache import SignalCache, TradeSignal
-
+from quant_pod.execution.signal_cache import SignalCache
 
 # ---------------------------------------------------------------------------
 # Tick data model
@@ -69,9 +67,9 @@ class Tick:
     symbol: str
     price: float
     volume: int
-    bid: Optional[float] = None
-    ask: Optional[float] = None
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    bid: float | None = None
+    ask: float | None = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def mid(self) -> float:
@@ -144,12 +142,10 @@ class TickExecutor:
         while True:
             # Kill switch is checked in-memory — nanoseconds, no I/O
             if self._kill_switch.is_active():
-                logger.critical(
-                    "[TickExecutor] Kill switch active — stopping executor"
-                )
+                logger.critical("[TickExecutor] Kill switch active — stopping executor")
                 break
 
-            tick: Optional[Tick] = await tick_queue.get()
+            tick: Tick | None = await tick_queue.get()
 
             if tick is None:
                 # Sentinel: clean shutdown
@@ -203,9 +199,7 @@ class TickExecutor:
         verdict = self._risk_state.check(signal, tick.price)
         if not verdict.approved:
             self.orders_skipped_risk += 1
-            logger.debug(
-                f"[TickExecutor] {sym} risk rejected: {verdict.reason}"
-            )
+            logger.debug(f"[TickExecutor] {sym} risk rejected: {verdict.reason}")
             self._record_latency(start_ns)
             return
 
@@ -230,9 +224,7 @@ class TickExecutor:
         fill = await loop.run_in_executor(None, self._broker.execute, order)
 
         if fill.rejected:
-            logger.warning(
-                f"[TickExecutor] {sym} fill rejected: {fill.reject_reason}"
-            )
+            logger.warning(f"[TickExecutor] {sym} fill rejected: {fill.reject_reason}")
             self._record_latency(start_ns)
             return
 
@@ -261,6 +253,7 @@ class TickExecutor:
         # Prometheus: record fill + hot-path latency (no-op if prometheus_client absent)
         try:
             from quant_pod.monitoring.metrics import record_fill, record_tick_latency
+
             record_fill(symbol=sym, side=order.side, speed="tick")
             record_tick_latency(latency_ns / 1e9)
         except Exception:

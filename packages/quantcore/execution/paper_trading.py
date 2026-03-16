@@ -10,26 +10,24 @@ Provides:
 
 import json
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-from threading import Thread, Event
+from threading import Event, Thread
 
 import pandas as pd
 from loguru import logger
 
-from quantcore.strategy.base import (
-    Strategy,
-    MarketState,
-    TargetPosition,
-    PositionDirection,
-    RegimeState,
-)
 from quantcore.data.storage import DataStore
 from quantcore.data.universe import UniverseManager
 from quantcore.execution.broker import BrokerInterface
 from quantcore.risk.options_risk import PortfolioGreeksManager, RiskState
+from quantcore.strategy.base import (
+    MarketState,
+    PositionDirection,
+    Strategy,
+    TargetPosition,
+)
 
 
 @dataclass
@@ -47,10 +45,10 @@ class PaperOrder:
 
     # Execution
     status: str = "PENDING"
-    fill_price: Optional[float] = None
-    fill_timestamp: Optional[datetime] = None
+    fill_price: float | None = None
+    fill_timestamp: datetime | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "order_id": self.order_id,
             "timestamp": self.timestamp.isoformat(),
@@ -62,9 +60,7 @@ class PaperOrder:
             "reason": self.reason,
             "status": self.status,
             "fill_price": self.fill_price,
-            "fill_timestamp": (
-                self.fill_timestamp.isoformat() if self.fill_timestamp else None
-            ),
+            "fill_timestamp": (self.fill_timestamp.isoformat() if self.fill_timestamp else None),
         }
 
 
@@ -103,7 +99,7 @@ class PaperTradingEngine:
         strategy: Strategy,
         universe: UniverseManager,
         data_store: DataStore,
-        quote_provider: Optional[BrokerInterface] = None,
+        quote_provider: BrokerInterface | None = None,
         initial_equity: float = 100000,
         max_trade_value: float = 1000,  # $1K max per trade
         signals_path: str = "paper_trading/signals.json",
@@ -133,9 +129,9 @@ class PaperTradingEngine:
         # State
         self.equity = initial_equity
         self.cash = initial_equity
-        self.positions: Dict[str, PaperPosition] = {}
-        self.orders: List[PaperOrder] = []
-        self.signals: List[Dict] = []
+        self.positions: dict[str, PaperPosition] = {}
+        self.orders: list[PaperOrder] = []
+        self.signals: list[dict] = []
 
         # Risk management
         self.risk_manager = PortfolioGreeksManager()
@@ -146,7 +142,7 @@ class PaperTradingEngine:
 
     def start(
         self,
-        symbols: Optional[List[str]] = None,
+        symbols: list[str] | None = None,
         interval_seconds: int = 3600,  # 1 hour default
     ) -> None:
         """
@@ -159,9 +155,7 @@ class PaperTradingEngine:
         if symbols is None:
             symbols = self.universe.symbols[:10]  # Limit to 10 for API calls
 
-        logger.info(
-            f"Starting paper trading: {len(symbols)} symbols, {interval_seconds}s interval"
-        )
+        logger.info(f"Starting paper trading: {len(symbols)} symbols, {interval_seconds}s interval")
 
         self._running = True
         self._stop_event.clear()
@@ -182,7 +176,7 @@ class PaperTradingEngine:
         """Stop paper trading."""
         self._stop_event.set()
 
-    def _trading_loop(self, symbols: List[str]) -> None:
+    def _trading_loop(self, symbols: list[str]) -> None:
         """Single iteration of trading loop."""
         timestamp = datetime.now()
         logger.debug(f"Trading loop: {timestamp}")
@@ -221,7 +215,7 @@ class PaperTradingEngine:
         # Save signals
         self._save_signals()
 
-    def _get_current_quote(self, symbol: str) -> Optional[Dict]:
+    def _get_current_quote(self, symbol: str) -> dict | None:
         """Get current quote for symbol via BrokerInterface.get_quote()."""
         if self.quote_provider is None:
             return None
@@ -243,7 +237,7 @@ class PaperTradingEngine:
             logger.debug(f"Error fetching quote for {symbol}: {e}")
             return None
 
-    def _get_features(self, symbol: str) -> Optional[Dict]:
+    def _get_features(self, symbol: str) -> dict | None:
         """Get features for symbol."""
         # Load recent data
         try:
@@ -258,12 +252,9 @@ class PaperTradingEngine:
 
             # Compute basic features
             features = {
-                "zscore_price": (df["close"].iloc[-1] - df["close"].mean())
-                / df["close"].std(),
+                "zscore_price": (df["close"].iloc[-1] - df["close"].mean()) / df["close"].std(),
                 "ema_alignment": (
-                    1
-                    if df["close"].iloc[-1] > df["close"].rolling(20).mean().iloc[-1]
-                    else -1
+                    1 if df["close"].iloc[-1] > df["close"].rolling(20).mean().iloc[-1] else -1
                 ),
                 "rsi": self._calculate_rsi(df["close"]),
                 "momentum_score": df["close"].pct_change(5).iloc[-1] * 100,
@@ -290,8 +281,8 @@ class PaperTradingEngine:
     def _build_market_state(
         self,
         symbol: str,
-        quote: Dict,
-        features: Dict,
+        quote: dict,
+        features: dict,
     ) -> MarketState:
         """Build MarketState from current data."""
         return MarketState(
@@ -308,7 +299,7 @@ class PaperTradingEngine:
             portfolio_equity=self.equity,
         )
 
-    def _process_signal(self, signal: TargetPosition, quote: Dict) -> None:
+    def _process_signal(self, signal: TargetPosition, quote: dict) -> None:
         """Process a trading signal."""
         # Log signal
         signal_record = {
@@ -424,7 +415,6 @@ class PaperTradingEngine:
     def _check_risk(self) -> None:
         """Check risk limits."""
         # Build positions dict for risk manager
-        from quantcore.options.models import OptionsPosition
 
         # Update risk metrics
         # (Simplified - would use actual Greeks in production)
@@ -433,9 +423,7 @@ class PaperTradingEngine:
             RiskState.BREACH,
             RiskState.CRITICAL,
         ]:
-            logger.warning(
-                f"Risk state: {self.risk_manager.current_metrics.risk_state}"
-            )
+            logger.warning(f"Risk state: {self.risk_manager.current_metrics.risk_state}")
 
     def _save_signals(self) -> None:
         """Save signals to file."""
@@ -465,7 +453,7 @@ class PaperTradingEngine:
                 default=str,
             )
 
-    def get_status(self) -> Dict:
+    def get_status(self) -> dict:
         """Get current trading status."""
         return {
             "running": self._running,
@@ -480,10 +468,10 @@ class PaperTradingEngine:
 
 def run_paper_trading(
     strategy: Strategy,
-    symbols: List[str],
+    symbols: list[str],
     duration_hours: float = 1.0,
     interval_seconds: int = 60,
-) -> Dict:
+) -> dict:
     """
     Convenience function to run paper trading.
 
@@ -510,7 +498,6 @@ def run_paper_trading(
     )
 
     # Run in background
-    from threading import Thread
 
     def run():
         engine.start(symbols=symbols, interval_seconds=interval_seconds)

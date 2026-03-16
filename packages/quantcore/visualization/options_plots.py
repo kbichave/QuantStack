@@ -9,25 +9,22 @@ Comprehensive plotting for options trading performance:
 - Animated trade GIFs
 """
 
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 from loguru import logger
 
 # Import generalized trade animation module
 from quantcore.visualization.trade_animation import (
-    generate_trade_animation_gif,
     generate_options_trade_gif,
 )
-
 
 # Color scheme for strategies
 STRATEGY_COLORS = {
@@ -41,9 +38,9 @@ TICKER_CMAP = plt.cm.tab20
 
 
 def plot_strategy_comparison(
-    results_by_strategy: Dict[str, Dict[str, Any]],
+    results_by_strategy: dict[str, dict[str, Any]],
     title: str = "Strategy Comparison",
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
 ) -> plt.Figure:
     """
     Compare performance across Rule-based, ML, and RL strategies.
@@ -59,7 +56,7 @@ def plot_strategy_comparison(
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle(title, fontsize=14, fontweight="bold")
 
-    strategies = list(results_by_strategy.keys())
+    list(results_by_strategy.keys())
 
     # Panel 1: Equity curves
     ax1 = axes[0, 0]
@@ -91,7 +88,7 @@ def plot_strategy_comparison(
 
     if returns_data:
         bp = ax2.boxplot(returns_data, labels=labels, patch_artist=True)
-        for patch, color in zip(bp["boxes"], colors):
+        for patch, color in zip(bp["boxes"], colors, strict=False):
             patch.set_facecolor(color)
             patch.set_alpha(0.6)
 
@@ -127,9 +124,7 @@ def plot_strategy_comparison(
         if "drawdown_curve" in results:
             dd = np.array(results["drawdown_curve"]) * 100  # Convert to %
             color = STRATEGY_COLORS.get(strategy.lower(), "#333333")
-            ax4.fill_between(
-                range(len(dd)), 0, -dd, alpha=0.3, color=color, label=strategy
-            )
+            ax4.fill_between(range(len(dd)), 0, -dd, alpha=0.3, color=color, label=strategy)
             ax4.plot(-dd, color=color, linewidth=1)
 
     ax4.set_title("Drawdown", fontsize=11)
@@ -148,9 +143,9 @@ def plot_strategy_comparison(
 
 
 def plot_per_ticker_performance(
-    results_by_ticker: Dict[str, Dict[str, Any]],
+    results_by_ticker: dict[str, dict[str, Any]],
     strategy_name: str = "Strategy",
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
 ) -> plt.Figure:
     """
     Plot performance metrics for each ticker.
@@ -172,9 +167,7 @@ def plot_per_ticker_performance(
         return fig
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-    fig.suptitle(
-        f"{strategy_name} - Per-Ticker Performance", fontsize=14, fontweight="bold"
-    )
+    fig.suptitle(f"{strategy_name} - Per-Ticker Performance", fontsize=14, fontweight="bold")
 
     # Extract metrics
     returns = [results_by_ticker[t].get("total_return", 0) * 100 for t in tickers]
@@ -187,7 +180,7 @@ def plot_per_ticker_performance(
 
     # Panel 1: Total Return by ticker
     ax1 = axes[0, 0]
-    bars = ax1.barh(tickers, returns, color=colors, alpha=0.8)
+    ax1.barh(tickers, returns, color=colors, alpha=0.8)
     ax1.axvline(x=0, color="gray", linestyle="-", alpha=0.5)
     ax1.set_title("Total Return (%)", fontsize=11)
     ax1.set_xlabel("Return (%)")
@@ -232,7 +225,7 @@ def plot_per_ticker_performance(
 def plot_greeks_exposure(
     greeks_history: pd.DataFrame,
     title: str = "Portfolio Greeks Over Time",
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
 ) -> plt.Figure:
     """
     Plot Greeks exposure over time.
@@ -310,8 +303,8 @@ def plot_greeks_exposure(
 
 
 def plot_combined_equity_curves(
-    results_by_strategy_and_ticker: Dict[str, Dict[str, Dict[str, Any]]],
-    output_path: Optional[Path] = None,
+    results_by_strategy_and_ticker: dict[str, dict[str, dict[str, Any]]],
+    output_path: Path | None = None,
 ) -> plt.Figure:
     """
     Plot combined equity curves for all strategies and tickers.
@@ -363,9 +356,9 @@ def plot_combined_equity_curves(
 
 
 def plot_best_strategy_per_ticker(
-    results_by_strategy_and_ticker: Dict[str, Dict[str, Dict[str, Any]]],
+    results_by_strategy_and_ticker: dict[str, dict[str, dict[str, Any]]],
     metric: str = "sharpe_ratio",
-    output_path: Optional[Path] = None,
+    output_path: Path | None = None,
 ) -> plt.Figure:
     """
     Show best strategy for each ticker.
@@ -430,16 +423,14 @@ def plot_best_strategy_per_ticker(
         strategy_counts[s] = strategy_counts.get(s, 0) + 1
 
     colors = [STRATEGY_COLORS.get(s.lower(), "#333333") for s in strategy_counts.keys()]
-    bars = ax2.bar(
-        strategy_counts.keys(), strategy_counts.values(), color=colors, alpha=0.8
-    )
+    bars = ax2.bar(strategy_counts.keys(), strategy_counts.values(), color=colors, alpha=0.8)
 
     ax2.set_title("Best Strategy Count", fontsize=11)
     ax2.set_ylabel("Number of Tickers")
     ax2.grid(True, alpha=0.3, axis="y")
 
     # Add count labels on bars
-    for bar, count in zip(bars, strategy_counts.values()):
+    for bar, count in zip(bars, strategy_counts.values(), strict=False):
         height = bar.get_height()
         ax2.annotate(
             f"{count}",
@@ -460,12 +451,12 @@ def plot_best_strategy_per_ticker(
 
 
 def generate_all_strategy_plots(
-    results_by_strategy: Dict[str, Dict[str, Any]],
-    results_by_ticker: Dict[str, Dict[str, Dict[str, Any]]],
-    greeks_history: Optional[pd.DataFrame] = None,
+    results_by_strategy: dict[str, dict[str, Any]],
+    results_by_ticker: dict[str, dict[str, dict[str, Any]]],
+    greeks_history: pd.DataFrame | None = None,
     output_dir: Path = Path("reports/options"),
-    report_timestamp: Optional[str] = None,
-) -> List[Path]:
+    report_timestamp: str | None = None,
+) -> list[Path]:
     """
     Generate all strategy plots.
 
@@ -493,9 +484,7 @@ def generate_all_strategy_plots(
             title="Options Strategy Comparison",
             output_path=output_dir / f"strategy_comparison_{report_timestamp}.png",
         )
-        generated_files.append(
-            output_dir / f"strategy_comparison_{report_timestamp}.png"
-        )
+        generated_files.append(output_dir / f"strategy_comparison_{report_timestamp}.png")
         plt.close(fig)
 
         # Per-ticker performance for each strategy
@@ -503,12 +492,9 @@ def generate_all_strategy_plots(
             fig = plot_per_ticker_performance(
                 ticker_results,
                 strategy_name=strategy,
-                output_path=output_dir
-                / f"{strategy}_per_ticker_{report_timestamp}.png",
+                output_path=output_dir / f"{strategy}_per_ticker_{report_timestamp}.png",
             )
-            generated_files.append(
-                output_dir / f"{strategy}_per_ticker_{report_timestamp}.png"
-            )
+            generated_files.append(output_dir / f"{strategy}_per_ticker_{report_timestamp}.png")
             plt.close(fig)
 
         # Combined equity curves
@@ -517,9 +503,7 @@ def generate_all_strategy_plots(
                 results_by_ticker,
                 output_path=output_dir / f"combined_equity_{report_timestamp}.png",
             )
-            generated_files.append(
-                output_dir / f"combined_equity_{report_timestamp}.png"
-            )
+            generated_files.append(output_dir / f"combined_equity_{report_timestamp}.png")
             plt.close(fig)
 
         # Best strategy per ticker
@@ -538,9 +522,7 @@ def generate_all_strategy_plots(
                 greeks_history,
                 output_path=output_dir / f"greeks_exposure_{report_timestamp}.png",
             )
-            generated_files.append(
-                output_dir / f"greeks_exposure_{report_timestamp}.png"
-            )
+            generated_files.append(output_dir / f"greeks_exposure_{report_timestamp}.png")
             plt.close(fig)
 
     except Exception as e:
@@ -551,14 +533,14 @@ def generate_all_strategy_plots(
 
 def generate_options_backtest_animation(
     data: pd.DataFrame,
-    trades: List[Dict],
+    trades: list[dict],
     symbol: str,
     strategy_name: str,
     output_dir: Path = Path("reports/options"),
-    report_timestamp: Optional[str] = None,
+    report_timestamp: str | None = None,
     initial_capital: float = 100000,
     **kwargs,
-) -> Optional[str]:
+) -> str | None:
     """
     Generate animated GIF for options backtest results.
 

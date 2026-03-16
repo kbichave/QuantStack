@@ -9,10 +9,8 @@ Provides signal generation strategies for equity trading:
 - CompositeStrategy: Voting ensemble of multiple strategies
 """
 
-from typing import List
 from enum import Enum
 
-import numpy as np
 import pandas as pd
 
 
@@ -260,7 +258,7 @@ class CompositeStrategy(EquityStrategy):
     - otherwise → FLAT
     """
 
-    def __init__(self, strategies: List[EquityStrategy]):
+    def __init__(self, strategies: list[EquityStrategy]):
         super().__init__("Composite")
         self.strategies = strategies
 

@@ -32,11 +32,9 @@ Failure modes:
 from __future__ import annotations
 
 import os
-from typing import Dict, List, Optional
 
 import pandas as pd
 from loguru import logger
-
 from quantcore.portfolio.optimizer import (
     MeanVarianceOptimizer,
     OptimizationObjective,
@@ -56,7 +54,7 @@ _RISK_FREE_RATE = float(os.getenv("PORT_OPT_RISK_FREE_RATE", "0.05"))
 
 # Fraction of equity allocated to a "full" position in the legacy sizing scheme.
 # Used to map position_size labels → numeric signal magnitudes.
-_SIZE_FRACTIONS: Dict[str, float] = {
+_SIZE_FRACTIONS: dict[str, float] = {
     "full": 0.20,
     "half": 0.10,
     "quarter": 0.05,
@@ -85,10 +83,10 @@ class PortfolioOptimizerAgent:
 
     def optimize(
         self,
-        decisions: List[Dict],
-        returns_df: Optional[pd.DataFrame],
-        current_weights: Optional[Dict[str, float]] = None,
-    ) -> Dict[str, float]:
+        decisions: list[dict],
+        returns_df: pd.DataFrame | None,
+        current_weights: dict[str, float] | None = None,
+    ) -> dict[str, float]:
         """
         Compute target portfolio weights for the given trade decisions.
 
@@ -110,7 +108,7 @@ class PortfolioOptimizerAgent:
         sell_symbols = {d["symbol"] for d in decisions if d.get("action") == "sell"}
 
         # SELL decisions: return zero weight so caller reduces/closes
-        result_weights: Dict[str, float] = {sym: 0.0 for sym in sell_symbols}
+        result_weights: dict[str, float] = dict.fromkeys(sell_symbols, 0.0)
 
         if not buy_decisions:
             logger.debug("[PortOpt] No BUY decisions — returning sell zeroes only")
@@ -165,9 +163,7 @@ class PortfolioOptimizerAgent:
 
         opt_signals = {s: signals[s] for s in available_cols}
         opt_current = (
-            {s: current_weights.get(s, 0.0) for s in available_cols}
-            if current_weights
-            else None
+            {s: current_weights.get(s, 0.0) for s in available_cols} if current_weights else None
         )
 
         try:
@@ -196,7 +192,9 @@ class PortfolioOptimizerAgent:
             result_weights.update(opt_result.target_weights)
 
         except Exception as opt_err:
-            logger.error(f"[PortOpt] Optimizer raised {opt_err} — using signal-proportional fallback")
+            logger.error(
+                f"[PortOpt] Optimizer raised {opt_err} — using signal-proportional fallback"
+            )
             result_weights.update(self._signal_proportional_weights(opt_signals))
 
         return result_weights
@@ -205,7 +203,7 @@ class PortfolioOptimizerAgent:
     # Internal helpers
     # -------------------------------------------------------------------------
 
-    def _build_signal_vector(self, buy_decisions: List[Dict]) -> Dict[str, float]:
+    def _build_signal_vector(self, buy_decisions: list[dict]) -> dict[str, float]:
         """
         Convert crew decisions into numeric return forecasts for the optimizer.
 
@@ -215,7 +213,7 @@ class PortfolioOptimizerAgent:
         This is not a real return forecast — it preserves the crew's relative
         conviction across symbols, which is sufficient for MAX_SHARPE ordering.
         """
-        signals: Dict[str, float] = {}
+        signals: dict[str, float] = {}
         for d in buy_decisions:
             symbol = d.get("symbol")
             if not symbol:
@@ -226,7 +224,7 @@ class PortfolioOptimizerAgent:
             signals[symbol] = size_frac * confidence
         return signals
 
-    def _signal_proportional_weights(self, signals: Dict[str, float]) -> Dict[str, float]:
+    def _signal_proportional_weights(self, signals: dict[str, float]) -> dict[str, float]:
         """
         Distribute weight proportionally to signal magnitudes, capped at _MAX_WEIGHT.
 

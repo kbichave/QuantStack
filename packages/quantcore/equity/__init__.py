@@ -11,42 +11,38 @@ Provides:
 - Report generation
 """
 
+from quantcore.equity.backtester import (
+    BacktestResult,
+    TradeRecord,
+    backtest_signals,
+)
+from quantcore.equity.ml_strategy import run_ml_strategy
+from quantcore.equity.reports import (
+    PipelineReport,
+    StrategyResult,
+    TickerStrategyResult,
+    generate_text_report,
+)
 from quantcore.equity.strategies import (
+    CompositeStrategy,
     EquityStrategy,
     MeanReversionStrategy,
     MomentumStrategy,
-    TrendFollowingStrategy,
     RRGStrategy,
-    CompositeStrategy,
+    TrendFollowingStrategy,
 )
-
-from quantcore.equity.backtester import (
-    TradeRecord,
-    BacktestResult,
-    backtest_signals,
-)
-
-from quantcore.equity.reports import (
-    TickerStrategyResult,
-    StrategyResult,
-    PipelineReport,
-    generate_text_report,
-)
-
-from quantcore.equity.ml_strategy import run_ml_strategy
-
 from quantcore.equity.tuning import (
     TunedParams,
-    tune_ticker_params,
     tune_all_tickers,
+    tune_ticker_params,
 )
 
 # RL is optional (requires gymnasium + stable-baselines3)
 try:
     from quantcore.equity.rl_strategy import (
+        RL_AVAILABLE,
         EquityTradingEnv,
         run_rl_strategy,
-        RL_AVAILABLE,
     )
 except ImportError:
     RL_AVAILABLE = False

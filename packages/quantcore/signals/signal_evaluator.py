@@ -4,10 +4,10 @@ Signal Evaluation and Performance Metrics.
 Comprehensive signal and strategy analysis.
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional, List, Tuple
-from dataclasses import dataclass
 
 
 @dataclass
@@ -123,7 +123,7 @@ def compute_sortino(
     return np.sqrt(periods_per_year) * excess_returns.mean() / downside_std
 
 
-def compute_max_drawdown(returns: pd.Series) -> Tuple[float, pd.Series]:
+def compute_max_drawdown(returns: pd.Series) -> tuple[float, pd.Series]:
     """
     Compute maximum drawdown.
 
@@ -227,9 +227,7 @@ class SignalEvaluator:
 
         # Return metrics
         total_return = (1 + self.returns).prod() - 1
-        ann_return = (1 + total_return) ** (
-            self.periods_per_year / len(self.returns)
-        ) - 1
+        ann_return = (1 + total_return) ** (self.periods_per_year / len(self.returns)) - 1
         volatility = self.returns.std() * np.sqrt(self.periods_per_year)
 
         # Risk-adjusted
@@ -287,7 +285,7 @@ class SignalEvaluator:
 
         return pd.Series(ics, index=range(1, max_lag + 1))
 
-    def ic_analysis(self) -> Dict:
+    def ic_analysis(self) -> dict:
         """
         Detailed IC analysis.
 
@@ -315,7 +313,7 @@ class SignalEvaluator:
         signal: pd.Series,
         returns: pd.Series,
         cost_bps: float = 5.0,
-    ) -> Dict:
+    ) -> dict:
         """
         Generate comprehensive evaluation report.
 
@@ -366,7 +364,7 @@ class SignalEvaluator:
 
 
 def compare_signals(
-    signals: Dict[str, pd.Series],
+    signals: dict[str, pd.Series],
     returns: pd.Series,
     cost_bps: float = 5.0,
 ) -> pd.DataFrame:

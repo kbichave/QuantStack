@@ -31,9 +31,12 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+
+from loguru import logger
 
 from quant_pod.crewai_compat import (
     Agent,
@@ -48,73 +51,65 @@ from quant_pod.crewai_compat import (
     crew,
     task,
 )
-from loguru import logger
-
 from quant_pod.crews.assembler import CrewAssembler, PodSelection
 from quant_pod.crews.schemas import (
-    AnalysisNote,
     DailyBrief,
     TaskEnvelope,
     TradeDecision,
-    RiskVerdict,
+)
+from quant_pod.crews.tools import (
+    # RL Tools
+    RL_TOOLS_AVAILABLE,
+    analyze_liquidity_tool,
+    analyze_option_structure_tool,
+    analyze_volume_profile_tool,
+    check_risk_limits_tool,
+    compute_all_features_tool,
+    compute_alpha_decay_tool,
+    compute_greeks_tool,
+    compute_implied_vol_tool,
+    # Technical Analysis
+    compute_indicators_tool,
+    compute_information_coefficient_tool,
+    compute_max_drawdown_tool,
+    compute_option_chain_tool,
+    compute_portfolio_stats_tool,
+    compute_position_size_tool,
+    # Risk
+    compute_var_tool,
+    # Market Data
+    fetch_market_data_tool,
+    # Trade
+    generate_trade_template_tool,
+    # Calendar
+    get_event_calendar_tool,
+    get_market_regime_snapshot_tool,
+    get_rl_tools,
+    get_symbol_snapshot_tool,
+    get_trading_calendar_tool,
+    list_stored_symbols_tool,
+    load_market_data_tool,
+    # Options
+    price_option_tool,
+    # Statistical
+    run_adf_test_tool,
+    score_trade_structure_tool,
+    simulate_trade_outcome_tool,
+    stress_test_portfolio_tool,
+    validate_trade_tool,
 )
 from quant_pod.llm_config import get_llm_for_agent, log_llm_config_summary
-from quant_pod.prompts import PromptLoader, get_prompt_loader
-
+from quant_pod.prompts import get_prompt_loader
 
 # =============================================================================
 # TOOL IMPORTS
 # =============================================================================
-
 from quant_pod.tools.alphavantage_tools import (
+    fetch_company_overview_tool,
     fetch_news_sentiment_tool,
     fetch_upcoming_earnings_tool,
-    fetch_company_overview_tool,
 )
 from quant_pod.tools.options_flow_tools import OptionsFlowTool, PutCallRatioTool
-
-from quant_pod.crews.tools import (
-    # Market Data
-    fetch_market_data_tool,
-    load_market_data_tool,
-    list_stored_symbols_tool,
-    get_symbol_snapshot_tool,
-    # Technical Analysis
-    compute_indicators_tool,
-    compute_all_features_tool,
-    get_market_regime_snapshot_tool,
-    analyze_volume_profile_tool,
-    # Risk
-    compute_var_tool,
-    compute_position_size_tool,
-    check_risk_limits_tool,
-    stress_test_portfolio_tool,
-    compute_max_drawdown_tool,
-    compute_portfolio_stats_tool,
-    analyze_liquidity_tool,
-    # Statistical
-    run_adf_test_tool,
-    compute_information_coefficient_tool,
-    compute_alpha_decay_tool,
-    # Options
-    price_option_tool,
-    compute_greeks_tool,
-    compute_implied_vol_tool,
-    analyze_option_structure_tool,
-    compute_option_chain_tool,
-    # Calendar
-    get_event_calendar_tool,
-    get_trading_calendar_tool,
-    # Trade
-    generate_trade_template_tool,
-    validate_trade_tool,
-    score_trade_structure_tool,
-    simulate_trade_outcome_tool,
-    # RL Tools
-    RL_TOOLS_AVAILABLE,
-    get_rl_tools,
-)
-
 
 # =============================================================================
 # TOOL REGISTRY
@@ -194,7 +189,7 @@ POD_MANAGER_ORDER = [
 ]
 
 
-def get_tools_for_agent(tool_names: List[str]) -> List:
+def get_tools_for_agent(tool_names: list[str]) -> list:
     """Get tool instances for an agent based on tool names from config."""
     tools = []
     for name in tool_names:
@@ -242,8 +237,8 @@ class TradingCrew:
     """
 
     # Type hints for CrewBase
-    agents: List[BaseAgent]
-    tasks: List[Task]
+    agents: list[BaseAgent]
+    tasks: list[Task]
 
     # Tasks config still from YAML (task descriptions stay centralized)
     tasks_config = "config/tasks.yaml"
@@ -253,7 +248,7 @@ class TradingCrew:
         # Load prompt configs
         self._prompt_loader = get_prompt_loader()
         self._assembler = CrewAssembler()
-        self._last_roster: Optional[PodSelection] = None
+        self._last_roster: PodSelection | None = None
 
         # Verify tasks config exists
         config_dir = Path(__file__).parent / "config"
@@ -263,7 +258,7 @@ class TradingCrew:
         logger.info("TradingCrew initialized with JSON prompts")
         log_llm_config_summary()
 
-    def _create_agent_from_config(self, name: str, tools: List = None) -> Agent:
+    def _create_agent_from_config(self, name: str, tools: list = None) -> Agent:
         """
         Create an Agent from JSON config.
 
@@ -294,7 +289,7 @@ class TradingCrew:
             tools=tools,
         )
 
-    def _ic_agent_factories(self) -> Dict[str, Callable[[], Agent]]:
+    def _ic_agent_factories(self) -> dict[str, Callable[[], Agent]]:
         return {
             "data_ingestion_ic": self.data_ingestion_ic,
             "market_snapshot_ic": self.market_snapshot_ic,
@@ -311,7 +306,7 @@ class TradingCrew:
             "fundamentals_ic": self.fundamentals_ic,
         }
 
-    def _pod_manager_factories(self) -> Dict[str, Callable[[], Agent]]:
+    def _pod_manager_factories(self) -> dict[str, Callable[[], Agent]]:
         return {
             "data_pod_manager": self.data_pod_manager,
             "market_monitor_pod_manager": self.market_monitor_pod_manager,
@@ -321,7 +316,7 @@ class TradingCrew:
             "alpha_signals_pod_manager": self.alpha_signals_pod_manager,
         }
 
-    def _ic_task_factories(self) -> Dict[str, Callable[[], Task]]:
+    def _ic_task_factories(self) -> dict[str, Callable[[], Task]]:
         return {
             "data_ingestion_ic": self.fetch_data_task,
             "market_snapshot_ic": self.snapshot_task,
@@ -338,7 +333,7 @@ class TradingCrew:
             "fundamentals_ic": self.fundamentals_task,
         }
 
-    def _pod_task_factories(self) -> Dict[str, Callable[[], Task]]:
+    def _pod_task_factories(self) -> dict[str, Callable[[], Task]]:
         return {
             "data_pod_manager": self.data_pod_compile_task,
             "market_monitor_pod_manager": self.market_monitor_compile_task,
@@ -351,16 +346,14 @@ class TradingCrew:
     def _assemble_roster(
         self,
         envelope: TaskEnvelope,
-        llm_decider: Optional[Callable[[str], str]] = None,
+        llm_decider: Callable[[str], str] | None = None,
     ) -> PodSelection:
         roster = self._assembler.assemble(envelope=envelope, llm_decider=llm_decider)
         self._last_roster = roster
         return roster
 
-    def _build_agents(
-        self, roster: PodSelection, stop_at_assistant: bool = False
-    ) -> List[Agent]:
-        agents: List[Agent] = []
+    def _build_agents(self, roster: PodSelection, stop_at_assistant: bool = False) -> list[Agent]:
+        agents: list[Agent] = []
         ic_factories = self._ic_agent_factories()
         pod_factories = self._pod_manager_factories()
 
@@ -377,10 +370,8 @@ class TradingCrew:
             agents.append(self.super_trader())
         return agents
 
-    def _build_tasks(
-        self, roster: PodSelection, stop_at_assistant: bool = False
-    ) -> List[Task]:
-        tasks: List[Task] = []
+    def _build_tasks(self, roster: PodSelection, stop_at_assistant: bool = False) -> list[Task]:
+        tasks: list[Task] = []
         ic_task_factories = self._ic_task_factories()
         pod_task_factories = self._pod_task_factories()
 
@@ -402,7 +393,7 @@ class TradingCrew:
     # =========================================================================
 
     @before_kickoff
-    def prepare_inputs(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def prepare_inputs(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Prepare and validate inputs before crew kickoff."""
         logger.info(
             "TradingCrew kickoff",
@@ -732,8 +723,8 @@ class TradingCrew:
     @crew
     def crew(
         self,
-        task_envelope: Optional[Any] = None,
-        llm_decider: Optional[Callable[[str], str]] = None,
+        task_envelope: Any | None = None,
+        llm_decider: Callable[[str], str] | None = None,
         stop_at_assistant: bool = False,
     ) -> Crew:
         """
@@ -748,7 +739,7 @@ class TradingCrew:
                 trade_decision_task are excluded.  The crew output will be a
                 validated DailyBrief instead of a TradeDecision.
         """
-        envelope_inputs: Dict[str, Any] = (
+        envelope_inputs: dict[str, Any] = (
             {"task_envelope": task_envelope} if task_envelope is not None else {}
         )
         envelope = TaskEnvelope.from_inputs(envelope_inputs)
@@ -786,11 +777,11 @@ def create_trading_crew() -> TradingCrew:
 
 def run_trading_analysis(
     symbol: str,
-    regime: Optional[Dict[str, Any]] = None,
-    portfolio: Optional[Dict] = None,
+    regime: dict[str, Any] | None = None,
+    portfolio: dict | None = None,
     historical_context: str = "",
-    current_date: Optional[date] = None,
-    task_envelope: Optional[Any] = None,
+    current_date: date | None = None,
+    task_envelope: Any | None = None,
 ) -> Any:
     """
     Convenience function to run trading analysis for a symbol.
@@ -824,11 +815,11 @@ def run_trading_analysis(
 
 def run_analysis_only(
     symbol: str,
-    regime: Optional[Dict[str, Any]] = None,
-    portfolio: Optional[Dict] = None,
+    regime: dict[str, Any] | None = None,
+    portfolio: dict | None = None,
     historical_context: str = "",
-    current_date: Optional[date] = None,
-    task_envelope: Optional[Any] = None,
+    current_date: date | None = None,
+    task_envelope: Any | None = None,
 ) -> Any:
     """
     Run crew analysis and return DailyBrief without SuperTrader decision.
@@ -844,12 +835,10 @@ def run_analysis_only(
         "portfolio": portfolio or {},
         "historical_context": historical_context,
     }
-    return crew.crew(task_envelope=task_envelope, stop_at_assistant=True).kickoff(
-        inputs=inputs
-    )
+    return crew.crew(task_envelope=task_envelope, stop_at_assistant=True).kickoff(inputs=inputs)
 
 
-def list_available_agents() -> Dict[str, List[str]]:
+def list_available_agents() -> dict[str, list[str]]:
     """List all available agents by category."""
     return get_prompt_loader().list_all_agents()
 

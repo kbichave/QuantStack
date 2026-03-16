@@ -15,22 +15,19 @@ Note: Tests that require API keys are skipped unless the key is set.
 """
 
 import os
-import json
-import pytest
 from datetime import date
-from unittest.mock import MagicMock, patch
 from pathlib import Path
+
+import pytest
 
 # Import crew and schemas
 from quant_pod.crews import (
-    TradingCrew,
     AnalysisNote,
-    PodResearchNote,
     DailyBrief,
-    SymbolBrief,
-    TradeDecision,
-    RiskVerdict,
     KeyLevel,
+    RiskVerdict,
+    TradeDecision,
+    TradingCrew,
     list_available_agents,
 )
 from quant_pod.prompts import (
@@ -42,9 +39,7 @@ from quant_pod.prompts import (
 
 # Check if OpenAI API key is available
 HAS_OPENAI_KEY = bool(os.environ.get("OPENAI_API_KEY"))
-requires_openai_key = pytest.mark.skipif(
-    not HAS_OPENAI_KEY, reason="OPENAI_API_KEY not set"
-)
+requires_openai_key = pytest.mark.skipif(not HAS_OPENAI_KEY, reason="OPENAI_API_KEY not set")
 
 
 class TestSchemas:
@@ -52,9 +47,7 @@ class TestSchemas:
 
     def test_key_level_schema(self):
         """Test KeyLevel schema."""
-        level = KeyLevel(
-            price=100.0, level_type="support", strength=0.8, source="SMA_200"
-        )
+        level = KeyLevel(price=100.0, level_type="support", strength=0.8, source="SMA_200")
         assert level.price == 100.0
         assert level.level_type == "support"
         assert level.strength == 0.8
@@ -176,7 +169,7 @@ class TestPromptLoader:
         """Test loading all IC configs."""
         ics = load_all_ics()
 
-        assert len(ics) == 10  # 10 ICs
+        assert len(ics) == 13  # 13 ICs
         assert "data_ingestion_ic" in ics
         assert "trend_momentum_ic" in ics
 
@@ -184,7 +177,7 @@ class TestPromptLoader:
         """Test loading all pod manager configs."""
         managers = load_all_pod_managers()
 
-        assert len(managers) == 5  # 5 pod managers
+        assert len(managers) == 6  # 6 pod managers
         assert "data_pod_manager" in managers
         assert "technicals_pod_manager" in managers
 
@@ -197,8 +190,8 @@ class TestPromptLoader:
         assert "assistant" in agents
         assert "supertrader" in agents
 
-        assert len(agents["ics"]) == 10
-        assert len(agents["pod_managers"]) == 5
+        assert len(agents["ics"]) == 13
+        assert len(agents["pod_managers"]) == 6
         assert len(agents["assistant"]) == 1
         assert len(agents["supertrader"]) == 1
 

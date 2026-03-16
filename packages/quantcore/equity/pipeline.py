@@ -11,8 +11,6 @@ Provides:
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Any
 
 import numpy as np
 import pandas as pd
@@ -20,34 +18,33 @@ from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.base import AssetClass
-from quantcore.data.fetcher import AlphaVantageClient  # still used by fetch_news_sentiment_for_symbols
+from quantcore.data.fetcher import (
+    AlphaVantageClient,  # still used by fetch_news_sentiment_for_symbols
+)
 from quantcore.data.registry import DataProviderRegistry
-from quantcore.data.storage import DataStore
 from quantcore.data.resampler import TimeframeResampler
+from quantcore.data.storage import DataStore
 from quantcore.data.universe import UniverseManager
-from quantcore.features.factory import MultiTimeframeFeatureFactory
-
+from quantcore.equity.backtester import backtest_signals
+from quantcore.equity.ml_strategy import run_ml_strategy
+from quantcore.equity.reports import (
+    PipelineReport,
+    StrategyResult,
+    TickerStrategyResult,
+)
 from quantcore.equity.strategies import (
-    EquityStrategy,
+    CompositeStrategy,
     MeanReversionStrategy,
     MomentumStrategy,
-    TrendFollowingStrategy,
     RRGStrategy,
-    CompositeStrategy,
+    TrendFollowingStrategy,
 )
-from quantcore.equity.backtester import backtest_signals
-from quantcore.equity.reports import (
-    TickerStrategyResult,
-    StrategyResult,
-    PipelineReport,
-    generate_text_report,
-)
-from quantcore.equity.ml_strategy import run_ml_strategy
-from quantcore.equity.tuning import tune_all_tickers, TunedParams
+from quantcore.equity.tuning import TunedParams, tune_all_tickers
+from quantcore.features.factory import MultiTimeframeFeatureFactory
 
 # Try to import RL strategy
 try:
-    from quantcore.equity.rl_strategy import run_rl_strategy, RL_AVAILABLE
+    from quantcore.equity.rl_strategy import RL_AVAILABLE, run_rl_strategy
 except ImportError:
     RL_AVAILABLE = False
     run_rl_strategy = None
@@ -105,22 +102,22 @@ def calculate_data_split(
     )
 
 
-def get_universe_symbols() -> List[str]:
+def get_universe_symbols() -> list[str]:
     """Get all symbols from the universe."""
     universe = UniverseManager()
     return universe.symbols
 
 
 def fetch_equity_data(
-    symbols: List[str],
+    symbols: list[str],
     fetcher: "DataProviderRegistry",
     data_store: DataStore,
     skip_fetch: bool = False,
     force_fetch: bool = False,
     soft_fetch: bool = False,
     start_year: int = 2015,
-    end_year: Optional[int] = None,
-) -> Dict[str, pd.DataFrame]:
+    end_year: int | None = None,
+) -> dict[str, pd.DataFrame]:
     """
     Fetch historical equity data for all symbols.
 
@@ -158,7 +155,7 @@ def fetch_equity_data(
     target_end = datetime.now()
 
     for i, symbol in enumerate(symbols):
-        logger.info(f"\n[{i+1}/{len(symbols)}] [{symbol}] Fetching equity data...")
+        logger.info(f"\n[{i + 1}/{len(symbols)}] [{symbol}] Fetching equity data...")
 
         try:
             cached = data_store.load_ohlcv(symbol=symbol, timeframe=Timeframe.H1)
@@ -169,7 +166,7 @@ def fetch_equity_data(
                     data[symbol] = cached
                     logger.info(f"  [CACHE] Using {len(cached)} cached bars")
                 else:
-                    logger.warning(f"  [SKIP] No cached data available")
+                    logger.warning("  [SKIP] No cached data available")
                 continue
 
             # Force fetch mode - always fetch fresh
@@ -178,7 +175,9 @@ def fetch_equity_data(
                     f"  [FORCE-FETCH] Fetching full intraday history ({start_year}-{end_year})..."
                 )
                 df = fetcher.fetch_ohlcv(
-                    symbol, AssetClass.EQUITY, Timeframe.H1,
+                    symbol,
+                    AssetClass.EQUITY,
+                    Timeframe.H1,
                     start_date=datetime(start_year, 1, 1),
                     end_date=datetime(end_year, 12, 31),
                 )
@@ -193,7 +192,7 @@ def fetch_equity_data(
                         data[symbol] = cached
                         logger.warning(f"  [FALLBACK] Using {len(cached)} cached bars")
                     else:
-                        logger.warning(f"  [EMPTY] No data returned")
+                        logger.warning("  [EMPTY] No data returned")
 
                 time.sleep(1)
                 continue
@@ -205,16 +204,10 @@ def fetch_equity_data(
                     cached_end = cached.index.max()
 
                     # Check if we have sufficient coverage
-                    has_start_coverage = cached_start <= target_start + pd.Timedelta(
-                        days=30
-                    )
+                    has_start_coverage = cached_start <= target_start + pd.Timedelta(days=30)
                     has_end_coverage = cached_end >= target_end - pd.Timedelta(days=7)
-                    min_bars = (
-                        (end_year - start_year) * 252 * 7
-                    )  # ~7 bars per trading day
-                    has_enough_bars = (
-                        len(cached) >= min_bars * 0.5
-                    )  # At least 50% coverage
+                    min_bars = (end_year - start_year) * 252 * 7  # ~7 bars per trading day
+                    has_enough_bars = len(cached) >= min_bars * 0.5  # At least 50% coverage
 
                     if has_start_coverage and has_end_coverage and has_enough_bars:
                         days = (cached_end - cached_start).days
@@ -243,16 +236,14 @@ def fetch_equity_data(
                             )
 
                         # Fetch missing ranges
-                        fetch_start = (
-                            missing_start if missing_start else cached_end.year
-                        )
+                        fetch_start = missing_start if missing_start else cached_end.year
                         fetch_end = missing_end if missing_end else end_year
 
-                        logger.info(
-                            f"  [SOFT-FETCH] Fetching {fetch_start}-{fetch_end}..."
-                        )
+                        logger.info(f"  [SOFT-FETCH] Fetching {fetch_start}-{fetch_end}...")
                         new_df = fetcher.fetch_ohlcv(
-                            symbol, AssetClass.EQUITY, Timeframe.H1,
+                            symbol,
+                            AssetClass.EQUITY,
+                            Timeframe.H1,
                             start_date=datetime(fetch_start, 1, 1),
                             end_date=datetime(fetch_end, 12, 31),
                         )
@@ -263,19 +254,13 @@ def fetch_equity_data(
                             combined = combined[~combined.index.duplicated(keep="last")]
                             combined = combined.sort_index()
 
-                            data_store.save_ohlcv(
-                                combined, symbol=symbol, timeframe=Timeframe.H1
-                            )
+                            data_store.save_ohlcv(combined, symbol=symbol, timeframe=Timeframe.H1)
                             data[symbol] = combined
                             days = (combined.index.max() - combined.index.min()).days
-                            logger.info(
-                                f"  [SUCCESS] {len(combined)} bars, {days} days (merged)"
-                            )
+                            logger.info(f"  [SUCCESS] {len(combined)} bars, {days} days (merged)")
                         else:
                             data[symbol] = cached
-                            logger.warning(
-                                f"  [PARTIAL] Using existing {len(cached)} cached bars"
-                            )
+                            logger.warning(f"  [PARTIAL] Using existing {len(cached)} cached bars")
 
                         time.sleep(1)
                         continue
@@ -285,7 +270,9 @@ def fetch_equity_data(
                         f"  [SOFT-FETCH] No cache, fetching full range ({start_year}-{end_year})..."
                     )
                     df = fetcher.fetch_ohlcv(
-                        symbol, AssetClass.EQUITY, Timeframe.H1,
+                        symbol,
+                        AssetClass.EQUITY,
+                        Timeframe.H1,
                         start_date=datetime(start_year, 1, 1),
                         end_date=datetime(end_year, 12, 31),
                     )
@@ -296,7 +283,7 @@ def fetch_equity_data(
                         days = (df.index.max() - df.index.min()).days
                         logger.info(f"  [SUCCESS] {len(df)} bars, {days} days")
                     else:
-                        logger.warning(f"  [EMPTY] No data returned")
+                        logger.warning("  [EMPTY] No data returned")
 
                     time.sleep(1)
                     continue
@@ -309,11 +296,11 @@ def fetch_equity_data(
                 continue
 
             # Fetch if cache insufficient
-            logger.info(
-                f"  [FETCH] Fetching full intraday history ({start_year}-{end_year})..."
-            )
+            logger.info(f"  [FETCH] Fetching full intraday history ({start_year}-{end_year})...")
             df = fetcher.fetch_ohlcv(
-                symbol, AssetClass.EQUITY, Timeframe.H1,
+                symbol,
+                AssetClass.EQUITY,
+                Timeframe.H1,
                 start_date=datetime(start_year, 1, 1),
                 end_date=datetime(end_year, 12, 31),
             )
@@ -328,7 +315,7 @@ def fetch_equity_data(
                     data[symbol] = cached
                     logger.warning(f"  [FALLBACK] Using {len(cached)} cached bars")
                 else:
-                    logger.warning(f"  [EMPTY] No data returned")
+                    logger.warning("  [EMPTY] No data returned")
 
             time.sleep(1)
 
@@ -338,18 +325,18 @@ def fetch_equity_data(
             cached = data_store.load_ohlcv(symbol=symbol, timeframe=Timeframe.H1)
             if not cached.empty:
                 data[symbol] = cached
-                logger.info(f"  [FALLBACK] Using cached data after error")
+                logger.info("  [FALLBACK] Using cached data after error")
 
     logger.info(f"\nFetched data for {len(data)} symbols")
     return data
 
 
 def fetch_news_sentiment_for_symbols(
-    symbols: List[str],
+    symbols: list[str],
     fetcher: AlphaVantageClient,
     data_store: DataStore,
     force_fetch: bool = False,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """
     Fetch news sentiment for equity symbols with caching.
 
@@ -369,9 +356,7 @@ def fetch_news_sentiment_for_symbols(
     news_data = {}
 
     for i, symbol in enumerate(symbols[:5]):  # Limit to 5 symbols to respect API limits
-        logger.info(
-            f"\n[{i+1}/{min(5, len(symbols))}] [{symbol}] Fetching news sentiment..."
-        )
+        logger.info(f"\n[{i + 1}/{min(5, len(symbols))}] [{symbol}] Fetching news sentiment...")
 
         try:
             # Try cached first
@@ -381,11 +366,7 @@ def fetch_news_sentiment_for_symbols(
                     end_date=datetime.now(),
                     tickers=[symbol],
                 )
-                if (
-                    cached_news is not None
-                    and not cached_news.empty
-                    and len(cached_news) > 10
-                ):
+                if cached_news is not None and not cached_news.empty and len(cached_news) > 10:
                     news_data[symbol] = cached_news
                     logger.info(f"  [CACHE] {len(cached_news)} cached articles")
                     continue
@@ -409,7 +390,7 @@ def fetch_news_sentiment_for_symbols(
                 news_data[symbol] = news
                 logger.info(f"  [SUCCESS] {len(news)} articles, saved {rows_saved}")
             else:
-                logger.info(f"  [EMPTY] No news found")
+                logger.info("  [EMPTY] No news found")
 
             time.sleep(1)  # Rate limit
 
@@ -421,10 +402,10 @@ def fetch_news_sentiment_for_symbols(
 
 
 def build_features(
-    ohlcv_data: Dict[str, pd.DataFrame],
+    ohlcv_data: dict[str, pd.DataFrame],
     benchmark_symbol: str = "SPY",
-    news_sentiment_data: Optional[Dict[str, pd.DataFrame]] = None,
-) -> Dict[str, pd.DataFrame]:
+    news_sentiment_data: dict[str, pd.DataFrame] | None = None,
+) -> dict[str, pd.DataFrame]:
     """Build comprehensive features using existing trader modules."""
     logger.info("\n" + "=" * 60)
     logger.info("PHASE 2: BUILDING FEATURES (All TA + RRG + MR + Gann + Sentiment)")
@@ -455,9 +436,7 @@ def build_features(
     benchmark_df = ohlcv_data.get(benchmark_symbol)
 
     if benchmark_df is None:
-        logger.warning(
-            f"Benchmark {benchmark_symbol} not available, RRG features will be NaN"
-        )
+        logger.warning(f"Benchmark {benchmark_symbol} not available, RRG features will be NaN")
 
     for symbol, df in ohlcv_data.items():
         logger.info(f"\n[{symbol}] Building features...")
@@ -469,23 +448,17 @@ def build_features(
             symbol_news = None
             if news_sentiment_data and symbol in news_sentiment_data:
                 symbol_news = news_sentiment_data[symbol]
-                logger.info(
-                    f"  Using {len(symbol_news)} news articles for sentiment features"
-                )
+                logger.info(f"  Using {len(symbol_news)} news articles for sentiment features")
 
             tf_features = factory.compute_all_timeframes(
                 tf_data,
                 lag_features=True,
-                benchmark_data=(
-                    {Timeframe.H1: benchmark_df} if benchmark_df is not None else None
-                ),
+                benchmark_data=({Timeframe.H1: benchmark_df} if benchmark_df is not None else None),
                 news_sentiment_data=symbol_news,
             )
 
             if tf_features:
-                aligned = resampler.align_all_timeframes(
-                    tf_features, base_tf=Timeframe.H1
-                )
+                aligned = resampler.align_all_timeframes(tf_features, base_tf=Timeframe.H1)
 
                 base_df = df.copy().reindex(aligned.index)
                 for col in ["open", "high", "low", "close", "volume"]:
@@ -495,9 +468,7 @@ def build_features(
                 aligned = aligned.ffill().bfill()
 
                 if "close" in aligned.columns:
-                    aligned["label"] = (
-                        aligned["close"].shift(-1) > aligned["close"]
-                    ).astype(int)
+                    aligned["label"] = (aligned["close"].shift(-1) > aligned["close"]).astype(int)
 
                 # Ensure zscore_price exists
                 if "zscore_price" not in aligned.columns:
@@ -528,9 +499,7 @@ def build_features(
                         aligned["atr"] = tr.rolling(14).mean()
 
                 numeric_aligned = aligned.select_dtypes(include=[np.number])
-                numeric_aligned = numeric_aligned.replace(
-                    [np.inf, -np.inf], np.nan
-                ).fillna(0)
+                numeric_aligned = numeric_aligned.replace([np.inf, -np.inf], np.nan).fillna(0)
 
                 features[symbol] = numeric_aligned
                 logger.info(
@@ -547,10 +516,10 @@ def build_features(
 
 
 def run_rule_based_strategies(
-    symbol_data: Dict[str, SymbolData],
+    symbol_data: dict[str, SymbolData],
     initial_equity: float = 100000,
-    tuned_params: Optional[Dict[str, TunedParams]] = None,
-) -> Dict[str, StrategyResult]:
+    tuned_params: dict[str, TunedParams] | None = None,
+) -> dict[str, StrategyResult]:
     """
     Run all rule-based strategies with per-ticker tuned parameters.
 
@@ -613,9 +582,7 @@ def run_rule_based_strategies(
             else:
                 # Default params
                 if strategy_name == "MeanReversion":
-                    strategy = MeanReversionStrategy(
-                        zscore_threshold=2.0, reversion_delta=0.2
-                    )
+                    strategy = MeanReversionStrategy(zscore_threshold=2.0, reversion_delta=0.2)
                 elif strategy_name == "Momentum":
                     strategy = MomentumStrategy(rsi_oversold=30, rsi_overbought=70)
                 elif strategy_name == "TrendFollowing":
@@ -656,9 +623,7 @@ def run_rule_based_strategies(
             total_wins += int(result.win_rate * result.num_trades)
             max_dd = max(max_dd, result.max_drawdown)
 
-            logger.info(
-                f"  {symbol}: PnL=${result.total_pnl:,.0f}, Trades={result.num_trades}"
-            )
+            logger.info(f"  {symbol}: PnL=${result.total_pnl:,.0f}, Trades={result.num_trades}")
 
         if per_ticker:
             best_ticker = max(per_ticker.items(), key=lambda x: x[1].pnl)[0]
@@ -693,12 +658,12 @@ def run_rule_based_strategies(
 
 
 def run_pipeline(
-    symbols: Optional[List[str]] = None,
+    symbols: list[str] | None = None,
     skip_fetch: bool = False,
     force_fetch: bool = False,
     soft_fetch: bool = False,
     start_year: int = 2015,
-    end_year: Optional[int] = None,
+    end_year: int | None = None,
     initial_equity: float = 100000,
     tune_hyperparams: bool = True,
     run_rl: bool = True,
@@ -731,9 +696,7 @@ def run_pipeline(
 
     # Determine fetch mode
     fetch_mode = (
-        "skip"
-        if skip_fetch
-        else "force" if force_fetch else "soft" if soft_fetch else "normal"
+        "skip" if skip_fetch else "force" if force_fetch else "soft" if soft_fetch else "normal"
     )
 
     logger.info("=" * 80)
@@ -745,10 +708,11 @@ def run_pipeline(
     logger.info(f"Tune Hyperparams: {tune_hyperparams}")
     logger.info(f"Run RL: {run_rl}")
     logger.info(f"Fetch News: {fetch_news}")
-    logger.info(f"Trade Size: 100 shares, $0 commission")
+    logger.info("Trade Size: 100 shares, $0 commission")
 
     from quantcore.config.settings import get_settings
     from quantcore.data.registry import DataProviderRegistry
+
     fetcher = DataProviderRegistry.from_settings(get_settings())
     data_store = DataStore()
 
@@ -795,9 +759,7 @@ def run_pipeline(
     # Phase 3: Hyperparameter tuning (on validation data)
     tuned_params = None
     if tune_hyperparams:
-        tuned_params = tune_all_tickers(
-            symbol_data, calculate_data_split, initial_equity
-        )
+        tuned_params = tune_all_tickers(symbol_data, calculate_data_split, initial_equity)
 
     # Phase 4: Rule-based strategies (with tuned params)
     rule_results = run_rule_based_strategies(symbol_data, initial_equity, tuned_params)
@@ -869,9 +831,7 @@ def run_pipeline(
             else str(idx[split.test_start])
         )
         test_end_date = (
-            idx[-1].strftime("%Y-%m-%d")
-            if hasattr(idx[-1], "strftime")
-            else str(idx[-1])
+            idx[-1].strftime("%Y-%m-%d") if hasattr(idx[-1], "strftime") else str(idx[-1])
         )
 
         split_info = {

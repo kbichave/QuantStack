@@ -33,16 +33,13 @@ import math
 import os
 import uuid
 from datetime import datetime
-from pathlib import Path
 from threading import RLock
-from typing import Dict, List, Optional
 
 import duckdb
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from quant_pod.execution.portfolio_state import Position, get_portfolio_state
-
 
 # =============================================================================
 # DATA MODELS
@@ -57,7 +54,7 @@ class OrderRequest(BaseModel):
     side: str  # "buy" or "sell"
     quantity: int
     order_type: str = "market"  # "market" or "limit"
-    limit_price: Optional[float] = None
+    limit_price: float | None = None
     current_price: float = 0.0
     daily_volume: int = 1_000_000
     requested_at: datetime = Field(default_factory=datetime.now)
@@ -76,7 +73,7 @@ class Fill(BaseModel):
     commission: float = 0.0
     partial: bool = False
     rejected: bool = False
-    reject_reason: Optional[str] = None
+    reject_reason: str | None = None
     filled_at: datetime = Field(default_factory=datetime.now)
 
     @property
@@ -109,10 +106,10 @@ class PaperBroker:
 
     def __init__(
         self,
-        conn: Optional[duckdb.DuckDBPyConnection] = None,
-        portfolio: Optional["PortfolioState"] = None,
+        conn: duckdb.DuckDBPyConnection | None = None,
+        portfolio: PortfolioState | None = None,  # noqa: F821
         # Legacy parameter — ignored when conn is provided
-        db_path: Optional[str] = None,
+        db_path: str | None = None,
     ):
         self._lock = RLock()
 
@@ -120,6 +117,7 @@ class PaperBroker:
             self._conn = conn
         else:
             from quant_pod.db import open_db, run_migrations
+
             if db_path is None:
                 db_path = os.getenv("PAPER_BROKER_DB_PATH", "~/.quant_pod/trader.duckdb")
             self._conn = open_db(db_path)
@@ -217,8 +215,8 @@ class PaperBroker:
         quantity: int,
         daily_volume: int,
         order_type: str,
-        limit_price: Optional[float],
-    ) -> Optional[float]:
+        limit_price: float | None,
+    ) -> float | None:
         """Return simulated fill price, or None if limit order won't fill."""
         if order_type == "limit":
             if limit_price is None:
@@ -314,7 +312,9 @@ class PaperBroker:
                     exit_price=fill.fill_price,
                     quantity=fill.filled_quantity,
                 )
-                self._portfolio.adjust_cash(fill.fill_price * fill.filled_quantity - fill.commission)
+                self._portfolio.adjust_cash(
+                    fill.fill_price * fill.filled_quantity - fill.commission
+                )
             else:
                 # Short sale
                 pos = Position(
@@ -333,7 +333,7 @@ class PaperBroker:
     # History / reporting
     # -------------------------------------------------------------------------
 
-    def get_fills(self, symbol: Optional[str] = None, limit: int = 100) -> List[Fill]:
+    def get_fills(self, symbol: str | None = None, limit: int = 100) -> list[Fill]:
         """Return recent fills, optionally filtered by symbol."""
         query = "SELECT * FROM fills"
         params = []
@@ -379,18 +379,19 @@ class PaperBroker:
 
 
 # Singleton — prefer injecting via TradingContext in new code.
-_paper_broker: Optional[PaperBroker] = None
+_paper_broker: PaperBroker | None = None
 
 
 def get_paper_broker(
-    conn: Optional[duckdb.DuckDBPyConnection] = None,
-    db_path: Optional[str] = None,
+    conn: duckdb.DuckDBPyConnection | None = None,
+    db_path: str | None = None,
 ) -> PaperBroker:
     """Get the singleton PaperBroker instance."""
     global _paper_broker
     if _paper_broker is None:
         if conn is None:
             from quant_pod.db import open_db, run_migrations
+
             conn = open_db(db_path or "")
             run_migrations(conn)
         _paper_broker = PaperBroker(conn=conn)

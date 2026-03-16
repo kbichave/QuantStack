@@ -40,12 +40,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Type
 
 from loguru import logger
 
 try:
     from quant_pod.crewai_compat import BaseTool
+
     _CREWAI_AVAILABLE = True
 except ImportError:
     _CREWAI_AVAILABLE = False
@@ -64,10 +64,10 @@ class OptionsContract:
     symbol: str
     expiry: str
     strike: float
-    option_type: str        # "call" or "put"
+    option_type: str  # "call" or "put"
     volume: int
     open_interest: int
-    implied_volatility: float   # Fraction (0.25 = 25%)
+    implied_volatility: float  # Fraction (0.25 = 25%)
     last_price: float
     bid: float
     ask: float
@@ -100,15 +100,15 @@ class OptionsFlowSignal:
 
     symbol: str
     as_of: datetime
-    flow_bias: str              # "BULLISH" | "BEARISH" | "NEUTRAL" | "MIXED"
-    unusual_score: float        # 0–100
-    put_call_ratio: float       # < 0.5 = heavy calls, > 2.0 = heavy puts
-    net_premium_usd: float      # Calls premium - puts premium
+    flow_bias: str  # "BULLISH" | "BEARISH" | "NEUTRAL" | "MIXED"
+    unusual_score: float  # 0–100
+    put_call_ratio: float  # < 0.5 = heavy calls, > 2.0 = heavy puts
+    net_premium_usd: float  # Calls premium - puts premium
     call_volume: int
     put_volume: int
-    n_unusual_contracts: int    # Contracts that crossed the UOA threshold
-    largest_trade_description: str   # Human-readable for agent context
-    raw_contracts: List[OptionsContract] = field(default_factory=list, repr=False)
+    n_unusual_contracts: int  # Contracts that crossed the UOA threshold
+    largest_trade_description: str  # Human-readable for agent context
+    raw_contracts: list[OptionsContract] = field(default_factory=list, repr=False)
 
     @property
     def summary(self) -> str:
@@ -139,11 +139,11 @@ class OptionsFlowClient:
     """
 
     # UOA thresholds
-    VOLUME_OI_UNUSUAL = 3.0         # vol/OI > 3 = unusual
-    MIN_NOTIONAL_UNUSUAL = 50_000   # $50k minimum to be "institutional size"
-    UNUSUAL_SCORE_THRESHOLD = 60    # Scores above this are actionable
+    VOLUME_OI_UNUSUAL = 3.0  # vol/OI > 3 = unusual
+    MIN_NOTIONAL_UNUSUAL = 50_000  # $50k minimum to be "institutional size"
+    UNUSUAL_SCORE_THRESHOLD = 60  # Scores above this are actionable
 
-    def __init__(self, api_key: Optional[str] = None) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         self._api_key = (
             api_key
             or os.getenv("ALPHA_VANTAGE_API_KEY")
@@ -176,7 +176,9 @@ class OptionsFlowClient:
 
         contracts = self._parse_chain(raw_chain, symbol, expiry_within_days, min_volume)
         if not contracts:
-            logger.info(f"[OPTS] No liquid contracts found for {symbol} within {expiry_within_days}d")
+            logger.info(
+                f"[OPTS] No liquid contracts found for {symbol} within {expiry_within_days}d"
+            )
             return self._empty_signal(symbol)
 
         return self._compute_signal(symbol, contracts)
@@ -185,10 +187,11 @@ class OptionsFlowClient:
     # Data fetching
     # -------------------------------------------------------------------------
 
-    def _fetch_chain(self, symbol: str) -> List[Dict]:
+    def _fetch_chain(self, symbol: str) -> list[dict]:
         """Fetch raw options chain from Alpha Vantage."""
         try:
             import httpx
+
             params = {
                 "function": "REALTIME_OPTIONS",
                 "symbol": symbol.upper(),
@@ -200,7 +203,7 @@ class OptionsFlowClient:
                 data = resp.json()
 
             if "Note" in data:
-                logger.warning(f"[OPTS] Alpha Vantage rate-limited — slow down requests")
+                logger.warning("[OPTS] Alpha Vantage rate-limited — slow down requests")
                 return []
 
             if "Error Message" in data:
@@ -220,15 +223,17 @@ class OptionsFlowClient:
 
     def _parse_chain(
         self,
-        raw_chain: List[Dict],
+        raw_chain: list[dict],
         symbol: str,
         expiry_within_days: int,
         min_volume: int,
-    ) -> List[OptionsContract]:
+    ) -> list[OptionsContract]:
         """Parse raw Alpha Vantage options contracts, filtering by expiry and volume."""
         contracts = []
         today = date.today()
-        cutoff = (datetime.today() + __import__("datetime").timedelta(days=expiry_within_days)).date()
+        cutoff = (
+            datetime.today() + __import__("datetime").timedelta(days=expiry_within_days)
+        ).date()
 
         for row in raw_chain:
             try:
@@ -242,20 +247,22 @@ class OptionsFlowClient:
                 if volume < min_volume:
                     continue
 
-                contracts.append(OptionsContract(
-                    symbol=symbol,
-                    expiry=expiry_str,
-                    strike=float(row.get("strike", 0) or 0),
-                    option_type=row.get("type", "").lower(),      # "call" or "put"
-                    volume=volume,
-                    open_interest=int(row.get("open_interest", 0) or 0),
-                    implied_volatility=float(row.get("implied_volatility", 0) or 0),
-                    last_price=float(row.get("last", 0) or 0),
-                    bid=float(row.get("bid", 0) or 0),
-                    ask=float(row.get("ask", 0) or 0),
-                    delta=float(row.get("delta", 0) or 0),
-                    gamma=float(row.get("gamma", 0) or 0),
-                ))
+                contracts.append(
+                    OptionsContract(
+                        symbol=symbol,
+                        expiry=expiry_str,
+                        strike=float(row.get("strike", 0) or 0),
+                        option_type=row.get("type", "").lower(),  # "call" or "put"
+                        volume=volume,
+                        open_interest=int(row.get("open_interest", 0) or 0),
+                        implied_volatility=float(row.get("implied_volatility", 0) or 0),
+                        last_price=float(row.get("last", 0) or 0),
+                        bid=float(row.get("bid", 0) or 0),
+                        ask=float(row.get("ask", 0) or 0),
+                        delta=float(row.get("delta", 0) or 0),
+                        gamma=float(row.get("gamma", 0) or 0),
+                    )
+                )
             except (ValueError, TypeError, KeyError) as e:
                 logger.debug(f"[OPTS] Skipping malformed contract row: {e}")
                 continue
@@ -269,7 +276,7 @@ class OptionsFlowClient:
     def _compute_signal(
         self,
         symbol: str,
-        contracts: List[OptionsContract],
+        contracts: list[OptionsContract],
     ) -> OptionsFlowSignal:
         """
         Derive the UOA signal from the parsed options chain.
@@ -281,21 +288,22 @@ class OptionsFlowClient:
           - IV spike (0–20 pts)
         """
         calls = [c for c in contracts if c.option_type == "call"]
-        puts  = [c for c in contracts if c.option_type == "put"]
+        puts = [c for c in contracts if c.option_type == "put"]
 
         call_vol = sum(c.volume for c in calls)
-        put_vol  = sum(c.volume for c in puts)
-        total_vol = call_vol + put_vol or 1
+        put_vol = sum(c.volume for c in puts)
+        call_vol + put_vol or 1
 
         put_call_ratio = put_vol / max(call_vol, 1)
 
         call_premium = sum(c.notional_premium for c in calls)
-        put_premium  = sum(c.notional_premium for c in puts)
-        net_premium  = call_premium - put_premium
+        put_premium = sum(c.notional_premium for c in puts)
+        net_premium = call_premium - put_premium
 
         # Unusual contracts (vol/OI > threshold AND notional > minimum)
         unusual = [
-            c for c in contracts
+            c
+            for c in contracts
             if c.volume_oi_ratio >= self.VOLUME_OI_UNUSUAL
             and c.notional_premium >= self.MIN_NOTIONAL_UNUSUAL
         ]
@@ -408,13 +416,13 @@ def _make_options_flow_tool():
     if not _CREWAI_AVAILABLE:
         return None
 
-    from pydantic import BaseModel as PydanticBaseModel, Field as PydanticField
+    from pydantic import BaseModel as PydanticBaseModel
+    from pydantic import Field as PydanticField
 
     class OptionsFlowInput(PydanticBaseModel):
         symbol: str = PydanticField(..., description="Ticker symbol to analyse, e.g. 'SPY'")
         expiry_within_days: int = PydanticField(
-            45,
-            description="Only include options expiring within this many days (default 45)"
+            45, description="Only include options expiring within this many days (default 45)"
         )
 
     class OptionsFlowTool(BaseTool):
@@ -434,7 +442,7 @@ def _make_options_flow_tool():
             "put/call ratio, and net premium flow in dollars. "
             "High unusual_score signals institutional positioning before a catalyst."
         )
-        args_schema: Type[PydanticBaseModel] = OptionsFlowInput
+        args_schema: type[PydanticBaseModel] = OptionsFlowInput
 
         def _run(self, symbol: str, expiry_within_days: int = 45) -> str:
             client = OptionsFlowClient()
@@ -449,7 +457,8 @@ def _make_put_call_ratio_tool():
     if not _CREWAI_AVAILABLE:
         return None
 
-    from pydantic import BaseModel as PydanticBaseModel, Field as PydanticField
+    from pydantic import BaseModel as PydanticBaseModel
+    from pydantic import Field as PydanticField
 
     class PCRInput(PydanticBaseModel):
         symbol: str = PydanticField(..., description="Ticker symbol")
@@ -472,7 +481,7 @@ def _make_put_call_ratio_tool():
             "< 0.5 = bullish flow, 0.5-1.2 = neutral, > 1.2 = bearish flow. "
             "Use alongside options_flow_analysis for confirmation."
         )
-        args_schema: Type[PydanticBaseModel] = PCRInput
+        args_schema: type[PydanticBaseModel] = PCRInput
 
         def _run(self, symbol: str) -> str:
             client = OptionsFlowClient()
@@ -505,7 +514,7 @@ OptionsFlowTool = _OptionsFlowToolClass() if _OptionsFlowToolClass else None
 PutCallRatioTool = _PutCallRatioToolClass() if _PutCallRatioToolClass else None
 
 
-def get_options_tools() -> List:
+def get_options_tools() -> list:
     """Return all available options flow tools for agent registration."""
     tools = []
     if OptionsFlowTool is not None:

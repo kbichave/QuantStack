@@ -36,16 +36,12 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
-from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Dict, List, Optional, Tuple
 
 import duckdb
 from loguru import logger
-
 
 # =============================================================================
 # CALIBRATION TRACKER
@@ -69,15 +65,13 @@ class CalibrationTracker:
 
     _lock = Lock()
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         if db_path is None:
-            db_path = os.getenv(
-                "CALIBRATION_DB_PATH", "~/.quant_pod/calibration.duckdb"
-            )
+            db_path = os.getenv("CALIBRATION_DB_PATH", "~/.quant_pod/calibration.duckdb")
 
         self.db_path = Path(db_path).expanduser()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: Optional[duckdb.DuckDBPyConnection] = None
+        self._conn: duckdb.DuckDBPyConnection | None = None
         self._init_schema()
         logger.info(f"CalibrationTracker initialized at {self.db_path}")
 
@@ -102,9 +96,7 @@ class CalibrationTracker:
                     recorded_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            self.conn.execute(
-                "CREATE SEQUENCE IF NOT EXISTS calibration_seq START 1"
-            )
+            self.conn.execute("CREATE SEQUENCE IF NOT EXISTS calibration_seq START 1")
 
     # -------------------------------------------------------------------------
     # Record
@@ -114,10 +106,10 @@ class CalibrationTracker:
         self,
         agent_name: str,
         stated_confidence: float,
-        was_correct: Optional[bool] = None,
-        symbol: Optional[str] = None,
-        action: Optional[str] = None,
-        pnl: Optional[float] = None,
+        was_correct: bool | None = None,
+        symbol: str | None = None,
+        action: str | None = None,
+        pnl: float | None = None,
     ) -> None:
         """
         Record the outcome of an agent prediction.
@@ -197,7 +189,7 @@ class CalibrationTracker:
     # Calibration report
     # -------------------------------------------------------------------------
 
-    def calibration_report(self, agent_name: str) -> Dict:
+    def calibration_report(self, agent_name: str) -> dict:
         """
         Generate a full calibration report for an agent.
 
@@ -237,12 +229,14 @@ class CalibrationTracker:
             bin_mid = (bin_idx + 0.5) / self.N_BINS  # Midpoint of bin
             bias = accuracy - bin_mid  # positive = underconfident, negative = overconfident
 
-            bins.append({
-                "stated_range": f"{bin_idx/self.N_BINS:.1f}-{(bin_idx+1)/self.N_BINS:.1f}",
-                "actual_accuracy": round(accuracy, 4),
-                "n_samples": n,
-                "bias": round(bias, 4),
-            })
+            bins.append(
+                {
+                    "stated_range": f"{bin_idx / self.N_BINS:.1f}-{(bin_idx + 1) / self.N_BINS:.1f}",
+                    "actual_accuracy": round(accuracy, 4),
+                    "n_samples": n,
+                    "bias": round(bias, 4),
+                }
+            )
 
             ece_sum += n * abs(bias)
             total_weighted += n
@@ -272,19 +266,17 @@ class CalibrationTracker:
             "verdict": verdict,
         }
 
-    def all_agents_summary(self) -> List[Dict]:
+    def all_agents_summary(self) -> list[dict]:
         """Summary of calibration for all agents."""
-        agents = self.conn.execute(
-            "SELECT DISTINCT agent_name FROM calibration_records"
-        ).fetchall()
+        agents = self.conn.execute("SELECT DISTINCT agent_name FROM calibration_records").fetchall()
         return [self.calibration_report(row[0]) for row in agents]
 
 
 # Singleton
-_calibration_tracker: Optional[CalibrationTracker] = None
+_calibration_tracker: CalibrationTracker | None = None
 
 
-def get_calibration_tracker(db_path: Optional[str] = None) -> CalibrationTracker:
+def get_calibration_tracker(db_path: str | None = None) -> CalibrationTracker:
     """Get the singleton CalibrationTracker instance."""
     global _calibration_tracker
     if _calibration_tracker is None:

@@ -4,27 +4,28 @@ RL Training infrastructure.
 Provides training loops, logging, and evaluation for RL agents.
 """
 
-from typing import Dict, List, Optional, Callable, Any
-from dataclasses import dataclass, field
-import numpy as np
-import pandas as pd
-from pathlib import Path
 import json
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
 from loguru import logger
 
 from quantcore.rl.base import (
+    Action,
+    Experience,
+    ReplayBuffer,
+    Reward,
     RLAgent,
     RLEnvironment,
     State,
-    Action,
-    Reward,
-    Experience,
-    ReplayBuffer,
 )
 
 try:
-    import torch
+    import torch  # noqa: F401
 
     TORCH_AVAILABLE = True
 except ImportError:
@@ -61,22 +62,22 @@ class TrainingConfig:
 
     # Logging
     log_interval: int = 100
-    tensorboard_log: Optional[str] = None
+    tensorboard_log: str | None = None
 
     # Checkpointing
     save_freq: int = 10000
-    save_path: Optional[str] = None
+    save_path: str | None = None
 
 
 @dataclass
 class TrainingMetrics:
     """Metrics collected during training."""
 
-    episode_rewards: List[float] = field(default_factory=list)
-    episode_lengths: List[int] = field(default_factory=list)
-    losses: Dict[str, List[float]] = field(default_factory=lambda: {})
-    eval_rewards: List[float] = field(default_factory=list)
-    timestamps: List[float] = field(default_factory=list)
+    episode_rewards: list[float] = field(default_factory=list)
+    episode_lengths: list[int] = field(default_factory=list)
+    losses: dict[str, list[float]] = field(default_factory=lambda: {})
+    eval_rewards: list[float] = field(default_factory=list)
+    timestamps: list[float] = field(default_factory=list)
 
     def add_episode(self, reward: float, length: int) -> None:
         """Add episode statistics."""
@@ -102,7 +103,7 @@ class TrainingMetrics:
             return 0.0
         return np.mean(self.episode_lengths[-n:])
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "episode_rewards": self.episode_rewards,
@@ -128,8 +129,8 @@ class RLTrainer:
         self,
         agent: RLAgent,
         env: RLEnvironment,
-        config: Optional[TrainingConfig] = None,
-        eval_env: Optional[RLEnvironment] = None,
+        config: TrainingConfig | None = None,
+        eval_env: RLEnvironment | None = None,
     ):
         """
         Initialize trainer.
@@ -159,7 +160,7 @@ class RLTrainer:
         self.current_episode = 0
         self.exploration_rate = self.config.exploration_initial
 
-    def train(self, callback: Optional[Callable] = None) -> TrainingMetrics:
+    def train(self, callback: Callable | None = None) -> TrainingMetrics:
         """
         Run training loop.
 
@@ -207,10 +208,7 @@ class RLTrainer:
             episode_length += 1
 
             # Train agent
-            if (
-                step >= self.config.learning_starts
-                and step % self.config.train_freq == 0
-            ):
+            if step >= self.config.learning_starts and step % self.config.train_freq == 0:
                 for _ in range(self.config.gradient_steps):
                     if self.buffer.is_ready(self.config.batch_size):
                         experiences = self.buffer.sample(self.config.batch_size)
@@ -249,7 +247,7 @@ class RLTrainer:
         logger.info("Training complete")
         return self.metrics
 
-    def evaluate(self, n_episodes: Optional[int] = None) -> float:
+    def evaluate(self, n_episodes: int | None = None) -> float:
         """
         Evaluate agent.
 
@@ -279,9 +277,7 @@ class RLTrainer:
         self.agent.train()
 
         mean_reward = np.mean(rewards)
-        logger.info(
-            f"Evaluation: mean reward = {mean_reward:.2f} (+/- {np.std(rewards):.2f})"
-        )
+        logger.info(f"Evaluation: mean reward = {mean_reward:.2f} (+/- {np.std(rewards):.2f})")
 
         return mean_reward
 
@@ -289,8 +285,7 @@ class RLTrainer:
         """Update exploration rate based on schedule."""
         fraction = min(
             1.0,
-            self.current_step
-            / (self.config.total_timesteps * self.config.exploration_fraction),
+            self.current_step / (self.config.total_timesteps * self.config.exploration_fraction),
         )
         self.exploration_rate = self.config.exploration_initial + fraction * (
             self.config.exploration_final - self.config.exploration_initial
@@ -373,7 +368,7 @@ class OnlineRLTrainer(RLTrainer):
         self,
         agent: RLAgent,
         env: RLEnvironment,
-        config: Optional[TrainingConfig] = None,
+        config: TrainingConfig | None = None,
     ):
         super().__init__(agent, env, config)
 
@@ -400,7 +395,7 @@ class OnlineRLTrainer(RLTrainer):
         reward: Reward,
         next_state: State,
         done: bool,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Update agent from single outcome.
 
@@ -426,9 +421,7 @@ class OnlineRLTrainer(RLTrainer):
 
         # Update if enough samples
         if self.buffer.is_ready(min(self.config.batch_size, len(self.buffer))):
-            experiences = self.buffer.sample(
-                min(self.config.batch_size, len(self.buffer))
-            )
+            experiences = self.buffer.sample(min(self.config.batch_size, len(self.buffer)))
             return self.agent.update(experiences)
 
         return {}
@@ -443,7 +436,7 @@ def evaluate_trading_agent(
     agent: RLAgent,
     env: RLEnvironment,
     n_episodes: int = 10,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Evaluate trading agent with trading-specific metrics.
 

@@ -13,7 +13,6 @@ from datetime import datetime
 
 import duckdb
 import pytest
-
 from quant_pod.monitoring.degradation_detector import (
     DegradationDetector,
     DegradationReport,
@@ -71,7 +70,7 @@ class TestBenchmarkRegistration:
         assert "test_strategy" in detector._benchmarks
 
     def test_register_sets_fields(self, detector):
-        bm = _register_benchmark(detector, sharpe=2.0, dd=0.10, wr=0.60)
+        _register_benchmark(detector, sharpe=2.0, dd=0.10, wr=0.60)
         stored = detector._benchmarks["test_strategy"]
         assert stored.predicted_annual_sharpe == 2.0
         assert stored.predicted_max_drawdown == 0.10
@@ -115,8 +114,10 @@ class TestClassify:
 
     def test_good_oos_is_ratio_is_clean(self, detector):
         bm = ISBenchmark(
-            strategy_id="s", predicted_annual_sharpe=2.0,
-            predicted_max_drawdown=0.08, predicted_win_rate=0.55,
+            strategy_id="s",
+            predicted_annual_sharpe=2.0,
+            predicted_max_drawdown=0.08,
+            predicted_win_rate=0.55,
         )
         status, findings, mult = detector._classify(
             live_sharpe=1.5,
@@ -131,8 +132,10 @@ class TestClassify:
 
     def test_low_oos_is_ratio_is_warning(self, detector):
         bm = ISBenchmark(
-            strategy_id="s", predicted_annual_sharpe=2.0,
-            predicted_max_drawdown=0.08, predicted_win_rate=0.55,
+            strategy_id="s",
+            predicted_annual_sharpe=2.0,
+            predicted_max_drawdown=0.08,
+            predicted_win_rate=0.55,
         )
         status, findings, mult = detector._classify(
             live_sharpe=0.8,
@@ -147,8 +150,10 @@ class TestClassify:
 
     def test_very_low_oos_is_ratio_is_critical(self, detector):
         bm = ISBenchmark(
-            strategy_id="s", predicted_annual_sharpe=2.0,
-            predicted_max_drawdown=0.08, predicted_win_rate=0.55,
+            strategy_id="s",
+            predicted_annual_sharpe=2.0,
+            predicted_max_drawdown=0.08,
+            predicted_win_rate=0.55,
         )
         status, findings, mult = detector._classify(
             live_sharpe=0.3,
@@ -163,15 +168,17 @@ class TestClassify:
 
     def test_drawdown_ratio_warning(self, detector):
         bm = ISBenchmark(
-            strategy_id="s", predicted_annual_sharpe=1.5,
-            predicted_max_drawdown=0.05, predicted_win_rate=0.55,
+            strategy_id="s",
+            predicted_annual_sharpe=1.5,
+            predicted_max_drawdown=0.05,
+            predicted_win_rate=0.55,
         )
         status, findings, mult = detector._classify(
             live_sharpe=1.2,
             live_win_rate=0.54,
-            live_max_dd=-0.12,   # actual 12% vs predicted 5%
+            live_max_dd=-0.12,  # actual 12% vs predicted 5%
             oos_is_ratio=0.8,
-            dd_ratio=2.4,        # > 2.0 → WARNING
+            dd_ratio=2.4,  # > 2.0 → WARNING
             benchmark=bm,
         )
         assert status == DegradationStatus.WARNING

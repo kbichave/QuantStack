@@ -16,10 +16,8 @@ import os
 import uuid
 
 import pytest
-
 from quant_pod.context import create_trading_context
 from quant_pod.execution.portfolio_state import Position
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -36,6 +34,7 @@ def ctx():
 @pytest.fixture
 def _inject_ctx(ctx):
     import quant_pod.mcp.server as srv
+
     original = srv._ctx
     srv._ctx = ctx
     yield ctx
@@ -288,8 +287,11 @@ class TestGetFills:
         from quant_pod.mcp.server import execute_trade, get_fills
 
         await _fn(execute_trade)(
-            symbol="SPY", action="buy", reasoning="fill test",
-            confidence=0.7, quantity=5,
+            symbol="SPY",
+            action="buy",
+            reasoning="fill test",
+            confidence=0.7,
+            quantity=5,
         )
 
         result = await _fn(get_fills)(symbol="SPY")

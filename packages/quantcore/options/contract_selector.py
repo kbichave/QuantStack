@@ -9,19 +9,16 @@ Implements the hybrid architecture from the plan:
 """
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from enum import Enum
-from typing import List, Optional, Tuple
 
 import pandas as pd
 from loguru import logger
 
 from quantcore.options.models import (
     OptionContract,
-    OptionType,
-    VerticalSpread,
-    OptionsPosition,
     OptionLeg,
+    OptionsPosition,
 )
 
 
@@ -54,7 +51,7 @@ class ContractSelectionResult:
     """Result of contract selection."""
 
     selected: bool
-    position: Optional[OptionsPosition] = None
+    position: OptionsPosition | None = None
     reason: str = ""
     structure_type: str = ""  # "LONG_CALL", "CALL_SPREAD", etc.
 
@@ -125,7 +122,7 @@ class ContractSelector:
         options_chain: pd.DataFrame,
         underlying_price: float,
         atr: float,
-        days_to_earnings: Optional[int] = None,
+        days_to_earnings: int | None = None,
         position_id: str = "",
         symbol: str = "",
     ) -> ContractSelectionResult:
@@ -225,9 +222,7 @@ class ContractSelector:
 
         df = options_chain.copy()
         if "expiry" in df.columns:
-            df["dte"] = (pd.to_datetime(df["expiry"]).dt.date - today).apply(
-                lambda x: x.days
-            )
+            df["dte"] = (pd.to_datetime(df["expiry"]).dt.date - today).apply(lambda x: x.days)
             df = df[(df["dte"] >= self.min_dte) & (df["dte"] <= self.max_dte)]
 
         return df
@@ -239,7 +234,7 @@ class ContractSelector:
         options_chain: pd.DataFrame,
         underlying_price: float,
         atr: float,
-        days_to_earnings: Optional[int],
+        days_to_earnings: int | None,
         position_id: str,
     ) -> ContractSelectionResult:
         """Select structure for bullish direction."""
@@ -275,7 +270,7 @@ class ContractSelector:
         options_chain: pd.DataFrame,
         underlying_price: float,
         atr: float,
-        days_to_earnings: Optional[int],
+        days_to_earnings: int | None,
         position_id: str,
     ) -> ContractSelectionResult:
         """Select structure for bearish direction."""
@@ -541,9 +536,9 @@ class ContractSelector:
 
     def check_earnings_gate(
         self,
-        days_to_earnings: Optional[int],
+        days_to_earnings: int | None,
         is_short_premium: bool = False,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Check if trade is blocked by earnings gate.
 

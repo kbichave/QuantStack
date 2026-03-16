@@ -6,8 +6,6 @@ throughout the trading system to avoid lookahead bias and data leakage.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional, Tuple
 
 import pandas as pd
 from loguru import logger
@@ -37,9 +35,7 @@ class TemporalSplit:
 
     @property
     def train_start(self) -> str:
-        return (
-            str(self.train_data.index[0].date()) if len(self.train_data) > 0 else "N/A"
-        )
+        return str(self.train_data.index[0].date()) if len(self.train_data) > 0 else "N/A"
 
     @property
     def val_start(self) -> str:
@@ -51,9 +47,7 @@ class TemporalSplit:
 
     @property
     def test_end_date(self) -> str:
-        return (
-            str(self.test_data.index[-1].date()) if len(self.test_data) > 0 else "N/A"
-        )
+        return str(self.test_data.index[-1].date()) if len(self.test_data) > 0 else "N/A"
 
     def to_dict(self) -> dict:
         """Return split info as dictionary for reporting."""
@@ -77,7 +71,7 @@ def get_temporal_splits(
     min_train_bars: int = 252,
     min_val_bars: int = 252,
     min_test_bars: int = 200,
-) -> Tuple[Optional[TemporalSplit], Optional[str]]:
+) -> tuple[TemporalSplit | None, str | None]:
     """
     Create proper 3-way temporal split with validation.
 
@@ -164,21 +158,21 @@ def validate_no_lookahead(
             logger.error(f"LOOKAHEAD DETECTED in {operation}!")
             logger.error(f"  Params selected on: {params_selected_on}")
             logger.error(f"  Test period starts: {test_start}")
-            logger.error(f"  This invalidates all test results!")
+            logger.error("  This invalidates all test results!")
             return False
 
         return True
     except Exception:
-        logger.warning(f"Could not parse dates for lookahead validation")
+        logger.warning("Could not parse dates for lookahead validation")
         return True
 
 
 def validate_data_integrity(
     data: pd.DataFrame,
-    required_columns: Optional[list] = None,
+    required_columns: list | None = None,
     check_gaps: bool = True,
     max_gap_days: int = 5,
-) -> Tuple[bool, list]:
+) -> tuple[bool, list]:
     """
     Validate data integrity for backtesting.
 
@@ -234,15 +228,9 @@ def print_split_info(split: TemporalSplit, title: str = "Temporal Split") -> Non
     print("=" * 60)
     print(f"  {title}")
     print("=" * 60)
-    print(
-        f"  Train:      {split.train_start} to {split.train_end} ({split.train_bars:,} bars)"
-    )
-    print(
-        f"  Validation: {split.val_start} to {split.val_end} ({split.val_bars:,} bars)"
-    )
-    print(
-        f"  Test:       {split.test_start} to {split.test_end_date} ({split.test_bars:,} bars)"
-    )
+    print(f"  Train:      {split.train_start} to {split.train_end} ({split.train_bars:,} bars)")
+    print(f"  Validation: {split.val_start} to {split.val_end} ({split.val_bars:,} bars)")
+    print(f"  Test:       {split.test_start} to {split.test_end_date} ({split.test_bars:,} bars)")
     print("=" * 60)
     print()
 
@@ -296,9 +284,7 @@ class LeakageDetector:
         self.violations = []
         self.bars_checked = 0
 
-    def check_bar(
-        self, current_idx: pd.Timestamp, data_accessed: pd.DatetimeIndex
-    ) -> bool:
+    def check_bar(self, current_idx: pd.Timestamp, data_accessed: pd.DatetimeIndex) -> bool:
         """
         Check if processing current bar accesses future data.
 

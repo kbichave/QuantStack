@@ -8,13 +8,11 @@ Implements Gann swing/pivot points and retracement levels:
 - Gann angles from swing points
 """
 
-from typing import List, Optional, Tuple
-import pandas as pd
 import numpy as np
-from loguru import logger
+import pandas as pd
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class GannFeatures(FeatureBase):
@@ -84,12 +82,8 @@ class GannFeatures(FeatureBase):
         result["gann_swing_low"] = swing_low
 
         # Get recent swing prices
-        result["gann_recent_high"] = self._get_recent_swing_price(
-            result["high"], swing_high
-        )
-        result["gann_recent_low"] = self._get_recent_swing_price(
-            result["low"], swing_low
-        )
+        result["gann_recent_high"] = self._get_recent_swing_price(result["high"], swing_high)
+        result["gann_recent_low"] = self._get_recent_swing_price(result["low"], swing_low)
 
         # Compute retracement levels
         result = self._compute_retracement_levels(result)
@@ -118,7 +112,7 @@ class GannFeatures(FeatureBase):
     def _detect_gann_swings(
         self,
         df: pd.DataFrame,
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """
         Detect Gann-style swing points using ATR threshold.
 
@@ -134,14 +128,12 @@ class GannFeatures(FeatureBase):
         swing_low = np.zeros(n, dtype=int)
 
         if n < 5:
-            return pd.Series(swing_high, index=df.index), pd.Series(
-                swing_low, index=df.index
-            )
+            return pd.Series(swing_high, index=df.index), pd.Series(swing_low, index=df.index)
 
         # Initialize
         last_swing_idx = 0
         last_swing_price = closes[0]
-        direction: Optional[str] = None
+        direction: str | None = None
 
         for i in range(1, n):
             if np.isnan(atr[i]) or atr[i] <= 0:
@@ -163,10 +155,7 @@ class GannFeatures(FeatureBase):
                     last_swing_price = highs[i]
                 else:
                     move_down = last_swing_price - lows[i]
-                    if (
-                        move_down >= threshold
-                        and (i - last_swing_idx) >= self.min_swing_bars
-                    ):
+                    if move_down >= threshold and (i - last_swing_idx) >= self.min_swing_bars:
                         swing_high[last_swing_idx] = 1
                         direction = "down"
                         last_swing_idx = i
@@ -177,10 +166,7 @@ class GannFeatures(FeatureBase):
                     last_swing_price = lows[i]
                 else:
                     move_up = highs[i] - last_swing_price
-                    if (
-                        move_up >= threshold
-                        and (i - last_swing_idx) >= self.min_swing_bars
-                    ):
+                    if move_up >= threshold and (i - last_swing_idx) >= self.min_swing_bars:
                         swing_low[last_swing_idx] = 1
                         direction = "up"
                         last_swing_idx = i
@@ -230,15 +216,9 @@ class GannFeatures(FeatureBase):
         close = result["close"]
 
         # Distance to each level (percentage)
-        result["gann_dist_to_382"] = (
-            (close - result["gann_retracement_382"]) / close * 100
-        )
-        result["gann_dist_to_500"] = (
-            (close - result["gann_retracement_500"]) / close * 100
-        )
-        result["gann_dist_to_618"] = (
-            (close - result["gann_retracement_618"]) / close * 100
-        )
+        result["gann_dist_to_382"] = (close - result["gann_retracement_382"]) / close * 100
+        result["gann_dist_to_500"] = (close - result["gann_retracement_500"]) / close * 100
+        result["gann_dist_to_618"] = (close - result["gann_retracement_618"]) / close * 100
 
         # Distance to nearest retracement level
         distances = pd.concat(
@@ -254,9 +234,7 @@ class GannFeatures(FeatureBase):
         # Position relative to swing range (0 = at low, 100 = at high)
         swing_range = result["gann_recent_high"] - result["gann_recent_low"]
         swing_range_safe = swing_range.replace(0, np.nan)
-        result["gann_range_position"] = (
-            (close - result["gann_recent_low"]) / swing_range_safe * 100
-        )
+        result["gann_range_position"] = (close - result["gann_recent_low"]) / swing_range_safe * 100
 
         return result
 
@@ -280,9 +258,7 @@ class GannFeatures(FeatureBase):
         bars_low = result["gann_bars_since_swing_low"]
 
         # Average swing duration (rolling)
-        avg_swing_duration = (
-            bars_high.rolling(20).mean() + bars_low.rolling(20).mean()
-        ) / 2
+        avg_swing_duration = (bars_high.rolling(20).mean() + bars_low.rolling(20).mean()) / 2
         avg_swing_duration_safe = avg_swing_duration.replace(0, np.nan)
 
         # Time ratio: current bars / average swing duration
@@ -290,12 +266,8 @@ class GannFeatures(FeatureBase):
         result["gann_time_ratio_low"] = bars_low / avg_swing_duration_safe
 
         # Time exhaustion signals (>1.5 means extended)
-        result["gann_time_extended_high"] = (
-            result["gann_time_ratio_high"] > 1.5
-        ).astype(int)
-        result["gann_time_extended_low"] = (result["gann_time_ratio_low"] > 1.5).astype(
-            int
-        )
+        result["gann_time_extended_high"] = (result["gann_time_ratio_high"] > 1.5).astype(int)
+        result["gann_time_extended_low"] = (result["gann_time_ratio_low"] > 1.5).astype(int)
 
         return result
 
@@ -363,12 +335,8 @@ class GannFeatures(FeatureBase):
 
         # 1x1 angle: expected price at current time if 1:1 ratio
         result["gann_1x1_from_low"] = result["gann_recent_low"] + (bars_from_low * atr)
-        result["gann_2x1_from_low"] = result["gann_recent_low"] + (
-            bars_from_low * atr * 2
-        )
-        result["gann_1x2_from_low"] = result["gann_recent_low"] + (
-            bars_from_low * atr * 0.5
-        )
+        result["gann_2x1_from_low"] = result["gann_recent_low"] + (bars_from_low * atr * 2)
+        result["gann_1x2_from_low"] = result["gann_recent_low"] + (bars_from_low * atr * 0.5)
 
         # Price relative to Gann angles (positive = above angle)
         result["gann_vs_1x1_low"] = (close - result["gann_1x1_from_low"]) / atr_safe
@@ -377,17 +345,11 @@ class GannFeatures(FeatureBase):
 
         # Calculate angles from swing high (downward)
         bars_from_high = result["gann_bars_since_swing_high"]
-        bars_from_high_safe = bars_from_high.replace(0, np.nan)
+        bars_from_high.replace(0, np.nan)
 
-        result["gann_1x1_from_high"] = result["gann_recent_high"] - (
-            bars_from_high * atr
-        )
-        result["gann_2x1_from_high"] = result["gann_recent_high"] - (
-            bars_from_high * atr * 2
-        )
-        result["gann_1x2_from_high"] = result["gann_recent_high"] - (
-            bars_from_high * atr * 0.5
-        )
+        result["gann_1x1_from_high"] = result["gann_recent_high"] - (bars_from_high * atr)
+        result["gann_2x1_from_high"] = result["gann_recent_high"] - (bars_from_high * atr * 2)
+        result["gann_1x2_from_high"] = result["gann_recent_high"] - (bars_from_high * atr * 0.5)
 
         result["gann_vs_1x1_high"] = (close - result["gann_1x1_from_high"]) / atr_safe
         result["gann_vs_2x1_high"] = (close - result["gann_2x1_from_high"]) / atr_safe
@@ -405,15 +367,9 @@ class GannFeatures(FeatureBase):
         # Near retracement level (within 1% of price)
         threshold = 1.0  # 1%
 
-        result["gann_near_382"] = (result["gann_dist_to_382"].abs() < threshold).astype(
-            int
-        )
-        result["gann_near_500"] = (result["gann_dist_to_500"].abs() < threshold).astype(
-            int
-        )
-        result["gann_near_618"] = (result["gann_dist_to_618"].abs() < threshold).astype(
-            int
-        )
+        result["gann_near_382"] = (result["gann_dist_to_382"].abs() < threshold).astype(int)
+        result["gann_near_500"] = (result["gann_dist_to_500"].abs() < threshold).astype(int)
+        result["gann_near_618"] = (result["gann_dist_to_618"].abs() < threshold).astype(int)
 
         # Any retracement level
         result["gann_near_any_level"] = (
@@ -447,7 +403,7 @@ class GannFeatures(FeatureBase):
             result[name] = np.nan
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of Gann feature names."""
         return [
             # Swing detection

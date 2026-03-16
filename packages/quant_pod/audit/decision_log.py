@@ -42,16 +42,13 @@ import hashlib
 import json
 import os
 import uuid
-from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import List, Optional
 
 import duckdb
 from loguru import logger
 
 from quant_pod.audit.models import AuditQuery, DecisionEvent, IndicatorAttribution, ToolCall
-
 
 # =============================================================================
 # DECISION LOG
@@ -72,15 +69,15 @@ class DecisionLog:
 
     def __init__(
         self,
-        conn: Optional[duckdb.DuckDBPyConnection] = None,
-        db_path: Optional[str] = None,
+        conn: duckdb.DuckDBPyConnection | None = None,
+        db_path: str | None = None,
     ):
         # Instance-level lock so multiple DecisionLog objects don't share state
         self._lock = Lock()
 
         if conn is not None:
             # Injected connection — schema already migrated by db.run_migrations()
-            self._conn: Optional[duckdb.DuckDBPyConnection] = conn
+            self._conn: duckdb.DuckDBPyConnection | None = conn
             self.db_path = Path(":memory:")
         else:
             # Legacy standalone mode: open own file
@@ -187,7 +184,7 @@ class DecisionLog:
     # Read
     # -------------------------------------------------------------------------
 
-    def query(self, q: AuditQuery) -> List[DecisionEvent]:
+    def query(self, q: AuditQuery) -> list[DecisionEvent]:
         """Query the audit log with filters."""
         conditions = []
         params = []
@@ -218,21 +215,20 @@ class DecisionLog:
         params.append(q.limit)
 
         rows = self.conn.execute(
-            f"SELECT * FROM decision_events WHERE {where} "
-            f"ORDER BY created_at DESC LIMIT ?",
+            f"SELECT * FROM decision_events WHERE {where} ORDER BY created_at DESC LIMIT ?",
             params,
         ).fetchall()
 
         return [self._row_to_event(r) for r in rows]
 
-    def get_event(self, event_id: str) -> Optional[DecisionEvent]:
+    def get_event(self, event_id: str) -> DecisionEvent | None:
         """Fetch a single event by ID."""
         row = self.conn.execute(
             "SELECT * FROM decision_events WHERE event_id = ?", [event_id]
         ).fetchone()
         return self._row_to_event(row) if row else None
 
-    def get_decision_trace(self, event_id: str) -> List[DecisionEvent]:
+    def get_decision_trace(self, event_id: str) -> list[DecisionEvent]:
         """
         Return the full decision chain leading to an event.
 
@@ -341,10 +337,10 @@ def make_trade_event(
     confidence: float,
     reasoning: str,
     output_structured: dict,
-    parent_event_ids: Optional[List[str]] = None,
-    risk_approved: Optional[bool] = None,
-    risk_violations: Optional[List[str]] = None,
-    latency_ms: Optional[int] = None,
+    parent_event_ids: list[str] | None = None,
+    risk_approved: bool | None = None,
+    risk_violations: list[str] | None = None,
+    latency_ms: int | None = None,
 ) -> DecisionEvent:
     """Build a DecisionEvent for a trade decision."""
     return DecisionEvent(
@@ -372,8 +368,8 @@ def make_analysis_event(
     symbol: str,
     summary: str,
     output_structured: dict,
-    parent_event_ids: Optional[List[str]] = None,
-    confidence: Optional[float] = None,
+    parent_event_ids: list[str] | None = None,
+    confidence: float | None = None,
 ) -> DecisionEvent:
     """Build a DecisionEvent for an IC analysis or pod synthesis."""
     return DecisionEvent(
@@ -392,8 +388,8 @@ def make_analysis_event(
 
 def extract_indicator_attributions(
     market_data_snapshot: dict,
-    action: Optional[str] = None,
-) -> List[IndicatorAttribution]:
+    action: str | None = None,
+) -> list[IndicatorAttribution]:
     """
     Derive SHAP-style indicator attributions from a market data snapshot.
 
@@ -407,14 +403,20 @@ def extract_indicator_attributions(
     Rules are intentionally simple and deterministic — no ML required.
     Purpose is explainability, not prediction.
     """
-    attrs: List[IndicatorAttribution] = []
+    attrs: list[IndicatorAttribution] = []
 
-    def _attr(ind: str, value: float, signal: str, weight: float, threshold: Optional[float] = None) -> None:
-        attrs.append(IndicatorAttribution(
-            indicator=ind, value=round(value, 4),
-            signal=signal, weight=round(min(max(weight, 0.0), 1.0), 4),
-            threshold=threshold,
-        ))
+    def _attr(
+        ind: str, value: float, signal: str, weight: float, threshold: float | None = None
+    ) -> None:
+        attrs.append(
+            IndicatorAttribution(
+                indicator=ind,
+                value=round(value, 4),
+                signal=signal,
+                weight=round(min(max(weight, 0.0), 1.0), 4),
+                threshold=threshold,
+            )
+        )
 
     # RSI (14 or any period)
     for key in ("RSI_14", "RSI_9", "RSI_21", "RSI"):
@@ -458,7 +460,9 @@ def extract_indicator_attributions(
     vol_ratio = market_data_snapshot.get("volume_ratio") or market_data_snapshot.get("vol_ratio")
     if vol_ratio is not None:
         if vol_ratio > 1.5:
-            _attr("volume_ratio", vol_ratio, "bullish", min((vol_ratio - 1) / 2, 1.0), threshold=1.5)
+            _attr(
+                "volume_ratio", vol_ratio, "bullish", min((vol_ratio - 1) / 2, 1.0), threshold=1.5
+            )
         elif vol_ratio < 0.5:
             _attr("volume_ratio", vol_ratio, "bearish", (1 - vol_ratio), threshold=0.5)
         else:
@@ -474,10 +478,10 @@ def extract_indicator_attributions(
 
 
 # Singleton
-_decision_log: Optional[DecisionLog] = None
+_decision_log: DecisionLog | None = None
 
 
-def get_decision_log(db_path: Optional[str] = None) -> DecisionLog:
+def get_decision_log(db_path: str | None = None) -> DecisionLog:
     """Get the singleton DecisionLog instance."""
     global _decision_log
     if _decision_log is None:

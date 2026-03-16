@@ -4,13 +4,13 @@ Relative Rotation Graph (RRG) features.
 Measures relative strength and momentum vs a benchmark for cross-sectional analysis.
 """
 
-from typing import List, Literal, Optional
-import pandas as pd
+from typing import Literal
+
 import numpy as np
+import pandas as pd
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
-
+from quantcore.features.base import FeatureBase
 
 # RRG Quadrant definitions
 RRGQuadrant = Literal["LEADING", "WEAKENING", "LAGGING", "IMPROVING"]
@@ -49,7 +49,7 @@ class RRGFeatures(FeatureBase):
     def compute(
         self,
         df: pd.DataFrame,
-        benchmark_df: Optional[pd.DataFrame] = None,
+        benchmark_df: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
         Compute RRG features.
@@ -85,9 +85,7 @@ class RRGFeatures(FeatureBase):
 
         # RS Momentum: Rate of change of RS Ratio
         rs_momentum_raw = rs_ratio - rs_ratio.shift(self.RS_MOMENTUM_PERIOD)
-        rs_momentum = self._normalize_rs_momentum(
-            rs_momentum_raw, self.normalize_period
-        )
+        rs_momentum = self._normalize_rs_momentum(rs_momentum_raw, self.normalize_period)
         result["rs_momentum"] = rs_momentum
 
         # RRG Quadrant classification
@@ -102,9 +100,7 @@ class RRGFeatures(FeatureBase):
         # Rotation metrics
         result["rrg_distance"] = self._compute_distance(rs_ratio, rs_momentum)
         result["rrg_angle"] = self._compute_angle(rs_ratio, rs_momentum)
-        result["rrg_rotation_speed"] = self._compute_rotation_speed(
-            rs_ratio, rs_momentum
-        )
+        result["rrg_rotation_speed"] = self._compute_rotation_speed(rs_ratio, rs_momentum)
 
         # RS Ratio trend
         result["rs_ratio_trend"] = np.where(
@@ -122,14 +118,10 @@ class RRGFeatures(FeatureBase):
 
         # Quadrant transition (is quadrant changing?)
         prev_quadrant = result["rrg_quadrant"].shift(1)
-        result["rrg_quadrant_change"] = (
-            result["rrg_quadrant"] != prev_quadrant
-        ).astype(int)
+        result["rrg_quadrant_change"] = (result["rrg_quadrant"] != prev_quadrant).astype(int)
 
         # Favorable quadrant for long trades
-        result["rrg_long_favorable"] = (
-            result["rrg_leading"] | result["rrg_improving"]
-        ).astype(int)
+        result["rrg_long_favorable"] = (result["rrg_leading"] | result["rrg_improving"]).astype(int)
 
         return result
 
@@ -163,9 +155,7 @@ class RRGFeatures(FeatureBase):
         """
         Normalize RS Momentum to oscillate around 100.
         """
-        rolling_mean = rs_momentum.rolling(
-            window=period, min_periods=period // 2
-        ).mean()
+        rolling_mean = rs_momentum.rolling(window=period, min_periods=period // 2).mean()
         rolling_std = rs_momentum.rolling(window=period, min_periods=period // 2).std()
 
         rolling_std = rolling_std.replace(0, np.nan)
@@ -243,7 +233,7 @@ class RRGFeatures(FeatureBase):
         angle = self._compute_angle(rs_ratio, rs_momentum)
         return angle.diff(5)  # 5-period angular change
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of RRG feature names."""
         return [
             "rs_ratio",

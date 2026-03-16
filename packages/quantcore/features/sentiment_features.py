@@ -9,13 +9,12 @@ Reusable sentiment feature engineering for any asset class:
 - Missing data handling with neutral imputation
 """
 
-from typing import List, Optional
-import pandas as pd
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.features.base import FeatureBase
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.base import FeatureBase
 
 
 class SentimentFeatures(FeatureBase):
@@ -36,8 +35,8 @@ class SentimentFeatures(FeatureBase):
     def __init__(
         self,
         timeframe: Timeframe,
-        rolling_windows: List[int] = None,
-        decay_halflifes: List[int] = None,
+        rolling_windows: list[int] = None,
+        decay_halflifes: list[int] = None,
     ):
         """
         Initialize sentiment features calculator.
@@ -55,7 +54,7 @@ class SentimentFeatures(FeatureBase):
     def compute(
         self,
         df: pd.DataFrame,
-        news_data: Optional[pd.DataFrame] = None,
+        news_data: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
         Compute sentiment features.
@@ -151,9 +150,7 @@ class SentimentFeatures(FeatureBase):
         daily = news_df.groupby("date").agg(agg_dict)
 
         # Flatten column names
-        daily.columns = [
-            f"{col}_{stat}" if stat != "mean" else col for col, stat in daily.columns
-        ]
+        daily.columns = [f"{col}_{stat}" if stat != "mean" else col for col, stat in daily.columns]
 
         # Rename columns
         column_mapping = {
@@ -176,12 +173,8 @@ class SentimentFeatures(FeatureBase):
                 .apply(
                     lambda x: pd.Series(
                         {
-                            "bullish": (
-                                (x == "Bullish").sum() / len(x) if len(x) > 0 else 0
-                            ),
-                            "bearish": (
-                                (x == "Bearish").sum() / len(x) if len(x) > 0 else 0
-                            ),
+                            "bullish": ((x == "Bullish").sum() / len(x) if len(x) > 0 else 0),
+                            "bearish": ((x == "Bearish").sum() / len(x) if len(x) > 0 else 0),
                         }
                     )
                 )
@@ -274,9 +267,7 @@ class SentimentFeatures(FeatureBase):
 
         for window in self.rolling_windows:
             # Moving average
-            result[f"news_sentiment_ma_{window}d"] = sentiment.rolling(
-                window, min_periods=1
-            ).mean()
+            result[f"news_sentiment_ma_{window}d"] = sentiment.rolling(window, min_periods=1).mean()
 
             # Rolling volatility
             result[f"news_sentiment_vol_{window}d"] = (
@@ -365,9 +356,7 @@ class SentimentFeatures(FeatureBase):
             change = result["news_sentiment_change_1d"]
             change_std = change.rolling(30, min_periods=5).std()
             change_std_safe = change_std.replace(0, np.nan)
-            result["news_sentiment_spike"] = (
-                (change.abs() / change_std_safe) > 2
-            ).astype(int)
+            result["news_sentiment_spike"] = ((change.abs() / change_std_safe) > 2).astype(int)
 
         # Sentiment divergence from count (high count but neutral sentiment)
         if "news_count" in result.columns:
@@ -375,9 +364,7 @@ class SentimentFeatures(FeatureBase):
             count_ma = count.rolling(14, min_periods=1).mean()
             high_volume = count > count_ma * 1.5
             neutral_sentiment = sentiment.abs() < 0.1
-            result["news_volume_divergence"] = (high_volume & neutral_sentiment).astype(
-                int
-            )
+            result["news_volume_divergence"] = (high_volume & neutral_sentiment).astype(int)
 
         return result
 
@@ -392,19 +379,14 @@ class SentimentFeatures(FeatureBase):
                 result[name] = 0
             elif name in ["news_bullish_ratio", "news_bearish_ratio"]:
                 result[name] = 0.5
-            elif (
-                "spike" in name
-                or "extreme" in name
-                or "reversal" in name
-                or "divergence" in name
-            ):
+            elif "spike" in name or "extreme" in name or "reversal" in name or "divergence" in name:
                 result[name] = 0
             else:
                 result[name] = 0.0
 
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of sentiment feature names."""
         features = [
             # Daily aggregates

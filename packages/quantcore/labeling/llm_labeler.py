@@ -10,10 +10,10 @@ For production, labels should be generated externally (via MCP, separate script,
 and stored in a file for the labeler to load.
 """
 
-from typing import Optional, Dict, Tuple
 from pathlib import Path
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 
@@ -33,7 +33,7 @@ class LLMLabelProvider:
 
     def __init__(
         self,
-        label_file_path: Optional[str] = None,
+        label_file_path: str | None = None,
         use_mock: bool = True,
     ):
         """
@@ -45,7 +45,7 @@ class LLMLabelProvider:
         """
         self.label_file_path = label_file_path
         self.use_mock = use_mock
-        self.labels_df: Optional[pd.DataFrame] = None
+        self.labels_df: pd.DataFrame | None = None
 
         # Try to load labels from file
         if label_file_path is not None:
@@ -78,9 +78,7 @@ class LLMLabelProvider:
 
             # Validate required columns
             required_cols = ["label_llm_quality", "label_llm_type"]
-            missing_cols = [
-                col for col in required_cols if col not in self.labels_df.columns
-            ]
+            missing_cols = [col for col in required_cols if col not in self.labels_df.columns]
             if missing_cols:
                 logger.error(f"Missing required columns in label file: {missing_cols}")
                 self.labels_df = None
@@ -279,7 +277,7 @@ class LLMLabelProvider:
     def get_label_statistics(
         self,
         df: pd.DataFrame,
-    ) -> Dict[str, any]:
+    ) -> dict[str, any]:
         """
         Get statistics about LLM labels.
 

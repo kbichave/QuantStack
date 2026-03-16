@@ -5,12 +5,12 @@ Implements the core MR logic: Z-score stretch + reversion confirmation.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Literal
+from typing import Literal
+
 import pandas as pd
-import numpy as np
 from loguru import logger
 
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_PARAMS
+from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
 
 
 @dataclass
@@ -49,7 +49,7 @@ class MeanReversionRules:
     def __init__(
         self,
         timeframe: Timeframe,
-        zscore_threshold: Optional[float] = None,
+        zscore_threshold: float | None = None,
         reversion_delta: float = 0.2,
         require_price_confirmation: bool = True,
     ):
@@ -250,9 +250,7 @@ class MeanReversionRules:
 
             if signal.triggered:
                 result.iloc[i, result.columns.get_loc("mr_signal")] = 1
-                result.iloc[i, result.columns.get_loc("mr_direction")] = (
-                    signal.direction
-                )
+                result.iloc[i, result.columns.get_loc("mr_direction")] = signal.direction
                 result.iloc[i, result.columns.get_loc("mr_strength")] = signal.strength
 
         return result

@@ -15,15 +15,15 @@ Usage:
     df = fundamentals_features.compute(df, symbol="AAPL")
 """
 
-from datetime import datetime, date, timedelta
-from typing import Optional, Dict, Any, List
-import pandas as pd
+from typing import Any
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
+from quantcore.config.timeframes import Timeframe
 from quantcore.data.options_storage import OptionsDataStore, get_options_store
 from quantcore.features.base import FeatureBase
-from quantcore.config.timeframes import Timeframe
 
 
 class EarningsFeatures(FeatureBase):
@@ -41,7 +41,7 @@ class EarningsFeatures(FeatureBase):
 
     def __init__(
         self,
-        store: Optional[OptionsDataStore] = None,
+        store: OptionsDataStore | None = None,
         timeframe: Timeframe = Timeframe.D1,
         earnings_window_days: int = 5,
     ):
@@ -60,8 +60,8 @@ class EarningsFeatures(FeatureBase):
     def compute(
         self,
         df: pd.DataFrame,
-        symbol: Optional[str] = None,
-        earnings_data: Optional[pd.DataFrame] = None,
+        symbol: str | None = None,
+        earnings_data: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
         Compute earnings features.
@@ -139,13 +139,9 @@ class EarningsFeatures(FeatureBase):
                 last_row = earnings_data[earnings_data["report_date"] == last_earnings]
                 if not last_row.empty:
                     if "surprise" in last_row.columns:
-                        result.loc[idx, "earn_last_surprise"] = last_row[
-                            "surprise"
-                        ].iloc[0]
+                        result.loc[idx, "earn_last_surprise"] = last_row["surprise"].iloc[0]
                     if "surprise_pct" in last_row.columns:
-                        result.loc[idx, "earn_last_surprise_pct"] = last_row[
-                            "surprise_pct"
-                        ].iloc[0]
+                        result.loc[idx, "earn_last_surprise_pct"] = last_row["surprise_pct"].iloc[0]
 
             # Earnings volatility factor
             # IV typically expands ~2x in week before earnings
@@ -157,7 +153,7 @@ class EarningsFeatures(FeatureBase):
 
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of feature names."""
         return [
             "earn_days_to",
@@ -187,7 +183,7 @@ class FundamentalFeatures(FeatureBase):
 
     def __init__(
         self,
-        store: Optional[OptionsDataStore] = None,
+        store: OptionsDataStore | None = None,
         timeframe: Timeframe = Timeframe.D1,
     ):
         """
@@ -201,13 +197,13 @@ class FundamentalFeatures(FeatureBase):
         self.store = store or get_options_store()
 
         # Cache for fundamentals (don't need to reload every bar)
-        self._fundamentals_cache: Dict[str, Dict[str, Any]] = {}
+        self._fundamentals_cache: dict[str, dict[str, Any]] = {}
 
     def compute(
         self,
         df: pd.DataFrame,
-        symbol: Optional[str] = None,
-        fundamentals: Optional[Dict[str, Any]] = None,
+        symbol: str | None = None,
+        fundamentals: dict[str, Any] | None = None,
     ) -> pd.DataFrame:
         """
         Compute fundamental features.
@@ -287,7 +283,7 @@ class FundamentalFeatures(FeatureBase):
 
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of feature names."""
         return [
             "fund_pe_ratio",
@@ -317,7 +313,7 @@ class CombinedFundamentalFeatures:
 
     def __init__(
         self,
-        store: Optional[OptionsDataStore] = None,
+        store: OptionsDataStore | None = None,
         timeframe: Timeframe = Timeframe.D1,
         earnings_window_days: int = 5,
     ):
@@ -330,17 +326,15 @@ class CombinedFundamentalFeatures:
             earnings_window_days: Days before/after earnings to flag
         """
         self.store = store or get_options_store()
-        self.earnings_features = EarningsFeatures(
-            store, timeframe, earnings_window_days
-        )
+        self.earnings_features = EarningsFeatures(store, timeframe, earnings_window_days)
         self.fundamental_features = FundamentalFeatures(store, timeframe)
 
     def compute(
         self,
         df: pd.DataFrame,
         symbol: str,
-        earnings_data: Optional[pd.DataFrame] = None,
-        fundamentals: Optional[Dict[str, Any]] = None,
+        earnings_data: pd.DataFrame | None = None,
+        fundamentals: dict[str, Any] | None = None,
     ) -> pd.DataFrame:
         """
         Compute all fundamental and earnings features.
@@ -383,14 +377,12 @@ class CombinedFundamentalFeatures:
 
             # Sigmoid-like expansion curve
             # Max expansion at 0 days, tapering to 1.0 at 14+ days
-            expansion = np.where(
-                days_to.isna(), 1.0, 1.0 + np.maximum(0, 1.0 - days_to / 14) * 1.5
-            )
+            expansion = np.where(days_to.isna(), 1.0, 1.0 + np.maximum(0, 1.0 - days_to / 14) * 1.5)
             result["earn_pre_iv_expansion"] = expansion
 
         return result
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Return list of all feature names."""
         return (
             self.earnings_features.get_feature_names()
@@ -402,8 +394,8 @@ class CombinedFundamentalFeatures:
 def fetch_and_store_fundamentals(
     symbol: str,
     fetcher,  # AlphaVantageClient
-    store: Optional[OptionsDataStore] = None,
-) -> Dict[str, Any]:
+    store: OptionsDataStore | None = None,
+) -> dict[str, Any]:
     """
     Fetch company fundamentals and store in options database.
 
@@ -431,7 +423,7 @@ def fetch_and_store_fundamentals(
 def fetch_and_store_earnings(
     symbol: str,
     fetcher,  # AlphaVantageClient
-    store: Optional[OptionsDataStore] = None,
+    store: OptionsDataStore | None = None,
     horizon: str = "12month",
 ) -> int:
     """
@@ -461,10 +453,10 @@ def fetch_and_store_earnings(
 
 
 def update_fundamentals_batch(
-    symbols: List[str],
+    symbols: list[str],
     fetcher,  # AlphaVantageClient
-    store: Optional[OptionsDataStore] = None,
-) -> Dict[str, bool]:
+    store: OptionsDataStore | None = None,
+) -> dict[str, bool]:
     """
     Update fundamentals for multiple symbols.
 

@@ -30,15 +30,13 @@ Reconciliation:
 from __future__ import annotations
 
 import os
-from datetime import datetime, date
-from pathlib import Path
+from datetime import date, datetime
 from threading import RLock
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import duckdb
 from loguru import logger
 from pydantic import BaseModel, Field
-
 
 # =============================================================================
 # DATA MODELS
@@ -108,10 +106,10 @@ class PortfolioState:
 
     def __init__(
         self,
-        conn: Optional[duckdb.DuckDBPyConnection] = None,
+        conn: duckdb.DuckDBPyConnection | None = None,
         initial_cash: float = 100_000.0,
         # Legacy parameter kept for backward compatibility — ignored when conn is provided
-        db_path: Optional[str] = None,
+        db_path: str | None = None,
     ):
         # RLock (reentrant) because upsert_position() calls get_position() under the lock
         self._lock = RLock()
@@ -123,6 +121,7 @@ class PortfolioState:
         else:
             # Fall back to own file for backward compatibility
             from quant_pod.db import open_db, run_migrations
+
             if db_path is None:
                 db_path = os.getenv("PORTFOLIO_DB_PATH", "~/.quant_pod/trader.duckdb")
             self._conn = open_db(db_path)
@@ -142,9 +141,7 @@ class PortfolioState:
     def _seed_cash(self) -> None:
         """Insert initial cash row if the table is empty (first run)."""
         with self._lock:
-            existing = self._conn.execute(
-                "SELECT COUNT(*) FROM cash_balance"
-            ).fetchone()[0]
+            existing = self._conn.execute("SELECT COUNT(*) FROM cash_balance").fetchone()[0]
             if existing == 0:
                 self._conn.execute(
                     "INSERT INTO cash_balance (id, cash) VALUES (1, ?)",
@@ -155,7 +152,7 @@ class PortfolioState:
     # Positions
     # -------------------------------------------------------------------------
 
-    def get_positions(self) -> List[Position]:
+    def get_positions(self) -> list[Position]:
         """Return all open positions."""
         with self._lock:
             rows = self.conn.execute(
@@ -176,7 +173,7 @@ class PortfolioState:
             for r in rows
         ]
 
-    def get_position(self, symbol: str) -> Optional[Position]:
+    def get_position(self, symbol: str) -> Position | None:
         """Return a single position or None."""
         with self._lock:
             row = self.conn.execute(
@@ -236,8 +233,7 @@ class PortfolioState:
                     logger.info(f"[PORTFOLIO] Position {pos.symbol} netted to zero")
                     return
                 new_avg = (
-                    (existing.avg_cost * existing.quantity)
-                    + (pos.avg_cost * pos.quantity)
+                    (existing.avg_cost * existing.quantity) + (pos.avg_cost * pos.quantity)
                 ) / total_qty
                 self.conn.execute(
                     """
@@ -312,11 +308,9 @@ class PortfolioState:
                 )
                 return
 
-        logger.info(
-            f"[PORTFOLIO] Upserted {pos.symbol}: {pos.quantity} @ {pos.avg_cost:.2f}"
-        )
+        logger.info(f"[PORTFOLIO] Upserted {pos.symbol}: {pos.quantity} @ {pos.avg_cost:.2f}")
 
-    def update_prices(self, prices: Dict[str, float]) -> None:
+    def update_prices(self, prices: dict[str, float]) -> None:
         """Mark-to-market: update current_price and unrealized_pnl for all positions."""
         with self._lock:
             for symbol, price in prices.items():
@@ -332,8 +326,8 @@ class PortfolioState:
                 )
 
     def close_position(
-        self, symbol: str, exit_price: float, quantity: Optional[int] = None
-    ) -> Optional[ClosedTrade]:
+        self, symbol: str, exit_price: float, quantity: int | None = None
+    ) -> ClosedTrade | None:
         """
         Close all or part of a position and record realized P&L.
 
@@ -392,8 +386,7 @@ class PortfolioState:
                 )
 
             logger.info(
-                f"[PORTFOLIO] Closed {close_qty} {symbol} @ {exit_price:.2f} "
-                f"| P&L: {realized:+.2f}"
+                f"[PORTFOLIO] Closed {close_qty} {symbol} @ {exit_price:.2f} | P&L: {realized:+.2f}"
             )
             return closed
 
@@ -430,7 +423,7 @@ class PortfolioState:
             ).fetchone()
         return float(row[0])
 
-    def get_daily_pnl(self, for_date: Optional[date] = None) -> float:
+    def get_daily_pnl(self, for_date: date | None = None) -> float:
         """Realized P&L for a specific date (defaults to today)."""
         d = for_date or date.today()
         with self._lock:
@@ -458,9 +451,7 @@ class PortfolioState:
         total_equity = cash + positions_value
         largest_pct = 0.0
         if total_equity > 0 and positions:
-            largest_pct = max(
-                abs(p.quantity) * p.current_price / total_equity for p in positions
-            )
+            largest_pct = max(abs(p.quantity) * p.current_price / total_equity for p in positions)
         return PortfolioSnapshot(
             cash=cash,
             positions_value=positions_value,
@@ -525,7 +516,7 @@ class PortfolioState:
     # Reconciliation
     # -------------------------------------------------------------------------
 
-    def reconcile(self, broker_positions: List[Dict[str, Any]]) -> List[str]:
+    def reconcile(self, broker_positions: list[dict[str, Any]]) -> list[str]:
         """
         Compare DB state to broker-reported positions.
 
@@ -542,9 +533,7 @@ class PortfolioState:
         # DB positions not in broker
         for symbol, db_pos in db_positions.items():
             if symbol not in broker_map:
-                mismatches.append(
-                    f"DB has {db_pos.quantity} {symbol} but broker shows none"
-                )
+                mismatches.append(f"DB has {db_pos.quantity} {symbol} but broker shows none")
             else:
                 bp = broker_map[symbol]
                 if abs(db_pos.quantity - bp["quantity"]) > 0:
@@ -555,9 +544,7 @@ class PortfolioState:
         # Broker positions not in DB
         for symbol, bp in broker_map.items():
             if symbol not in db_positions:
-                mismatches.append(
-                    f"Broker has {bp['quantity']} {symbol} but DB shows none"
-                )
+                mismatches.append(f"Broker has {bp['quantity']} {symbol} but DB shows none")
 
         if mismatches:
             logger.warning(f"[PORTFOLIO] Reconciliation found {len(mismatches)} mismatches")
@@ -568,7 +555,7 @@ class PortfolioState:
 
         return mismatches
 
-    def reset(self, initial_cash: Optional[float] = None) -> None:
+    def reset(self, initial_cash: float | None = None) -> None:
         """Reset portfolio to zero positions (use for paper trading resets)."""
         with self._lock:
             self.conn.execute("DELETE FROM positions")
@@ -582,20 +569,21 @@ class PortfolioState:
 
 # Singleton — used only when no TradingContext is available.
 # Prefer injecting a PortfolioState through TradingContext in all new code.
-_portfolio_state: Optional[PortfolioState] = None
+_portfolio_state: PortfolioState | None = None
 
 
 def get_portfolio_state(
-    conn: Optional[duckdb.DuckDBPyConnection] = None,
+    conn: duckdb.DuckDBPyConnection | None = None,
     initial_cash: float = 100_000.0,
     # Legacy parameter — ignored when conn is provided
-    db_path: Optional[str] = None,
+    db_path: str | None = None,
 ) -> PortfolioState:
     """Get the singleton PortfolioState instance."""
     global _portfolio_state
     if _portfolio_state is None:
         if conn is None:
             from quant_pod.db import open_db, run_migrations
+
             conn = open_db(db_path or "")
             run_migrations(conn)
         _portfolio_state = PortfolioState(conn=conn, initial_cash=initial_cash)

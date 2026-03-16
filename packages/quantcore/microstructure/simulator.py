@@ -4,14 +4,14 @@ Market Simulator.
 Combines order book, matching engine, and impact models for simulation.
 """
 
-import numpy as np
-from typing import List, Dict
 from dataclasses import dataclass
 
-from quantcore.microstructure.order_book import OrderBook, Order, OrderType, Side
-from quantcore.microstructure.matching_engine import MatchingEngine, Fill
+import numpy as np
+
+from quantcore.microstructure.execution_algos import ExecutionAlgo
 from quantcore.microstructure.impact_models import ImpactModel
-from quantcore.microstructure.execution_algos import ExecutionAlgo, TWAPExecutor
+from quantcore.microstructure.matching_engine import Fill, MatchingEngine
+from quantcore.microstructure.order_book import Order, OrderType, Side
 
 
 @dataclass
@@ -21,7 +21,7 @@ class SimulationResult:
     prices: np.ndarray
     spreads: np.ndarray
     volumes: np.ndarray
-    fills: List[Fill]
+    fills: list[Fill]
 
 
 class MarketSimulator:
@@ -62,19 +62,15 @@ class MarketSimulator:
 
         for i in range(n_levels):
             price = best_bid - i * self.tick_size
-            self.engine.book.add_order(
-                Order(order_id, Side.BID, round(price, 4), size_per_level)
-            )
+            self.engine.book.add_order(Order(order_id, Side.BID, round(price, 4), size_per_level))
             order_id += 1
 
         for i in range(n_levels):
             price = best_ask + i * self.tick_size
-            self.engine.book.add_order(
-                Order(order_id, Side.ASK, round(price, 4), size_per_level)
-            )
+            self.engine.book.add_order(Order(order_id, Side.ASK, round(price, 4), size_per_level))
             order_id += 1
 
-    def step(self, n_orders: int = 10) -> Dict:
+    def step(self, n_orders: int = 10) -> dict:
         """Advance simulation by one time step."""
         fills = []
 
@@ -102,9 +98,7 @@ class MarketSimulator:
             fills.extend(report.fills)
 
         if fills:
-            net_flow = sum(
-                f.quantity if f.side == Side.BID else -f.quantity for f in fills
-            )
+            net_flow = sum(f.quantity if f.side == Side.BID else -f.quantity for f in fills)
             impact = self.impact_model.estimate(net_flow, 0.01)
             self.current_price += impact["total"]
 
@@ -132,13 +126,11 @@ class MarketSimulator:
             volumes[i] = stats["n_fills"]
             all_fills.extend(self.engine.fills[-stats["n_fills"] :])
 
-        return SimulationResult(
-            prices=prices, spreads=spreads, volumes=volumes, fills=all_fills
-        )
+        return SimulationResult(prices=prices, spreads=spreads, volumes=volumes, fills=all_fills)
 
     def execute_algo(
         self, algo: ExecutionAlgo, order_size: float, side: Side, horizon: int
-    ) -> Dict:
+    ) -> dict:
         """Execute an order using execution algorithm."""
         self.initialize_book(n_levels=10, size_per_level=200)
 

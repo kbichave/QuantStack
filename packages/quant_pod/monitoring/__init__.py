@@ -1,6 +1,6 @@
 """Production monitoring — degradation detection and alerting."""
 
-from quant_pod.monitoring.alpha_monitor import AlphaMonitor, DegradationAlert, AlertSeverity
+from quant_pod.monitoring.alpha_monitor import AlertSeverity, AlphaMonitor, DegradationAlert
 from quant_pod.monitoring.degradation_detector import (
     DegradationDetector,
     DegradationReport,

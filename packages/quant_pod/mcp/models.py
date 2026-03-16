@@ -10,10 +10,9 @@ Each MCP tool has typed inputs and outputs defined here.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 # =============================================================================
 # run_analysis
@@ -24,7 +23,7 @@ class RunAnalysisInput(BaseModel):
     """Input for the run_analysis tool."""
 
     symbol: str = Field(description="Ticker symbol (e.g., 'SPY', 'AAPL')")
-    regime: Optional[Dict[str, Any]] = Field(
+    regime: dict[str, Any] | None = Field(
         default=None,
         description=(
             "Pre-computed regime dict with keys: trend_regime, volatility_regime, "
@@ -41,9 +40,9 @@ class RunAnalysisOutput(BaseModel):
     """Output from the run_analysis tool."""
 
     success: bool
-    daily_brief: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    regime_used: Dict[str, Any] = Field(default_factory=dict)
+    daily_brief: dict[str, Any] | None = None
+    error: str | None = None
+    regime_used: dict[str, Any] = Field(default_factory=dict)
     elapsed_seconds: float = 0.0
 
 
@@ -55,10 +54,10 @@ class RunAnalysisOutput(BaseModel):
 class PortfolioStateOutput(BaseModel):
     """Output from the get_portfolio_state tool."""
 
-    snapshot: Dict[str, Any] = Field(
+    snapshot: dict[str, Any] = Field(
         description="PortfolioSnapshot: cash, positions_value, total_equity, daily_pnl, etc."
     )
-    positions: List[Dict[str, Any]] = Field(
+    positions: list[dict[str, Any]] = Field(
         default_factory=list,
         description="List of open Position objects.",
     )
@@ -84,7 +83,7 @@ class GetRegimeOutput(BaseModel):
     adx: float = 0.0
     atr: float = 0.0
     atr_percentile: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # =============================================================================
@@ -102,13 +101,13 @@ class RecentDecisionSummary(BaseModel):
     action: str = ""
     confidence: float = 0.0
     output_summary: str = ""
-    created_at: Optional[datetime] = None
+    created_at: datetime | None = None
 
 
 class RecentDecisionsOutput(BaseModel):
     """Output from the get_recent_decisions tool."""
 
-    decisions: List[RecentDecisionSummary] = Field(default_factory=list)
+    decisions: list[RecentDecisionSummary] = Field(default_factory=list)
     total: int = 0
 
 
@@ -121,7 +120,7 @@ class SystemStatusOutput(BaseModel):
     """Output from the get_system_status tool."""
 
     kill_switch_active: bool = False
-    kill_switch_reason: Optional[str] = None
+    kill_switch_reason: str | None = None
     risk_halted: bool = False
     broker_mode: str = "paper"
     session_id: str = ""
@@ -149,11 +148,11 @@ class StrategyDefinition(BaseModel):
     name: str = Field(description="Unique human-readable strategy name")
     description: str = ""
     asset_class: str = "equities"
-    regime_affinity: Dict[str, float] = Field(default_factory=dict)
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    entry_rules: List[Dict[str, Any]] = Field(default_factory=list)
-    exit_rules: List[Dict[str, Any]] = Field(default_factory=list)
-    risk_params: Dict[str, Any] = Field(default_factory=dict)
+    regime_affinity: dict[str, float] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    entry_rules: list[dict[str, Any]] = Field(default_factory=list)
+    exit_rules: list[dict[str, Any]] = Field(default_factory=list)
+    risk_params: dict[str, Any] = Field(default_factory=dict)
     source: str = "manual"
 
 
@@ -164,17 +163,17 @@ class StrategyRecord(BaseModel):
     name: str
     description: str = ""
     asset_class: str = "equities"
-    regime_affinity: Dict[str, float] = Field(default_factory=dict)
-    parameters: Dict[str, Any] = Field(default_factory=dict)
-    entry_rules: List[Dict[str, Any]] = Field(default_factory=list)
-    exit_rules: List[Dict[str, Any]] = Field(default_factory=list)
-    risk_params: Dict[str, Any] = Field(default_factory=dict)
-    backtest_summary: Optional[Dict[str, Any]] = None
-    walkforward_summary: Optional[Dict[str, Any]] = None
+    regime_affinity: dict[str, float] = Field(default_factory=dict)
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    entry_rules: list[dict[str, Any]] = Field(default_factory=list)
+    exit_rules: list[dict[str, Any]] = Field(default_factory=list)
+    risk_params: dict[str, Any] = Field(default_factory=dict)
+    backtest_summary: dict[str, Any] | None = None
+    walkforward_summary: dict[str, Any] | None = None
     status: str = "draft"
     source: str = "manual"
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    created_at: str | None = None
+    updated_at: str | None = None
     created_by: str = "claude_code"
 
 
@@ -183,10 +182,10 @@ class BacktestRequest(BaseModel):
 
     strategy_id: str = Field(description="Strategy to backtest (from registry)")
     symbol: str = Field(description="Ticker symbol for price data")
-    start_date: Optional[str] = Field(
+    start_date: str | None = Field(
         default=None, description="Start date (YYYY-MM-DD). None = earliest available."
     )
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         default=None, description="End date (YYYY-MM-DD). None = latest available."
     )
     initial_capital: float = 100_000.0
@@ -209,10 +208,10 @@ class BacktestResult(BaseModel):
     profit_factor: float = 0.0
     calmar_ratio: float = 0.0
     avg_trade_pnl: float = 0.0
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
+    start_date: str | None = None
+    end_date: str | None = None
     bars_tested: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class WalkForwardRequest(BaseModel):
@@ -236,7 +235,7 @@ class WalkForwardResult(BaseModel):
     strategy_id: str = ""
     symbol: str = ""
     n_folds: int = 0
-    fold_results: List[Dict[str, Any]] = Field(default_factory=list)
+    fold_results: list[dict[str, Any]] = Field(default_factory=list)
     is_sharpe_mean: float = 0.0
     oos_sharpe_mean: float = 0.0
     is_sharpe_std: float = 0.0
@@ -244,7 +243,7 @@ class WalkForwardResult(BaseModel):
     overfit_ratio: float = 0.0
     oos_positive_folds: int = 0
     oos_degradation_pct: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # =============================================================================
@@ -257,7 +256,7 @@ class TradeOrder(BaseModel):
 
     symbol: str = Field(description="Ticker symbol")
     action: str = Field(description="'buy' or 'sell'")
-    quantity: Optional[int] = Field(
+    quantity: int | None = Field(
         default=None, description="Shares. Auto-calculated from position_size if None."
     )
     position_size: str = Field(
@@ -265,29 +264,25 @@ class TradeOrder(BaseModel):
         description="'full', 'half', or 'quarter' — used if quantity is None.",
     )
     order_type: str = Field(default="market", description="'market' or 'limit'")
-    limit_price: Optional[float] = None
+    limit_price: float | None = None
     reasoning: str = Field(description="REQUIRED — audit trail reasoning for this trade")
     confidence: float = Field(ge=0, le=1, description="REQUIRED — 0-1 confidence score")
-    strategy_id: Optional[str] = Field(
-        default=None, description="Links to strategy registry"
-    )
-    paper_mode: bool = Field(
-        default=True, description="Must be explicitly False for live trading"
-    )
+    strategy_id: str | None = Field(default=None, description="Links to strategy registry")
+    paper_mode: bool = Field(default=True, description="Must be explicitly False for live trading")
 
 
 class TradeResult(BaseModel):
     """Output from execute_trade / close_position tools."""
 
     success: bool
-    order_id: Optional[str] = None
-    fill_price: Optional[float] = None
-    filled_quantity: Optional[int] = None
-    slippage_bps: Optional[float] = None
-    commission: Optional[float] = None
+    order_id: str | None = None
+    fill_price: float | None = None
+    filled_quantity: int | None = None
+    slippage_bps: float | None = None
+    commission: float | None = None
     risk_approved: bool = False
-    risk_violations: List[str] = Field(default_factory=list)
-    error: Optional[str] = None
+    risk_violations: list[str] = Field(default_factory=list)
+    error: str | None = None
     broker_mode: str = "paper"
 
 
@@ -331,7 +326,7 @@ class DecodedStrategy(BaseModel):
     avg_win: float = 0.0
     avg_loss: float = 0.0
     best_regime: str = ""
-    regime_affinity: Dict[str, float] = Field(default_factory=dict)
+    regime_affinity: dict[str, float] = Field(default_factory=dict)
     edge_hypothesis: str = ""
     confidence: float = 0.0
 
@@ -347,7 +342,7 @@ class StrategyAllocation(BaseModel):
     strategy_id: str
     strategy_name: str = ""
     capital_pct: float = Field(ge=0, le=1.0, description="Fraction of equity allocated")
-    symbols: List[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
     mode: str = "paper"  # "paper" or "live"
     regime_score: float = 0.0
     ranking_sharpe: float = 0.0
@@ -359,11 +354,11 @@ class AllocationPlan(BaseModel):
 
     regime: str = ""
     regime_confidence: float = 0.0
-    allocations: List[StrategyAllocation] = Field(default_factory=list)
+    allocations: list[StrategyAllocation] = Field(default_factory=list)
     total_allocated_pct: float = 0.0
     unallocated_pct: float = 1.0
     conflicts_resolved: int = 0
-    warnings: List[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 class ConflictResolution(BaseModel):
@@ -371,8 +366,8 @@ class ConflictResolution(BaseModel):
 
     symbol: str
     action: str = ""  # "keep", "skip", "adjust"
-    kept_strategy: Optional[str] = None
-    skipped_strategies: List[str] = Field(default_factory=list)
+    kept_strategy: str | None = None
+    skipped_strategies: list[str] = Field(default_factory=list)
     reasoning: str = ""
-    original_trades: List[Dict[str, Any]] = Field(default_factory=list)
-    resolved_trade: Optional[Dict[str, Any]] = None
+    original_trades: list[dict[str, Any]] = Field(default_factory=list)
+    resolved_trade: dict[str, Any] | None = None

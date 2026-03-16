@@ -15,11 +15,11 @@ from __future__ import annotations
 import asyncio
 import sys
 import uuid
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
+import pandas as pd
 import pytest
-
 
 # Ensure src is in path for imports
 src_path = Path(__file__).parent.parent / "src"
@@ -39,9 +39,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
     config.addinivalue_line("markers", "benchmark: marks tests as benchmark tests")
-    config.addinivalue_line(
-        "markers", "requires_api: marks tests that require API access"
-    )
+    config.addinivalue_line("markers", "requires_api: marks tests that require API access")
     config.addinivalue_line("markers", "requires_gpu: marks tests that require GPU")
 
 
@@ -190,8 +188,8 @@ def reset_random_seeds() -> None:
 @pytest.fixture
 def sample_ohlcv_df():
     """Create a sample OHLCV DataFrame for testing."""
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     n_bars = 100
     np.random.seed(42)
@@ -209,9 +207,7 @@ def sample_ohlcv_df():
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range(
-            "2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"),
     )
 
     return df
@@ -242,7 +238,7 @@ def make_ohlcv_df(
     seed: int = 42,
     spread_pct: float = 0.0,
     freq: str = "1D",
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Create a sample OHLCV DataFrame for testing.
 
     Args:
@@ -256,8 +252,8 @@ def make_ohlcv_df(
     Returns:
         DataFrame with OHLCV columns.
     """
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     np.random.seed(seed)
 
@@ -289,17 +285,14 @@ def make_ohlcv_df(
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range(
-            "2024-01-01", periods=n_bars, freq=freq, tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-01", periods=n_bars, freq=freq, tz="America/New_York"),
     )
 
     return df
 
 
-def add_atr_column(df: "pd.DataFrame", period: int = 14) -> "pd.DataFrame":
+def add_atr_column(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """Add ATR column to DataFrame."""
-    import numpy as np
 
     result = df.copy()
     high = result["high"]
@@ -322,10 +315,10 @@ def add_atr_column(df: "pd.DataFrame", period: int = 14) -> "pd.DataFrame":
 def make_impulse_wave_ohlcv(
     n_bars: int = 100,
     start_price: float = 100.0,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Create OHLCV data with impulse wave pattern."""
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     np.random.seed(42)
 
@@ -338,7 +331,7 @@ def make_impulse_wave_ohlcv(
     current_price = start_price
 
     for length, direction, magnitude in zip(
-        wave_lengths, wave_directions, wave_magnitudes
+        wave_lengths, wave_directions, wave_magnitudes, strict=False
     ):
         target = current_price * (1 + direction * magnitude)
         wave_prices = np.linspace(current_price, target, length)
@@ -355,9 +348,7 @@ def make_impulse_wave_ohlcv(
             "close": prices,
             "volume": np.random.randint(1000, 10000, len(prices)),
         },
-        index=pd.date_range(
-            "2024-01-01", periods=len(prices), freq="1D", tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-01", periods=len(prices), freq="1D", tz="America/New_York"),
     )
 
     return df
@@ -430,9 +421,7 @@ def make_swing_leg(
             return self.n_bars
 
     # Detect calling convention
-    if direction is not None or (
-        start_price_or_direction is not None and end_price is not None
-    ):
+    if direction is not None or (start_price_or_direction is not None and end_price is not None):
         # New convention: make_swing_leg(start_idx, end_idx, start_price, end_price, direction)
         return MockSwingLeg(
             start_idx=int(start_idx_or_start_price),
@@ -465,10 +454,10 @@ def make_monotonic_downtrend(
     n_bars: int = 50,
     start_price: float = 100.0,
     end_price: float = None,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Create monotonic downtrend OHLCV data."""
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     np.random.seed(42)
     if end_price is None:
@@ -483,9 +472,7 @@ def make_monotonic_downtrend(
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range(
-            "2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"),
     )
 
     return df
@@ -495,10 +482,10 @@ def make_monotonic_uptrend(
     n_bars: int = 50,
     start_price: float = 100.0,
     end_price: float = None,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Create monotonic uptrend OHLCV data."""
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     np.random.seed(42)
     if end_price is None:
@@ -513,9 +500,7 @@ def make_monotonic_uptrend(
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range(
-            "2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"),
     )
 
     return df
@@ -525,10 +510,10 @@ def make_flat_market(
     n_bars: int = 50,
     price: float = 100.0,
     noise: float = 0.005,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Create flat/ranging market OHLCV data."""
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     np.random.seed(42)
     prices = price + np.random.randn(n_bars) * price * noise
@@ -541,9 +526,7 @@ def make_flat_market(
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range(
-            "2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"),
     )
 
     return df
@@ -556,7 +539,7 @@ def make_v_shape_ohlcv(
     end_price: float = None,
     down_bars: int = None,
     up_bars: int = None,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Create V-shape reversal OHLCV data.
 
     Args:
@@ -570,8 +553,8 @@ def make_v_shape_ohlcv(
     Returns:
         DataFrame with V-shape price pattern.
     """
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     np.random.seed(42)
     if bottom_price is None:
@@ -608,9 +591,7 @@ def make_v_shape_ohlcv(
             "close": prices,
             "volume": np.random.randint(1000, 10000, actual_bars),
         },
-        index=pd.date_range(
-            "2024-01-01", periods=actual_bars, freq="1D", tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-01", periods=actual_bars, freq="1D", tz="America/New_York"),
     )
 
     return df
@@ -624,7 +605,7 @@ def make_w_shape_ohlcv(
     low2: float = None,
     end_price: float = None,
     bars_per_leg: int = None,
-) -> "pd.DataFrame":
+) -> pd.DataFrame:
     """Create W-shape (double bottom) OHLCV data.
 
     Args:
@@ -639,8 +620,8 @@ def make_w_shape_ohlcv(
     Returns:
         DataFrame with W-shape price pattern.
     """
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     np.random.seed(42)
 
@@ -691,9 +672,7 @@ def make_w_shape_ohlcv(
             "close": prices,
             "volume": np.random.randint(1000, 10000, actual_bars),
         },
-        index=pd.date_range(
-            "2024-01-01", periods=actual_bars, freq="1D", tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-01", periods=actual_bars, freq="1D", tz="America/New_York"),
     )
 
     return df

@@ -6,7 +6,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from quantcore.backtesting.engine import (
     calculate_metrics,
     run_backtest_with_params,

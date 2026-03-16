@@ -4,11 +4,11 @@ Temporal Fusion Transformer for regime prediction.
 ML-based regime classification using attention mechanisms.
 """
 
-from typing import List, Optional, Dict, Tuple
 from dataclasses import dataclass
 from enum import Enum
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 try:
@@ -35,10 +35,10 @@ class TFTRegimeResult:
     """Result from TFT regime prediction."""
 
     predicted_regime: TFTRegimeState
-    regime_probabilities: Dict[TFTRegimeState, float]
+    regime_probabilities: dict[TFTRegimeState, float]
     confidence: float
-    attention_weights: Optional[np.ndarray]
-    feature_importance: Dict[str, float]
+    attention_weights: np.ndarray | None
+    feature_importance: dict[str, float]
 
 
 # Simple TFT-inspired model (full TFT is complex, this is a simplified version)
@@ -112,7 +112,7 @@ if TORCH_AVAILABLE:
             self,
             x: torch.Tensor,
             return_attention: bool = False,
-        ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        ) -> tuple[torch.Tensor, torch.Tensor | None]:
             """
             Forward pass.
 
@@ -153,7 +153,7 @@ if TORCH_AVAILABLE:
                 return logits, attn_weights
             return logits, None
 
-        def get_feature_importance(self) -> Dict[str, float]:
+        def get_feature_importance(self) -> dict[str, float]:
             """Get learned feature importance."""
             weights = self.feature_weights.detach().cpu().numpy()
             weights = np.abs(weights) / np.sum(np.abs(weights))
@@ -210,14 +210,12 @@ class TFTRegimeModel:
         self.learning_rate = learning_rate
         self.epochs = epochs
 
-        self.model: Optional["SimpleTFTModel"] = None
+        self.model: SimpleTFTModel | None = None
         self.is_fitted = False
-        self.scaler_mean: Optional[np.ndarray] = None
-        self.scaler_std: Optional[np.ndarray] = None
+        self.scaler_mean: np.ndarray | None = None
+        self.scaler_std: np.ndarray | None = None
 
-    def fit(
-        self, df: pd.DataFrame, labels: Optional[pd.Series] = None
-    ) -> "TFTRegimeModel":
+    def fit(self, df: pd.DataFrame, labels: pd.Series | None = None) -> "TFTRegimeModel":
         """
         Fit TFT model.
 
@@ -275,9 +273,7 @@ class TFTRegimeModel:
                 optimizer.step()
 
                 if (epoch + 1) % 20 == 0:
-                    logger.debug(
-                        f"TFT Epoch {epoch + 1}/{self.epochs}, Loss: {loss.item():.4f}"
-                    )
+                    logger.debug(f"TFT Epoch {epoch + 1}/{self.epochs}, Loss: {loss.item():.4f}")
 
             self.model.eval()
             self.is_fitted = True
@@ -335,9 +331,7 @@ class TFTRegimeModel:
                 predicted_regime=predicted_regime,
                 regime_probabilities=regime_probs,
                 confidence=float(np.max(probs)),
-                attention_weights=(
-                    attn_weights.numpy() if attn_weights is not None else None
-                ),
+                attention_weights=(attn_weights.numpy() if attn_weights is not None else None),
                 feature_importance=named_importance,
             )
 
@@ -345,7 +339,7 @@ class TFTRegimeModel:
             logger.error(f"TFT prediction failed: {e}")
             return self._fallback_predict(df)
 
-    def _prepare_features(self, df: pd.DataFrame) -> Optional[np.ndarray]:
+    def _prepare_features(self, df: pd.DataFrame) -> np.ndarray | None:
         """Prepare features for TFT."""
         if len(df) < 30:
             return None
@@ -442,7 +436,7 @@ class TFTRegimeModel:
         self,
         features: np.ndarray,
         labels: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Create sequences for training."""
         min_len = min(len(features), len(labels))
         features = features[-min_len:]
@@ -475,7 +469,7 @@ class TFTRegimeModel:
         else:
             regime = TFTRegimeState.RANGING
 
-        probs = {s: 0.2 for s in TFTRegimeState}
+        probs = dict.fromkeys(TFTRegimeState, 0.2)
         probs[regime] = 0.6
 
         return TFTRegimeResult(
@@ -483,7 +477,5 @@ class TFTRegimeModel:
             regime_probabilities=probs,
             confidence=0.6,
             attention_weights=None,
-            feature_importance={
-                name: 1.0 / len(self.FEATURE_NAMES) for name in self.FEATURE_NAMES
-            },
+            feature_importance={name: 1.0 / len(self.FEATURE_NAMES) for name in self.FEATURE_NAMES},
         )

@@ -6,13 +6,11 @@ Prevents trading during unfavorable microstructure conditions.
 
 from dataclasses import dataclass
 from datetime import datetime, time
-from typing import Optional, List, Tuple
-import pandas as pd
-import numpy as np
-from loguru import logger
 
-from quantcore.microstructure.liquidity import LiquidityAnalyzer, LiquidityFeatures
+import pandas as pd
+
 from quantcore.microstructure.events import EventCalendar, TradingCalendar
+from quantcore.microstructure.liquidity import LiquidityFeatures
 
 
 @dataclass
@@ -97,12 +95,8 @@ class TradingWindowFilter:
 
         # Last hour
         close_time = self.calendar.MARKET_CLOSE
-        close_threshold_minutes = (
-            close_time.hour * 60 + close_time.minute - self.skip_last_minutes
-        )
-        close_threshold = time(
-            close_threshold_minutes // 60, close_threshold_minutes % 60
-        )
+        close_threshold_minutes = close_time.hour * 60 + close_time.minute - self.skip_last_minutes
+        close_threshold = time(close_threshold_minutes // 60, close_threshold_minutes % 60)
 
         if t >= close_threshold:
             return FilterDecision(
@@ -194,9 +188,7 @@ class LiquidityFilter:
 
         # Check vol-of-vol
         if abs(liquidity.volatility_of_volatility) > self.max_vol_of_vol_zscore:
-            reasons.append(
-                f"Vol burst: {liquidity.volatility_of_volatility:.2f} z-score"
-            )
+            reasons.append(f"Vol burst: {liquidity.volatility_of_volatility:.2f} z-score")
 
         if reasons:
             return FilterDecision(
@@ -218,7 +210,7 @@ class EventFilter:
     Blocks trading around high-impact events.
     """
 
-    def __init__(self, event_calendar: Optional[EventCalendar] = None):
+    def __init__(self, event_calendar: EventCalendar | None = None):
         """
         Initialize event filter.
 
@@ -230,7 +222,7 @@ class EventFilter:
     def check(
         self,
         timestamp: datetime,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
     ) -> FilterDecision:
         """
         Check if timestamp is in an event blackout.
@@ -278,9 +270,9 @@ class MicrostructureFilter:
 
     def __init__(
         self,
-        trading_window_filter: Optional[TradingWindowFilter] = None,
-        liquidity_filter: Optional[LiquidityFilter] = None,
-        event_filter: Optional[EventFilter] = None,
+        trading_window_filter: TradingWindowFilter | None = None,
+        liquidity_filter: LiquidityFilter | None = None,
+        event_filter: EventFilter | None = None,
         strict_mode: bool = False,
     ):
         """
@@ -301,8 +293,8 @@ class MicrostructureFilter:
         self,
         timestamp: datetime,
         liquidity: LiquidityFeatures,
-        symbol: Optional[str] = None,
-    ) -> Tuple[bool, List[FilterDecision]]:
+        symbol: str | None = None,
+    ) -> tuple[bool, list[FilterDecision]]:
         """
         Run all microstructure checks.
 
@@ -344,7 +336,7 @@ class MicrostructureFilter:
     def get_filter_series(
         self,
         df: pd.DataFrame,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
     ) -> pd.DataFrame:
         """
         Get filter results for entire DataFrame.
@@ -362,9 +354,7 @@ class MicrostructureFilter:
         result["filter_window"] = self.window_filter.get_valid_windows_series(df.index)
 
         # Get event blackouts
-        result["filter_event"] = ~self.event_filter.calendar.get_blackout_series(
-            df.index, symbol
-        )
+        result["filter_event"] = ~self.event_filter.calendar.get_blackout_series(df.index, symbol)
 
         # Liquidity filter (requires computed features)
         if "liquidity_score" in df.columns:
@@ -376,9 +366,7 @@ class MicrostructureFilter:
 
         # Combined filter
         result["filter_microstructure"] = (
-            result["filter_window"]
-            & result["filter_event"]
-            & result["filter_liquidity"]
+            result["filter_window"] & result["filter_event"] & result["filter_liquidity"]
         ).astype(int)
 
         return result

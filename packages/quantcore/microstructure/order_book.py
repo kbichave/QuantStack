@@ -4,11 +4,9 @@ Limit Order Book Implementation.
 Price-time priority order book with bid and ask sides.
 """
 
-import numpy as np
-from typing import Dict, List, Optional, Tuple
+import heapq
 from dataclasses import dataclass, field
 from enum import Enum
-import heapq
 
 
 class Side(Enum):
@@ -42,7 +40,7 @@ class Level:
     """Price level in order book."""
 
     price: float
-    orders: List[Order] = field(default_factory=list)
+    orders: list[Order] = field(default_factory=list)
 
     @property
     def total_quantity(self) -> float:
@@ -61,14 +59,14 @@ class OrderBook:
     """
 
     def __init__(self):
-        self.bids: Dict[float, Level] = {}
-        self.asks: Dict[float, Level] = {}
-        self.orders: Dict[int, Order] = {}
-        self._bid_prices: List[float] = []
-        self._ask_prices: List[float] = []
+        self.bids: dict[float, Level] = {}
+        self.asks: dict[float, Level] = {}
+        self.orders: dict[int, Order] = {}
+        self._bid_prices: list[float] = []
+        self._ask_prices: list[float] = []
 
     @property
-    def best_bid(self) -> Optional[float]:
+    def best_bid(self) -> float | None:
         while self._bid_prices:
             price = -self._bid_prices[0]
             if price in self.bids and self.bids[price].total_quantity > 0:
@@ -77,7 +75,7 @@ class OrderBook:
         return None
 
     @property
-    def best_ask(self) -> Optional[float]:
+    def best_ask(self) -> float | None:
         while self._ask_prices:
             price = self._ask_prices[0]
             if price in self.asks and self.asks[price].total_quantity > 0:
@@ -86,14 +84,14 @@ class OrderBook:
         return None
 
     @property
-    def spread(self) -> Optional[float]:
+    def spread(self) -> float | None:
         bb, ba = self.best_bid, self.best_ask
         if bb is not None and ba is not None:
             return ba - bb
         return None
 
     @property
-    def mid_price(self) -> Optional[float]:
+    def mid_price(self) -> float | None:
         bb, ba = self.best_bid, self.best_ask
         if bb is not None and ba is not None:
             return (bb + ba) / 2
@@ -131,7 +129,7 @@ class OrderBook:
         del self.orders[order_id]
         return True
 
-    def get_depth(self, n_levels: int = 5) -> Tuple[List[Tuple], List[Tuple]]:
+    def get_depth(self, n_levels: int = 5) -> tuple[list[tuple], list[tuple]]:
         """Get order book depth."""
         bid_levels = []
         ask_levels = []
@@ -151,12 +149,9 @@ class OrderBook:
     def get_imbalance(self, n_levels: int = 5) -> float:
         """Compute order imbalance at top N levels."""
         bid_vol = sum(
-            self.bids[p].total_quantity
-            for p in sorted(self.bids.keys(), reverse=True)[:n_levels]
+            self.bids[p].total_quantity for p in sorted(self.bids.keys(), reverse=True)[:n_levels]
         )
-        ask_vol = sum(
-            self.asks[p].total_quantity for p in sorted(self.asks.keys())[:n_levels]
-        )
+        ask_vol = sum(self.asks[p].total_quantity for p in sorted(self.asks.keys())[:n_levels])
 
         total = bid_vol + ask_vol
         return (bid_vol - ask_vol) / total if total > 0 else 0.0

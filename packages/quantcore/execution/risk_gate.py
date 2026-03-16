@@ -26,9 +26,6 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
-
-from loguru import logger
 
 from quantcore.execution.fill_tracker import FillTracker
 from quantcore.execution.kill_switch import KillSwitch, KillSwitchError
@@ -39,7 +36,7 @@ class RiskGateError(RuntimeError):
     """Raised when a pre-trade check fails.  Contains the rule that triggered."""
 
     def __init__(self, rule: str, message: str) -> None:
-        self.rule    = rule
+        self.rule = rule
         self.message = message
         super().__init__(f"[{rule}] {message}")
 
@@ -57,11 +54,11 @@ class RiskLimits:
                             total P&L < -max_daily_loss).  0 = disabled.
     """
 
-    max_order_value:    float = 50_000.0
+    max_order_value: float = 50_000.0
     max_position_value: float = 100_000.0
-    max_positions:      int   = 20
-    max_orders_per_min: int   = 60
-    max_daily_loss:     float = 5_000.0   # 0 disables the check
+    max_positions: int = 20
+    max_orders_per_min: int = 60
+    max_daily_loss: float = 5_000.0  # 0 disables the check
 
 
 class PreTradeRiskGate:
@@ -75,13 +72,13 @@ class PreTradeRiskGate:
 
     def __init__(
         self,
-        limits:       RiskLimits,
+        limits: RiskLimits,
         fill_tracker: FillTracker,
-        kill_switch:  Optional[KillSwitch] = None,
+        kill_switch: KillSwitch | None = None,
     ) -> None:
-        self._limits       = limits
-        self._tracker      = fill_tracker
-        self._kill_switch  = kill_switch or KillSwitch()
+        self._limits = limits
+        self._tracker = fill_tracker
+        self._kill_switch = kill_switch or KillSwitch()
         # Sliding window of order submission timestamps (epoch float)
         self._order_times: deque[float] = deque()
 
@@ -128,7 +125,7 @@ class PreTradeRiskGate:
         pos = self._tracker.get_position(order.symbol)
         current_qty = pos.quantity if pos else 0.0
         delta = order.quantity if order.side.lower() == "buy" else -order.quantity
-        resulting_qty  = current_qty + delta
+        resulting_qty = current_qty + delta
         resulting_value = abs(resulting_qty * price)
         if resulting_value > self._limits.max_position_value:
             raise RiskGateError(
@@ -183,12 +180,12 @@ class PreTradeRiskGate:
         while self._order_times and self._order_times[0] < now - window:
             self._order_times.popleft()
         return {
-            "kill_switch":         self._kill_switch.status(),
-            "orders_last_60s":     len(self._order_times),
-            "max_orders_per_min":  self._limits.max_orders_per_min,
-            "open_positions":      self._tracker.position_count(),
-            "max_positions":       self._limits.max_positions,
-            "daily_pnl":           round(self._tracker.daily_total_pnl(), 2),
-            "max_daily_loss":      self._limits.max_daily_loss,
-            "net_exposure":        round(self._tracker.net_exposure(), 2),
+            "kill_switch": self._kill_switch.status(),
+            "orders_last_60s": len(self._order_times),
+            "max_orders_per_min": self._limits.max_orders_per_min,
+            "open_positions": self._tracker.position_count(),
+            "max_positions": self._limits.max_positions,
+            "daily_pnl": round(self._tracker.daily_total_pnl(), 2),
+            "max_daily_loss": self._limits.max_daily_loss,
+            "net_exposure": round(self._tracker.net_exposure(), 2),
         }

@@ -3,16 +3,15 @@
 
 """Tests for quant research metrics module."""
 
-import pytest
 import numpy as np
 import pandas as pd
-
+import pytest
 from quantcore.research.quant_metrics import (
     QuantResearchReport,
-    run_signal_diagnostics,
-    run_alpha_decay_analysis,
-    compute_cost_adjusted_returns,
     compare_strategies,
+    compute_cost_adjusted_returns,
+    run_alpha_decay_analysis,
+    run_signal_diagnostics,
 )
 
 
@@ -46,7 +45,7 @@ class TestQuantResearchReport:
         assert report.ic == 0.0
         assert report.sharpe_ratio == 0.0
         assert report.annual_turnover == 0.0
-        assert report.is_stationary == False
+        assert not report.is_stationary
 
     def test_to_dict(self):
         """Test conversion to dictionary."""
@@ -147,10 +146,7 @@ class TestCostAdjustedReturns:
         )
 
         # Net cumulative should be less than or equal to gross
-        assert (
-            result["cumulative_net"].iloc[-1]
-            <= result["cumulative_gross"].iloc[-1] + 0.01
-        )
+        assert result["cumulative_net"].iloc[-1] <= result["cumulative_gross"].iloc[-1] + 0.01
 
 
 class TestCompareStrategies:

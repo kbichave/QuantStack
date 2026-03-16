@@ -15,10 +15,10 @@ a wide range of instruments and models.
 """
 
 from datetime import date, datetime
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Literal
+
 import numpy as np
 from loguru import logger
-
 
 # Type aliases
 OptionTypeStr = Literal["call", "put", "c", "p"]
@@ -36,7 +36,7 @@ def _normalize_option_type(option_type: OptionTypeStr) -> str:
         raise ValueError(f"Invalid option type: {option_type}")
 
 
-def _to_financepy_date(dt: Union[date, datetime, str, float]) -> Any:
+def _to_financepy_date(dt: date | datetime | str | float) -> Any:
     """Convert to FinancePy Date object."""
     try:
         from financepy.utils.date import Date
@@ -98,11 +98,11 @@ def price_vanilla_financepy(
             return max(0.0, strike - spot)
 
     try:
-        from financepy.utils.date import Date
         from financepy.market.curves.discount_curve_flat import DiscountCurveFlat
-        from financepy.products.equity.equity_vanilla_option import EquityVanillaOption
-        from financepy.utils.global_types import OptionTypes
         from financepy.models.black_scholes import BlackScholes
+        from financepy.products.equity.equity_vanilla_option import EquityVanillaOption
+        from financepy.utils.date import Date
+        from financepy.utils.global_types import OptionTypes
 
         # Create dates
         today = datetime.now()
@@ -178,7 +178,7 @@ def price_vanilla_financepy(
 
 
 # Need to import timedelta
-from datetime import timedelta
+from datetime import timedelta  # noqa: E402
 
 
 def price_american_option(
@@ -191,7 +191,7 @@ def price_american_option(
     option_type: OptionTypeStr = "call",
     num_steps: int = 100,
     model: str = "crr",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Price American option using tree methods.
 
@@ -216,9 +216,7 @@ def price_american_option(
     opt_type = _normalize_option_type(option_type)
 
     if time_to_expiry <= 0:
-        intrinsic = (
-            max(0.0, spot - strike) if opt_type == "call" else max(0.0, strike - spot)
-        )
+        intrinsic = max(0.0, spot - strike) if opt_type == "call" else max(0.0, strike - spot)
         return {
             "price": intrinsic,
             "european_price": intrinsic,
@@ -232,13 +230,13 @@ def price_american_option(
         }
 
     try:
-        from financepy.utils.date import Date
         from financepy.market.curves.discount_curve_flat import DiscountCurveFlat
+        from financepy.models.black_scholes import BlackScholes
         from financepy.products.equity.equity_american_option import (
             EquityAmericanOption,
         )
+        from financepy.utils.date import Date
         from financepy.utils.global_types import OptionTypes
-        from financepy.models.black_scholes import BlackScholes
 
         today = datetime.now()
         valuation_date = Date(today.day, today.month, today.year)
@@ -274,11 +272,7 @@ def price_american_option(
         # Get European price for comparison
         from financepy.products.equity.equity_vanilla_option import EquityVanillaOption
 
-        eu_type = (
-            OptionTypes.EUROPEAN_CALL
-            if opt_type == "call"
-            else OptionTypes.EUROPEAN_PUT
-        )
+        eu_type = OptionTypes.EUROPEAN_CALL if opt_type == "call" else OptionTypes.EUROPEAN_PUT
         european_option = EquityVanillaOption(
             expiry_date=expiry_fp,
             strike_price=strike,
@@ -353,8 +347,8 @@ def _price_internal(
         return result["price"]
     else:
         # Use internal Black-Scholes
-        from quantcore.options.pricing import black_scholes_price
         from quantcore.options.models import OptionType
+        from quantcore.options.pricing import black_scholes_price
 
         opt_enum = OptionType.CALL if option_type == "call" else OptionType.PUT
         return black_scholes_price(
@@ -377,7 +371,7 @@ def _price_american_binomial(
     dividend_yield: float,
     option_type: str,
     num_steps: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Price American option using Cox-Ross-Rubinstein binomial tree.
 
@@ -424,8 +418,8 @@ def _price_american_binomial(
     american_price = option_values[0]
 
     # European price using Black-Scholes for comparison
-    from quantcore.options.pricing import black_scholes_price
     from quantcore.options.models import OptionType
+    from quantcore.options.pricing import black_scholes_price
 
     opt_enum = OptionType.CALL if option_type == "call" else OptionType.PUT
     european_price = black_scholes_price(
@@ -528,7 +522,7 @@ def price_barrier_option(
     option_type: OptionTypeStr = "call",
     barrier_type: Literal["up-in", "up-out", "down-in", "down-out"] = "down-out",
     rebate: float = 0.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Price barrier option.
 
@@ -550,13 +544,13 @@ def price_barrier_option(
     opt_type = _normalize_option_type(option_type)
 
     try:
-        from financepy.utils.date import Date
-        from financepy.market.curves.discount_curve_flat import DiscountCurveFlat
+        from financepy.market.curves.discount_curve_flat import DiscountCurveFlat  # noqa: F401
+        from financepy.models.black_scholes import BlackScholes  # noqa: F401
         from financepy.products.equity.equity_one_touch_option import (
-            EquityOneTouchOption,
+            EquityOneTouchOption,  # noqa: F401
         )
-        from financepy.utils.global_types import TouchOptionTypes
-        from financepy.models.black_scholes import BlackScholes
+        from financepy.utils.date import Date  # noqa: F401
+        from financepy.utils.global_types import TouchOptionTypes  # noqa: F401
 
         # Note: Full barrier option support requires additional FinancePy setup
         # This is a placeholder for future implementation
@@ -632,8 +626,8 @@ def _price_barrier_analytical(
     lam = (r - q + sigma**2 / 2) / sigma**2
 
     # Get vanilla price first
-    from quantcore.options.pricing import black_scholes_price
     from quantcore.options.models import OptionType
+    from quantcore.options.pricing import black_scholes_price
 
     opt_enum = OptionType.CALL if option_type == "call" else OptionType.PUT
     vanilla_price = black_scholes_price(S, K, T, r, sigma, opt_enum, q)
@@ -644,12 +638,11 @@ def _price_barrier_analytical(
             return 0.0
 
         # Simplified calculation
-        x1 = np.log(S / H) / (sigma * np.sqrt(T)) + lam * sigma * np.sqrt(T)
+        np.log(S / H) / (sigma * np.sqrt(T)) + lam * sigma * np.sqrt(T)
         y1 = np.log(H / S) / (sigma * np.sqrt(T)) + lam * sigma * np.sqrt(T)
 
         barrier_adj = vanilla_price - S * np.exp(-q * T) * (H / S) ** (2 * lam) * (
-            norm.cdf(y1)
-            - K / H * np.exp(-r * T + q * T) * norm.cdf(y1 - sigma * np.sqrt(T))
+            norm.cdf(y1) - K / H * np.exp(-r * T + q * T) * norm.cdf(y1 - sigma * np.sqrt(T))
         )
 
         return max(0.0, barrier_adj)

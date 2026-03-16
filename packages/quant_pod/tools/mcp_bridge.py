@@ -22,13 +22,12 @@ eTrade Tools:
 """
 
 import json
-import os
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
-from quant_pod.crewai_compat import BaseTool
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from quant_pod.crewai_compat import BaseTool
 
 # =============================================================================
 # MCP BRIDGE CLASS
@@ -56,10 +55,11 @@ class MCPBridge:
         """Lazily load the MCP response validator."""
         if self._validator is None:
             from quant_pod.guardrails.mcp_response_validator import get_mcp_validator
+
             self._validator = get_mcp_validator()
         return self._validator
 
-    def _validate_response(self, tool_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_response(self, tool_name: str, result: dict[str, Any]) -> dict[str, Any]:
         """
         Validate a raw MCP tool response before returning it to agent context.
 
@@ -106,7 +106,7 @@ class MCPBridge:
     def _check_servers(self) -> None:
         """Check which tool clients are available."""
         try:
-            from quantcore.mcp.server import mcp as quantcore_mcp
+            from quantcore.mcp.server import mcp as quantcore_mcp  # noqa: F401
 
             self._quantcore_available = True
             logger.info("QuantCore MCP server available")
@@ -121,7 +121,7 @@ class MCPBridge:
         except ImportError:
             logger.warning("eTrade MCP server not available")
 
-    async def call_quantcore(self, tool_name: str, **kwargs) -> Dict[str, Any]:
+    async def call_quantcore(self, tool_name: str, **kwargs) -> dict[str, Any]:
         """Call a QuantCore MCP tool."""
         if not self._quantcore_available:
             return {"error": "QuantCore MCP not available"}
@@ -138,7 +138,7 @@ class MCPBridge:
             logger.error(f"QuantCore MCP call failed: {e}")
             return {"error": str(e)}
 
-    async def call_etrade(self, tool_name: str, **kwargs) -> Dict[str, Any]:
+    async def call_etrade(self, tool_name: str, **kwargs) -> dict[str, Any]:
         """Call an eTrade MCP tool in-process (same pattern as call_quantcore)."""
         if not self._etrade_available:
             return {"error": "eTrade MCP not available"}
@@ -157,7 +157,7 @@ class MCPBridge:
 
 
 # Global bridge instance
-_bridge: Optional[MCPBridge] = None
+_bridge: MCPBridge | None = None
 
 
 def get_bridge() -> MCPBridge:
@@ -193,21 +193,15 @@ def _run_async(coro):
 class QuoteInput(BaseModel):
     """Input for get_quote tool."""
 
-    symbols: str = Field(
-        ..., description="Comma-separated list of symbols (e.g., 'SPY,AAPL,MSFT')"
-    )
+    symbols: str = Field(..., description="Comma-separated list of symbols (e.g., 'SPY,AAPL,MSFT')")
 
 
 class OptionChainInput(BaseModel):
     """Input for get_option_chains tool."""
 
     symbol: str = Field(..., description="Underlying symbol")
-    expiration_date: Optional[str] = Field(
-        None, description="Expiration date (YYYY-MM-DD)"
-    )
-    strike_price_near: Optional[float] = Field(
-        None, description="Center strikes around this price"
-    )
+    expiration_date: str | None = Field(None, description="Expiration date (YYYY-MM-DD)")
+    strike_price_near: float | None = Field(None, description="Center strikes around this price")
     no_of_strikes: int = Field(10, description="Number of strikes to return")
 
 
@@ -219,7 +213,7 @@ class PreviewOrderInput(BaseModel):
     action: str = Field(..., description="BUY, SELL, BUY_TO_OPEN, etc.")
     quantity: int = Field(..., description="Number of shares/contracts")
     order_type: str = Field("LIMIT", description="MARKET, LIMIT, STOP")
-    limit_price: Optional[float] = Field(None, description="Limit price")
+    limit_price: float | None = Field(None, description="Limit price")
 
 
 class PlaceOrderInput(BaseModel):
@@ -230,15 +224,15 @@ class PlaceOrderInput(BaseModel):
     action: str = Field(..., description="BUY, SELL, BUY_TO_OPEN, etc.")
     quantity: int = Field(..., description="Number of shares/contracts")
     order_type: str = Field("LIMIT", description="MARKET, LIMIT, STOP")
-    limit_price: Optional[float] = Field(None, description="Limit price")
-    preview_id: Optional[str] = Field(None, description="Preview ID from preview_order")
+    limit_price: float | None = Field(None, description="Limit price")
+    preview_id: str | None = Field(None, description="Preview ID from preview_order")
 
 
 class PositionsInput(BaseModel):
     """Input for get_positions tool."""
 
     account_id_key: str = Field(..., description="Account ID key")
-    symbol: Optional[str] = Field(None, description="Optional symbol filter")
+    symbol: str | None = Field(None, description="Optional symbol filter")
 
 
 class BalanceInput(BaseModel):
@@ -257,9 +251,7 @@ class FetchMarketDataInput(BaseModel):
 
     symbol: str = Field(..., description="Stock/ETF symbol (e.g., 'SPY', 'AAPL')")
     timeframe: str = Field("daily", description="Data frequency: daily, 1h, 4h, weekly")
-    outputsize: str = Field(
-        "compact", description="'compact' (100 bars) or 'full' (20+ years)"
-    )
+    outputsize: str = Field("compact", description="'compact' (100 bars) or 'full' (20+ years)")
 
 
 class LoadMarketDataInput(BaseModel):
@@ -267,8 +259,8 @@ class LoadMarketDataInput(BaseModel):
 
     symbol: str = Field(..., description="Stock symbol")
     timeframe: str = Field("daily", description="Timeframe: 1h, 4h, daily, weekly")
-    start_date: Optional[str] = Field(None, description="Start date (YYYY-MM-DD)")
-    end_date: Optional[str] = Field(None, description="End date (YYYY-MM-DD)")
+    start_date: str | None = Field(None, description="Start date (YYYY-MM-DD)")
+    end_date: str | None = Field(None, description="End date (YYYY-MM-DD)")
 
 
 class SymbolInput(BaseModel):
@@ -276,7 +268,7 @@ class SymbolInput(BaseModel):
 
     symbol: str = Field(..., description="Stock symbol")
     timeframe: str = Field("daily", description="Timeframe: 1h, 4h, daily, weekly")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -286,10 +278,10 @@ class IndicatorsInput(BaseModel):
 
     symbol: str = Field(..., description="Symbol to analyze")
     timeframe: str = Field("daily", description="Timeframe: 1h, 4h, daily, weekly")
-    indicators: Optional[List[str]] = Field(
+    indicators: list[str] | None = Field(
         None, description="List of indicators (RSI, MACD, ATR, etc.)"
     )
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -311,7 +303,7 @@ class BacktestInput(BaseModel):
     position_size_pct: float = Field(10, description="Position size as % of equity")
     stop_loss_atr: float = Field(2, description="Stop loss in ATR multiples")
     take_profit_atr: float = Field(3, description="Take profit in ATR multiples")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -332,7 +324,7 @@ class MonteCarloInput(BaseModel):
     symbol: str = Field(..., description="Stock symbol")
     timeframe: str = Field("daily", description="Data timeframe")
     n_simulations: int = Field(1000, description="Number of simulations to run")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -344,7 +336,7 @@ class WalkForwardInput(BaseModel):
     timeframe: str = Field("daily", description="Timeframe")
     n_splits: int = Field(5, description="Number of train/test splits")
     train_pct: float = Field(0.7, description="Percentage for training")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -360,7 +352,7 @@ class ADFTestInput(BaseModel):
     symbol: str = Field(..., description="Stock symbol")
     timeframe: str = Field("daily", description="Data timeframe")
     column: str = Field("close", description="Column to test: close, returns, spread")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -372,7 +364,7 @@ class AlphaDecayInput(BaseModel):
     timeframe: str = Field("daily", description="Data timeframe")
     signal_column: str = Field("rsi_14", description="Feature to analyze as signal")
     max_lag: int = Field(20, description="Maximum forward lag to analyze")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -384,7 +376,7 @@ class ICInput(BaseModel):
     timeframe: str = Field("daily", description="Data timeframe")
     signal_column: str = Field("rsi_14", description="Feature to analyze")
     forward_return_periods: int = Field(5, description="Forward return horizon in bars")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -418,9 +410,7 @@ class PriceOptionInput(BaseModel):
     time_to_expiry: float = Field(
         ..., description="Time to expiration in years (e.g., 0.25 for 3 months)"
     )
-    volatility: float = Field(
-        ..., description="Annualized volatility (e.g., 0.20 for 20%)"
-    )
+    volatility: float = Field(..., description="Annualized volatility (e.g., 0.20 for 20%)")
     risk_free_rate: float = Field(0.05, description="Risk-free interest rate")
     option_type: str = Field("call", description="'call' or 'put'")
     dividend_yield: float = Field(0, description="Continuous dividend yield")
@@ -452,12 +442,8 @@ class ImpliedVolInput(BaseModel):
 class AnalyzeOptionStructureInput(BaseModel):
     """Input for analyze_option_structure tool."""
 
-    structure_type: str = Field(
-        ..., description="VERTICAL_SPREAD, IRON_CONDOR, STRADDLE, etc."
-    )
-    legs: str = Field(
-        ..., description="JSON array of legs with strike, option_type, quantity"
-    )
+    structure_type: str = Field(..., description="VERTICAL_SPREAD, IRON_CONDOR, STRADDLE, etc.")
+    legs: str = Field(..., description="JSON array of legs with strike, option_type, quantity")
     spot: float = Field(..., description="Current spot price")
     volatility: float = Field(0.25, description="Implied volatility")
     time_to_expiry: float = Field(0.083, description="Time to expiry in years")
@@ -493,34 +479,28 @@ class PositionSizeInput(BaseModel):
     equity: float = Field(..., description="Total account equity")
     entry_price: float = Field(..., description="Planned entry price")
     stop_loss_price: float = Field(..., description="Stop loss price level")
-    risk_per_trade_pct: float = Field(
-        1, description="Percentage of equity to risk per trade"
-    )
+    risk_per_trade_pct: float = Field(1, description="Percentage of equity to risk per trade")
     max_position_pct: float = Field(20, description="Maximum position as % of equity")
-    alignment_score: float = Field(
-        1, description="Cross-timeframe alignment score (0-1)"
-    )
+    alignment_score: float = Field(1, description="Cross-timeframe alignment score (0-1)")
 
 
 class MaxDrawdownInput(BaseModel):
     """Input for compute_max_drawdown tool."""
 
-    equity_curve: List[float] = Field(
-        ..., description="List of equity values over time"
-    )
+    equity_curve: list[float] = Field(..., description="List of equity values over time")
 
 
 class PortfolioStatsInput(BaseModel):
     """Input for compute_portfolio_stats tool."""
 
-    returns: List[float] = Field(..., description="List of period returns")
+    returns: list[float] = Field(..., description="List of period returns")
     risk_free_rate: float = Field(0.02, description="Annual risk-free rate")
 
 
 class VaRInput(BaseModel):
     """Input for compute_var tool."""
 
-    returns: List[float] = Field(..., description="Historical returns")
+    returns: list[float] = Field(..., description="Historical returns")
     confidence_level: float = Field(0.95, description="VaR confidence level")
     portfolio_value: float = Field(100000, description="Portfolio value")
 
@@ -552,7 +532,7 @@ class LiquidityInput(BaseModel):
 
     symbol: str = Field(..., description="Symbol to analyze")
     timeframe: str = Field("daily", description="Timeframe")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -566,7 +546,7 @@ class SymbolSnapshotInput(BaseModel):
     """Input for get_symbol_snapshot tool."""
 
     symbol: str = Field(..., description="Stock symbol")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -577,7 +557,7 @@ class VolumeProfileInput(BaseModel):
     symbol: str = Field(..., description="Stock symbol")
     timeframe: str = Field("daily", description="Timeframe")
     num_bins: int = Field(20, description="Number of price bins")
-    end_date: Optional[str] = Field(
+    end_date: str | None = Field(
         None, description="End date filter (YYYY-MM-DD) for historical simulation"
     )
 
@@ -592,7 +572,7 @@ class TradingCalendarInput(BaseModel):
 class EventCalendarInput(BaseModel):
     """Input for get_event_calendar tool."""
 
-    symbol: Optional[str] = Field(None, description="Optional symbol filter")
+    symbol: str | None = Field(None, description="Optional symbol filter")
     days_ahead: int = Field(7, description="Days to look ahead")
 
 
@@ -663,7 +643,7 @@ class GetQuoteTool(BaseTool):
     description: str = (
         "Get real-time quotes for one or more symbols. Returns bid/ask, last price, volume."
     )
-    args_schema: Type[BaseModel] = QuoteInput
+    args_schema: type[BaseModel] = QuoteInput
 
     def _run(self, symbols: str) -> str:
         async def _exec():
@@ -680,13 +660,13 @@ class GetOptionChainsTool(BaseTool):
     description: str = (
         "Get option chain for a symbol with calls and puts, Greeks, and open interest."
     )
-    args_schema: Type[BaseModel] = OptionChainInput
+    args_schema: type[BaseModel] = OptionChainInput
 
     def _run(
         self,
         symbol: str,
-        expiration_date: Optional[str] = None,
-        strike_price_near: Optional[float] = None,
+        expiration_date: str | None = None,
+        strike_price_near: float | None = None,
         no_of_strikes: int = 10,
     ) -> str:
         async def _exec():
@@ -706,10 +686,8 @@ class PreviewOrderTool(BaseTool):
     """Tool to preview an order before placement."""
 
     name: str = "preview_order"
-    description: str = (
-        "Preview an order to see estimated costs. ALWAYS use before placing orders."
-    )
-    args_schema: Type[BaseModel] = PreviewOrderInput
+    description: str = "Preview an order to see estimated costs. ALWAYS use before placing orders."
+    args_schema: type[BaseModel] = PreviewOrderInput
 
     def _run(
         self,
@@ -718,7 +696,7 @@ class PreviewOrderTool(BaseTool):
         action: str,
         quantity: int,
         order_type: str = "LIMIT",
-        limit_price: Optional[float] = None,
+        limit_price: float | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -742,7 +720,7 @@ class PlaceOrderTool(BaseTool):
     description: str = (
         "Place an order. ALWAYS preview first. This commits real money in production."
     )
-    args_schema: Type[BaseModel] = PlaceOrderInput
+    args_schema: type[BaseModel] = PlaceOrderInput
 
     def _run(
         self,
@@ -751,8 +729,8 @@ class PlaceOrderTool(BaseTool):
         action: str,
         quantity: int,
         order_type: str = "LIMIT",
-        limit_price: Optional[float] = None,
-        preview_id: Optional[str] = None,
+        limit_price: float | None = None,
+        preview_id: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -775,9 +753,9 @@ class GetPositionsTool(BaseTool):
 
     name: str = "get_positions"
     description: str = "Get current positions for an account with P&L information."
-    args_schema: Type[BaseModel] = PositionsInput
+    args_schema: type[BaseModel] = PositionsInput
 
-    def _run(self, account_id_key: str, symbol: Optional[str] = None) -> str:
+    def _run(self, account_id_key: str, symbol: str | None = None) -> str:
         async def _exec():
             bridge = get_bridge()
             return await bridge.call_etrade(
@@ -791,17 +769,13 @@ class GetAccountBalanceTool(BaseTool):
     """Tool to get account balance."""
 
     name: str = "get_account_balance"
-    description: str = (
-        "Get account balance including cash, buying power, and margin info."
-    )
-    args_schema: Type[BaseModel] = BalanceInput
+    description: str = "Get account balance including cash, buying power, and margin info."
+    args_schema: type[BaseModel] = BalanceInput
 
     def _run(self, account_id_key: str) -> str:
         async def _exec():
             bridge = get_bridge()
-            return await bridge.call_etrade(
-                "get_account_balance", account_id_key=account_id_key
-            )
+            return await bridge.call_etrade("get_account_balance", account_id_key=account_id_key)
 
         return json.dumps(_run_async(_exec()), indent=2)
 
@@ -818,11 +792,9 @@ class FetchMarketDataTool(BaseTool):
     description: str = (
         "Fetch OHLCV market data for a symbol. Use for getting fresh data from Alpha Vantage API."
     )
-    args_schema: Type[BaseModel] = FetchMarketDataInput
+    args_schema: type[BaseModel] = FetchMarketDataInput
 
-    def _run(
-        self, symbol: str, timeframe: str = "daily", outputsize: str = "compact"
-    ) -> str:
+    def _run(self, symbol: str, timeframe: str = "daily", outputsize: str = "compact") -> str:
         async def _exec():
             bridge = get_bridge()
             return await bridge.call_quantcore(
@@ -839,17 +811,15 @@ class LoadMarketDataTool(BaseTool):
     """Tool to load OHLCV data from local storage."""
 
     name: str = "load_market_data"
-    description: str = (
-        "Load OHLCV data from local DuckDB storage. Faster than fetching from API."
-    )
-    args_schema: Type[BaseModel] = LoadMarketDataInput
+    description: str = "Load OHLCV data from local DuckDB storage. Faster than fetching from API."
+    args_schema: type[BaseModel] = LoadMarketDataInput
 
     def _run(
         self,
         symbol: str,
         timeframe: str = "daily",
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -887,9 +857,9 @@ class GetSymbolSnapshotTool(BaseTool):
     description: str = (
         "Get a comprehensive snapshot of a symbol including price, indicators, and regime."
     )
-    args_schema: Type[BaseModel] = SymbolSnapshotInput
+    args_schema: type[BaseModel] = SymbolSnapshotInput
 
-    def _run(self, symbol: str, end_date: Optional[str] = None) -> str:
+    def _run(self, symbol: str, end_date: str | None = None) -> str:
         async def _exec():
             bridge = get_bridge()
             return await bridge.call_quantcore(
@@ -911,14 +881,14 @@ class ComputeIndicatorsTool(BaseTool):
     description: str = (
         "Compute technical indicators (RSI, MACD, ATR, Bollinger Bands, etc.) for a symbol."
     )
-    args_schema: Type[BaseModel] = IndicatorsInput
+    args_schema: type[BaseModel] = IndicatorsInput
 
     def _run(
         self,
         symbol: str,
         timeframe: str = "daily",
-        indicators: Optional[List[str]] = None,
-        end_date: Optional[str] = None,
+        indicators: list[str] | None = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -937,14 +907,10 @@ class ComputeAllFeaturesTool(BaseTool):
     """Tool to compute all 200+ features."""
 
     name: str = "compute_all_features"
-    description: str = (
-        "Compute all available features (200+) including trend, momentum, volatility, volume, and patterns."
-    )
-    args_schema: Type[BaseModel] = SymbolInput
+    description: str = "Compute all available features (200+) including trend, momentum, volatility, volume, and patterns."
+    args_schema: type[BaseModel] = SymbolInput
 
-    def _run(
-        self, symbol: str, timeframe: str = "daily", end_date: Optional[str] = None
-    ) -> str:
+    def _run(self, symbol: str, timeframe: str = "daily", end_date: str | None = None) -> str:
         async def _exec():
             bridge = get_bridge()
             return await bridge.call_quantcore(
@@ -961,9 +927,7 @@ class ListAvailableIndicatorsTool(BaseTool):
     """Tool to list all available indicators."""
 
     name: str = "list_available_indicators"
-    description: str = (
-        "List all available technical indicators with their descriptions."
-    )
+    description: str = "List all available technical indicators with their descriptions."
 
     def _run(self) -> str:
         async def _exec():
@@ -982,10 +946,8 @@ class RunBacktestTool(BaseTool):
     """Tool to run backtests."""
 
     name: str = "run_backtest"
-    description: str = (
-        "Run a backtest on historical data to validate a trading strategy."
-    )
-    args_schema: Type[BaseModel] = BacktestInput
+    description: str = "Run a backtest on historical data to validate a trading strategy."
+    args_schema: type[BaseModel] = BacktestInput
 
     def _run(
         self,
@@ -996,7 +958,7 @@ class RunBacktestTool(BaseTool):
         position_size_pct: float = 10,
         stop_loss_atr: float = 2,
         take_profit_atr: float = 3,
-        end_date: Optional[str] = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -1019,10 +981,8 @@ class GetBacktestMetricsTool(BaseTool):
     """Tool to analyze backtest metrics."""
 
     name: str = "get_backtest_metrics"
-    description: str = (
-        "Analyze and interpret backtest metrics to assess strategy quality."
-    )
-    args_schema: Type[BaseModel] = BacktestMetricsInput
+    description: str = "Analyze and interpret backtest metrics to assess strategy quality."
+    args_schema: type[BaseModel] = BacktestMetricsInput
 
     def _run(
         self,
@@ -1053,14 +1013,14 @@ class RunMonteCarloTool(BaseTool):
     description: str = (
         "Run Monte Carlo simulation to test strategy robustness under varying conditions."
     )
-    args_schema: Type[BaseModel] = MonteCarloInput
+    args_schema: type[BaseModel] = MonteCarloInput
 
     def _run(
         self,
         symbol: str,
         timeframe: str = "daily",
         n_simulations: int = 1000,
-        end_date: Optional[str] = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -1079,10 +1039,8 @@ class RunWalkForwardTool(BaseTool):
     """Tool to run walk-forward optimization."""
 
     name: str = "run_walkforward"
-    description: str = (
-        "Run walk-forward optimization to validate strategy out-of-sample."
-    )
-    args_schema: Type[BaseModel] = WalkForwardInput
+    description: str = "Run walk-forward optimization to validate strategy out-of-sample."
+    args_schema: type[BaseModel] = WalkForwardInput
 
     def _run(
         self,
@@ -1090,7 +1048,7 @@ class RunWalkForwardTool(BaseTool):
         timeframe: str = "daily",
         n_splits: int = 5,
         train_pct: float = 0.7,
-        end_date: Optional[str] = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -1115,17 +1073,15 @@ class RunADFTestTool(BaseTool):
     """Tool to run Augmented Dickey-Fuller stationarity test."""
 
     name: str = "run_adf_test"
-    description: str = (
-        "Run ADF test to check if a time series is stationary (mean-reverting). p-value < 0.05 indicates stationarity."
-    )
-    args_schema: Type[BaseModel] = ADFTestInput
+    description: str = "Run ADF test to check if a time series is stationary (mean-reverting). p-value < 0.05 indicates stationarity."
+    args_schema: type[BaseModel] = ADFTestInput
 
     def _run(
         self,
         symbol: str,
         timeframe: str = "daily",
         column: str = "close",
-        end_date: Optional[str] = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -1144,10 +1100,8 @@ class ComputeAlphaDecayTool(BaseTool):
     """Tool to analyze signal alpha decay."""
 
     name: str = "compute_alpha_decay"
-    description: str = (
-        "Analyze how a trading signal's predictive power decays over time. Returns optimal holding period."
-    )
-    args_schema: Type[BaseModel] = AlphaDecayInput
+    description: str = "Analyze how a trading signal's predictive power decays over time. Returns optimal holding period."
+    args_schema: type[BaseModel] = AlphaDecayInput
 
     def _run(
         self,
@@ -1155,7 +1109,7 @@ class ComputeAlphaDecayTool(BaseTool):
         timeframe: str = "daily",
         signal_column: str = "rsi_14",
         max_lag: int = 20,
-        end_date: Optional[str] = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -1178,7 +1132,7 @@ class ComputeInformationCoefficientTool(BaseTool):
     description: str = (
         "Compute IC between a signal and forward returns. IC > 0.05 is generally meaningful."
     )
-    args_schema: Type[BaseModel] = ICInput
+    args_schema: type[BaseModel] = ICInput
 
     def _run(
         self,
@@ -1186,7 +1140,7 @@ class ComputeInformationCoefficientTool(BaseTool):
         timeframe: str = "daily",
         signal_column: str = "rsi_14",
         forward_return_periods: int = 5,
-        end_date: Optional[str] = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -1209,7 +1163,7 @@ class ValidateSignalTool(BaseTool):
     description: str = (
         "Validate a trading signal for statistical significance and predictive power."
     )
-    args_schema: Type[BaseModel] = ValidateSignalInput
+    args_schema: type[BaseModel] = ValidateSignalInput
 
     def _run(self, symbol: str, signal_column: str, timeframe: str = "daily") -> str:
         async def _exec():
@@ -1228,10 +1182,8 @@ class DiagnoseSignalTool(BaseTool):
     """Tool to diagnose signal issues."""
 
     name: str = "diagnose_signal"
-    description: str = (
-        "Diagnose potential issues with a trading signal (noise, lag, correlation)."
-    )
-    args_schema: Type[BaseModel] = DiagnoseSignalInput
+    description: str = "Diagnose potential issues with a trading signal (noise, lag, correlation)."
+    args_schema: type[BaseModel] = DiagnoseSignalInput
 
     def _run(self, symbol: str, signal_column: str, timeframe: str = "daily") -> str:
         async def _exec():
@@ -1258,7 +1210,7 @@ class PriceOptionTool(BaseTool):
     description: str = (
         "Calculate option price using Black-Scholes-Merton model. Returns price and Greeks."
     )
-    args_schema: Type[BaseModel] = PriceOptionInput
+    args_schema: type[BaseModel] = PriceOptionInput
 
     def _run(
         self,
@@ -1293,7 +1245,7 @@ class ComputeGreeksTool(BaseTool):
     description: str = (
         "Compute option Greeks (Delta, Gamma, Theta, Vega, Rho) with interpretations."
     )
-    args_schema: Type[BaseModel] = ComputeGreeksInput
+    args_schema: type[BaseModel] = ComputeGreeksInput
 
     def _run(
         self,
@@ -1328,7 +1280,7 @@ class ComputeImpliedVolTool(BaseTool):
     description: str = (
         "Calculate implied volatility from market option price using Newton-Raphson method."
     )
-    args_schema: Type[BaseModel] = ImpliedVolInput
+    args_schema: type[BaseModel] = ImpliedVolInput
 
     def _run(
         self,
@@ -1361,7 +1313,7 @@ class AnalyzeOptionStructureTool(BaseTool):
     description: str = (
         "Analyze an options structure (spread, condor, etc.) for P&L, breakevens, and Greeks."
     )
-    args_schema: Type[BaseModel] = AnalyzeOptionStructureInput
+    args_schema: type[BaseModel] = AnalyzeOptionStructureInput
 
     def _run(
         self,
@@ -1393,7 +1345,7 @@ class ComputeOptionChainTool(BaseTool):
     description: str = (
         "Compute a theoretical option chain with prices and Greeks for multiple strikes."
     )
-    args_schema: Type[BaseModel] = ComputeOptionChainInput
+    args_schema: type[BaseModel] = ComputeOptionChainInput
 
     def _run(
         self,
@@ -1424,15 +1376,13 @@ class ComputeMultiLegPriceTool(BaseTool):
     description: str = (
         "Calculate net debit/credit and combined Greeks for a multi-leg options trade."
     )
-    args_schema: Type[BaseModel] = MultiLegPriceInput
+    args_schema: type[BaseModel] = MultiLegPriceInput
 
     def _run(self, legs: str, spot: float) -> str:
         async def _exec():
             bridge = get_bridge()
             legs_list = json.loads(legs)
-            return await bridge.call_quantcore(
-                "compute_multi_leg_price", legs=legs_list, spot=spot
-            )
+            return await bridge.call_quantcore("compute_multi_leg_price", legs=legs_list, spot=spot)
 
         return json.dumps(_run_async(_exec()), indent=2)
 
@@ -1449,7 +1399,7 @@ class ComputePositionSizeTool(BaseTool):
     description: str = (
         "Calculate optimal position size using ATR-based risk management and Kelly criterion."
     )
-    args_schema: Type[BaseModel] = PositionSizeInput
+    args_schema: type[BaseModel] = PositionSizeInput
 
     def _run(
         self,
@@ -1479,17 +1429,13 @@ class ComputeMaxDrawdownTool(BaseTool):
     """Tool to compute maximum drawdown."""
 
     name: str = "compute_max_drawdown"
-    description: str = (
-        "Compute maximum drawdown and drawdown statistics from equity curve."
-    )
-    args_schema: Type[BaseModel] = MaxDrawdownInput
+    description: str = "Compute maximum drawdown and drawdown statistics from equity curve."
+    args_schema: type[BaseModel] = MaxDrawdownInput
 
-    def _run(self, equity_curve: List[float]) -> str:
+    def _run(self, equity_curve: list[float]) -> str:
         async def _exec():
             bridge = get_bridge()
-            return await bridge.call_quantcore(
-                "compute_max_drawdown", equity_curve=equity_curve
-            )
+            return await bridge.call_quantcore("compute_max_drawdown", equity_curve=equity_curve)
 
         return json.dumps(_run_async(_exec()), indent=2)
 
@@ -1501,9 +1447,9 @@ class ComputePortfolioStatsTool(BaseTool):
     description: str = (
         "Compute portfolio statistics including Sharpe ratio, volatility, and risk metrics."
     )
-    args_schema: Type[BaseModel] = PortfolioStatsInput
+    args_schema: type[BaseModel] = PortfolioStatsInput
 
-    def _run(self, returns: List[float], risk_free_rate: float = 0.02) -> str:
+    def _run(self, returns: list[float], risk_free_rate: float = 0.02) -> str:
         async def _exec():
             bridge = get_bridge()
             return await bridge.call_quantcore(
@@ -1520,11 +1466,11 @@ class ComputeVaRTool(BaseTool):
 
     name: str = "compute_var"
     description: str = "Compute Value at Risk (VaR) using historical simulation method."
-    args_schema: Type[BaseModel] = VaRInput
+    args_schema: type[BaseModel] = VaRInput
 
     def _run(
         self,
-        returns: List[float],
+        returns: list[float],
         confidence_level: float = 0.95,
         portfolio_value: float = 100000,
     ) -> str:
@@ -1545,7 +1491,7 @@ class StressTestPortfolioTool(BaseTool):
 
     name: str = "stress_test_portfolio"
     description: str = "Run stress tests on portfolio with various market scenarios."
-    args_schema: Type[BaseModel] = StressTestInput
+    args_schema: type[BaseModel] = StressTestInput
 
     def _run(self, positions: str, scenarios: str) -> str:
         async def _exec():
@@ -1564,7 +1510,7 @@ class CheckRiskLimitsTool(BaseTool):
 
     name: str = "check_risk_limits"
     description: str = "Check if portfolio Greeks are within risk limits."
-    args_schema: Type[BaseModel] = RiskLimitsInput
+    args_schema: type[BaseModel] = RiskLimitsInput
 
     def _run(
         self,
@@ -1597,11 +1543,9 @@ class AnalyzeLiquidityTool(BaseTool):
     description: str = (
         "Analyze market liquidity including bid-ask spread, volume, and market impact."
     )
-    args_schema: Type[BaseModel] = LiquidityInput
+    args_schema: type[BaseModel] = LiquidityInput
 
-    def _run(
-        self, symbol: str, timeframe: str = "daily", end_date: Optional[str] = None
-    ) -> str:
+    def _run(self, symbol: str, timeframe: str = "daily", end_date: str | None = None) -> str:
         async def _exec():
             bridge = get_bridge()
             return await bridge.call_quantcore(
@@ -1627,12 +1571,10 @@ class GetMarketRegimeSnapshotTool(BaseTool):
         "Get current market regime classification (trending, ranging, volatile) with confidence."
     )
 
-    def _run(self, end_date: Optional[str] = None) -> str:
+    def _run(self, end_date: str | None = None) -> str:
         async def _exec():
             bridge = get_bridge()
-            return await bridge.call_quantcore(
-                "get_market_regime_snapshot", end_date=end_date
-            )
+            return await bridge.call_quantcore("get_market_regime_snapshot", end_date=end_date)
 
         return json.dumps(_run_async(_exec()), indent=2)
 
@@ -1644,14 +1586,14 @@ class AnalyzeVolumeProfileTool(BaseTool):
     description: str = (
         "Analyze volume profile to identify support/resistance levels and value areas."
     )
-    args_schema: Type[BaseModel] = VolumeProfileInput
+    args_schema: type[BaseModel] = VolumeProfileInput
 
     def _run(
         self,
         symbol: str,
         timeframe: str = "daily",
         num_bins: int = 20,
-        end_date: Optional[str] = None,
+        end_date: str | None = None,
     ) -> str:
         async def _exec():
             bridge = get_bridge()
@@ -1671,7 +1613,7 @@ class GetTradingCalendarTool(BaseTool):
 
     name: str = "get_trading_calendar"
     description: str = "Get trading calendar with market holidays and trading days."
-    args_schema: Type[BaseModel] = TradingCalendarInput
+    args_schema: type[BaseModel] = TradingCalendarInput
 
     def _run(self, start_date: str, end_date: str) -> str:
         async def _exec():
@@ -1687,12 +1629,10 @@ class GetEventCalendarTool(BaseTool):
     """Tool to get event calendar."""
 
     name: str = "get_event_calendar"
-    description: str = (
-        "Get upcoming market events (earnings, Fed meetings, economic releases)."
-    )
-    args_schema: Type[BaseModel] = EventCalendarInput
+    description: str = "Get upcoming market events (earnings, Fed meetings, economic releases)."
+    args_schema: type[BaseModel] = EventCalendarInput
 
-    def _run(self, symbol: Optional[str] = None, days_ahead: int = 7) -> str:
+    def _run(self, symbol: str | None = None, days_ahead: int = 7) -> str:
         async def _exec():
             bridge = get_bridge()
             return await bridge.call_quantcore(
@@ -1714,7 +1654,7 @@ class GenerateTradeTemplateTool(BaseTool):
     description: str = (
         "Generate a trade template with entry, stop, target based on symbol analysis."
     )
-    args_schema: Type[BaseModel] = TradeTemplateInput
+    args_schema: type[BaseModel] = TradeTemplateInput
 
     def _run(
         self,
@@ -1740,10 +1680,8 @@ class ValidateTradeTool(BaseTool):
     """Tool to validate a trade setup."""
 
     name: str = "validate_trade"
-    description: str = (
-        "Validate a trade setup against risk rules and market conditions."
-    )
-    args_schema: Type[BaseModel] = ValidateTradeInput
+    description: str = "Validate a trade setup against risk rules and market conditions."
+    args_schema: type[BaseModel] = ValidateTradeInput
 
     def _run(
         self,
@@ -1774,7 +1712,7 @@ class ScoreTradeStructureTool(BaseTool):
     description: str = (
         "Score an options trade structure based on risk/reward, probability, and Greeks."
     )
-    args_schema: Type[BaseModel] = ScoreTradeInput
+    args_schema: type[BaseModel] = ScoreTradeInput
 
     def _run(
         self,
@@ -1805,7 +1743,7 @@ class SimulateTradeOutcomeTool(BaseTool):
     description: str = (
         "Simulate potential trade outcomes using Monte Carlo based on historical volatility."
     )
-    args_schema: Type[BaseModel] = SimulateTradeInput
+    args_schema: type[BaseModel] = SimulateTradeInput
 
     def _run(
         self,
@@ -1836,7 +1774,7 @@ class RunScreenerTool(BaseTool):
 
     name: str = "run_screener"
     description: str = "Screen stocks based on technical and price criteria."
-    args_schema: Type[BaseModel] = ScreenerInput
+    args_schema: type[BaseModel] = ScreenerInput
 
     def _run(
         self,

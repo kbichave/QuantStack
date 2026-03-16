@@ -9,7 +9,6 @@ All tests use in-memory DuckDB — no file I/O, no external services.
 
 from __future__ import annotations
 
-from datetime import datetime
 from unittest.mock import MagicMock
 
 import duckdb
@@ -26,6 +25,7 @@ def _make_store() -> MagicMock:
 
 def _make_evaluator():
     from quantcore.rl.shadow_mode import ShadowEvaluator
+
     return ShadowEvaluator(_make_store())
 
 
@@ -33,7 +33,8 @@ class TestShadowEvaluatorInit:
     def test_creates_table(self):
         store = _make_store()
         from quantcore.rl.shadow_mode import ShadowEvaluator
-        ev = ShadowEvaluator(store)
+
+        ShadowEvaluator(store)
         tables = store.conn.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_type='BASE TABLE'"
         ).fetchall()
@@ -43,8 +44,9 @@ class TestShadowEvaluatorInit:
     def test_idempotent_init(self):
         store = _make_store()
         from quantcore.rl.shadow_mode import ShadowEvaluator
-        ev1 = ShadowEvaluator(store)
-        ev2 = ShadowEvaluator(store)  # should not raise
+
+        ShadowEvaluator(store)
+        ShadowEvaluator(store)  # should not raise
 
 
 class TestRecordDecision:
@@ -63,6 +65,7 @@ class TestRecordDecision:
     def test_decision_stored_in_db(self):
         store = _make_store()
         from quantcore.rl.shadow_mode import ShadowEvaluator
+
         ev = ShadowEvaluator(store)
         decision_id = ev.record_decision(
             tool_name="rl_position_size",
@@ -78,12 +81,11 @@ class TestRecordDecision:
     def test_multiple_decisions(self):
         store = _make_store()
         from quantcore.rl.shadow_mode import ShadowEvaluator
+
         ev = ShadowEvaluator(store)
         for i in range(5):
             ev.record_decision("rl_position_size", {"scale": i * 0.1})
-        count = store.conn.execute(
-            "SELECT COUNT(*) FROM rl_shadow_decisions"
-        ).fetchone()[0]
+        count = store.conn.execute("SELECT COUNT(*) FROM rl_shadow_decisions").fetchone()[0]
         assert count == 5
 
 
@@ -91,6 +93,7 @@ class TestRecordOutcome:
     def test_updates_pnl(self):
         store = _make_store()
         from quantcore.rl.shadow_mode import ShadowEvaluator
+
         ev = ShadowEvaluator(store)
         did = ev.record_decision("rl_position_size", {"scale": 0.5})
         ev.record_outcome(did, pnl=250.0, slippage_bps=3.2)
@@ -111,7 +114,10 @@ class TestEvaluateShadowPeriod:
     def _fill_decisions(self, ev, tool_name, n=70, pnl_func=None):
         """Helper: insert n decisions with outcomes."""
         if pnl_func is None:
-            pnl_func = lambda i: 100.0 if i % 2 == 0 else -50.0
+
+            def pnl_func(i):
+                return 100.0 if i % 2 == 0 else -50.0
+
         for i in range(n):
             did = ev.record_decision(
                 tool_name=tool_name,
@@ -122,10 +128,11 @@ class TestEvaluateShadowPeriod:
 
     def test_insufficient_observations(self):
         from quantcore.rl.shadow_mode import ShadowEvaluator
+
         store = _make_store()
         ev = ShadowEvaluator(store)
         # Only 5 decisions — below 63 minimum
-        for i in range(5):
+        for _i in range(5):
             did = ev.record_decision("rl_position_size", {"scale": 0.5})
             ev.record_outcome(did, pnl=100.0)
         result = ev.evaluate_shadow_period("sizing", min_observations=63)
@@ -134,6 +141,7 @@ class TestEvaluateShadowPeriod:
 
     def test_sufficient_observations_returns_metrics(self):
         from quantcore.rl.shadow_mode import ShadowEvaluator
+
         store = _make_store()
         ev = ShadowEvaluator(store)
         self._fill_decisions(ev, "rl_position_size", n=70)
@@ -145,6 +153,7 @@ class TestEvaluateShadowPeriod:
 
     def test_get_observation_count(self):
         from quantcore.rl.shadow_mode import ShadowEvaluator
+
         store = _make_store()
         ev = ShadowEvaluator(store)
         for _ in range(10):
@@ -158,6 +167,7 @@ class TestEvaluateShadowPeriod:
     def test_tool_map_routing(self):
         """Decisions for rl_execution_strategy are picked up under agent_type='execution'."""
         from quantcore.rl.shadow_mode import ShadowEvaluator
+
         store = _make_store()
         ev = ShadowEvaluator(store)
         for _ in range(5):
@@ -167,11 +177,14 @@ class TestEvaluateShadowPeriod:
 
     def test_evaluation_metrics_are_finite(self):
         from quantcore.rl.shadow_mode import ShadowEvaluator
+
         store = _make_store()
         ev = ShadowEvaluator(store)
         np.random.seed(42)
-        for i in range(70):
-            did = ev.record_decision("rl_position_size", {"scale": float(np.random.uniform(0.3, 0.9))})
+        for _i in range(70):
+            did = ev.record_decision(
+                "rl_position_size", {"scale": float(np.random.uniform(0.3, 0.9))}
+            )
             ev.record_outcome(did, pnl=float(np.random.randn() * 200), slippage_bps=3.0)
         result = ev.evaluate_shadow_period("sizing", min_observations=63)
         if result.rl_simulated_sharpe is not None:

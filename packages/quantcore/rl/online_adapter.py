@@ -26,10 +26,9 @@ Usage (from TradingDayFlow._run_post_trade_learning()):
 
 from __future__ import annotations
 
-import json
 from collections import deque
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -58,7 +57,7 @@ class PostTradeRLAdapter:
         self._kill_switch = kill_switch
 
         # Per-day rate limiting
-        self._update_date: Optional[date] = None
+        self._update_date: date | None = None
         self._updates_today: int = 0
 
         # Rolling reward history for degradation guard (last 20 trades per agent)
@@ -78,8 +77,8 @@ class PostTradeRLAdapter:
 
     def process_trade_outcome(
         self,
-        trade: Dict[str, Any],
-        pre_trade_snapshot: Dict[str, Any],
+        trade: dict[str, Any],
+        pre_trade_snapshot: dict[str, Any],
     ) -> None:
         """
         Process a completed trade and push RL updates.
@@ -107,8 +106,8 @@ class PostTradeRLAdapter:
 
     def _process(
         self,
-        trade: Dict[str, Any],
-        snapshot: Dict[str, Any],
+        trade: dict[str, Any],
+        snapshot: dict[str, Any],
     ) -> None:
         # Safety gates — checked before any update
         if self._kill_switch_active():
@@ -119,7 +118,7 @@ class PostTradeRLAdapter:
         tool_name = snapshot.get("tool_name", "")
         pnl = trade.get("pnl")
         slippage_bps = trade.get("slippage_bps", 0.0) or 0.0
-        order_id = trade.get("order_id", "")
+        trade.get("order_id", "")
         symbol = trade.get("symbol")
 
         # Route to appropriate agent based on tool_name
@@ -137,8 +136,8 @@ class PostTradeRLAdapter:
 
     def _compute_sizing_reward(
         self,
-        pnl: Optional[float],
-        snapshot: Dict[str, Any],
+        pnl: float | None,
+        snapshot: dict[str, Any],
     ) -> float:
         """
         Risk-adjusted PnL as sizing reward.
@@ -173,7 +172,7 @@ class PostTradeRLAdapter:
 
     def _update_sizing_agent(
         self,
-        snapshot: Dict[str, Any],
+        snapshot: dict[str, Any],
         reward_value: float,
     ) -> None:
         """Push (s, a, r, s') to sizing OnlineRLTrainer."""
@@ -209,7 +208,7 @@ class PostTradeRLAdapter:
 
     def _update_execution_agent(
         self,
-        snapshot: Dict[str, Any],
+        snapshot: dict[str, Any],
         reward_value: float,
     ) -> None:
         """Push (s, a, r, s') to execution OnlineRLTrainer."""
@@ -245,10 +244,10 @@ class PostTradeRLAdapter:
     def _record_shadow(
         self,
         tool_name: str,
-        snapshot: Dict[str, Any],
-        trade: Dict[str, Any],
+        snapshot: dict[str, Any],
+        trade: dict[str, Any],
         reward_value: float,
-        symbol: Optional[str],
+        symbol: str | None,
     ) -> None:
         """Update ShadowEvaluator with trade outcome if attached."""
         if self._shadow_evaluator is None:
@@ -337,7 +336,7 @@ class PostTradeRLAdapter:
     # Lazy trainer loading
     # -------------------------------------------------------------------------
 
-    def _get_sizing_trainer(self) -> Optional[Any]:
+    def _get_sizing_trainer(self) -> Any | None:
         if self._sizing_trainer is not None:
             return self._sizing_trainer
         try:
@@ -358,7 +357,7 @@ class PostTradeRLAdapter:
             logger.debug(f"[RL Adapter] Sizing trainer init failed (non-fatal): {exc}")
         return self._sizing_trainer
 
-    def _get_execution_trainer(self) -> Optional[Any]:
+    def _get_execution_trainer(self) -> Any | None:
         if self._execution_trainer is not None:
             return self._execution_trainer
         try:

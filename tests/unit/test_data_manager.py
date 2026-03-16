@@ -4,12 +4,10 @@
 """Tests for quantcore.data.manager module."""
 
 from datetime import datetime
-from typing import List, Optional
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
-
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.base import AssetClass, AssetClassAdapter
 from quantcore.data.manager import UnifiedDataManager
@@ -19,7 +17,7 @@ from quantcore.data.provider_enum import DataProvider
 class MockEquityAdapter(AssetClassAdapter):
     """Mock equity adapter for testing."""
 
-    def __init__(self, symbols: List[str] = None):
+    def __init__(self, symbols: list[str] = None):
         self._symbols = symbols or ["AAPL", "MSFT", "GOOGL"]
 
     @property
@@ -34,8 +32,8 @@ class MockEquityAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         # Return sample data
         dates = pd.date_range(start="2023-01-01", periods=10, freq="D")
@@ -50,7 +48,7 @@ class MockEquityAdapter(AssetClassAdapter):
             index=dates,
         )
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         return self._symbols
 
 
@@ -69,8 +67,8 @@ class MockCryptoAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         dates = pd.date_range(start="2023-01-01", periods=5, freq="D")
         return pd.DataFrame(
@@ -84,7 +82,7 @@ class MockCryptoAdapter(AssetClassAdapter):
             index=dates,
         )
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         return ["BTC", "ETH", "SOL"]
 
 

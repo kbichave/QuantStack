@@ -11,9 +11,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-
 from quant_pod.context import create_trading_context
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -30,6 +28,7 @@ def ctx():
 @pytest.fixture
 def _inject_ctx(ctx):
     import quant_pod.mcp.server as srv
+
     original = srv._ctx
     srv._ctx = ctx
     yield ctx
@@ -56,7 +55,7 @@ class TestGetRegimeStrategies:
 
     @pytest.mark.asyncio
     async def test_returns_allocations_after_set(self, _inject_ctx):
-        from quant_pod.mcp.server import set_regime_allocation, get_regime_strategies
+        from quant_pod.mcp.server import get_regime_strategies, set_regime_allocation
 
         await _fn(set_regime_allocation)(
             regime="trending_up",
@@ -93,7 +92,7 @@ class TestSetRegimeAllocation:
 
     @pytest.mark.asyncio
     async def test_upserts_existing(self, _inject_ctx):
-        from quant_pod.mcp.server import set_regime_allocation, get_regime_strategies
+        from quant_pod.mcp.server import get_regime_strategies, set_regime_allocation
 
         await _fn(set_regime_allocation)(
             regime="ranging",
@@ -135,8 +134,20 @@ class TestResolvePortfolioConflicts:
 
         result = await _fn(resolve_portfolio_conflicts)(
             proposed_trades=[
-                {"symbol": "SPY", "action": "buy", "confidence": 0.8, "strategy_id": "s1", "capital_pct": 0.05},
-                {"symbol": "QQQ", "action": "sell", "confidence": 0.7, "strategy_id": "s2", "capital_pct": 0.05},
+                {
+                    "symbol": "SPY",
+                    "action": "buy",
+                    "confidence": 0.8,
+                    "strategy_id": "s1",
+                    "capital_pct": 0.05,
+                },
+                {
+                    "symbol": "QQQ",
+                    "action": "sell",
+                    "confidence": 0.7,
+                    "strategy_id": "s2",
+                    "capital_pct": 0.05,
+                },
             ]
         )
         assert result["success"] is True
@@ -149,8 +160,20 @@ class TestResolvePortfolioConflicts:
 
         result = await _fn(resolve_portfolio_conflicts)(
             proposed_trades=[
-                {"symbol": "SPY", "action": "buy", "confidence": 0.85, "strategy_id": "s1", "capital_pct": 0.05},
-                {"symbol": "SPY", "action": "sell", "confidence": 0.80, "strategy_id": "s2", "capital_pct": 0.05},
+                {
+                    "symbol": "SPY",
+                    "action": "buy",
+                    "confidence": 0.85,
+                    "strategy_id": "s1",
+                    "capital_pct": 0.05,
+                },
+                {
+                    "symbol": "SPY",
+                    "action": "sell",
+                    "confidence": 0.80,
+                    "strategy_id": "s2",
+                    "capital_pct": 0.05,
+                },
             ]
         )
         assert result["success"] is True

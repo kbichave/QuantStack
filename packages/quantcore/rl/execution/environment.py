@@ -16,13 +16,14 @@ Data requirements:
 - OHLCV DataFrame with columns: close, high, low, volume
 """
 
-from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.rl.base import RLEnvironment, State, Action, Reward
+from quantcore.rl.base import Action, Reward, RLEnvironment, State
 
 
 @dataclass
@@ -63,7 +64,7 @@ class ExecutionDataRequirements:
         - Results may not reflect real market dynamics
     """
 
-    required_columns: List[str] = None
+    required_columns: list[str] = None
 
     def __post_init__(self):
         self.required_columns = ["close", "high", "low", "volume"]
@@ -119,11 +120,11 @@ class ExecutionEnvironment(RLEnvironment):
 
     def __init__(
         self,
-        data: Optional[pd.DataFrame] = None,
+        data: pd.DataFrame | None = None,
         market_impact_coef: float = 0.1,
         spread_bps: float = 5.0,
         volatility_mult: float = 1.0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ):
         """
         Initialize execution environment.
@@ -148,8 +149,8 @@ class ExecutionEnvironment(RLEnvironment):
         self._rng = np.random.RandomState(seed)
 
         # Current order being executed
-        self.order: Optional[ExecutionOrder] = None
-        self.exec_state: Optional[ExecutionState] = None
+        self.order: ExecutionOrder | None = None
+        self.exec_state: ExecutionState | None = None
 
         # Simulation state
         self.data_idx = 0
@@ -205,8 +206,7 @@ class ExecutionEnvironment(RLEnvironment):
         # Reset RNG
         if self.seed is not None:
             self._rng = np.random.RandomState(
-                self.seed
-                + (self.episode_count if hasattr(self, "episode_count") else 0)
+                self.seed + (self.episode_count if hasattr(self, "episode_count") else 0)
             )
 
         # Reset execution state
@@ -238,13 +238,11 @@ class ExecutionEnvironment(RLEnvironment):
 
         # Random starting point in data
         if self.data is not None and len(self.data) > self.order.time_horizon:
-            self.data_idx = self._rng.randint(
-                0, len(self.data) - self.order.time_horizon - 1
-            )
+            self.data_idx = self._rng.randint(0, len(self.data) - self.order.time_horizon - 1)
 
         return self._get_state()
 
-    def step(self, action: Action) -> Tuple[State, Reward, bool, Dict[str, Any]]:
+    def step(self, action: Action) -> tuple[State, Reward, bool, dict[str, Any]]:
         """
         Execute one step.
 
@@ -320,8 +318,7 @@ class ExecutionEnvironment(RLEnvironment):
                 self.exec_state.volatility,
                 self.exec_state.volume,
                 (
-                    (self.exec_state.current_price - self.exec_state.vwap)
-                    / self.exec_state.vwap
+                    (self.exec_state.current_price - self.exec_state.vwap) / self.exec_state.vwap
                     if self.exec_state.vwap > 0
                     else 0
                 ),
@@ -332,9 +329,7 @@ class ExecutionEnvironment(RLEnvironment):
 
         return State(features=features, metadata={"exec_state": self.exec_state})
 
-    def _simulate_execution(
-        self, quantity: float, action_idx: int
-    ) -> Tuple[float, float]:
+    def _simulate_execution(self, quantity: float, action_idx: int) -> tuple[float, float]:
         """
         Simulate order execution with market impact.
 
@@ -349,13 +344,9 @@ class ExecutionEnvironment(RLEnvironment):
 
         # Market impact (temporary and permanent)
         # Impact = coef * sqrt(quantity / avg_volume) * volatility
-        volume_fraction = quantity / (
-            self.exec_state.volume * self.order.total_quantity + 1e-8
-        )
+        volume_fraction = quantity / (self.exec_state.volume * self.order.total_quantity + 1e-8)
         temp_impact = (
-            self.market_impact_coef
-            * np.sqrt(volume_fraction)
-            * self.exec_state.volatility
+            self.market_impact_coef * np.sqrt(volume_fraction) * self.exec_state.volatility
         )
 
         # Market orders have higher impact
@@ -414,13 +405,9 @@ class ExecutionEnvironment(RLEnvironment):
             return 0.0
 
         if self.order.direction == "BUY":
-            shortfall = (
-                self.avg_fill_price - self.order.arrival_price
-            ) / self.order.arrival_price
+            shortfall = (self.avg_fill_price - self.order.arrival_price) / self.order.arrival_price
         else:
-            shortfall = (
-                self.order.arrival_price - self.avg_fill_price
-            ) / self.order.arrival_price
+            shortfall = (self.order.arrival_price - self.avg_fill_price) / self.order.arrival_price
 
         return shortfall
 
@@ -447,9 +434,7 @@ class ExecutionEnvironment(RLEnvironment):
 
         # Time penalty for incomplete execution
         if time_expired and not execution_complete:
-            unfilled_fraction = (
-                self.exec_state.remaining_quantity / self.order.total_quantity
-            )
+            unfilled_fraction = self.exec_state.remaining_quantity / self.order.total_quantity
             components["time_penalty"] = -unfilled_fraction * 5.0  # Heavy penalty
         else:
             components["time_penalty"] = 0.0
@@ -467,25 +452,15 @@ class ExecutionEnvironment(RLEnvironment):
 
     def _get_current_price(self) -> float:
         """Get current price from data or default."""
-        if (
-            self.data is not None
-            and len(self.data) > 0
-            and "close" in self.data.columns
-        ):
+        if self.data is not None and len(self.data) > 0 and "close" in self.data.columns:
             idx = min(self.data_idx, len(self.data) - 1)
             return float(self.data.iloc[idx]["close"])
         return 100.0
 
     def _get_volatility(self) -> float:
         """Get current volatility estimate from data."""
-        if (
-            self.data is not None
-            and "close" in self.data.columns
-            and self.data_idx >= 20
-        ):
-            returns = (
-                self.data["close"].pct_change().iloc[self.data_idx - 20 : self.data_idx]
-            )
+        if self.data is not None and "close" in self.data.columns and self.data_idx >= 20:
+            returns = self.data["close"].pct_change().iloc[self.data_idx - 20 : self.data_idx]
             vol = returns.std()
             if not np.isnan(vol):
                 return float(vol) * self.volatility_mult
@@ -493,15 +468,9 @@ class ExecutionEnvironment(RLEnvironment):
 
     def _get_volume(self) -> float:
         """Get normalized volume from data."""
-        if (
-            self.data is not None
-            and "volume" in self.data.columns
-            and self.data_idx >= 20
-        ):
+        if self.data is not None and "volume" in self.data.columns and self.data_idx >= 20:
             recent_vol = self.data["volume"].iloc[self.data_idx]
-            avg_vol = (
-                self.data["volume"].iloc[self.data_idx - 20 : self.data_idx].mean()
-            )
+            avg_vol = self.data["volume"].iloc[self.data_idx - 20 : self.data_idx].mean()
             if avg_vol > 0 and not np.isnan(recent_vol):
                 return float(recent_vol / avg_vol)
         return 1.0

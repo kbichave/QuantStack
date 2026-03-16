@@ -1,20 +1,20 @@
 """Strategy module for mean-reversion rules and signal generation."""
 
-from quantcore.strategy.rules import MeanReversionRules, EntrySignal
 from quantcore.strategy.filters import (
+    CombinedFilter,
     RRGFilter,
     SwingFilter,
     WaveFilter,
-    CombinedFilter,
 )
-from quantcore.strategy.signals import SignalGenerator, GeneratedSignal
 from quantcore.strategy.options_ensemble import (
+    EnsembleSignal,
     EnsembleSignalGenerator,
     EnsembleWeights,
-    EnsembleSignal,
     SignalDirection,
     create_ensemble_from_config,
 )
+from quantcore.strategy.rules import EntrySignal, MeanReversionRules
+from quantcore.strategy.signals import GeneratedSignal, SignalGenerator
 
 __all__ = [
     "MeanReversionRules",

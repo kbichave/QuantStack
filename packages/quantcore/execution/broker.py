@@ -24,7 +24,6 @@ into strategy logic.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
 
 from quantcore.execution.unified_models import (
     UnifiedAccount,
@@ -35,7 +34,6 @@ from quantcore.execution.unified_models import (
     UnifiedPosition,
     UnifiedQuote,
 )
-
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -53,7 +51,7 @@ class BrokerConnectionError(BrokerError):
 class BrokerOrderError(BrokerError):
     """Raised when an order is rejected or cannot be placed."""
 
-    def __init__(self, message: str, order: Optional[UnifiedOrder] = None) -> None:
+    def __init__(self, message: str, order: UnifiedOrder | None = None) -> None:
         super().__init__(message)
         self.order = order
 
@@ -80,7 +78,7 @@ class BrokerInterface(ABC):
     # ── Account & balance ─────────────────────────────────────────────────────
 
     @abstractmethod
-    def get_accounts(self) -> List[UnifiedAccount]:
+    def get_accounts(self) -> list[UnifiedAccount]:
         """Return all accounts accessible with the current credentials."""
         ...
 
@@ -92,14 +90,14 @@ class BrokerInterface(ABC):
     # ── Positions ─────────────────────────────────────────────────────────────
 
     @abstractmethod
-    def get_positions(self, account_id: str) -> List[UnifiedPosition]:
+    def get_positions(self, account_id: str) -> list[UnifiedPosition]:
         """Return all open positions for ``account_id``."""
         ...
 
     # ── Market data ───────────────────────────────────────────────────────────
 
     @abstractmethod
-    def get_quote(self, symbols: List[str]) -> List[UnifiedQuote]:
+    def get_quote(self, symbols: list[str]) -> list[UnifiedQuote]:
         """Return real-time (or delayed) best-bid/offer quotes.
 
         Args:
@@ -113,16 +111,12 @@ class BrokerInterface(ABC):
     # ── Orders ────────────────────────────────────────────────────────────────
 
     @abstractmethod
-    def preview_order(
-        self, account_id: str, order: UnifiedOrder
-    ) -> UnifiedOrderPreview:
+    def preview_order(self, account_id: str, order: UnifiedOrder) -> UnifiedOrderPreview:
         """Estimate cost and commission for ``order`` without submitting it."""
         ...
 
     @abstractmethod
-    def place_order(
-        self, account_id: str, order: UnifiedOrder
-    ) -> UnifiedOrderResult:
+    def place_order(self, account_id: str, order: UnifiedOrder) -> UnifiedOrderResult:
         """Submit ``order`` to the broker.
 
         Raises:
@@ -145,8 +139,8 @@ class BrokerInterface(ABC):
     def get_orders(
         self,
         account_id: str,
-        status: Optional[str] = None,
-    ) -> List[UnifiedOrderResult]:
+        status: str | None = None,
+    ) -> list[UnifiedOrderResult]:
         """Return orders for ``account_id``.
 
         Args:

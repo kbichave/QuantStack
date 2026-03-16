@@ -5,16 +5,16 @@ These tests verify that the synthetic data generation and full pipeline
 work correctly. Uses small datasets for fast CI execution.
 """
 
-import pytest
-import pandas as pd
-import numpy as np
 from datetime import datetime
 
+import numpy as np
+import pandas as pd
+import pytest
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.synthetic import (
     SyntheticMarketConfig,
-    generate_synthetic_ohlcv,
     generate_synthetic_multi_symbol,
+    generate_synthetic_ohlcv,
     validate_synthetic_ohlcv,
 )
 
@@ -481,9 +481,7 @@ class TestSyntheticOscillators:
         macd_hist = h1_features["macd_histogram"].dropna()
 
         # Check on common indices
-        common_idx = macd_line.index.intersection(macd_signal.index).intersection(
-            macd_hist.index
-        )
+        common_idx = macd_line.index.intersection(macd_signal.index).intersection(macd_hist.index)
         if len(common_idx) > 0:
             expected_hist = macd_line.loc[common_idx] - macd_signal.loc[common_idx]
             np.testing.assert_allclose(
@@ -787,13 +785,12 @@ class TestSyntheticTAIntegration:
         for col in ["rsi", "macd_line", "atr", "sma_20", "ema_20"]:
             if col in features.columns:
                 corr = features[col].corr(future_close)
-                assert (
-                    abs(corr) < 0.95
-                ), f"{col} suspiciously correlated with future: {corr}"
+                assert abs(corr) < 0.95, f"{col} suspiciously correlated with future: {corr}"
 
     def test_ta_performance_on_synthetic(self):
         """TA computation should complete in reasonable time on synthetic data."""
         import time
+
         from quantcore.features.factory import MultiTimeframeFeatureFactory
 
         # Larger dataset for performance testing
@@ -808,7 +805,7 @@ class TestSyntheticTAIntegration:
 
         start = time.time()
         # Test only H1 timeframe
-        features = factory._compute_features_for_timeframe(df_1h, Timeframe.H1)
+        factory._compute_features_for_timeframe(df_1h, Timeframe.H1)
         elapsed = time.time() - start
 
         # Should complete in reasonable time (<2s for 500 bars on H1)
@@ -982,9 +979,9 @@ class TestSyntheticEndToEnd:
 
     def test_backtest_produces_trades(self, small_config):
         """Backtest should produce at least one trade."""
+        from quantcore.backtesting.engine import BacktestConfig, BacktestEngine
         from quantcore.features.factory import MultiTimeframeFeatureFactory
         from quantcore.labeling.event_labeler import EventLabeler
-        from quantcore.backtesting.engine import BacktestEngine, BacktestConfig
 
         # Generate more bars to ensure we get trades
         config = SyntheticMarketConfig(
@@ -1039,11 +1036,11 @@ class TestSyntheticEndToEnd:
 
     def test_backtest_metrics_are_finite(self, small_config):
         """Backtest metrics should be finite (not NaN/inf)."""
-        from quantcore.backtesting.engine import BacktestEngine, BacktestConfig
+        from quantcore.backtesting.engine import BacktestEngine
 
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
-        data = resample_all_timeframes(df_1h)
+        resample_all_timeframes(df_1h)
 
         # Create signals
         signals = df_1h.copy()

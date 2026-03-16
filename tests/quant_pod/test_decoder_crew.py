@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-import pytest
-
 from quant_pod.crews.decoder_crew import (
     _analyze_entry_patterns,
     _analyze_exit_patterns,
@@ -21,7 +19,6 @@ from quant_pod.crews.decoder_crew import (
     _parse_signal,
     decode_signals,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures — synthetic signal sets with known patterns
@@ -42,14 +39,16 @@ def _make_morning_long_signals(n: int = 40) -> list:
         else:
             exit_price = entry_price * 0.99  # -1% loss
 
-        signals.append({
-            "symbol": "SPY",
-            "direction": "long",
-            "entry_time": entry.strftime("%Y-%m-%d %H:%M"),
-            "entry_price": entry_price,
-            "exit_time": exit_time.strftime("%Y-%m-%d %H:%M"),
-            "exit_price": exit_price,
-        })
+        signals.append(
+            {
+                "symbol": "SPY",
+                "direction": "long",
+                "entry_time": entry.strftime("%Y-%m-%d %H:%M"),
+                "entry_price": entry_price,
+                "exit_time": exit_time.strftime("%Y-%m-%d %H:%M"),
+                "exit_price": exit_price,
+            }
+        )
     return signals
 
 
@@ -67,14 +66,16 @@ def _make_swing_mixed_signals(n: int = 30) -> list:
         else:
             exit_price = entry_price * (0.97 if i % 5 != 0 else 1.02)
 
-        signals.append({
-            "symbol": "AAPL",
-            "direction": direction,
-            "entry_time": entry.strftime("%Y-%m-%d %H:%M"),
-            "entry_price": entry_price,
-            "exit_time": exit_time.strftime("%Y-%m-%d %H:%M"),
-            "exit_price": exit_price,
-        })
+        signals.append(
+            {
+                "symbol": "AAPL",
+                "direction": direction,
+                "entry_time": entry.strftime("%Y-%m-%d %H:%M"),
+                "entry_price": entry_price,
+                "exit_time": exit_time.strftime("%Y-%m-%d %H:%M"),
+                "exit_price": exit_price,
+            }
+        )
     return signals
 
 
@@ -85,11 +86,16 @@ def _make_swing_mixed_signals(n: int = 30) -> list:
 
 class TestParseSignal:
     def test_parses_valid_signal(self):
-        sig = _parse_signal({
-            "symbol": "SPY", "direction": "long",
-            "entry_time": "2024-01-15 10:30", "entry_price": 470.5,
-            "exit_time": "2024-01-15 14:00", "exit_price": 473.2,
-        })
+        sig = _parse_signal(
+            {
+                "symbol": "SPY",
+                "direction": "long",
+                "entry_time": "2024-01-15 10:30",
+                "entry_price": 470.5,
+                "exit_time": "2024-01-15 14:00",
+                "exit_price": 473.2,
+            }
+        )
         assert sig is not None
         assert sig["symbol"] == "SPY"
         assert sig["pnl_pct"] > 0
@@ -97,19 +103,29 @@ class TestParseSignal:
         assert sig["entry_hour"] == 10
 
     def test_rejects_missing_price(self):
-        sig = _parse_signal({
-            "symbol": "SPY", "direction": "long",
-            "entry_time": "2024-01-15 10:30", "entry_price": 0,
-            "exit_time": "2024-01-15 14:00", "exit_price": 473.2,
-        })
+        sig = _parse_signal(
+            {
+                "symbol": "SPY",
+                "direction": "long",
+                "entry_time": "2024-01-15 10:30",
+                "entry_price": 0,
+                "exit_time": "2024-01-15 14:00",
+                "exit_price": 473.2,
+            }
+        )
         assert sig is None
 
     def test_short_pnl_calculation(self):
-        sig = _parse_signal({
-            "symbol": "SPY", "direction": "short",
-            "entry_time": "2024-01-15 10:30", "entry_price": 470.5,
-            "exit_time": "2024-01-15 14:00", "exit_price": 465.0,
-        })
+        sig = _parse_signal(
+            {
+                "symbol": "SPY",
+                "direction": "short",
+                "entry_time": "2024-01-15 10:30",
+                "entry_price": 470.5,
+                "exit_time": "2024-01-15 14:00",
+                "exit_price": 465.0,
+            }
+        )
         assert sig is not None
         assert sig["pnl_pct"] > 0  # Short: entry > exit = winner
 

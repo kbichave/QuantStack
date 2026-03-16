@@ -4,25 +4,24 @@ RL Orchestrator - Coordinates all RL layers.
 Integrates Execution, Position Sizing, Alpha Selection, and Spread RL.
 """
 
-from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
+
+# AlphaSignal is defined inline to avoid circular imports
+from typing import Any, Protocol
+
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.rl.base import State, Action, Reward
+from quantcore.rl.base import State
 from quantcore.rl.execution.agent import ExecutionRLAgent
 from quantcore.rl.execution.environment import ExecutionEnvironment, ExecutionOrder
-from quantcore.rl.sizing.agent import SizingRLAgent
-from quantcore.rl.sizing.environment import SizingEnvironment, TradingSignal
 from quantcore.rl.meta.agent import AlphaSelectionAgent
 from quantcore.rl.meta.environment import AlphaSelectionEnvironment
+from quantcore.rl.sizing.agent import SizingRLAgent
+from quantcore.rl.sizing.environment import SizingEnvironment
 from quantcore.rl.spread.agent import SpreadArbitrageAgent
 from quantcore.rl.spread.environment import SpreadEnvironment
-
-# AlphaSignal is defined inline to avoid circular imports
-from dataclasses import dataclass as _dataclass
-from typing import Protocol
 
 
 class AlphaSignal(Protocol):
@@ -33,9 +32,6 @@ class AlphaSignal(Protocol):
     confidence: float
 
 
-from quantcore.data.base import AssetClass
-
-
 @dataclass
 class RLDecision:
     """Decision from RL orchestrator."""
@@ -44,9 +40,9 @@ class RLDecision:
     alpha_weight: float
     position_scale: float
     execution_strategy: str
-    spread_action: Optional[str]
+    spread_action: str | None
     confidence: float
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 class RLOrchestrator:
@@ -65,13 +61,13 @@ class RLOrchestrator:
 
     def __init__(
         self,
-        alpha_names: Optional[List[str]] = None,
+        alpha_names: list[str] | None = None,
         enable_execution_rl: bool = True,
         enable_sizing_rl: bool = True,
         enable_meta_rl: bool = True,
         enable_spread_rl: bool = True,
         device: str = "cpu",
-        knowledge_store: Optional[Any] = None,
+        knowledge_store: Any | None = None,
     ):
         """
         Initialize RL orchestrator.
@@ -109,12 +105,10 @@ class RLOrchestrator:
         self._init_agents()
 
         # State tracking
-        self.current_regime: Optional[Dict] = None
+        self.current_regime: dict | None = None
         # alpha_performance is in-memory; when knowledge_store is provided,
         # it is pre-seeded from real trade history to survive process restarts.
-        self.alpha_performance: Dict[str, List[float]] = {
-            name: [] for name in self.alpha_names
-        }
+        self.alpha_performance: dict[str, list[float]] = {name: [] for name in self.alpha_names}
         if knowledge_store is not None:
             self._seed_alpha_performance_from_store(knowledge_store)
 
@@ -208,10 +202,10 @@ class RLOrchestrator:
 
     def decide(
         self,
-        alpha_signals: List[AlphaSignal],
-        market_features: Dict[str, float],
-        regime_info: Optional[Dict] = None,
-        spread_data: Optional[pd.DataFrame] = None,
+        alpha_signals: list[AlphaSignal],
+        market_features: dict[str, float],
+        regime_info: dict | None = None,
+        spread_data: pd.DataFrame | None = None,
     ) -> RLDecision:
         """
         Make trading decision using all RL layers.
@@ -246,14 +240,10 @@ class RLOrchestrator:
             spread_action = self._get_spread_action(spread_data, market_features)
 
         # Step 5: Execution Strategy
-        execution_strategy = self._determine_execution_strategy(
-            position_scale, market_features
-        )
+        execution_strategy = self._determine_execution_strategy(position_scale, market_features)
 
         # Calculate overall confidence
-        confidence = self._calculate_confidence(
-            selected_signal, alpha_weight, position_scale
-        )
+        confidence = self._calculate_confidence(selected_signal, alpha_weight, position_scale)
 
         return RLDecision(
             selected_alpha=selected_alpha,
@@ -265,18 +255,16 @@ class RLOrchestrator:
             metadata={
                 "regime": regime_info,
                 "n_signals": len(alpha_signals),
-                "selected_signal": (
-                    selected_signal.__dict__ if selected_signal else None
-                ),
+                "selected_signal": (selected_signal.__dict__ if selected_signal else None),
             },
         )
 
     def _select_alpha(
         self,
-        alpha_signals: List[AlphaSignal],
-        market_features: Dict[str, float],
-        regime_info: Optional[Dict],
-    ) -> Tuple[str, float]:
+        alpha_signals: list[AlphaSignal],
+        market_features: dict[str, float],
+        regime_info: dict | None,
+    ) -> tuple[str, float]:
         """Select alpha using Meta RL."""
         if not self.enable_meta_rl or self.meta_agent is None:
             # Fallback: use highest confidence signal
@@ -305,9 +293,9 @@ class RLOrchestrator:
 
     def _build_meta_state(
         self,
-        alpha_signals: List[AlphaSignal],
-        market_features: Dict[str, float],
-        regime_info: Optional[Dict],
+        alpha_signals: list[AlphaSignal],
+        market_features: dict[str, float],
+        regime_info: dict | None,
     ) -> State:
         """Build state for meta agent via RLFeatureExtractor (eliminates training-serving skew)."""
         from quantcore.rl.features import RLFeatureExtractor
@@ -324,14 +312,12 @@ class RLOrchestrator:
 
         # Build per-alpha return histories from in-memory performance tracker
         alpha_returns_history = {
-            name: self.alpha_performance.get(name, [])
-            for name in self.alpha_names
+            name: self.alpha_performance.get(name, []) for name in self.alpha_names
         }
 
         # Regime alignment scores (use existing helper)
         alpha_regime_alignments = {
-            name: self._get_regime_alignment(name, regime_info)
-            for name in self.alpha_names
+            name: self._get_regime_alignment(name, regime_info) for name in self.alpha_names
         }
 
         features = RLFeatureExtractor.alpha_selection_features(
@@ -348,9 +334,9 @@ class RLOrchestrator:
 
     def _determine_position_size(
         self,
-        signal: Optional[AlphaSignal],
-        market_features: Dict[str, float],
-        regime_info: Optional[Dict],
+        signal: AlphaSignal | None,
+        market_features: dict[str, float],
+        regime_info: dict | None,
     ) -> float:
         """Determine position size using Sizing RL."""
         if not self.enable_sizing_rl or self.sizing_agent is None or signal is None:
@@ -373,8 +359,8 @@ class RLOrchestrator:
     def _build_sizing_state(
         self,
         signal: AlphaSignal,
-        market_features: Dict[str, float],
-        regime_info: Optional[Dict],
+        market_features: dict[str, float],
+        regime_info: dict | None,
     ) -> State:
         """Build state for sizing agent via RLFeatureExtractor (eliminates training-serving skew)."""
         from quantcore.rl.features import RLFeatureExtractor
@@ -413,7 +399,7 @@ class RLOrchestrator:
     def _get_spread_action(
         self,
         spread_data: pd.DataFrame,
-        market_features: Dict[str, float],
+        market_features: dict[str, float],
     ) -> str:
         """Get spread trading action."""
         if self.spread_agent is None:
@@ -439,7 +425,7 @@ class RLOrchestrator:
     def _build_spread_state(
         self,
         spread_data: pd.DataFrame,
-        market_features: Dict[str, float],
+        market_features: dict[str, float],
     ) -> State:
         """Build state for spread agent."""
         # Extract spread features from data
@@ -475,7 +461,7 @@ class RLOrchestrator:
     def _determine_execution_strategy(
         self,
         position_scale: float,
-        market_features: Dict[str, float],
+        market_features: dict[str, float],
     ) -> str:
         """Determine execution strategy."""
         volatility = market_features.get("volatility", 0.5)
@@ -495,7 +481,7 @@ class RLOrchestrator:
 
     def _calculate_confidence(
         self,
-        signal: Optional[AlphaSignal],
+        signal: AlphaSignal | None,
         alpha_weight: float,
         position_scale: float,
     ) -> float:
@@ -507,9 +493,9 @@ class RLOrchestrator:
 
     def _get_signal_for_alpha(
         self,
-        signals: List[AlphaSignal],
+        signals: list[AlphaSignal],
         alpha_name: str,
-    ) -> Optional[AlphaSignal]:
+    ) -> AlphaSignal | None:
         """Get signal for specific alpha."""
         for signal in signals:
             if signal.alpha_name == alpha_name:
@@ -519,7 +505,7 @@ class RLOrchestrator:
     def _get_alpha_weight(
         self,
         alpha_name: str,
-        signals: List[AlphaSignal],
+        signals: list[AlphaSignal],
     ) -> float:
         """Get weight for selected alpha."""
         for signal in signals:
@@ -531,9 +517,7 @@ class RLOrchestrator:
         """Get estimated Sharpe for alpha."""
         returns = self.alpha_performance.get(alpha_name, [])
         if len(returns) >= 20:
-            return (
-                np.mean(returns[-20:]) / (np.std(returns[-20:]) + 1e-8) * np.sqrt(252)
-            )
+            return np.mean(returns[-20:]) / (np.std(returns[-20:]) + 1e-8) * np.sqrt(252)
         return 0.0
 
     def _get_alpha_recent_return(self, alpha_name: str) -> float:
@@ -553,7 +537,7 @@ class RLOrchestrator:
     def _get_regime_alignment(
         self,
         alpha_name: str,
-        regime_info: Optional[Dict],
+        regime_info: dict | None,
     ) -> float:
         """Get regime alignment score for alpha."""
         if regime_info is None:
@@ -586,7 +570,7 @@ class RLOrchestrator:
 
         return alignments.get(regime, {}).get(alpha_name, 0.4)
 
-    def _get_regime_indicator(self, regime_info: Optional[Dict]) -> float:
+    def _get_regime_indicator(self, regime_info: dict | None) -> float:
         """Get regime indicator as float."""
         if regime_info is None:
             return 0.0
@@ -633,15 +617,13 @@ class RLOrchestrator:
             self.alpha_performance[alpha_name].append(return_value)
             # Keep only recent history
             if len(self.alpha_performance[alpha_name]) > 100:
-                self.alpha_performance[alpha_name] = self.alpha_performance[alpha_name][
-                    -100:
-                ]
+                self.alpha_performance[alpha_name] = self.alpha_performance[alpha_name][-100:]
 
     def execute_order(
         self,
         order: ExecutionOrder,
-        market_data: Optional[pd.DataFrame] = None,
-    ) -> Dict[str, Any]:
+        market_data: pd.DataFrame | None = None,
+    ) -> dict[str, Any]:
         """
         Execute order using Execution RL.
 
@@ -684,16 +666,13 @@ class RLOrchestrator:
             if info["executed_qty"] > 0:
                 total_value += info["executed_qty"] * info["fill_price"]
 
-        avg_fill = (
-            total_value / total_executed if total_executed > 0 else order.arrival_price
-        )
+        avg_fill = total_value / total_executed if total_executed > 0 else order.arrival_price
 
         return {
             "status": "EXECUTED",
             "total_quantity": total_executed,
             "avg_fill_price": avg_fill,
-            "implementation_shortfall": (avg_fill - order.arrival_price)
-            / order.arrival_price,
+            "implementation_shortfall": (avg_fill - order.arrival_price) / order.arrival_price,
             "execution_log": execution_log,
         }
 
@@ -744,9 +723,7 @@ class RLOrchestrator:
             self.meta_agent.load(os.path.join(path, "meta_agent.pt"))
         if self.sizing_agent and os.path.exists(os.path.join(path, "sizing_agent.pt")):
             self.sizing_agent.load(os.path.join(path, "sizing_agent.pt"))
-        if self.execution_agent and os.path.exists(
-            os.path.join(path, "execution_agent.pt")
-        ):
+        if self.execution_agent and os.path.exists(os.path.join(path, "execution_agent.pt")):
             self.execution_agent.load(os.path.join(path, "execution_agent.pt"))
         if self.spread_agent and os.path.exists(os.path.join(path, "spread_agent.pt")):
             self.spread_agent.load(os.path.join(path, "spread_agent.pt"))

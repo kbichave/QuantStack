@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from quantcore.research.overfitting import (
     DSRResult,
     OverfittingReport,
@@ -21,7 +20,6 @@ from quantcore.research.overfitting import (
     probability_of_backtest_overfitting,
     run_overfitting_analysis,
 )
-
 
 # ---------------------------------------------------------------------------
 # benchmark_sharpe_ratio
@@ -153,6 +151,7 @@ class TestPBO:
 class TestRunOverfittingAnalysis:
     def _returns(self):
         import pandas as pd
+
         rng = np.random.default_rng(42)
         return pd.Series(rng.standard_normal(252) * 0.01)
 

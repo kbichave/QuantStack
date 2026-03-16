@@ -3,9 +3,6 @@
 
 """Unit tests for financepy adapter."""
 
-import pytest
-import numpy as np
-
 
 class TestFinancePyAdapter:
     """Test suite for financepy adapter functions."""

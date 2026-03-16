@@ -13,31 +13,30 @@ Production-grade backtesting that simulates:
 """
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.microstructure.order_book import OrderBook, Order, OrderType, Side
-from quantcore.microstructure.matching_engine import (
-    MatchingEngine,
-    Fill,
-    ExecutionReport,
+from quantcore.microstructure.execution_algos import (
+    ISExecutor,
+    TWAPExecutor,
+    VWAPExecutor,
 )
 from quantcore.microstructure.impact_models import (
     ImpactModel,
     ImpactParams,
-    square_root_impact,
 )
-from quantcore.microstructure.execution_algos import (
-    TWAPExecutor,
-    VWAPExecutor,
-    ISExecutor,
+from quantcore.microstructure.matching_engine import (
+    ExecutionReport,
+    Fill,
+    MatchingEngine,
 )
+from quantcore.microstructure.order_book import Order, OrderType, Side
 
 
 @dataclass
@@ -62,7 +61,7 @@ class RealisticBacktestConfig:
     # Logging
     log_order_book: bool = True
     log_fills: bool = True
-    log_path: Optional[str] = None
+    log_path: str | None = None
 
 
 @dataclass
@@ -74,8 +73,8 @@ class OrderBookSnapshot:
     spread: float
     best_bid: float
     best_ask: float
-    bid_depth: List[Tuple[float, float, int]]  # price, qty, n_orders
-    ask_depth: List[Tuple[float, float, int]]
+    bid_depth: list[tuple[float, float, int]]  # price, qty, n_orders
+    ask_depth: list[tuple[float, float, int]]
     imbalance: float
 
 
@@ -118,11 +117,11 @@ class RealisticBacktestResult:
     avg_trade_pnl: float
 
     # Logs
-    order_book_logs: List[OrderBookSnapshot] = field(default_factory=list)
-    fill_logs: List[FillRecord] = field(default_factory=list)
-    equity_curve: List[float] = field(default_factory=list)
+    order_book_logs: list[OrderBookSnapshot] = field(default_factory=list)
+    fill_logs: list[FillRecord] = field(default_factory=list)
+    equity_curve: list[float] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "performance": {
@@ -170,7 +169,7 @@ class RealisticBacktestEngine:
         engine.save_logs("logs/backtest_audit.json")
     """
 
-    def __init__(self, config: Optional[RealisticBacktestConfig] = None):
+    def __init__(self, config: RealisticBacktestConfig | None = None):
         """Initialize engine with configuration."""
         self.config = config or RealisticBacktestConfig()
 
@@ -192,10 +191,10 @@ class RealisticBacktestEngine:
         self.current_price = 100.0
 
         # Logging
-        self.order_book_logs: List[OrderBookSnapshot] = []
-        self.fill_logs: List[FillRecord] = []
-        self.trades: List[Dict] = []
-        self.equity_curve: List[float] = [self.config.initial_capital]
+        self.order_book_logs: list[OrderBookSnapshot] = []
+        self.fill_logs: list[FillRecord] = []
+        self.trades: list[dict] = []
+        self.equity_curve: list[float] = [self.config.initial_capital]
 
         # Execution algo instances
         self._executors = {
@@ -250,7 +249,7 @@ class RealisticBacktestEngine:
 
         for i in range(1, len(common_idx)):
             idx = common_idx[i]
-            prev_idx = common_idx[i - 1]
+            common_idx[i - 1]
 
             # Update price
             self.current_price = float(prices.loc[idx, "close"])
@@ -299,9 +298,7 @@ class RealisticBacktestEngine:
                     avg_fill_price = sum(f.price * f.quantity for f in fills) / sum(
                         f.quantity for f in fills
                     )
-                    slippage = (
-                        abs(avg_fill_price - arrival_price) / arrival_price * 10000
-                    )  # bps
+                    slippage = abs(avg_fill_price - arrival_price) / arrival_price * 10000  # bps
 
                     # Market impact
                     impact = self.impact_model.estimate(order_size, execution_time=0.1)
@@ -335,9 +332,7 @@ class RealisticBacktestEngine:
                     # Record trade if closing position
                     if target_position == 0 and self.position != 0:
                         pnl = (avg_fill_price - self.entry_price) * self.position
-                        pnl -= (
-                            abs(order_size) * self.config.tick_size * 2
-                        )  # Commission estimate
+                        pnl -= abs(order_size) * self.config.tick_size * 2  # Commission estimate
                         self.capital += pnl
                         self.trades.append(
                             {
@@ -362,9 +357,7 @@ class RealisticBacktestEngine:
             self.equity_curve.append(mtm_capital)
 
         # Calculate result metrics
-        return self._calculate_result(
-            total_slippage, total_impact, total_volume, n_fills
-        )
+        return self._calculate_result(total_slippage, total_impact, total_volume, n_fills)
 
     def _initialize_book_at_price(self, price: float) -> None:
         """Initialize order book with liquidity around price."""
@@ -423,7 +416,7 @@ class RealisticBacktestEngine:
         self,
         order_size: int,
         timestamp: datetime,
-    ) -> Tuple[List[Fill], ExecutionReport]:
+    ) -> tuple[list[Fill], ExecutionReport]:
         """Execute order using configured execution algorithm."""
         side = Side.BID if order_size > 0 else Side.ASK
         quantity = abs(order_size)
@@ -505,9 +498,7 @@ class RealisticBacktestEngine:
         max_dd = np.max(drawdown) * 100 if len(drawdown) > 0 else 0
 
         # Total return
-        total_return = (
-            (equity[-1] - equity[0]) / equity[0] * 100 if len(equity) > 0 else 0
-        )
+        total_return = (equity[-1] - equity[0]) / equity[0] * 100 if len(equity) > 0 else 0
 
         # Trade stats
         total_trades = len(self.trades)
@@ -518,9 +509,7 @@ class RealisticBacktestEngine:
         gross_loss = abs(sum(t["pnl"] for t in self.trades if t["pnl"] < 0))
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
 
-        avg_trade_pnl = (
-            sum(t["pnl"] for t in self.trades) / total_trades if total_trades > 0 else 0
-        )
+        avg_trade_pnl = sum(t["pnl"] for t in self.trades) / total_trades if total_trades > 0 else 0
 
         # Execution quality
         avg_slippage = total_slippage / total_volume if total_volume > 0 else 0
@@ -531,9 +520,7 @@ class RealisticBacktestEngine:
 
         return RealisticBacktestResult(
             initial_capital=self.config.initial_capital,
-            final_capital=(
-                equity[-1] if len(equity) > 0 else self.config.initial_capital
-            ),
+            final_capital=(equity[-1] if len(equity) > 0 else self.config.initial_capital),
             total_return=total_return,
             sharpe_ratio=sharpe,
             max_drawdown=max_dd,

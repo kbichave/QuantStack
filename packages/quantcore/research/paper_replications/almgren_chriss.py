@@ -11,9 +11,9 @@ Key Results:
     - Optimal trajectories depend on urgency (risk aversion)
 """
 
-import numpy as np
-from typing import Tuple
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -39,7 +39,7 @@ class ExecutionResult:
     variance: float
 
 
-def optimal_trajectory(params: ExecutionParams) -> Tuple[np.ndarray, np.ndarray]:
+def optimal_trajectory(params: ExecutionParams) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute optimal execution trajectory.
 
@@ -68,9 +68,7 @@ def optimal_trajectory(params: ExecutionParams) -> Tuple[np.ndarray, np.ndarray]
     return trajectory, trade_schedule
 
 
-def execution_cost(
-    trade_schedule: np.ndarray, params: ExecutionParams
-) -> Tuple[float, float]:
+def execution_cost(trade_schedule: np.ndarray, params: ExecutionParams) -> tuple[float, float]:
     """
     Compute expected cost and variance for a trade schedule.
 
@@ -149,9 +147,7 @@ class AlmgrenChrissExecutor:
         """Generate TWAP schedule."""
         return np.full(horizon, shares / horizon)
 
-    def efficient_frontier(
-        self, shares: float, horizon: int, n_points: int = 20
-    ) -> dict:
+    def efficient_frontier(self, shares: float, horizon: int, n_points: int = 20) -> dict:
         """Compute efficient frontier of execution strategies."""
         lambdas = np.logspace(-8, -4, n_points)
         costs = []

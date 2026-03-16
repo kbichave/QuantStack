@@ -51,22 +51,20 @@ Exposition:
 
 from __future__ import annotations
 
-from typing import Optional
-
-
 # ---------------------------------------------------------------------------
 # Lazy import — graceful degradation when prometheus_client is absent
 # ---------------------------------------------------------------------------
 
 try:
     from prometheus_client import (
+        CONTENT_TYPE_LATEST,
+        REGISTRY,
         Counter,
         Gauge,
         Histogram,
         generate_latest,
-        CONTENT_TYPE_LATEST,
-        REGISTRY,
     )
+
     _PROMETHEUS_AVAILABLE = True
 except ImportError:
     _PROMETHEUS_AVAILABLE = False
@@ -76,14 +74,14 @@ except ImportError:
 # Metric registry
 # ---------------------------------------------------------------------------
 
-_trades_executed: Optional[object] = None
-_risk_rejections: Optional[object] = None
-_agent_latency: Optional[object] = None
-_signal_staleness: Optional[object] = None
-_portfolio_nav: Optional[object] = None
-_daily_pnl: Optional[object] = None
-_kill_switch: Optional[object] = None
-_tick_lag: Optional[object] = None
+_trades_executed: object | None = None
+_risk_rejections: object | None = None
+_agent_latency: object | None = None
+_signal_staleness: object | None = None
+_portfolio_nav: object | None = None
+_daily_pnl: object | None = None
+_kill_switch: object | None = None
+_tick_lag: object | None = None
 
 
 def _init_metrics() -> None:

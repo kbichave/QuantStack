@@ -33,12 +33,10 @@ from __future__ import annotations
 
 import os
 import uuid
-from typing import Optional
 
 from loguru import logger
-
-from quantcore.microstructure.microstructure_features import MicrostructureFeatures
 from quantcore.execution.unified_models import UnifiedOrder
+from quantcore.microstructure.microstructure_features import MicrostructureFeatures
 
 # ------- Tuning parameters (overridable via env vars) -------
 
@@ -66,7 +64,7 @@ class MicrostructureSignalAgent:
     # Public interface
     # -------------------------------------------------------------------------
 
-    async def on_features(self, features: MicrostructureFeatures) -> Optional[UnifiedOrder]:
+    async def on_features(self, features: MicrostructureFeatures) -> UnifiedOrder | None:
         """
         Evaluate a microstructure feature snapshot.
 
@@ -84,8 +82,7 @@ class MicrostructureSignalAgent:
         vpin = features.vpin if features.vpin is not None else 0.0
         if vpin >= _VPIN_THRESHOLD:
             logger.debug(
-                f"[MicroAgent] {features.symbol} suppressed "
-                f"(VPIN={vpin:.3f} ≥ {_VPIN_THRESHOLD})"
+                f"[MicroAgent] {features.symbol} suppressed (VPIN={vpin:.3f} ≥ {_VPIN_THRESHOLD})"
             )
             return None
 

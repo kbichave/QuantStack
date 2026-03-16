@@ -24,7 +24,7 @@ Regimes from RegimeDetector:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -37,13 +37,13 @@ class RegimeCrewConfig:
     """
 
     # ICs to ADD on top of the default equities profile
-    additional_ics: List[str] = field(default_factory=list)
+    additional_ics: list[str] = field(default_factory=list)
 
     # ICs to REMOVE from the default equities profile (e.g. suppress trend IC in ranging)
-    suppressed_ics: List[str] = field(default_factory=list)
+    suppressed_ics: list[str] = field(default_factory=list)
 
     # Pod managers to ADD on top of default equities profile
-    additional_pods: List[str] = field(default_factory=list)
+    additional_pods: list[str] = field(default_factory=list)
 
     # Scale applied to RiskGate approved quantity: 0.25 (crisis) – 1.0 (full)
     # Final size = RiskGate.approved_quantity * size_multiplier
@@ -70,12 +70,11 @@ class RegimeCrewConfig:
 # Per-regime config table.
 # Keys are (trend_regime, volatility_regime) tuples.
 # The resolver does a two-pass lookup: exact match first, then volatility-only fallback.
-_REGIME_CONFIGS: Dict[tuple, RegimeCrewConfig] = {
-
+_REGIME_CONFIGS: dict[tuple, RegimeCrewConfig] = {
     # ---- TRENDING UP --------------------------------------------------------
     ("trending_up", "low"): RegimeCrewConfig(
         additional_ics=[],
-        suppressed_ics=["statarb_ic"],   # Stat-arb underperforms in strong trends
+        suppressed_ics=["statarb_ic"],  # Stat-arb underperforms in strong trends
         size_multiplier=1.0,
         confidence_threshold=0.55,
         regime_notes=(
@@ -120,7 +119,6 @@ _REGIME_CONFIGS: Dict[tuple, RegimeCrewConfig] = {
             "Size reduced to 40% of normal. Options pod elevated."
         ),
     ),
-
     # ---- TRENDING DOWN ------------------------------------------------------
     ("trending_down", "low"): RegimeCrewConfig(
         additional_ics=[],
@@ -169,10 +167,9 @@ _REGIME_CONFIGS: Dict[tuple, RegimeCrewConfig] = {
             "Options pod prioritized for hedging analysis."
         ),
     ),
-
     # ---- RANGING / SIDEWAYS -------------------------------------------------
     ("ranging", "low"): RegimeCrewConfig(
-        additional_ics=["statarb_ic"],   # Stat-arb thrives in ranging markets
+        additional_ics=["statarb_ic"],  # Stat-arb thrives in ranging markets
         suppressed_ics=["trend_momentum_ic"],
         size_multiplier=0.80,
         confidence_threshold=0.58,
@@ -206,7 +203,6 @@ _REGIME_CONFIGS: Dict[tuple, RegimeCrewConfig] = {
             "Reduce size to 55%. Require clear structure level confluence."
         ),
     ),
-
     # ---- UNKNOWN FALLBACK ---------------------------------------------------
     ("unknown", "normal"): RegimeCrewConfig(
         additional_ics=[],
@@ -222,7 +218,7 @@ _REGIME_CONFIGS: Dict[tuple, RegimeCrewConfig] = {
 }
 
 # Volatility-only fallback when exact (trend, vol) pair not in table
-_VOLATILITY_FALLBACK: Dict[str, RegimeCrewConfig] = {
+_VOLATILITY_FALLBACK: dict[str, RegimeCrewConfig] = {
     "high": RegimeCrewConfig(
         additional_ics=["options_vol_ic"],
         suppressed_ics=[],
@@ -284,10 +280,10 @@ def get_regime_crew_config(
 
 
 def apply_regime_config_to_inputs(
-    inputs: Dict[str, Any],
+    inputs: dict[str, Any],
     config: RegimeCrewConfig,
-    base_ics: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    base_ics: list[str] | None = None,
+) -> dict[str, Any]:
     """
     Merge regime config into crew kickoff inputs.
 

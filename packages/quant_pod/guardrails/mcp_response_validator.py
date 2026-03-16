@@ -34,10 +34,9 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Bounds configuration
@@ -63,9 +62,9 @@ _IV_MIN = 0.01  # 1% IV
 _IV_MAX = 20.0  # 2000% IV — very high but possible for deep OTM
 
 # Portfolio bounds
-_MAX_POSITION_NOTIONAL = 1_000_000.0   # $1M per position hard ceiling for validation
+_MAX_POSITION_NOTIONAL = 1_000_000.0  # $1M per position hard ceiling for validation
 _MAX_PORTFOLIO_NOTIONAL = 5_000_000.0  # $5M total notional ceiling for validation
-_MAX_POSITION_COUNT = 50               # More than 50 open positions is suspicious
+_MAX_POSITION_COUNT = 50  # More than 50 open positions is suspicious
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +86,7 @@ class Violation:
 class ValidationResult:
     is_valid: bool
     tool_name: str
-    violations: List[Violation] = field(default_factory=list)
+    violations: list[Violation] = field(default_factory=list)
 
     def add(self, field: str, value: Any, reason: str) -> None:
         self.violations.append(Violation(field, value, reason))
@@ -114,14 +113,14 @@ class MCPResponseValidator:
 
     def __init__(self) -> None:
         # symbol -> last validated close price
-        self._last_close: Dict[str, float] = {}
-        self._violation_counts: Dict[str, int] = {}
+        self._last_close: dict[str, float] = {}
+        self._violation_counts: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Quote / market data
     # ------------------------------------------------------------------
 
-    def validate_quote_response(self, response: Dict[str, Any]) -> ValidationResult:
+    def validate_quote_response(self, response: dict[str, Any]) -> ValidationResult:
         """Validate a get_quote MCP tool response."""
         result = ValidationResult(is_valid=True, tool_name="get_quote")
 
@@ -137,7 +136,7 @@ class MCPResponseValidator:
                 continue
             val = response[price_field]
             if not isinstance(val, (int, float)):
-                result.add(price_field, val, f"Non-numeric price field")
+                result.add(price_field, val, "Non-numeric price field")
                 continue
             if not (_PRICE_MIN <= val <= _PRICE_MAX):
                 result.add(price_field, val, f"Price out of bounds [{_PRICE_MIN}, {_PRICE_MAX}]")
@@ -186,7 +185,7 @@ class MCPResponseValidator:
 
     def validate_ohlcv_response(
         self,
-        response: Dict[str, Any],
+        response: dict[str, Any],
         symbol: str = "UNKNOWN",
     ) -> ValidationResult:
         """Validate an OHLCV bar dict (open, high, low, close, volume)."""
@@ -228,7 +227,7 @@ class MCPResponseValidator:
 
         vol = response.get("volume")
         if vol is not None and not (_VOLUME_MIN <= vol <= _VOLUME_MAX):
-            result.add("volume", vol, f"Volume out of bounds")
+            result.add("volume", vol, "Volume out of bounds")
 
         self._record_result(symbol, result)
         result.log()
@@ -238,7 +237,7 @@ class MCPResponseValidator:
     # Options
     # ------------------------------------------------------------------
 
-    def validate_options_response(self, response: Dict[str, Any]) -> ValidationResult:
+    def validate_options_response(self, response: dict[str, Any]) -> ValidationResult:
         """Validate an options pricing MCP response."""
         result = ValidationResult(is_valid=True, tool_name="options")
 
@@ -269,7 +268,9 @@ class MCPResponseValidator:
             if not isinstance(option_price, (int, float)):
                 result.add("option_price", option_price, "Non-numeric")
             elif not (0.0 < option_price <= _PRICE_MAX):
-                result.add("option_price", option_price, f"Option price out of range (0, {_PRICE_MAX}]")
+                result.add(
+                    "option_price", option_price, f"Option price out of range (0, {_PRICE_MAX}]"
+                )
 
         result.log()
         return result
@@ -278,7 +279,7 @@ class MCPResponseValidator:
     # Portfolio / account state
     # ------------------------------------------------------------------
 
-    def validate_portfolio_response(self, response: Dict[str, Any]) -> ValidationResult:
+    def validate_portfolio_response(self, response: dict[str, Any]) -> ValidationResult:
         """Validate portfolio/account state from eTrade or PortfolioState."""
         result = ValidationResult(is_valid=True, tool_name="portfolio")
 
@@ -379,7 +380,7 @@ class MCPResponseValidator:
         if not result.is_valid:
             self._violation_counts[symbol] = self._violation_counts.get(symbol, 0) + 1
 
-    def violation_summary(self) -> Dict[str, int]:
+    def violation_summary(self) -> dict[str, int]:
         """Return per-symbol violation counts since startup."""
         return dict(self._violation_counts)
 
@@ -388,7 +389,7 @@ class MCPResponseValidator:
 # Singleton
 # ---------------------------------------------------------------------------
 
-_validator: Optional[MCPResponseValidator] = None
+_validator: MCPResponseValidator | None = None
 
 
 def get_mcp_validator() -> MCPResponseValidator:

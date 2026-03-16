@@ -11,10 +11,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 # =============================================================================
 # ENUMS
@@ -100,12 +99,12 @@ class TradeLeg(BaseModel):
     """Single leg of a trade."""
 
     symbol: str
-    option_type: Optional[str] = None  # CALL or PUT
-    strike: Optional[float] = None
-    expiration: Optional[str] = None
+    option_type: str | None = None  # CALL or PUT
+    strike: float | None = None
+    expiration: str | None = None
     action: str  # BUY_TO_OPEN, SELL_TO_CLOSE, etc.
     quantity: int
-    fill_price: Optional[float] = None
+    fill_price: float | None = None
 
 
 class TradeRecord(BaseModel):
@@ -115,7 +114,7 @@ class TradeRecord(BaseModel):
     Stored in DuckDB trade_journal table.
     """
 
-    id: Optional[int] = None
+    id: int | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -126,36 +125,36 @@ class TradeRecord(BaseModel):
     status: TradeStatus = TradeStatus.PENDING
 
     # Position details
-    legs: List[TradeLeg] = []
-    entry_price: Optional[float] = None  # Net premium paid/received
-    exit_price: Optional[float] = None
+    legs: list[TradeLeg] = []
+    entry_price: float | None = None  # Net premium paid/received
+    exit_price: float | None = None
     quantity: int = 1
 
     # P&L
-    pnl: Optional[float] = None
-    pnl_pct: Optional[float] = None
-    max_profit_potential: Optional[float] = None
-    max_loss_potential: Optional[float] = None
+    pnl: float | None = None
+    pnl_pct: float | None = None
+    max_profit_potential: float | None = None
+    max_loss_potential: float | None = None
 
     # Context
-    wave_scenario_id: Optional[str] = None
-    regime_at_entry: Optional[str] = None
-    volatility_at_entry: Optional[float] = None
+    wave_scenario_id: str | None = None
+    regime_at_entry: str | None = None
+    volatility_at_entry: float | None = None
 
     # Decision tracking
     confidence_score: float = 0.5
-    agent_rationale: Optional[str] = None
-    research_score: Optional[float] = None
-    arena_rank: Optional[int] = None
+    agent_rationale: str | None = None
+    research_score: float | None = None
+    arena_rank: int | None = None
 
     # Outcome analysis
-    outcome_correct: Optional[bool] = None
-    lessons_learned: Optional[str] = None
-    tags: List[str] = []
+    outcome_correct: bool | None = None
+    lessons_learned: str | None = None
+    tags: list[str] = []
 
     # Order IDs
-    entry_order_id: Optional[str] = None
-    exit_order_id: Optional[str] = None
+    entry_order_id: str | None = None
+    exit_order_id: str | None = None
 
 
 # =============================================================================
@@ -170,7 +169,7 @@ class MarketObservation(BaseModel):
     Used for price alerts, volume spikes, gap detection, etc.
     """
 
-    id: Optional[int] = None
+    id: int | None = None
     timestamp: datetime = Field(default_factory=datetime.now)
 
     symbol: str
@@ -178,13 +177,13 @@ class MarketObservation(BaseModel):
 
     # Observation data
     current_price: float
-    price_change_pct: Optional[float] = None
-    volume: Optional[int] = None
-    volume_ratio: Optional[float] = None  # vs average
+    price_change_pct: float | None = None
+    volume: int | None = None
+    volume_ratio: float | None = None  # vs average
 
     # Technical levels
-    support_level: Optional[float] = None
-    resistance_level: Optional[float] = None
+    support_level: float | None = None
+    resistance_level: float | None = None
 
     # Alert details
     alert_message: str
@@ -200,7 +199,7 @@ class WaveScenario(BaseModel):
     Elliott Wave scenario from wave analyst.
     """
 
-    id: Optional[str] = None
+    id: str | None = None
     timestamp: datetime = Field(default_factory=datetime.now)
 
     symbol: str
@@ -212,8 +211,8 @@ class WaveScenario(BaseModel):
     confidence: float = 0.5
 
     # Scenario projections
-    primary_target: Optional[float] = None
-    secondary_target: Optional[float] = None
+    primary_target: float | None = None
+    secondary_target: float | None = None
     invalidation_level: float
 
     # Scenario description
@@ -222,8 +221,8 @@ class WaveScenario(BaseModel):
 
     # Tracking
     is_active: bool = True
-    invalidated_at: Optional[datetime] = None
-    target_hit_at: Optional[datetime] = None
+    invalidated_at: datetime | None = None
+    target_hit_at: datetime | None = None
 
     source_agent: str = "wave_analyst"
 
@@ -233,7 +232,7 @@ class RegimeState(BaseModel):
     Market regime state from regime detector.
     """
 
-    id: Optional[int] = None
+    id: int | None = None
     timestamp: datetime = Field(default_factory=datetime.now)
 
     symbol: str
@@ -244,15 +243,15 @@ class RegimeState(BaseModel):
     volatility_regime: VolatilityRegime
 
     # Metrics
-    atr: Optional[float] = None
-    atr_percentile: Optional[float] = None  # vs history
-    adx: Optional[float] = None
-    correlation_to_spy: Optional[float] = None
+    atr: float | None = None
+    atr_percentile: float | None = None  # vs history
+    adx: float | None = None
+    correlation_to_spy: float | None = None
 
     # Regime change detection
     regime_changed: bool = False
-    previous_trend_regime: Optional[RegimeType] = None
-    previous_volatility_regime: Optional[VolatilityRegime] = None
+    previous_trend_regime: RegimeType | None = None
+    previous_volatility_regime: VolatilityRegime | None = None
 
     confidence: float = 0.5
     source_agent: str = "regime_detector"
@@ -268,23 +267,23 @@ class AgentMessage(BaseModel):
     Inter-agent message for coordination.
     """
 
-    id: Optional[int] = None
+    id: int | None = None
     timestamp: datetime = Field(default_factory=datetime.now)
 
     from_agent: str
-    to_agent: Optional[str] = None  # None = broadcast
+    to_agent: str | None = None  # None = broadcast
     message_type: str  # ALERT, SIGNAL, REQUEST, RESPONSE
 
     subject: str
     content: str
-    data: Dict[str, Any] = {}
+    data: dict[str, Any] = {}
 
     priority: int = 5  # 1 (highest) to 10 (lowest)
     requires_response: bool = False
-    response_deadline: Optional[datetime] = None
+    response_deadline: datetime | None = None
 
     acknowledged: bool = False
-    acknowledged_at: Optional[datetime] = None
+    acknowledged_at: datetime | None = None
 
 
 class TradingSignal(BaseModel):
@@ -292,7 +291,7 @@ class TradingSignal(BaseModel):
     Trading signal generated by analysis.
     """
 
-    id: Optional[str] = None
+    id: str | None = None
     timestamp: datetime = Field(default_factory=datetime.now)
 
     symbol: str
@@ -304,14 +303,14 @@ class TradingSignal(BaseModel):
     confidence: float = 0.5
 
     # Price targets
-    entry_price: Optional[float] = None
-    target_price: Optional[float] = None
-    stop_loss: Optional[float] = None
+    entry_price: float | None = None
+    target_price: float | None = None
+    stop_loss: float | None = None
 
     # Supporting evidence
-    wave_scenario_id: Optional[str] = None
-    regime_state_id: Optional[int] = None
-    observation_ids: List[int] = []
+    wave_scenario_id: str | None = None
+    regime_state_id: int | None = None
+    observation_ids: list[int] = []
 
     # Rationale
     rationale: str
@@ -319,7 +318,7 @@ class TradingSignal(BaseModel):
     # Status
     is_active: bool = True
     processed: bool = False
-    trade_id: Optional[int] = None  # If converted to trade
+    trade_id: int | None = None  # If converted to trade
 
     source_agent: str
 
@@ -348,10 +347,10 @@ class PerformanceMetrics(BaseModel):
     largest_loss: float = 0.0
 
     # Risk metrics
-    sharpe_ratio: Optional[float] = None
-    sortino_ratio: Optional[float] = None
-    max_drawdown: Optional[float] = None
-    profit_factor: Optional[float] = None
+    sharpe_ratio: float | None = None
+    sortino_ratio: float | None = None
+    max_drawdown: float | None = None
+    profit_factor: float | None = None
 
     # Time period
     period_start: datetime

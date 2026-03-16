@@ -8,13 +8,13 @@ Analyzes the decay of predictive signals over time:
 - Alpha capacity estimation
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
-from scipy.optimize import curve_fit
-from scipy import stats
 from loguru import logger
+from scipy import stats
+from scipy.optimize import curve_fit
 
 
 @dataclass
@@ -23,7 +23,7 @@ class AlphaDecayResult:
 
     half_life: float  # Periods until IC drops to 50%
     decay_rate: float  # Exponential decay constant
-    ic_by_lag: Dict[int, float]  # IC at each lag
+    ic_by_lag: dict[int, float]  # IC at each lag
     optimal_holding_period: int  # Lag with max cumulative IC
     turnover: float  # Average daily turnover
     capacity_estimate: float  # Estimated alpha capacity in dollars
@@ -47,14 +47,14 @@ class AlphaDecayAnalyzer:
             max_lag: Maximum forward lag to analyze
         """
         self.max_lag = max_lag
-        self.results: Optional[AlphaDecayResult] = None
+        self.results: AlphaDecayResult | None = None
 
     def analyze(
         self,
         signal: pd.Series,
         returns: pd.Series,
-        volume: Optional[pd.Series] = None,
-        price: Optional[pd.Series] = None,
+        volume: pd.Series | None = None,
+        price: pd.Series | None = None,
     ) -> AlphaDecayResult:
         """
         Run full alpha decay analysis.
@@ -81,11 +81,7 @@ class AlphaDecayAnalyzer:
         turnover = self._compute_turnover(signal)
 
         # 5. Estimate capacity
-        capacity = (
-            self._estimate_capacity(signal, volume, price)
-            if volume is not None
-            else np.nan
-        )
+        capacity = self._estimate_capacity(signal, volume, price) if volume is not None else np.nan
 
         self.results = AlphaDecayResult(
             half_life=half_life,
@@ -102,7 +98,7 @@ class AlphaDecayAnalyzer:
         self,
         signal: pd.Series,
         returns: pd.Series,
-    ) -> Dict[int, float]:
+    ) -> dict[int, float]:
         """Compute Information Coefficient at each forward lag."""
         ic_by_lag = {}
 
@@ -125,8 +121,8 @@ class AlphaDecayAnalyzer:
 
     def _fit_decay_curve(
         self,
-        ic_by_lag: Dict[int, float],
-    ) -> Tuple[float, float]:
+        ic_by_lag: dict[int, float],
+    ) -> tuple[float, float]:
         """
         Fit exponential decay curve to IC values.
 
@@ -164,7 +160,7 @@ class AlphaDecayAnalyzer:
 
     def _find_optimal_holding_period(
         self,
-        ic_by_lag: Dict[int, float],
+        ic_by_lag: dict[int, float],
     ) -> int:
         """
         Find holding period that maximizes cumulative IC.
@@ -332,7 +328,7 @@ Interpretation:
 def compute_signal_autocorrelation(
     signal: pd.Series,
     max_lag: int = 20,
-) -> Dict[int, float]:
+) -> dict[int, float]:
     """
     Compute signal autocorrelation at various lags.
 
@@ -355,7 +351,7 @@ def estimate_trading_frequency(
     turnover: float,
     target_tc_drag: float = 0.01,  # 1% annual TC drag
     round_trip_cost: float = 0.001,  # 10 bps round trip
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Estimate optimal trading frequency given alpha decay and costs.
 

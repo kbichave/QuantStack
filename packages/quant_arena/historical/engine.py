@@ -15,18 +15,18 @@ The main orchestration layer that:
 
 from __future__ import annotations
 
-import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Callable
+from datetime import date
+from typing import Any
 
 from loguru import logger
 
-from quant_arena.historical.config import HistoricalConfig, SimulationContext, DayResult
-from quant_arena.historical.universe import SymbolUniverse
-from quant_arena.historical.data_loader import DataLoader, MarketSnapshot
-from quant_arena.historical.sim_broker import SimBroker, OrderSide
 from quant_arena.historical.clock import HistoricalClock
+from quant_arena.historical.config import DayResult, HistoricalConfig, SimulationContext
+from quant_arena.historical.data_loader import DataLoader, MarketSnapshot
+from quant_arena.historical.sim_broker import OrderSide, SimBroker
+from quant_arena.historical.universe import SymbolUniverse
 
 
 @dataclass
@@ -41,32 +41,32 @@ class SimulationResult:
     max_drawdown: float
     total_trades: int
     win_rate: float
-    sharpe_ratio: Optional[float]
+    sharpe_ratio: float | None
     trading_days: int
-    symbols: List[str]
+    symbols: list[str]
 
     # --- Institutional stats (T1-1) ---
-    sharpe_ci: Optional[tuple] = None        # (lower, upper) 95% CI from Lo (2002)
-    calmar_ratio: Optional[float] = None     # annualised return / max drawdown
-    sample_size_ok: bool = True              # False when n_trades < 100
+    sharpe_ci: tuple | None = None  # (lower, upper) 95% CI from Lo (2002)
+    calmar_ratio: float | None = None  # annualised return / max drawdown
+    sample_size_ok: bool = True  # False when n_trades < 100
     sample_size_msg: str = ""
 
     # --- Benchmark comparison (T1-6) ---
     benchmark_symbol: str = "SPY"
-    benchmark_return: Optional[float] = None
-    alpha: Optional[float] = None            # annualised excess return vs benchmark
-    beta: Optional[float] = None
-    information_ratio: Optional[float] = None
+    benchmark_return: float | None = None
+    alpha: float | None = None  # annualised excess return vs benchmark
+    beta: float | None = None
+    information_ratio: float | None = None
 
     # --- Overfitting analysis (T1-2) ---
-    overfitting_verdict: str = ""            # GENUINE | SUSPECT | OVERFIT
-    overfitting_summary: str = ""            # full text from OverfittingReport
+    overfitting_verdict: str = ""  # GENUINE | SUSPECT | OVERFIT
+    overfitting_summary: str = ""  # full text from OverfittingReport
 
     # --- TCA (T1-7) ---
-    tca_report: Optional[Any] = None         # TCA aggregate report (from TCAEngine)
+    tca_report: Any | None = None  # TCA aggregate report (from TCAEngine)
 
     # --- Walk-forward (T1-3) ---
-    walk_forward_summary: Optional[Any] = None  # WalkForwardSummary (if enabled)
+    walk_forward_summary: Any | None = None  # WalkForwardSummary (if enabled)
 
 
 class HistoricalEngine:
@@ -95,8 +95,8 @@ class HistoricalEngine:
     def __init__(
         self,
         config: HistoricalConfig,
-        knowledge_store: Optional[Any] = None,
-        historical_flow: Optional[Any] = None,
+        knowledge_store: Any | None = None,
+        historical_flow: Any | None = None,
     ):
         """
         Initialize simulation engine.
@@ -124,12 +124,12 @@ class HistoricalEngine:
             max_leverage=config.max_leverage,
             max_daily_loss_pct=config.max_daily_loss_pct,
         )
-        self.clock: Optional[HistoricalClock] = None  # Initialized after data load
+        self.clock: HistoricalClock | None = None  # Initialized after data load
 
         # External dependencies (injected or lazy-loaded)
         self._knowledge_store = knowledge_store
         self._historical_flow = historical_flow
-        self._policy_store: Optional[Any] = None
+        self._policy_store: Any | None = None
 
         # Simulation state
         self._running = False
@@ -148,12 +148,12 @@ class HistoricalEngine:
         # TCA engine — tracks execution quality throughout the simulation.
         # Instantiated lazily on first trade to avoid import errors if quantcore
         # is not installed.
-        self._tca: Optional[Any] = None
-        self._tca_available: Optional[bool] = None  # None = not yet checked
+        self._tca: Any | None = None
+        self._tca_available: bool | None = None  # None = not yet checked
 
         # Callbacks
-        self._on_day_complete: Optional[Callable] = None
-        self._on_trade: Optional[Callable] = None
+        self._on_day_complete: Callable | None = None
+        self._on_trade: Callable | None = None
 
         logger.info(
             f"HistoricalEngine initialized: {len(self.universe)} symbols, "
@@ -178,12 +178,8 @@ class HistoricalEngine:
             # 2. Initialize clock with adaptive warmup
             # Use smaller warmup for short test periods to ensure we have trading days
             total_days = len(self.data_loader.trading_days)
-            warmup = min(
-                20, max(5, total_days // 3)
-            )  # At least 5, at most 20, or 1/3 of data
-            logger.info(
-                f"Using warmup period of {warmup} days (total data: {total_days} days)"
-            )
+            warmup = min(20, max(5, total_days // 3))  # At least 5, at most 20, or 1/3 of data
+            logger.info(f"Using warmup period of {warmup} days (total data: {total_days} days)")
 
             self.clock = HistoricalClock(
                 trading_days=self.data_loader.trading_days,
@@ -268,10 +264,7 @@ class HistoricalEngine:
         # 2. Update broker prices — also pass volume and volatility so slippage
         #    can use the Almgren-Chriss model rather than flat basis points.
         prices = snapshot.get_prices()
-        volumes = {
-            sym: data.get("volume", 0.0)
-            for sym, data in snapshot.data.items()
-        }
+        volumes = {sym: data.get("volume", 0.0) for sym, data in snapshot.data.items()}
         self.broker.update_prices(prices, current_date, volumes=volumes)
 
         # 3. Build simulation context
@@ -307,13 +300,8 @@ class HistoricalEngine:
         portfolio_state = self.broker.save_daily_snapshot()
 
         # 6.5. Save learning checkpoint if threshold reached
-        if (
-            self._total_trades
-            >= self._last_checkpoint_trades + self._checkpoint_interval
-        ):
-            await self._save_learning_checkpoint(
-                current_date, portfolio_state, day_result
-            )
+        if self._total_trades >= self._last_checkpoint_trades + self._checkpoint_interval:
+            await self._save_learning_checkpoint(current_date, portfolio_state, day_result)
 
         # 7. Log to experience store
         await self._log_experience(
@@ -355,10 +343,7 @@ class HistoricalEngine:
 
         # 3. Update broker prices — pass volumes for Almgren-Chriss slippage
         prices = daily_snapshot.get_prices()
-        volumes = {
-            sym: data.get("volume", 0.0)
-            for sym, data in daily_snapshot.data.items()
-        }
+        volumes = {sym: data.get("volume", 0.0) for sym, data in daily_snapshot.data.items()}
         self.broker.update_prices(prices, current_date, volumes=volumes)
 
         # 4. Build MTF-aware context
@@ -390,13 +375,8 @@ class HistoricalEngine:
             portfolio_state = self.broker.save_daily_snapshot()
 
             # Save learning checkpoint if threshold reached
-            if (
-                self._total_trades
-                >= self._last_checkpoint_trades + self._checkpoint_interval
-            ):
-                await self._save_learning_checkpoint(
-                    current_date, portfolio_state, day_result
-                )
+            if self._total_trades >= self._last_checkpoint_trades + self._checkpoint_interval:
+                await self._save_learning_checkpoint(current_date, portfolio_state, day_result)
 
             # Log experience
             await self._log_experience(
@@ -422,7 +402,6 @@ class HistoricalEngine:
         daily_snapshot: Any,
     ) -> Any:
         """Build MTF-aware simulation context."""
-        from quant_arena.historical.data_loader import MTFSnapshot
 
         # Get portfolio state
         portfolio_state = self.broker.get_portfolio_state(current_date)
@@ -439,10 +418,7 @@ class HistoricalEngine:
 
         # Default policy if none
         if not policy:
-            policy = {
-                pod: 1.0 / len(self.config.active_pods)
-                for pod in self.config.active_pods
-            }
+            policy = {pod: 1.0 / len(self.config.active_pods) for pod in self.config.active_pods}
 
         # Build market data dict from daily snapshot
         market_data = daily_snapshot.data
@@ -466,9 +442,7 @@ class HistoricalEngine:
             portfolio={
                 "equity": portfolio_state.equity,
                 "cash": portfolio_state.cash,
-                "positions": {
-                    s: p.quantity for s, p in portfolio_state.positions.items()
-                },
+                "positions": {s: p.quantity for s, p in portfolio_state.positions.items()},
                 "exposures": portfolio_state.exposures,
                 "drawdown": portfolio_state.max_drawdown,
             },
@@ -503,10 +477,7 @@ class HistoricalEngine:
 
         # Default policy if none
         if not policy:
-            policy = {
-                pod: 1.0 / len(self.config.active_pods)
-                for pod in self.config.active_pods
-            }
+            policy = {pod: 1.0 / len(self.config.active_pods) for pod in self.config.active_pods}
 
         # Build market data dict
         market_data = snapshot.data
@@ -524,9 +495,7 @@ class HistoricalEngine:
             portfolio={
                 "equity": portfolio_state.equity,
                 "cash": portfolio_state.cash,
-                "positions": {
-                    s: p.quantity for s, p in portfolio_state.positions.items()
-                },
+                "positions": {s: p.quantity for s, p in portfolio_state.positions.items()},
                 "exposures": portfolio_state.exposures,
                 "drawdown": portfolio_state.max_drawdown,
             },
@@ -538,7 +507,7 @@ class HistoricalEngine:
         self,
         current_date: date,
         snapshot: MarketSnapshot,
-    ) -> Dict[str, Dict]:
+    ) -> dict[str, dict]:
         """
         Compute features for all symbols.
 
@@ -566,21 +535,13 @@ class HistoricalEngine:
                 "close": float(close),
                 "return_1d": float(returns.iloc[-1]) if len(returns) > 0 else 0,
                 "return_5d": float(returns.tail(5).sum()) if len(returns) >= 5 else 0,
-                "return_20d": (
-                    float(returns.tail(20).sum()) if len(returns) >= 20 else 0
-                ),
+                "return_20d": (float(returns.tail(20).sum()) if len(returns) >= 20 else 0),
                 "volatility_20d": (
-                    float(returns.tail(20).std() * (252**0.5))
-                    if len(returns) >= 20
-                    else 0
+                    float(returns.tail(20).std() * (252**0.5)) if len(returns) >= 20 else 0
                 ),
-                "sma_20": (
-                    float(prices.tail(20).mean()) if len(prices) >= 20 else float(close)
-                ),
+                "sma_20": (float(prices.tail(20).mean()) if len(prices) >= 20 else float(close)),
                 "price_vs_sma": (
-                    float(close / prices.tail(20).mean() - 1)
-                    if len(prices) >= 20
-                    else 0
+                    float(close / prices.tail(20).mean() - 1) if len(prices) >= 20 else 0
                 ),
             }
 
@@ -590,7 +551,7 @@ class HistoricalEngine:
         self,
         current_date: date,
         snapshot: MarketSnapshot,
-    ) -> Dict[str, Dict]:
+    ) -> dict[str, dict]:
         """
         Detect regimes for all symbols.
 
@@ -767,9 +728,7 @@ class HistoricalEngine:
             signals=[],
         )
 
-    def _correlation_check_passes(
-        self, trade_instruction: Dict, current_date: date
-    ) -> bool:
+    def _correlation_check_passes(self, trade_instruction: dict, current_date: date) -> bool:
         """
         Return True if the trade is allowed under the portfolio correlation limit.
 
@@ -840,7 +799,7 @@ class HistoricalEngine:
 
         return True
 
-    def _execute_trade(self, trade_instruction: Dict) -> Optional[Any]:
+    def _execute_trade(self, trade_instruction: dict) -> Any | None:
         """
         Execute a trade instruction via broker.
 
@@ -858,11 +817,12 @@ class HistoricalEngine:
 
         # --- TCA pre-trade ---
         tca = self._get_tca()
-        trade_id: Optional[str] = None
+        trade_id: str | None = None
         if tca is not None:
             try:
-                from quantcore.execution.tca_engine import OrderSide as TCAOrderSide
                 import uuid as _uuid
+
+                from quantcore.execution.tca_engine import OrderSide as TCAOrderSide
 
                 trade_id = f"tca_{_uuid.uuid4().hex[:8]}"
                 arrival_price = self.broker._prices.get(symbol, 0.0)
@@ -880,7 +840,7 @@ class HistoricalEngine:
                 adv = self.broker._volumes.get(symbol, 0.0)
                 vol_annual = self.broker._volatilities.get(symbol, 0.0)
                 # Convert annualised vol to daily % (vol_annual / sqrt(252) * 100)
-                daily_vol_pct = (vol_annual / (252 ** 0.5)) * 100 if vol_annual > 0 else 1.5
+                daily_vol_pct = (vol_annual / (252**0.5)) * 100 if vol_annual > 0 else 1.5
 
                 if adv > 0:
                     tca.pre_trade(
@@ -905,7 +865,7 @@ class HistoricalEngine:
 
         return order
 
-    def _get_tca(self) -> Optional[Any]:
+    def _get_tca(self) -> Any | None:
         """Lazy-load TCAEngine — returns None if quantcore is not available."""
         if self._tca_available is False:
             return None
@@ -913,6 +873,7 @@ class HistoricalEngine:
             return self._tca
         try:
             from quantcore.execution.tca_engine import TCAEngine
+
             self._tca = TCAEngine()
             self._tca_available = True
             logger.info("TCA engine initialised")
@@ -926,7 +887,7 @@ class HistoricalEngine:
         current_date: date,
         portfolio_state: Any,
         day_result: DayResult,
-        executed_trades: List,
+        executed_trades: list,
     ) -> None:
         """Log experience to knowledge store."""
         if self._knowledge_store is None:
@@ -981,25 +942,21 @@ class HistoricalEngine:
                 signal_with_date = (
                     dict(signal)
                     if isinstance(signal, dict)
-                    else signal.copy() if hasattr(signal, "copy") else {}
+                    else signal.copy()
+                    if hasattr(signal, "copy")
+                    else {}
                 )
                 # Use signal_date if present, otherwise add date
-                if (
-                    "signal_date" in signal_with_date
-                    and signal_with_date["signal_date"]
-                ):
+                if "signal_date" in signal_with_date and signal_with_date["signal_date"]:
                     signal_with_date["date"] = signal_with_date["signal_date"]
-                elif (
-                    "date" not in signal_with_date
-                    or signal_with_date.get("date") is None
-                ):
+                elif "date" not in signal_with_date or signal_with_date.get("date") is None:
                     signal_with_date["date"] = current_date
                 self._knowledge_store.save_historical_signal(signal_with_date)
 
         except Exception as e:
             logger.error(f"Failed to log experience: {e}")
 
-    def _summarize_regimes(self, regimes: Dict[str, Dict]) -> str:
+    def _summarize_regimes(self, regimes: dict[str, dict]) -> str:
         """Create regime summary string."""
         if not regimes:
             return "unknown"
@@ -1072,9 +1029,7 @@ class HistoricalEngine:
             # Get prompt change count
             prompt_changes = 0
             try:
-                proposals = self._knowledge_store.get_prompt_proposals(
-                    status="approved"
-                )
+                proposals = self._knowledge_store.get_prompt_proposals(status="approved")
                 prompt_changes = len(proposals)
             except Exception:
                 pass
@@ -1102,9 +1057,7 @@ class HistoricalEngine:
             self._last_checkpoint_trades = self._total_trades
 
             rolling_wr_str = f"{rolling_win_rate:.1%}" if rolling_win_rate else "N/A"
-            cumulative_wr_str = (
-                f"{cumulative_win_rate:.1%}" if cumulative_win_rate else "N/A"
-            )
+            cumulative_wr_str = f"{cumulative_win_rate:.1%}" if cumulative_win_rate else "N/A"
             logger.info(
                 f"Learning checkpoint #{self._total_trades}: "
                 f"rolling_wr={rolling_wr_str}, "
@@ -1176,7 +1129,7 @@ class HistoricalEngine:
                     }
                 )
 
-    async def _analyze_pod_performance(self) -> Dict[str, Dict]:
+    async def _analyze_pod_performance(self) -> dict[str, dict]:
         """
         Analyze recent performance for each strategy pod.
 
@@ -1222,18 +1175,14 @@ class HistoricalEngine:
                     # Default metrics
                     performance[pod_name] = {
                         "win_rate": 0.5,
-                        "signal_count": pod_signals.get(agent_name, {}).get(
-                            "signals", 0
-                        ),
+                        "signal_count": pod_signals.get(agent_name, {}).get("signals", 0),
                         "expectancy": 0.0,
                         "trade_count": 0,
                         "total_pnl": 0.0,
                     }
 
                     # Calculate from trades if available
-                    pod_trades = [
-                        t for t in trades if hasattr(t, "pnl") and t.pnl is not None
-                    ]
+                    pod_trades = [t for t in trades if hasattr(t, "pnl") and t.pnl is not None]
                     if pod_trades:
                         wins = sum(1 for t in pod_trades if t.pnl > 0)
                         losses = sum(1 for t in pod_trades if t.pnl < 0)
@@ -1242,17 +1191,11 @@ class HistoricalEngine:
                         if total > 0:
                             win_rate = wins / total
                             total_pnl = sum(t.pnl for t in pod_trades)
-                            avg_win = sum(t.pnl for t in pod_trades if t.pnl > 0) / max(
-                                1, wins
-                            )
-                            avg_loss = sum(
-                                t.pnl for t in pod_trades if t.pnl < 0
-                            ) / max(1, losses)
+                            avg_win = sum(t.pnl for t in pod_trades if t.pnl > 0) / max(1, wins)
+                            avg_loss = sum(t.pnl for t in pod_trades if t.pnl < 0) / max(1, losses)
 
                             # Calculate expectancy
-                            expectancy = (win_rate * avg_win) + (
-                                (1 - win_rate) * avg_loss
-                            )
+                            expectancy = (win_rate * avg_win) + ((1 - win_rate) * avg_loss)
 
                             performance[pod_name].update(
                                 {
@@ -1277,9 +1220,7 @@ class HistoricalEngine:
 
         return performance
 
-    def _calculate_adaptive_weights(
-        self, pod_performance: Dict[str, Dict]
-    ) -> Dict[str, float]:
+    def _calculate_adaptive_weights(self, pod_performance: dict[str, dict]) -> dict[str, float]:
         """
         Calculate adaptive weights based on pod performance.
 
@@ -1319,11 +1260,11 @@ class HistoricalEngine:
         else:
             # Equal weights fallback
             n = len(self.config.active_pods)
-            weights = {pod: 1.0 / n for pod in self.config.active_pods}
+            weights = dict.fromkeys(self.config.active_pods, 1.0 / n)
 
         return weights
 
-    def _calculate_risk_parameters(self, portfolio_state: Any) -> Dict[str, float]:
+    def _calculate_risk_parameters(self, portfolio_state: Any) -> dict[str, float]:
         """
         Calculate adaptive risk parameters based on portfolio state.
 
@@ -1372,9 +1313,9 @@ class HistoricalEngine:
 
     def _generate_policy_comment(
         self,
-        pod_performance: Dict[str, Dict],
-        new_weights: Dict[str, float],
-        risk_params: Dict[str, float],
+        pod_performance: dict[str, dict],
+        new_weights: dict[str, float],
+        risk_params: dict[str, float],
         current_date: date,
     ) -> str:
         """Generate a detailed policy update comment."""
@@ -1382,17 +1323,15 @@ class HistoricalEngine:
 
         # Performance summary
         total_signals = sum(p.get("signal_count", 0) for p in pod_performance.values())
-        avg_win_rate = sum(
-            p.get("win_rate", 0.5) for p in pod_performance.values()
-        ) / max(1, len(pod_performance))
+        avg_win_rate = sum(p.get("win_rate", 0.5) for p in pod_performance.values()) / max(
+            1, len(pod_performance)
+        )
 
         parts.append(f"Signals: {total_signals}, Avg win rate: {avg_win_rate:.0%}")
 
         # Top performing pod
         if pod_performance:
-            best_pod = max(
-                pod_performance.items(), key=lambda x: x[1].get("win_rate", 0)
-            )
+            best_pod = max(pod_performance.items(), key=lambda x: x[1].get("win_rate", 0))
             parts.append(
                 f"Best performer: {best_pod[0]} ({best_pod[1].get('win_rate', 0):.0%} win rate)"
             )
@@ -1402,9 +1341,7 @@ class HistoricalEngine:
         if risk_scale < 1.0:
             parts.append(f"Risk reduced to {risk_scale:.0%} due to drawdown")
         elif risk_scale > 1.0:
-            parts.append(
-                f"Risk increased to {risk_scale:.0%} due to strong performance"
-            )
+            parts.append(f"Risk increased to {risk_scale:.0%} due to strong performance")
 
         return " | ".join(parts)
 
@@ -1425,7 +1362,7 @@ class HistoricalEngine:
         snapshots = self.broker.get_daily_snapshots()
 
         # --- Build daily returns series ---
-        returns: List[float] = []
+        returns: list[float] = []
         if len(snapshots) > 1:
             for i in range(1, len(snapshots)):
                 prev_eq = snapshots[i - 1].equity
@@ -1443,9 +1380,9 @@ class HistoricalEngine:
 
         try:
             from quantcore.backtesting.stats import (
-                sharpe_ratio_with_ci,
                 calmar_ratio,
                 min_sample_size_check,
+                sharpe_ratio_with_ci,
             )
 
             if len(returns) >= 10:
@@ -1460,7 +1397,7 @@ class HistoricalEngine:
             if len(returns) > 1:
                 arr = np.array(returns)
                 std = arr.std()
-                sharpe_ratio = float(arr.mean() / std * (252 ** 0.5)) if std > 0 else 0.0
+                sharpe_ratio = float(arr.mean() / std * (252**0.5)) if std > 0 else 0.0
 
         # --- T1-6: Benchmark comparison (alpha / beta / information ratio) ---
         benchmark_symbol = getattr(self.config, "benchmark_symbol", "SPY")
@@ -1478,7 +1415,7 @@ class HistoricalEngine:
             if len(bench_prices) > 1 and len(returns) > 1:
                 bench_returns_raw = bench_prices.pct_change().dropna()
                 # Align to the same length as strategy returns
-                bench_returns = bench_returns_raw.values[-len(returns):]
+                bench_returns = bench_returns_raw.values[-len(returns) :]
                 strat_arr = np.array(returns[: len(bench_returns)])
 
                 if len(strat_arr) > 5 and len(bench_returns) == len(strat_arr):
@@ -1495,7 +1432,7 @@ class HistoricalEngine:
                         alpha = float(np.mean(active_returns) * 252)
 
                         # Information ratio = alpha / tracking_error
-                        tracking_error = float(np.std(active_returns, ddof=1) * (252 ** 0.5))
+                        tracking_error = float(np.std(active_returns, ddof=1) * (252**0.5))
                         information_ratio = alpha / tracking_error if tracking_error > 0 else 0.0
 
                     # Total benchmark return over the period
@@ -1520,9 +1457,7 @@ class HistoricalEngine:
                 overfitting_verdict = report.verdict
                 overfitting_summary = report.summary
                 if not report.dsr_result.is_genuine:
-                    logger.warning(
-                        f"Overfitting check FAILED: {report.verdict} — {report.summary}"
-                    )
+                    logger.warning(f"Overfitting check FAILED: {report.verdict} — {report.summary}")
                 else:
                     logger.info(f"Overfitting check passed: {report.verdict}")
 
@@ -1535,17 +1470,17 @@ class HistoricalEngine:
         wf_summary = None
         if getattr(self.config, "walk_forward_mode", False) and len(returns) > 20:
             try:
+                import numpy as _np
                 from quantcore.backtesting.stats import (
                     WalkForwardFold,
                     walk_forward_summary,
                 )
-                import numpy as _np
 
                 n_folds = getattr(self.config, "walk_forward_n_folds", 5)
                 test_days = getattr(self.config, "walk_forward_test_days", 63)
                 total_r = len(returns)
 
-                wf_folds: List[Any] = []
+                wf_folds: list[Any] = []
                 for fold_id in range(n_folds):
                     # Expanding window: train grows, test is the next `test_days` block
                     test_start_idx = total_r - (n_folds - fold_id) * test_days
@@ -1559,7 +1494,7 @@ class HistoricalEngine:
 
                     def _fold_sharpe(r: _np.ndarray) -> float:
                         std = r.std(ddof=1)
-                        return float(r.mean() / std * (252 ** 0.5)) if std > 0 else 0.0
+                        return float(r.mean() / std * (252**0.5)) if std > 0 else 0.0
 
                     def _fold_dd(r: _np.ndarray) -> float:
                         cum = _np.cumprod(1 + r)
@@ -1572,8 +1507,12 @@ class HistoricalEngine:
                         WalkForwardFold(
                             fold_id=fold_id,
                             train_start=snap_dates[0].isoformat() if snap_dates else "",
-                            train_end=snap_dates[test_start_idx - 1].isoformat() if test_start_idx <= len(snap_dates) else "",
-                            test_start=snap_dates[test_start_idx].isoformat() if test_start_idx < len(snap_dates) else "",
+                            train_end=snap_dates[test_start_idx - 1].isoformat()
+                            if test_start_idx <= len(snap_dates)
+                            else "",
+                            test_start=snap_dates[test_start_idx].isoformat()
+                            if test_start_idx < len(snap_dates)
+                            else "",
                             test_end=snap_dates[min(test_end_idx, len(snap_dates) - 1)].isoformat(),
                             train_sharpe=_fold_sharpe(train_r),
                             test_sharpe=_fold_sharpe(test_r),
@@ -1705,7 +1644,7 @@ class HistoricalEngine:
             raise RuntimeError(
                 f"TradingDayFlowAdapter import failed: {e}. "
                 "The trading system requires quant_pod.flows.trading_day_flow."
-            )
+            ) from e
 
     def _get_policy_store(self) -> Any:
         """Get or create policy store."""
@@ -1719,8 +1658,8 @@ class HistoricalEngine:
 
     def set_callbacks(
         self,
-        on_day_complete: Optional[Callable] = None,
-        on_trade: Optional[Callable] = None,
+        on_day_complete: Callable | None = None,
+        on_trade: Callable | None = None,
     ) -> None:
         """Set progress callbacks."""
         self._on_day_complete = on_day_complete

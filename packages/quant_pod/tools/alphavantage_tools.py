@@ -19,13 +19,13 @@ import json
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
 import httpx
 from loguru import logger
 from pydantic import BaseModel, Field
-from quant_pod.crewai_compat import BaseTool
 
+from quant_pod.crewai_compat import BaseTool
 
 # =============================================================================
 # ALPHA VANTAGE CLIENT
@@ -40,7 +40,7 @@ class AlphaVantageClient:
     _MAX_RETRIES = 3
     _RATE_LIMIT_SLEEP = 60  # seconds to wait on API rate-limit response
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         """
         Initialize Alpha Vantage client.
 
@@ -49,13 +49,17 @@ class AlphaVantageClient:
                      (project-standard) then ALPHAVANTAGE_API_KEY env vars.
         """
         # Check both the project-standard name and the legacy name used in some configs
-        self.api_key = api_key or os.getenv("ALPHA_VANTAGE_API_KEY") or os.getenv("ALPHAVANTAGE_API_KEY", "demo")
+        self.api_key = (
+            api_key
+            or os.getenv("ALPHA_VANTAGE_API_KEY")
+            or os.getenv("ALPHAVANTAGE_API_KEY", "demo")
+        )
         if self.api_key == "demo":
             logger.warning(
                 "AlphaVantageClient using demo API key — data will be heavily rate-limited. "
                 "Set ALPHA_VANTAGE_API_KEY in your environment."
             )
-        self._client: Optional[httpx.Client] = None
+        self._client: httpx.Client | None = None
 
     def _get_client(self) -> httpx.Client:
         """Get or create HTTP client."""
@@ -72,7 +76,7 @@ class AlphaVantageClient:
     def __del__(self) -> None:
         self.close()
 
-    def _request(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _request(self, params: dict[str, Any]) -> dict[str, Any]:
         """Make API request with retry and rate-limit handling."""
         params["apikey"] = self.api_key
         client = self._get_client()
@@ -85,7 +89,9 @@ class AlphaVantageClient:
 
                 # Alpha Vantage signals rate-limiting via a "Note" key
                 if "Note" in data:
-                    logger.warning(f"Alpha Vantage rate limit hit, waiting {self._RATE_LIMIT_SLEEP}s")
+                    logger.warning(
+                        f"Alpha Vantage rate limit hit, waiting {self._RATE_LIMIT_SLEEP}s"
+                    )
                     time.sleep(self._RATE_LIMIT_SLEEP)
                     continue
 
@@ -96,15 +102,17 @@ class AlphaVantageClient:
 
             except httpx.HTTPError as e:
                 if attempt < self._MAX_RETRIES - 1:
-                    wait = 2 ** attempt
-                    logger.warning(f"Request failed (attempt {attempt + 1}), retrying in {wait}s: {e}")
+                    wait = 2**attempt
+                    logger.warning(
+                        f"Request failed (attempt {attempt + 1}), retrying in {wait}s: {e}"
+                    )
                     time.sleep(wait)
                 else:
                     raise
 
         raise RuntimeError("Alpha Vantage request failed after max retries")
 
-    def _request_csv(self, params: Dict[str, Any]) -> List[Dict[str, str]]:
+    def _request_csv(self, params: dict[str, Any]) -> list[dict[str, str]]:
         """Make API request expecting CSV response, with retry."""
         params["apikey"] = self.api_key
         client = self._get_client()
@@ -117,8 +125,10 @@ class AlphaVantageClient:
                 return list(reader)
             except httpx.HTTPError as e:
                 if attempt < self._MAX_RETRIES - 1:
-                    wait = 2 ** attempt
-                    logger.warning(f"CSV request failed (attempt {attempt + 1}), retrying in {wait}s: {e}")
+                    wait = 2**attempt
+                    logger.warning(
+                        f"CSV request failed (attempt {attempt + 1}), retrying in {wait}s: {e}"
+                    )
                     time.sleep(wait)
                 else:
                     raise
@@ -127,13 +137,13 @@ class AlphaVantageClient:
 
     def get_news_sentiment(
         self,
-        tickers: Optional[str] = None,
-        topics: Optional[str] = None,
-        time_from: Optional[str] = None,
-        time_to: Optional[str] = None,
+        tickers: str | None = None,
+        topics: str | None = None,
+        time_from: str | None = None,
+        time_to: str | None = None,
         sort: str = "LATEST",
         limit: int = 50,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get news with sentiment analysis.
 
@@ -167,9 +177,9 @@ class AlphaVantageClient:
 
     def get_earnings_calendar(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         horizon: str = "3month",
-    ) -> List[Dict[str, str]]:
+    ) -> list[dict[str, str]]:
         """
         Get upcoming earnings calendar.
 
@@ -190,7 +200,7 @@ class AlphaVantageClient:
 
         return self._request_csv(params)
 
-    def get_ipo_calendar(self) -> List[Dict[str, str]]:
+    def get_ipo_calendar(self) -> list[dict[str, str]]:
         """
         Get upcoming IPO calendar.
 
@@ -200,7 +210,7 @@ class AlphaVantageClient:
         params = {"function": "IPO_CALENDAR"}
         return self._request_csv(params)
 
-    def get_earnings(self, symbol: str) -> Dict[str, Any]:
+    def get_earnings(self, symbol: str) -> dict[str, Any]:
         """
         Get historical earnings for a symbol.
 
@@ -216,7 +226,7 @@ class AlphaVantageClient:
         }
         return self._request(params)
 
-    def get_company_overview(self, symbol: str) -> Dict[str, Any]:
+    def get_company_overview(self, symbol: str) -> dict[str, Any]:
         """
         Get company overview and fundamentals.
 
@@ -234,7 +244,7 @@ class AlphaVantageClient:
 
 
 # Global client instance
-_av_client: Optional[AlphaVantageClient] = None
+_av_client: AlphaVantageClient | None = None
 
 
 def get_alphavantage_client() -> AlphaVantageClient:
@@ -253,10 +263,10 @@ def get_alphavantage_client() -> AlphaVantageClient:
 class FetchNewsSentimentInput(BaseModel):
     """Input for fetch_news_sentiment tool."""
 
-    tickers: Optional[str] = Field(
+    tickers: str | None = Field(
         None, description="Comma-separated stock tickers (e.g., 'SPY,AAPL,MSFT')"
     )
-    topics: Optional[str] = Field(
+    topics: str | None = Field(
         None,
         description="Topics: blockchain, earnings, ipo, mergers_and_acquisitions, financial_markets, economy_fiscal, economy_monetary, economy_macro, energy_transportation, finance, life_sciences, manufacturing, real_estate, retail_wholesale, technology",
     )
@@ -266,20 +276,16 @@ class FetchNewsSentimentInput(BaseModel):
 class FetchEarningsCalendarInput(BaseModel):
     """Input for fetch_earnings_calendar tool."""
 
-    symbol: Optional[str] = Field(
+    symbol: str | None = Field(
         None, description="Specific symbol to check (or None for all upcoming)"
     )
-    horizon: str = Field(
-        "3month", description="Time horizon: 3month, 6month, or 12month"
-    )
+    horizon: str = Field("3month", description="Time horizon: 3month, 6month, or 12month")
 
 
 class FetchUpcomingEarningsInput(BaseModel):
     """Input for fetch_upcoming_earnings tool."""
 
-    symbols: str = Field(
-        ..., description="Comma-separated symbols to check for upcoming earnings"
-    )
+    symbols: str = Field(..., description="Comma-separated symbols to check for upcoming earnings")
     days_ahead: int = Field(7, description="Number of days ahead to check")
 
 
@@ -301,12 +307,12 @@ class FetchNewsSentimentTool(BaseTool):
     description: str = """Fetch recent news articles with AI-generated sentiment scores.
 Use this to understand market sentiment around specific stocks or topics.
 Returns news headlines, summaries, sentiment scores, and ticker relevance."""
-    args_schema: Type[BaseModel] = FetchNewsSentimentInput
+    args_schema: type[BaseModel] = FetchNewsSentimentInput
 
     def _run(
         self,
-        tickers: Optional[str] = None,
-        topics: Optional[str] = None,
+        tickers: str | None = None,
+        topics: str | None = None,
         limit: int = 20,
     ) -> str:
         """Fetch news sentiment."""
@@ -378,11 +384,11 @@ class FetchEarningsCalendarTool(BaseTool):
     description: str = """Fetch upcoming earnings announcements.
 Use this to find out when companies are reporting earnings.
 Can filter by symbol or get all upcoming earnings."""
-    args_schema: Type[BaseModel] = FetchEarningsCalendarInput
+    args_schema: type[BaseModel] = FetchEarningsCalendarInput
 
     def _run(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         horizon: str = "3month",
     ) -> str:
         """Fetch earnings calendar."""
@@ -433,7 +439,7 @@ class FetchUpcomingEarningsTool(BaseTool):
     description: str = """Check if specific symbols have earnings coming up.
 Use this to avoid trading around earnings if needed.
 Returns dates and estimates for upcoming earnings reports."""
-    args_schema: Type[BaseModel] = FetchUpcomingEarningsInput
+    args_schema: type[BaseModel] = FetchUpcomingEarningsInput
 
     def _run(
         self,
@@ -460,17 +466,13 @@ Returns dates and estimates for upcoming earnings reports."""
                         report_date_str = event.get("reportDate", "")
                         if report_date_str:
                             try:
-                                report_date = datetime.strptime(
-                                    report_date_str, "%Y-%m-%d"
-                                )
+                                report_date = datetime.strptime(report_date_str, "%Y-%m-%d")
                                 if report_date <= cutoff_date:
                                     upcoming.append(
                                         {
                                             "date": report_date_str,
                                             "estimate": event.get("estimate", ""),
-                                            "days_until": (
-                                                report_date - datetime.now()
-                                            ).days,
+                                            "days_until": (report_date - datetime.now()).days,
                                         }
                                     )
                             except ValueError:
@@ -488,9 +490,7 @@ Returns dates and estimates for upcoming earnings reports."""
                     }
 
             # Summary
-            symbols_with_earnings = [
-                s for s, r in results.items() if r.get("has_upcoming")
-            ]
+            symbols_with_earnings = [s for s, r in results.items() if r.get("has_upcoming")]
 
             return json.dumps(
                 {
@@ -518,7 +518,7 @@ class FetchIPOCalendarTool(BaseTool):
     name: str = "fetch_ipo_calendar"
     description: str = """Fetch upcoming IPO (Initial Public Offering) calendar.
 Use this to track new companies coming to market."""
-    args_schema: Type[BaseModel] = None
+    args_schema: type[BaseModel] = None
 
     def _run(self) -> str:
         """Fetch IPO calendar."""
@@ -564,7 +564,7 @@ class FetchCompanyOverviewTool(BaseTool):
     name: str = "fetch_company_overview"
     description: str = """Fetch company overview including financials, ratios, and metrics.
 Use this to understand a company's fundamentals before trading."""
-    args_schema: Type[BaseModel] = FetchCompanyOverviewInput
+    args_schema: type[BaseModel] = FetchCompanyOverviewInput
 
     def _run(self, symbol: str) -> str:
         """Fetch company overview."""

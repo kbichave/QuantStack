@@ -4,9 +4,9 @@ Stochastic Volatility Models.
 Implementation of the Heston model and related stochastic volatility processes.
 """
 
-import numpy as np
-from typing import Tuple, Optional
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -27,8 +27,8 @@ def simulate_heston(
     T: float,
     n_steps: int,
     n_paths: int = 1,
-    seed: Optional[int] = None,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    seed: int | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Simulate Heston stochastic volatility model.
 
@@ -73,9 +73,7 @@ def simulate_heston(
         )
         v[:, i + 1] = np.maximum(v[:, i + 1], 0)
 
-        S[:, i + 1] = S[:, i] * np.exp(
-            (params.r - 0.5 * v_current) * dt + np.sqrt(v_current) * dW1
-        )
+        S[:, i + 1] = S[:, i] * np.exp((params.r - 0.5 * v_current) * dt + np.sqrt(v_current) * dW1)
 
     return t, S, v
 
@@ -108,7 +106,7 @@ class HestonModel:
         T: float,
         n_steps: int,
         n_paths: int = 1,
-        seed: Optional[int] = None,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        seed: int | None = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Simulate price and variance paths."""
         return simulate_heston(self.params, T, n_steps, n_paths, seed)

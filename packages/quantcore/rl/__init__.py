@@ -9,16 +9,16 @@ Implements 4 RL layers:
 """
 
 from quantcore.rl.base import (
+    Action,
+    Experience,
+    ReplayBuffer,
+    Reward,
     RLAgent,
     RLEnvironment,
     State,
-    Action,
-    Reward,
-    Experience,
-    ReplayBuffer,
 )
-from quantcore.rl.training import RLTrainer
 from quantcore.rl.orchestrator import RLOrchestrator
+from quantcore.rl.training import RLTrainer
 
 __all__ = [
     # Base classes

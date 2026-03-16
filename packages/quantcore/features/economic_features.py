@@ -5,9 +5,6 @@ Forward-fills economic indicators to make them available for each trading day.
 IMPORTANT: Only uses data available as-of each date (no lookahead).
 """
 
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-
 import pandas as pd
 from loguru import logger
 
@@ -17,7 +14,7 @@ from quantcore.data.economic_storage import EconomicStorage
 class EconomicFeatureEngineer:
     """Creates daily features from economic indicators."""
 
-    def __init__(self, storage: Optional[EconomicStorage] = None):
+    def __init__(self, storage: EconomicStorage | None = None):
         """Initialize feature engineer.
 
         Args:
@@ -28,7 +25,7 @@ class EconomicFeatureEngineer:
     def create_daily_features(
         self,
         date_range: pd.DatetimeIndex,
-        indicators: Optional[List[str]] = None,
+        indicators: list[str] | None = None,
     ) -> pd.DataFrame:
         """Create daily features by forward-filling indicators.
 
@@ -188,14 +185,10 @@ class EconomicFeatureEngineer:
         # Fed policy stance
         if "fed_funds_rate" in result.columns:
             # Rate of change in Fed funds
-            result["fed_tightening"] = (
-                result["fed_funds_rate"].diff(periods=63) > 0.5
-            ).astype(
+            result["fed_tightening"] = (result["fed_funds_rate"].diff(periods=63) > 0.5).astype(
                 int
             )  # Hiking >50bp in 3mo
-            result["fed_easing"] = (
-                result["fed_funds_rate"].diff(periods=63) < -0.5
-            ).astype(
+            result["fed_easing"] = (result["fed_funds_rate"].diff(periods=63) < -0.5).astype(
                 int
             )  # Cutting >50bp in 3mo
 
@@ -204,15 +197,11 @@ class EconomicFeatureEngineer:
             result["strong_growth"] = (result["real_gdp_quarterly_yoy"] > 0.03).astype(
                 int
             )  # >3% YoY
-            result["recession"] = (result["real_gdp_quarterly_yoy"] < 0).astype(
-                int
-            )  # Negative
+            result["recession"] = (result["real_gdp_quarterly_yoy"] < 0).astype(int)  # Negative
 
         # Retail strength
         if "retail_sales_yoy" in result.columns:
-            result["retail_strong"] = (result["retail_sales_yoy"] > 0.05).astype(
-                int
-            )  # >5% YoY
+            result["retail_strong"] = (result["retail_sales_yoy"] > 0.05).astype(int)  # >5% YoY
 
         return result
 
@@ -262,7 +251,7 @@ class EconomicFeatureEngineer:
 
         return result
 
-    def get_feature_importance_groups(self) -> Dict[str, List[str]]:
+    def get_feature_importance_groups(self) -> dict[str, list[str]]:
         """Get logical groupings of economic features for analysis.
 
         Returns:
@@ -334,7 +323,7 @@ class EconomicFeatureEngineer:
 def create_economic_features_for_symbol(
     symbol: str,
     market_df: pd.DataFrame,
-    storage: Optional[EconomicStorage] = None,
+    storage: EconomicStorage | None = None,
 ) -> pd.DataFrame:
     """Convenience function to create economic features for a symbol.
 

@@ -3,13 +3,9 @@
 
 """Tests for quantcore.data.preprocessor module."""
 
-from datetime import datetime
-
 import numpy as np
 import pandas as pd
 import pytest
-import pytz
-
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.preprocessor import DataPreprocessor
 
@@ -111,9 +107,7 @@ class TestDataPreprocessor:
 
     def test_market_hours_filter_hourly(self, preprocessor, sample_ohlcv):
         """Test market hours filtering for hourly data."""
-        result = preprocessor.preprocess(
-            sample_ohlcv, Timeframe.H1, market_hours_only=True
-        )
+        result = preprocessor.preprocess(sample_ohlcv, Timeframe.H1, market_hours_only=True)
 
         # All hours should be within market hours
         hours = result.index.hour
@@ -121,9 +115,7 @@ class TestDataPreprocessor:
 
     def test_market_hours_filter_not_applied_to_daily(self, preprocessor):
         """Test market hours filter not applied to daily data."""
-        dates = pd.date_range(
-            start="2023-01-03", periods=30, freq="1D", tz="America/New_York"
-        )
+        dates = pd.date_range(start="2023-01-03", periods=30, freq="1D", tz="America/New_York")
         df = pd.DataFrame(
             {
                 "open": np.ones(30) * 100,
@@ -149,9 +141,7 @@ class TestValidateOHLCV:
 
     def test_fix_high_less_than_low(self, preprocessor):
         """Test fixing high < low."""
-        dates = pd.date_range(
-            start="2023-01-03 09:00", periods=5, freq="1h", tz="America/New_York"
-        )
+        dates = pd.date_range(start="2023-01-03 09:00", periods=5, freq="1h", tz="America/New_York")
         df = pd.DataFrame(
             {
                 "open": [100, 100, 100, 100, 100],
@@ -169,9 +159,7 @@ class TestValidateOHLCV:
 
     def test_fix_high_less_than_close(self, preprocessor):
         """Test fixing high < close."""
-        dates = pd.date_range(
-            start="2023-01-03 09:00", periods=3, freq="1h", tz="America/New_York"
-        )
+        dates = pd.date_range(start="2023-01-03 09:00", periods=3, freq="1h", tz="America/New_York")
         df = pd.DataFrame(
             {
                 "open": [100, 100, 100],
@@ -190,9 +178,7 @@ class TestValidateOHLCV:
 
     def test_remove_non_positive_prices(self, preprocessor):
         """Test removing rows with non-positive prices."""
-        dates = pd.date_range(
-            start="2023-01-03 09:00", periods=5, freq="1h", tz="America/New_York"
-        )
+        dates = pd.date_range(start="2023-01-03 09:00", periods=5, freq="1h", tz="America/New_York")
         df = pd.DataFrame(
             {
                 "open": [100, -1, 100, 100, 100],  # Negative in row 1

@@ -19,7 +19,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, TypeVar
 
 import duckdb
 from loguru import logger
@@ -35,7 +35,6 @@ from quant_pod.knowledge.models import (
     TradingSignal,
     WaveScenario,
 )
-
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -66,7 +65,7 @@ class KnowledgeStore:
         metrics = store.get_agent_performance("executor", days=30)
     """
 
-    def __init__(self, db_path: Optional[str] = None, read_only: bool = False):
+    def __init__(self, db_path: str | None = None, read_only: bool = False):
         """
         Initialize the knowledge store.
 
@@ -86,7 +85,7 @@ class KnowledgeStore:
             self.db_path.unlink()
         self.read_only = read_only
 
-        self._conn: Optional[duckdb.DuckDBPyConnection] = None
+        self._conn: duckdb.DuckDBPyConnection | None = None
 
         # Only initialize schema when writable; read-only consumers (frontend)
         # should not attempt to mutate or create the DB.
@@ -151,9 +150,7 @@ class KnowledgeStore:
         )
 
         # Market observations
-        self.conn.execute(
-            "CREATE SEQUENCE IF NOT EXISTS seq_market_observations START 1"
-        )
+        self.conn.execute("CREATE SEQUENCE IF NOT EXISTS seq_market_observations START 1")
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS market_observations (
@@ -298,21 +295,13 @@ class KnowledgeStore:
         )
 
         # Create indexes
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trade_journal(symbol)"
-        )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_trades_status ON trade_journal(status)"
-        )
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trade_journal(symbol)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_status ON trade_journal(status)")
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_obs_symbol ON market_observations(symbol)"
         )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_waves_symbol ON wave_scenarios(symbol)"
-        )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_regime_symbol ON regime_states(symbol)"
-        )
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_waves_symbol ON wave_scenarios(symbol)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_regime_symbol ON regime_states(symbol)")
 
         # =====================================================================
         # HISTORICAL ALPHA ARENA TABLES
@@ -334,9 +323,7 @@ class KnowledgeStore:
 
         # Historical signals from strategy pods
         # Use SEQUENCE for auto-increment in DuckDB
-        self.conn.execute(
-            "CREATE SEQUENCE IF NOT EXISTS seq_historical_signals START 1"
-        )
+        self.conn.execute("CREATE SEQUENCE IF NOT EXISTS seq_historical_signals START 1")
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS historical_signals (
@@ -383,21 +370,15 @@ class KnowledgeStore:
         )
 
         # Indexes for historical tables
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_daily_state_date ON daily_state(date)"
-        )
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_state_date ON daily_state(date)")
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_hist_signals_date ON historical_signals(date)"
         )
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_hist_signals_symbol ON historical_signals(symbol)"
         )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_logs_date ON agent_logs(date)"
-        )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_logs_symbol ON agent_logs(symbol)"
-        )
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_date ON agent_logs(date)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_symbol ON agent_logs(symbol)")
 
         # =====================================================================
         # AGENTIC LEARNING SYSTEM TABLES
@@ -501,12 +482,8 @@ class KnowledgeStore:
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_proposals_status ON prompt_proposals(status)"
         )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ab_tests_agent ON ab_tests(agent_id)"
-        )
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ab_tests_status ON ab_tests(status)"
-        )
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_ab_tests_agent ON ab_tests(agent_id)")
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_ab_tests_status ON ab_tests(status)")
         self.conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_injections_active ON lesson_injections(is_active)"
         )
@@ -550,7 +527,7 @@ class KnowledgeStore:
         self.conn.commit()
         return trade_id
 
-    def get_trade(self, trade_id: int) -> Optional[TradeRecord]:
+    def get_trade(self, trade_id: int) -> TradeRecord | None:
         """Get a trade by ID."""
         result = self.conn.execute(
             "SELECT * FROM trade_journal WHERE id = ?", [trade_id]
@@ -563,12 +540,12 @@ class KnowledgeStore:
 
     def get_trades(
         self,
-        symbol: Optional[str] = None,
-        status: Optional[TradeStatus] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        symbol: str | None = None,
+        status: TradeStatus | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
-    ) -> List[TradeRecord]:
+    ) -> list[TradeRecord]:
         """Query trades with filters."""
         query = "SELECT * FROM trade_journal WHERE 1=1"
         params = []
@@ -591,14 +568,14 @@ class KnowledgeStore:
         results = self.conn.execute(query, params).fetchall()
         return [self._row_to_trade(row) for row in results]
 
-    def get_open_trades(self) -> List[TradeRecord]:
+    def get_open_trades(self) -> list[TradeRecord]:
         """Get all open trades."""
         return self.get_trades(status=TradeStatus.OPEN)
 
     def _row_to_trade(self, row: tuple) -> TradeRecord:
         """Convert database row to TradeRecord."""
         cols = [desc[0] for desc in self.conn.description]
-        data = dict(zip(cols, row))
+        data = dict(zip(cols, row, strict=False))
 
         # Parse JSON fields
         if data.get("legs"):
@@ -630,10 +607,10 @@ class KnowledgeStore:
 
     def get_recent_observations(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         hours: int = 24,
         unprocessed_only: bool = False,
-    ) -> List[MarketObservation]:
+    ) -> list[MarketObservation]:
         """Get recent market observations."""
         query = "SELECT * FROM market_observations WHERE timestamp > ?"
         params = [datetime.now() - timedelta(hours=hours)]
@@ -649,9 +626,9 @@ class KnowledgeStore:
         results = self.conn.execute(query, params).fetchall()
         cols = [desc[0] for desc in self.conn.description]
 
-        return [MarketObservation(**dict(zip(cols, row))) for row in results]
+        return [MarketObservation(**dict(zip(cols, row, strict=False))) for row in results]
 
-    def mark_observations_processed(self, obs_ids: List[int]) -> None:
+    def mark_observations_processed(self, obs_ids: list[int]) -> None:
         """Mark observations as processed."""
         if not obs_ids:
             return
@@ -704,9 +681,9 @@ class KnowledgeStore:
 
     def get_active_wave_scenarios(
         self,
-        symbol: Optional[str] = None,
-        timeframe: Optional[str] = None,
-    ) -> List[WaveScenario]:
+        symbol: str | None = None,
+        timeframe: str | None = None,
+    ) -> list[WaveScenario]:
         """Get active wave scenarios."""
         query = "SELECT * FROM wave_scenarios WHERE is_active = TRUE"
         params = []
@@ -723,7 +700,7 @@ class KnowledgeStore:
         results = self.conn.execute(query, params).fetchall()
         cols = [desc[0] for desc in self.conn.description]
 
-        return [WaveScenario(**dict(zip(cols, row))) for row in results]
+        return [WaveScenario(**dict(zip(cols, row, strict=False))) for row in results]
 
     def invalidate_wave_scenario(self, scenario_id: str) -> None:
         """Mark a wave scenario as invalidated."""
@@ -757,10 +734,10 @@ class KnowledgeStore:
         self,
         symbol: str,
         timeframe: str = "daily",
-    ) -> Optional[RegimeState]:
+    ) -> RegimeState | None:
         """Get most recent regime state for symbol."""
         result = self.conn.execute(
-            """SELECT * FROM regime_states 
+            """SELECT * FROM regime_states
                WHERE symbol = ? AND timeframe = ?
                ORDER BY timestamp DESC LIMIT 1""",
             [symbol, timeframe],
@@ -770,7 +747,7 @@ class KnowledgeStore:
             return None
 
         cols = [desc[0] for desc in self.conn.description]
-        return RegimeState(**dict(zip(cols, result)))
+        return RegimeState(**dict(zip(cols, result, strict=False)))
 
     # =========================================================================
     # AGENT MESSAGE OPERATIONS
@@ -795,10 +772,10 @@ class KnowledgeStore:
 
     def get_messages(
         self,
-        to_agent: Optional[str] = None,
+        to_agent: str | None = None,
         unacknowledged_only: bool = False,
         hours: int = 24,
-    ) -> List[AgentMessage]:
+    ) -> list[AgentMessage]:
         """Get messages for an agent."""
         query = "SELECT * FROM agent_messages WHERE timestamp > ?"
         params = [datetime.now() - timedelta(hours=hours)]
@@ -816,7 +793,7 @@ class KnowledgeStore:
 
         messages = []
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             if data.get("data"):
                 data["data"] = json.loads(data["data"])
             messages.append(AgentMessage(**data))
@@ -859,9 +836,9 @@ class KnowledgeStore:
 
     def get_active_signals(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         unprocessed_only: bool = False,
-    ) -> List[TradingSignal]:
+    ) -> list[TradingSignal]:
         """Get active trading signals."""
         query = "SELECT * FROM trading_signals WHERE is_active = TRUE"
         params = []
@@ -879,7 +856,7 @@ class KnowledgeStore:
 
         signals = []
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             if data.get("observation_ids"):
                 data["observation_ids"] = json.loads(data["observation_ids"])
             signals.append(TradingSignal(**data))
@@ -894,7 +871,7 @@ class KnowledgeStore:
         """Save performance metrics."""
         data = metrics.model_dump()
 
-        cols = [k for k in data.keys()]
+        cols = list(data.keys())
         placeholders = ", ".join(["?" for _ in cols])
         col_names = ", ".join(cols)
 
@@ -910,10 +887,10 @@ class KnowledgeStore:
         self,
         agent_name: str,
         days: int = 30,
-    ) -> Optional[PerformanceMetrics]:
+    ) -> PerformanceMetrics | None:
         """Get recent performance metrics for an agent."""
         result = self.conn.execute(
-            """SELECT * FROM performance_metrics 
+            """SELECT * FROM performance_metrics
                WHERE entity_type = 'AGENT' AND entity_name = ?
                AND timestamp > ?
                ORDER BY timestamp DESC LIMIT 1""",
@@ -924,14 +901,12 @@ class KnowledgeStore:
             return None
 
         cols = [desc[0] for desc in self.conn.description]
-        return PerformanceMetrics(**dict(zip(cols, result)))
+        return PerformanceMetrics(**dict(zip(cols, result, strict=False)))
 
-    def get_structure_performance(
-        self, days: int = 90
-    ) -> Dict[str, PerformanceMetrics]:
+    def get_structure_performance(self, days: int = 90) -> dict[str, PerformanceMetrics]:
         """Get performance by structure type."""
         results = self.conn.execute(
-            """SELECT * FROM performance_metrics 
+            """SELECT * FROM performance_metrics
                WHERE entity_type = 'STRUCTURE'
                AND timestamp > ?
                ORDER BY entity_name, timestamp DESC""",
@@ -943,7 +918,7 @@ class KnowledgeStore:
         # Get most recent for each structure
         metrics = {}
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             name = data["entity_name"]
             if name not in metrics:
                 metrics[name] = PerformanceMetrics(**data)
@@ -954,7 +929,7 @@ class KnowledgeStore:
     # HISTORICAL ALPHA ARENA OPERATIONS
     # =========================================================================
 
-    def save_daily_state(self, state: Dict) -> None:
+    def save_daily_state(self, state: dict) -> None:
         """
         Save daily portfolio state.
 
@@ -992,7 +967,7 @@ class KnowledgeStore:
         )
         self.conn.commit()
 
-    def save_historical_signal(self, signal: Dict) -> int:
+    def save_historical_signal(self, signal: dict) -> int:
         """
         Save a historical signal (dict-based, used by historical engine).
 
@@ -1008,7 +983,7 @@ class KnowledgeStore:
 
         result = self.conn.execute(
             """
-            INSERT INTO historical_signals 
+            INSERT INTO historical_signals
             (date, symbol, agent, signal_type, confidence, regime, structural_label)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             RETURNING id
@@ -1027,7 +1002,7 @@ class KnowledgeStore:
         self.conn.commit()
         return result[0]
 
-    def save_policy_snapshot(self, snapshot: Dict) -> None:
+    def save_policy_snapshot(self, snapshot: dict) -> None:
         """
         Save a policy snapshot.
 
@@ -1065,7 +1040,7 @@ class KnowledgeStore:
         )
         self.conn.commit()
 
-    def save_agent_log(self, log: Dict) -> int:
+    def save_agent_log(self, log: dict) -> int:
         """
         Save an agent log message.
 
@@ -1093,7 +1068,7 @@ class KnowledgeStore:
 
         self.conn.execute(
             """
-            INSERT INTO agent_logs 
+            INSERT INTO agent_logs
             (log_id, date, agent_name, symbol, message, role, context_id, created_at_sim_time)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
@@ -1114,9 +1089,9 @@ class KnowledgeStore:
 
     def load_equity_curve(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[Dict]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[dict]:
         """
         Load equity curve data.
 
@@ -1133,15 +1108,11 @@ class KnowledgeStore:
         if start_date:
             query += " AND date >= ?"
             params.append(
-                start_date.isoformat()
-                if hasattr(start_date, "isoformat")
-                else start_date
+                start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
             )
         if end_date:
             query += " AND date <= ?"
-            params.append(
-                end_date.isoformat() if hasattr(end_date, "isoformat") else end_date
-            )
+            params.append(end_date.isoformat() if hasattr(end_date, "isoformat") else end_date)
 
         query += " ORDER BY date ASC"
 
@@ -1150,11 +1121,11 @@ class KnowledgeStore:
 
         states = []
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             if data.get("exposures"):
                 try:
                     data["exposures"] = json.loads(data["exposures"])
-                except:
+                except Exception:
                     data["exposures"] = {}
             states.append(data)
 
@@ -1162,12 +1133,12 @@ class KnowledgeStore:
 
     def load_agent_logs(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        symbol: Optional[str] = None,
-        agent_name: Optional[str] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        symbol: str | None = None,
+        agent_name: str | None = None,
         limit: int = 1000,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Load agent logs for chat timeline.
 
@@ -1187,15 +1158,11 @@ class KnowledgeStore:
         if start_date:
             query += " AND date >= ?"
             params.append(
-                start_date.isoformat()
-                if hasattr(start_date, "isoformat")
-                else start_date
+                start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
             )
         if end_date:
             query += " AND date <= ?"
-            params.append(
-                end_date.isoformat() if hasattr(end_date, "isoformat") else end_date
-            )
+            params.append(end_date.isoformat() if hasattr(end_date, "isoformat") else end_date)
         if symbol:
             query += " AND (symbol = ? OR symbol IS NULL)"
             params.append(symbol)
@@ -1208,15 +1175,15 @@ class KnowledgeStore:
         results = self.conn.execute(query, params).fetchall()
         cols = [desc[0] for desc in self.conn.description]
 
-        return [dict(zip(cols, row)) for row in results]
+        return [dict(zip(cols, row, strict=False)) for row in results]
 
     def load_historical_signals(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        symbol: Optional[str] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        symbol: str | None = None,
         limit: int = 1000,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Load historical signals.
 
@@ -1235,15 +1202,11 @@ class KnowledgeStore:
         if start_date:
             query += " AND date >= ?"
             params.append(
-                start_date.isoformat()
-                if hasattr(start_date, "isoformat")
-                else start_date
+                start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
             )
         if end_date:
             query += " AND date <= ?"
-            params.append(
-                end_date.isoformat() if hasattr(end_date, "isoformat") else end_date
-            )
+            params.append(end_date.isoformat() if hasattr(end_date, "isoformat") else end_date)
         if symbol:
             query += " AND symbol = ?"
             params.append(symbol)
@@ -1253,13 +1216,13 @@ class KnowledgeStore:
         results = self.conn.execute(query, params).fetchall()
         cols = [desc[0] for desc in self.conn.description]
 
-        return [dict(zip(cols, row)) for row in results]
+        return [dict(zip(cols, row, strict=False)) for row in results]
 
     def load_policy_snapshots(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[Dict]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[dict]:
         """
         Load policy snapshots.
 
@@ -1276,15 +1239,11 @@ class KnowledgeStore:
         if start_date:
             query += " AND effective_date >= ?"
             params.append(
-                start_date.isoformat()
-                if hasattr(start_date, "isoformat")
-                else start_date
+                start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
             )
         if end_date:
             query += " AND effective_date <= ?"
-            params.append(
-                end_date.isoformat() if hasattr(end_date, "isoformat") else end_date
-            )
+            params.append(end_date.isoformat() if hasattr(end_date, "isoformat") else end_date)
 
         query += " ORDER BY effective_date ASC"
 
@@ -1293,24 +1252,22 @@ class KnowledgeStore:
 
         snapshots = []
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             if data.get("pod_weights"):
                 try:
                     data["pod_weights"] = json.loads(data["pod_weights"])
-                except:
+                except Exception:
                     data["pod_weights"] = {}
             if data.get("thresholds"):
                 try:
                     data["thresholds"] = json.loads(data["thresholds"])
-                except:
+                except Exception:
                     data["thresholds"] = {}
             snapshots.append(data)
 
         return snapshots
 
-    def get_latest_policy(
-        self, as_of_date: Optional[datetime] = None
-    ) -> Optional[Dict]:
+    def get_latest_policy(self, as_of_date: datetime | None = None) -> dict | None:
         """
         Get the most recent policy snapshot as of a date.
 
@@ -1323,15 +1280,11 @@ class KnowledgeStore:
         if as_of_date is None:
             as_of_date = datetime.now()
 
-        date_str = (
-            as_of_date.isoformat()
-            if hasattr(as_of_date, "isoformat")
-            else str(as_of_date)
-        )
+        date_str = as_of_date.isoformat() if hasattr(as_of_date, "isoformat") else str(as_of_date)
 
         result = self.conn.execute(
             """
-            SELECT * FROM policy_snapshots 
+            SELECT * FROM policy_snapshots
             WHERE effective_date <= ?
             ORDER BY effective_date DESC
             LIMIT 1
@@ -1343,17 +1296,17 @@ class KnowledgeStore:
             return None
 
         cols = [desc[0] for desc in self.conn.description]
-        data = dict(zip(cols, result))
+        data = dict(zip(cols, result, strict=False))
 
         if data.get("pod_weights"):
             try:
                 data["pod_weights"] = json.loads(data["pod_weights"])
-            except:
+            except Exception:
                 data["pod_weights"] = {}
         if data.get("thresholds"):
             try:
                 data["thresholds"] = json.loads(data["thresholds"])
-            except:
+            except Exception:
                 data["thresholds"] = {}
 
         return data
@@ -1362,7 +1315,7 @@ class KnowledgeStore:
     # AGENTIC LEARNING SYSTEM OPERATIONS
     # =========================================================================
 
-    def save_lesson(self, lesson: Dict) -> str:
+    def save_lesson(self, lesson: dict) -> str:
         """
         Save a lesson learned from trade outcomes.
 
@@ -1381,7 +1334,7 @@ class KnowledgeStore:
 
         self.conn.execute(
             """
-            INSERT INTO agent_lessons 
+            INSERT INTO agent_lessons
             (lesson_id, lesson_text, applies_to, confidence, source_trade_id, created_by)
             VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT (lesson_id) DO UPDATE SET
@@ -1405,13 +1358,13 @@ class KnowledgeStore:
         self,
         limit: int = 50,
         min_confidence: float = 0.0,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Get all lessons, optionally filtered by confidence."""
         results = self.conn.execute(
             """
-            SELECT * FROM agent_lessons 
+            SELECT * FROM agent_lessons
             WHERE confidence >= ?
-            ORDER BY created_at DESC 
+            ORDER BY created_at DESC
             LIMIT ?
         """,
             [min_confidence, limit],
@@ -1420,24 +1373,24 @@ class KnowledgeStore:
         cols = [desc[0] for desc in self.conn.description]
         lessons = []
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             if data.get("applies_to"):
                 try:
                     data["applies_to"] = json.loads(data["applies_to"])
-                except:
+                except Exception:
                     data["applies_to"] = []
             lessons.append(data)
 
         return lessons
 
-    def get_lessons_for_agent(self, agent_id: str, limit: int = 5) -> List[Dict]:
+    def get_lessons_for_agent(self, agent_id: str, limit: int = 5) -> list[dict]:
         """Get lessons applicable to a specific agent."""
         # Query lessons where agent_id is in applies_to JSON array
         results = self.conn.execute(
             """
-            SELECT * FROM agent_lessons 
+            SELECT * FROM agent_lessons
             WHERE applies_to LIKE ?
-            ORDER BY confidence DESC, created_at DESC 
+            ORDER BY confidence DESC, created_at DESC
             LIMIT ?
         """,
             [f'%"{agent_id}"%', limit],
@@ -1446,23 +1399,21 @@ class KnowledgeStore:
         cols = [desc[0] for desc in self.conn.description]
         lessons = []
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             if data.get("applies_to"):
                 try:
                     data["applies_to"] = json.loads(data["applies_to"])
-                except:
+                except Exception:
                     data["applies_to"] = []
             lessons.append(data)
 
         return lessons
 
-    def update_lesson_usage(
-        self, lesson_id: str, was_effective: Optional[bool] = None
-    ) -> None:
+    def update_lesson_usage(self, lesson_id: str, was_effective: bool | None = None) -> None:
         """Update lesson usage count and optionally effectiveness."""
         self.conn.execute(
             """
-            UPDATE agent_lessons 
+            UPDATE agent_lessons
             SET usage_count = usage_count + 1
             WHERE lesson_id = ?
         """,
@@ -1473,7 +1424,7 @@ class KnowledgeStore:
             # Update effectiveness with exponential moving average
             self.conn.execute(
                 """
-                UPDATE agent_lessons 
+                UPDATE agent_lessons
                 SET effectiveness_score = COALESCE(effectiveness_score * 0.8 + ? * 0.2, ?)
                 WHERE lesson_id = ?
             """,
@@ -1486,7 +1437,7 @@ class KnowledgeStore:
 
         self.conn.commit()
 
-    def save_prompt_proposal(self, proposal: Dict) -> str:
+    def save_prompt_proposal(self, proposal: dict) -> str:
         """
         Save a prompt modification proposal.
 
@@ -1502,7 +1453,7 @@ class KnowledgeStore:
 
         self.conn.execute(
             """
-            INSERT INTO prompt_proposals 
+            INSERT INTO prompt_proposals
             (proposal_id, agent_id, section, old_text, new_text, reason, status, created_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
@@ -1522,10 +1473,10 @@ class KnowledgeStore:
 
     def get_prompt_proposals(
         self,
-        agent_id: Optional[str] = None,
-        status: Optional[str] = None,
+        agent_id: str | None = None,
+        status: str | None = None,
         limit: int = 20,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Get prompt proposals, optionally filtered."""
         query = "SELECT * FROM prompt_proposals WHERE 1=1"
         params = []
@@ -1542,7 +1493,7 @@ class KnowledgeStore:
         results = self.conn.execute(query, params).fetchall()
         cols = [desc[0] for desc in self.conn.description]
 
-        return [dict(zip(cols, row)) for row in results]
+        return [dict(zip(cols, row, strict=False)) for row in results]
 
     def update_proposal_status(self, proposal_id: str, status: str) -> None:
         """Update the status of a proposal."""
@@ -1554,7 +1505,7 @@ class KnowledgeStore:
         )
         self.conn.commit()
 
-    def create_ab_test(self, test: Dict) -> str:
+    def create_ab_test(self, test: dict) -> str:
         """
         Create an A/B test for a prompt change.
 
@@ -1570,7 +1521,7 @@ class KnowledgeStore:
 
         self.conn.execute(
             """
-            INSERT INTO ab_tests 
+            INSERT INTO ab_tests
             (test_id, agent_id, control_version, treatment_version, traffic_pct, status)
             VALUES (?, ?, ?, ?, ?, ?)
         """,
@@ -1586,7 +1537,7 @@ class KnowledgeStore:
         self.conn.commit()
         return test_id
 
-    def get_ab_test(self, test_id: str) -> Optional[Dict]:
+    def get_ab_test(self, test_id: str) -> dict | None:
         """Get an A/B test by ID."""
         result = self.conn.execute(
             """
@@ -1599,9 +1550,9 @@ class KnowledgeStore:
             return None
 
         cols = [desc[0] for desc in self.conn.description]
-        return dict(zip(cols, result))
+        return dict(zip(cols, result, strict=False))
 
-    def get_active_ab_tests(self, agent_id: Optional[str] = None) -> List[Dict]:
+    def get_active_ab_tests(self, agent_id: str | None = None) -> list[dict]:
         """Get all running A/B tests."""
         query = "SELECT * FROM ab_tests WHERE status = 'running'"
         params = []
@@ -1613,7 +1564,7 @@ class KnowledgeStore:
         results = self.conn.execute(query, params).fetchall()
         cols = [desc[0] for desc in self.conn.description]
 
-        return [dict(zip(cols, row)) for row in results]
+        return [dict(zip(cols, row, strict=False)) for row in results]
 
     def update_ab_test_results(
         self,
@@ -1625,7 +1576,7 @@ class KnowledgeStore:
         if is_treatment:
             self.conn.execute(
                 """
-                UPDATE ab_tests 
+                UPDATE ab_tests
                 SET treatment_trades = treatment_trades + 1,
                     treatment_wins = treatment_wins + ?
                 WHERE test_id = ?
@@ -1635,7 +1586,7 @@ class KnowledgeStore:
         else:
             self.conn.execute(
                 """
-                UPDATE ab_tests 
+                UPDATE ab_tests
                 SET control_trades = control_trades + 1,
                     control_wins = control_wins + ?
                 WHERE test_id = ?
@@ -1649,7 +1600,7 @@ class KnowledgeStore:
         """End an A/B test."""
         self.conn.execute(
             """
-            UPDATE ab_tests 
+            UPDATE ab_tests
             SET status = ?, ended_at = CURRENT_TIMESTAMP
             WHERE test_id = ?
         """,
@@ -1671,7 +1622,7 @@ class KnowledgeStore:
         )
         self.conn.commit()
 
-    def get_injected_lessons(self, agent_id: str) -> List[Dict]:
+    def get_injected_lessons(self, agent_id: str) -> list[dict]:
         """Get all active lessons injected for an agent."""
         results = self.conn.execute(
             """
@@ -1686,11 +1637,11 @@ class KnowledgeStore:
         cols = [desc[0] for desc in self.conn.description]
         lessons = []
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             if data.get("applies_to"):
                 try:
                     data["applies_to"] = json.loads(data["applies_to"])
-                except:
+                except Exception:
                     data["applies_to"] = []
             lessons.append(data)
 
@@ -1712,7 +1663,7 @@ class KnowledgeStore:
     # LEARNING METRICS OPERATIONS
     # =========================================================================
 
-    def save_learning_checkpoint(self, metrics: Dict) -> int:
+    def save_learning_checkpoint(self, metrics: dict) -> int:
         """
         Save a learning metrics checkpoint.
 
@@ -1728,8 +1679,8 @@ class KnowledgeStore:
 
         result = self.conn.execute(
             """
-            INSERT INTO learning_metrics 
-            (date, trade_count, rolling_win_rate, cumulative_win_rate, 
+            INSERT INTO learning_metrics
+            (date, trade_count, rolling_win_rate, cumulative_win_rate,
              rolling_pnl, cumulative_pnl, lessons_active, prompt_changes,
              strategy_weights, avg_confidence, regime_at_checkpoint)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1755,10 +1706,10 @@ class KnowledgeStore:
 
     def get_learning_metrics(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 500,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Get learning metrics checkpoints.
 
@@ -1776,15 +1727,11 @@ class KnowledgeStore:
         if start_date:
             query += " AND date >= ?"
             params.append(
-                start_date.isoformat()
-                if hasattr(start_date, "isoformat")
-                else start_date
+                start_date.isoformat() if hasattr(start_date, "isoformat") else start_date
             )
         if end_date:
             query += " AND date <= ?"
-            params.append(
-                end_date.isoformat() if hasattr(end_date, "isoformat") else end_date
-            )
+            params.append(end_date.isoformat() if hasattr(end_date, "isoformat") else end_date)
 
         query += f" ORDER BY checkpoint_id ASC LIMIT {limit}"
 
@@ -1793,22 +1740,22 @@ class KnowledgeStore:
 
         metrics = []
         for row in results:
-            data = dict(zip(cols, row))
+            data = dict(zip(cols, row, strict=False))
             if data.get("strategy_weights"):
                 try:
                     data["strategy_weights"] = json.loads(data["strategy_weights"])
-                except:
+                except Exception:
                     data["strategy_weights"] = {}
             metrics.append(data)
 
         return metrics
 
-    def get_latest_learning_checkpoint(self) -> Optional[Dict]:
+    def get_latest_learning_checkpoint(self) -> dict | None:
         """Get the most recent learning checkpoint."""
         result = self.conn.execute(
             """
-            SELECT * FROM learning_metrics 
-            ORDER BY checkpoint_id DESC 
+            SELECT * FROM learning_metrics
+            ORDER BY checkpoint_id DESC
             LIMIT 1
         """
         ).fetchone()
@@ -1817,17 +1764,17 @@ class KnowledgeStore:
             return None
 
         cols = [desc[0] for desc in self.conn.description]
-        data = dict(zip(cols, result))
+        data = dict(zip(cols, result, strict=False))
 
         if data.get("strategy_weights"):
             try:
                 data["strategy_weights"] = json.loads(data["strategy_weights"])
-            except:
+            except Exception:
                 data["strategy_weights"] = {}
 
         return data
 
-    def compute_rolling_win_rate(self, window: int = 20) -> Optional[float]:
+    def compute_rolling_win_rate(self, window: int = 20) -> float | None:
         """
         Compute rolling win rate from the last N trades.
 
@@ -1842,9 +1789,9 @@ class KnowledgeStore:
         # Get recent closed trades
         trades = self.get_trades(limit=window * 2)  # Get extra to ensure enough closed
 
-        closed_trades = [
-            t for t in trades if t.status == TradeStatus.CLOSED and t.pnl is not None
-        ][:window]
+        closed_trades = [t for t in trades if t.status == TradeStatus.CLOSED and t.pnl is not None][
+            :window
+        ]
 
         if len(closed_trades) < 5:  # Minimum trades for meaningful rate
             return None
@@ -1854,9 +1801,9 @@ class KnowledgeStore:
 
     def get_recent_agent_logs(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         limit: int = 10,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Get recent agent logs for historical context.
 
@@ -1868,8 +1815,8 @@ class KnowledgeStore:
             List of agent log dicts sorted by date descending
         """
         query = """
-            SELECT date, agent_name, symbol, message, reasoning 
-            FROM agent_logs 
+            SELECT date, agent_name, symbol, message, reasoning
+            FROM agent_logs
             WHERE 1=1
         """
         params = []
@@ -1884,16 +1831,16 @@ class KnowledgeStore:
         try:
             results = self.conn.execute(query, params).fetchall()
             cols = ["date", "agent_name", "symbol", "message", "reasoning"]
-            return [dict(zip(cols, row)) for row in results]
+            return [dict(zip(cols, row, strict=False)) for row in results]
         except Exception as e:
             logger.debug(f"Failed to get agent logs: {e}")
             return []
 
     def get_recent_trades(
         self,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
         limit: int = 5,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Get recent trades for historical context.
 
@@ -1905,9 +1852,9 @@ class KnowledgeStore:
             List of trade dicts sorted by entry_date descending
         """
         query = """
-            SELECT symbol, side, entry_date, exit_date, entry_price, exit_price, 
+            SELECT symbol, side, entry_date, exit_date, entry_price, exit_price,
                    quantity, pnl, status, strategy_tag
-            FROM trade_journal 
+            FROM trade_journal
             WHERE 1=1
         """
         params = []
@@ -1933,7 +1880,7 @@ class KnowledgeStore:
                 "status",
                 "strategy_tag",
             ]
-            return [dict(zip(cols, row)) for row in results]
+            return [dict(zip(cols, row, strict=False)) for row in results]
         except Exception as e:
             logger.debug(f"Failed to get recent trades: {e}")
             return []
@@ -1942,7 +1889,7 @@ class KnowledgeStore:
     # PORTFOLIO SNAPSHOT — queryable history of portfolio state over time
     # =========================================================================
 
-    def save_portfolio_snapshot(self, snapshot: Dict[str, Any]) -> None:
+    def save_portfolio_snapshot(self, snapshot: dict[str, Any]) -> None:
         """
         Save a point-in-time portfolio snapshot for historical tracking.
 
@@ -1970,9 +1917,7 @@ class KnowledgeStore:
             )
             """
         )
-        self.conn.execute(
-            "CREATE SEQUENCE IF NOT EXISTS seq_portfolio_snapshots START 1"
-        )
+        self.conn.execute("CREATE SEQUENCE IF NOT EXISTS seq_portfolio_snapshots START 1")
         self.conn.execute(
             """
             INSERT INTO portfolio_snapshots
@@ -1992,7 +1937,7 @@ class KnowledgeStore:
         )
         self.conn.commit()
 
-    def get_latest_portfolio_snapshot(self) -> Optional[Dict[str, Any]]:
+    def get_latest_portfolio_snapshot(self) -> dict[str, Any] | None:
         """
         Return the most recently saved portfolio snapshot.
 

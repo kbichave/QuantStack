@@ -37,16 +37,12 @@ from __future__ import annotations
 
 import os
 import time
-import uuid
 from datetime import datetime
-from typing import List, Optional
 
 from loguru import logger
-from pydantic import BaseModel, Field
 
 from quant_pod.execution.paper_broker import Fill, OrderRequest
 from quant_pod.execution.portfolio_state import Position, get_portfolio_state
-
 
 # =============================================================================
 # ETRADE BROKER
@@ -86,7 +82,7 @@ class EtradeBroker:
         self._auth = ETradeAuthManager()
         self._client = ETradeClient(self._auth)
         self._portfolio = get_portfolio_state()
-        self._account_id_key: Optional[str] = os.getenv("ETRADE_ACCOUNT_ID_KEY")
+        self._account_id_key: str | None = os.getenv("ETRADE_ACCOUNT_ID_KEY")
         self._kill_switch_registered = False
 
         # Resolve account key and reconcile portfolio on startup
@@ -135,9 +131,11 @@ class EtradeBroker:
                 OrderAction,
                 OrderDuration,
                 OrderLeg,
-                OrderRequest as ETradeOrderRequest,
                 OrderType,
                 SecurityType,
+            )
+            from quant_pod.tools.etrade.models import (
+                OrderRequest as ETradeOrderRequest,
             )
 
             # Get live quote to use as reference price (override stale cached price)
@@ -171,17 +169,13 @@ class EtradeBroker:
             )
 
             # Log any preview warnings (margin warnings, etc.)
-            for msg in (preview.messages or []):
+            for msg in preview.messages or []:
                 logger.warning(f"[ETRADE] Preview message: {msg}")
 
             # Place order using preview_id
-            order = self._client.place_order(
-                self._account_id_key, etrade_req, preview.preview_id
-            )
+            order = self._client.place_order(self._account_id_key, etrade_req, preview.preview_id)
 
-            logger.info(
-                f"[ETRADE] Order placed: id={order.order_id} status={order.status}"
-            )
+            logger.info(f"[ETRADE] Order placed: id={order.order_id} status={order.status}")
 
             # Poll for fill on DAY market orders (usually fills immediately)
             if req.order_type == "market":
@@ -193,7 +187,7 @@ class EtradeBroker:
             logger.error(f"[ETRADE] execute({req.symbol}) failed: {e}")
             return self._reject(req, str(e))
 
-    def get_fills(self, limit: int = 50) -> List[Fill]:
+    def get_fills(self, limit: int = 50) -> list[Fill]:
         """
         Return recent fills from eTrade order history.
 
@@ -203,9 +197,7 @@ class EtradeBroker:
         if not self._auth.is_authenticated():
             return []
         try:
-            orders = self._client.get_orders(
-                self._account_id_key, status="EXECUTED"
-            )
+            orders = self._client.get_orders(self._account_id_key, status="EXECUTED")
             fills = []
             for o in orders[:limit]:
                 fill = Fill(
@@ -258,7 +250,6 @@ class EtradeBroker:
                 "account_id_key": None,
                 "auth_url": self.get_auth_url(),
             }
-        status = self._auth  # ETradeAuthManager has direct attributes
         return {
             "authenticated": True,
             "needs_auth": False,
@@ -287,7 +278,7 @@ class EtradeBroker:
         except Exception as e:
             logger.error(f"[ETRADE] Account selection failed: {e}")
 
-    def _get_live_price(self, symbol: str) -> Optional[float]:
+    def _get_live_price(self, symbol: str) -> float | None:
         """Fetch current market price from eTrade."""
         try:
             quotes = self._client.get_quote([symbol.upper()])
@@ -324,7 +315,9 @@ class EtradeBroker:
                 logger.warning(f"[ETRADE] Poll error for {order_id}: {e}")
             time.sleep(self.FILL_POLL_INTERVAL)
 
-        logger.warning(f"[ETRADE] Order {order_id} did not fill within {self.FILL_TIMEOUT_SECONDS}s")
+        logger.warning(
+            f"[ETRADE] Order {order_id} did not fill within {self.FILL_TIMEOUT_SECONDS}s"
+        )
         # Return last known state
         try:
             orders = self._client.get_orders(self._account_id_key)
@@ -440,14 +433,16 @@ class EtradeBroker:
             for ep in etrade_positions:
                 # Ignore options for now (symbol contains option notation)
                 if ep.symbol and len(ep.symbol) <= 5:
-                    broker_pos.append({
-                        "symbol": ep.symbol,
-                        "quantity": int(abs(ep.quantity)),
-                        "side": "long" if ep.quantity > 0 else "short",
-                        "avg_cost": float(ep.cost_basis / abs(ep.quantity))
-                        if ep.quantity and ep.cost_basis
-                        else 0.0,
-                    })
+                    broker_pos.append(
+                        {
+                            "symbol": ep.symbol,
+                            "quantity": int(abs(ep.quantity)),
+                            "side": "long" if ep.quantity > 0 else "short",
+                            "avg_cost": float(ep.cost_basis / abs(ep.quantity))
+                            if ep.quantity and ep.cost_basis
+                            else 0.0,
+                        }
+                    )
 
             mismatches = self._portfolio.reconcile(broker_pos)
             if mismatches:
@@ -458,8 +453,7 @@ class EtradeBroker:
                 # Sync: upsert eTrade positions into local DB
                 for bp in broker_pos:
                     ep_price = next(
-                        (e.current_price for e in etrade_positions
-                         if e.symbol == bp["symbol"]),
+                        (e.current_price for e in etrade_positions if e.symbol == bp["symbol"]),
                         bp["avg_cost"],
                     )
                     self._portfolio.upsert_position(
@@ -548,7 +542,7 @@ class EtradeBroker:
 # SINGLETON
 # =============================================================================
 
-_etrade_broker: Optional[EtradeBroker] = None
+_etrade_broker: EtradeBroker | None = None
 
 
 def get_etrade_broker() -> EtradeBroker:

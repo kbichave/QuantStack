@@ -8,16 +8,13 @@ Provides:
 - Helper functions for constructing swing legs directly
 """
 
-import pytest
-import pandas as pd
-import numpy as np
-from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Literal
 from unittest.mock import MagicMock, patch
 
-from quantcore.config.timeframes import Timeframe
-from quantcore.features.waves import SwingPoint, SwingLeg, WaveConfig
-
+import numpy as np
+import pandas as pd
+import pytest
+from quantcore.features.waves import SwingLeg, SwingPoint, WaveConfig
 
 # =============================================================================
 # Mock Settings
@@ -51,10 +48,10 @@ def patch_get_settings(mock_settings):
 
 
 def make_ohlcv_df(
-    prices: List[float],
+    prices: list[float],
     start: str = "2024-01-01 09:00",
     freq: str = "1h",
-    volumes: Optional[List[int]] = None,
+    volumes: list[int] | None = None,
     spread_pct: float = 0.5,
 ) -> pd.DataFrame:
     """
@@ -83,8 +80,8 @@ def make_ohlcv_df(
     # Build OHLCV
     opens = [prices[0]] + prices[:-1]  # Open = previous close
     spread = [p * spread_pct / 100 for p in prices]
-    highs = [max(o, c) + s for o, c, s in zip(opens, prices, spread)]
-    lows = [min(o, c) - s for o, c, s in zip(opens, prices, spread)]
+    highs = [max(o, c) + s for o, c, s in zip(opens, prices, spread, strict=False)]
+    lows = [min(o, c) - s for o, c, s in zip(opens, prices, spread, strict=False)]
 
     df = pd.DataFrame(
         {
@@ -285,7 +282,7 @@ def make_impulse_up_legs(
     wave5_ret: float = 0.08,
     bars_per_leg: int = 5,
     start_price: float = 100.0,
-) -> List[SwingLeg]:
+) -> list[SwingLeg]:
     """
     Create 5 legs forming a valid impulse-up pattern.
 
@@ -303,7 +300,7 @@ def make_impulse_up_legs(
     returns = [wave1_ret, wave2_ret, wave3_ret, wave4_ret, wave5_ret]
     directions = ["up", "down", "up", "down", "up"]
 
-    for ret, direction in zip(returns, directions):
+    for ret, direction in zip(returns, directions, strict=False):
         start_idx = idx
         end_idx = idx + bars_per_leg
         end_price = price * (1 + ret)
@@ -328,7 +325,7 @@ def make_swing_point(
     idx: int,
     price: float,
     direction: Literal["up", "down"],
-    time: Optional[pd.Timestamp] = None,
+    time: pd.Timestamp | None = None,
 ) -> SwingPoint:
     """
     Create a SwingPoint for testing.
@@ -358,9 +355,7 @@ def simple_hourly_ohlcv():
             "close": [101, 102, 103, 104, 105, 106, 107, 108],
             "volume": [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700],
         },
-        index=pd.date_range(
-            "2024-01-02 09:00", periods=8, freq="1H", tz="America/New_York"
-        ),
+        index=pd.date_range("2024-01-02 09:00", periods=8, freq="1H", tz="America/New_York"),
     )
 
 

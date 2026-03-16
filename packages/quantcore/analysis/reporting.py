@@ -9,7 +9,7 @@ Generates comprehensive reports with clear separation of:
 """
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -17,9 +17,9 @@ from loguru import logger
 # Import quant research integration
 try:
     from quantcore.research.quant_metrics import (
+        QuantResearchReport,  # noqa: F401
+        generate_quant_report_section,  # noqa: F401
         run_signal_diagnostics,
-        generate_quant_report_section,
-        QuantResearchReport,
     )
 
     QUANT_METRICS_AVAILABLE = True
@@ -29,17 +29,17 @@ except ImportError:
 
 
 def generate_report(
-    all_data: Dict[str, pd.DataFrame],
+    all_data: dict[str, pd.DataFrame],
     spread_df: pd.DataFrame,
-    backtest_results: Dict[str, float],
-    regime_models: Dict[str, object],
-    rl_agents: Dict[str, object],
-    best_params: Optional[Dict[str, float]] = None,
-    strategy_results: Optional[pd.DataFrame] = None,
-    rl_metrics: Optional[Dict[str, Dict]] = None,
-    mc_results: Optional[Dict[str, Any]] = None,
-    tuning_results: Optional[Dict[str, Any]] = None,
-    validation_results: Optional[Dict[str, Any]] = None,
+    backtest_results: dict[str, float],
+    regime_models: dict[str, object],
+    rl_agents: dict[str, object],
+    best_params: dict[str, float] | None = None,
+    strategy_results: pd.DataFrame | None = None,
+    rl_metrics: dict[str, dict] | None = None,
+    mc_results: dict[str, Any] | None = None,
+    tuning_results: dict[str, Any] | None = None,
+    validation_results: dict[str, Any] | None = None,
 ) -> str:
     """
     Generate final summary report with clear in-sample vs out-of-sample distinction.
@@ -136,9 +136,7 @@ def generate_report(
         report.append(f"  Articles Analyzed: {len(news)}")
         report.append(f"  Average Sentiment: {avg_sentiment:.3f}")
         sentiment_label = (
-            "BULLISH"
-            if avg_sentiment > 0.1
-            else "BEARISH" if avg_sentiment < -0.1 else "NEUTRAL"
+            "BULLISH" if avg_sentiment > 0.1 else "BEARISH" if avg_sentiment < -0.1 else "NEUTRAL"
         )
         report.append(f"  Overall Outlook: {sentiment_label}")
         report.append("")
@@ -146,9 +144,7 @@ def generate_report(
     # Model Status
     report.append("REGIME MODELS (trained on pre-test data)")
     report.append("-" * 40)
-    report.append(
-        f"  HMM (4-state): {'✓ Trained' if 'hmm' in regime_models else '✗ Not trained'}"
-    )
+    report.append(f"  HMM (4-state): {'✓ Trained' if 'hmm' in regime_models else '✗ Not trained'}")
     report.append(
         f"  Changepoint: {'✓ Trained' if 'changepoint' in regime_models else '✗ Not trained'}"
     )
@@ -232,12 +228,8 @@ def generate_report(
         test_sharpe = test_res.get("sharpe_ratio", 0)
         if val_sharpe > 0 and test_sharpe < val_sharpe * 0.5:
             report.append("")
-            report.append(
-                "  ⚠️  WARNING: Significant degradation from validation to test."
-            )
-            report.append(
-                "     This may indicate overfitting to the validation period."
-            )
+            report.append("  ⚠️  WARNING: Significant degradation from validation to test.")
+            report.append("     This may indicate overfitting to the validation period.")
         report.append("")
 
     # Monte Carlo Results (on holdout)
@@ -249,16 +241,14 @@ def generate_report(
         )
         report.append("-" * 40)
         report.append(f"  Holdout Period: {holdout_start}+ ({holdout_bars} bars)")
-        report.append(f"  NOTE: Run on data SEPARATE from parameter tuning")
+        report.append("  NOTE: Run on data SEPARATE from parameter tuning")
         report.append("")
         report.append(
             f"  Mean Return: {mc_results['mean_return']:.1f}% ± {mc_results['std_return']:.1f}%"
         )
         report.append(f"  Median Return: {mc_results['median_return']:.1f}%")
         report.append(f"  5th Percentile (Worst 5%): {mc_results['percentile_5']:.1f}%")
-        report.append(
-            f"  95th Percentile (Best 5%): {mc_results['percentile_95']:.1f}%"
-        )
+        report.append(f"  95th Percentile (Best 5%): {mc_results['percentile_95']:.1f}%")
         report.append(f"  Absolute Worst Case: {mc_results['min_return']:.1f}%")
         report.append(f"  Probability of Profit: {mc_results['prob_positive']:.1f}%")
         report.append(
@@ -274,12 +264,8 @@ def generate_report(
     report.append("  ⚠️  These are the ONLY reliable metrics - based on data")
     report.append("     that was NEVER used for parameter selection or training.")
     report.append("")
-    report.append(
-        f"  Initial Capital: ${backtest_results.get('initial_capital', 100000):,.2f}"
-    )
-    report.append(
-        f"  Final Capital: ${backtest_results.get('final_capital', 100000):,.2f}"
-    )
+    report.append(f"  Initial Capital: ${backtest_results.get('initial_capital', 100000):,.2f}")
+    report.append(f"  Final Capital: ${backtest_results.get('final_capital', 100000):,.2f}")
     report.append(f"  Total P&L: ${backtest_results.get('total_return', 0):,.2f}")
     report.append(f"  Return: {backtest_results.get('total_return_pct', 0):.2f}%")
     report.append(f"  Sharpe Ratio: {backtest_results.get('sharpe_ratio', 0):.2f}")
@@ -315,13 +301,9 @@ def generate_report(
                 report.append("=" * 70)
                 report.append("")
                 report.append("  Signal Quality:")
-                report.append(
-                    f"    Information Coefficient (IC): {quant_report.ic:.4f}"
-                )
+                report.append(f"    Information Coefficient (IC): {quant_report.ic:.4f}")
                 report.append(f"    IC Information Ratio: {quant_report.ic_ir:.2f}")
-                report.append(
-                    f"    Alpha Half-Life: {quant_report.half_life_bars} bars"
-                )
+                report.append(f"    Alpha Half-Life: {quant_report.half_life_bars} bars")
                 report.append("")
 
                 # Alpha Decay Curve
@@ -355,41 +337,25 @@ def generate_report(
 
                 report.append("  Performance (Gross vs Net):")
                 report.append(f"    Sharpe (Gross): {quant_report.sharpe_ratio:.2f}")
-                report.append(
-                    f"    Sharpe (Net of 5bps): {quant_report.sharpe_net:.2f}"
-                )
+                report.append(f"    Sharpe (Net of 5bps): {quant_report.sharpe_net:.2f}")
                 report.append(f"    Sortino (Gross): {quant_report.sortino_ratio:.2f}")
                 report.append(f"    Sortino (Net): {quant_report.sortino_net:.2f}")
-                report.append(
-                    f"    Annual Return (Gross): {quant_report.annual_return * 100:.1f}%"
-                )
-                report.append(
-                    f"    Annual Volatility: {quant_report.annual_volatility * 100:.1f}%"
-                )
-                report.append(
-                    f"    Max Drawdown: {quant_report.max_drawdown * 100:.1f}%"
-                )
+                report.append(f"    Annual Return (Gross): {quant_report.annual_return * 100:.1f}%")
+                report.append(f"    Annual Volatility: {quant_report.annual_volatility * 100:.1f}%")
+                report.append(f"    Max Drawdown: {quant_report.max_drawdown * 100:.1f}%")
                 report.append("")
 
                 # Cost Breakdown
                 report.append("  Transaction Cost Breakdown:")
-                report.append(
-                    f"    Commission Cost: {quant_report.commission_cost:.2f} bps"
-                )
+                report.append(f"    Commission Cost: {quant_report.commission_cost:.2f} bps")
                 report.append(f"    Spread Cost: {quant_report.spread_cost:.2f} bps")
                 report.append(f"    Market Impact: {quant_report.impact_cost:.2f} bps")
-                report.append(
-                    f"    Total Round-Trip: {quant_report.total_costs_bps:.1f} bps"
-                )
+                report.append(f"    Total Round-Trip: {quant_report.total_costs_bps:.1f} bps")
                 report.append("")
 
                 report.append("  Turnover Analysis:")
-                report.append(
-                    f"    Annual Turnover: {quant_report.annual_turnover:.2f}x"
-                )
-                report.append(
-                    f"    Avg Holding Period: {quant_report.avg_holding_days:.1f} days"
-                )
+                report.append(f"    Annual Turnover: {quant_report.annual_turnover:.2f}x")
+                report.append(f"    Avg Holding Period: {quant_report.avg_holding_days:.1f} days")
                 report.append("")
 
                 report.append("  Statistical Tests:")
@@ -422,9 +388,7 @@ def generate_report(
             )
 
         for strategy_type in ["Rule-Based", "ML-Based", "RL-Based", "Benchmark"]:
-            type_results = strategy_results[
-                strategy_results.get("type", "") == strategy_type
-            ]
+            type_results = strategy_results[strategy_results.get("type", "") == strategy_type]
             if type_results.empty:
                 continue
 
@@ -435,9 +399,7 @@ def generate_report(
             )
 
             for _, row in type_results.iterrows():
-                pnl = row.get(
-                    "total_pnl", row.get("total_return_pct", 0) / 100 * 100000
-                )
+                pnl = row.get("total_pnl", row.get("total_return_pct", 0) / 100 * 100000)
                 report.append(
                     f"  {row['strategy']:<23} ${pnl:>10,.0f} {row['total_return_pct']:>7.1f}% "
                     f"{row['sharpe_ratio']:>7.2f} {row['max_drawdown']:>6.1f}% "

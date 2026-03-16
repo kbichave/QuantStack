@@ -17,7 +17,8 @@ Usage:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Set, Dict, Any
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -36,9 +37,9 @@ class ValidationResult:
     """
 
     is_valid: bool
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    info: Dict[str, Any] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    info: dict[str, Any] = field(default_factory=dict)
 
     def __str__(self) -> str:
         if self.is_valid:
@@ -126,9 +127,7 @@ class DataFrameValidator:
         # Check not None
         if df is None:
             errors.append(f"{name}: DataFrame is None")
-            result = ValidationResult(
-                is_valid=False, errors=errors, warnings=warnings, info=info
-            )
+            result = ValidationResult(is_valid=False, errors=errors, warnings=warnings, info=info)
             if raise_on_error:
                 result.raise_if_invalid(f"{name} validation")
             return result
@@ -136,9 +135,7 @@ class DataFrameValidator:
         # Check not empty
         if df.empty:
             errors.append(f"{name}: DataFrame is empty")
-            result = ValidationResult(
-                is_valid=False, errors=errors, warnings=warnings, info=info
-            )
+            result = ValidationResult(is_valid=False, errors=errors, warnings=warnings, info=info)
             if raise_on_error:
                 result.raise_if_invalid(f"{name} validation")
             return result
@@ -159,15 +156,11 @@ class DataFrameValidator:
         # Check for standard OHLCV columns
         missing_optional = DataFrameValidator.OHLCV_COLUMNS - columns_lower - required
         if missing_optional:
-            warnings.append(
-                f"{name}: Missing optional OHLCV columns: {missing_optional}"
-            )
+            warnings.append(f"{name}: Missing optional OHLCV columns: {missing_optional}")
 
         # Check index is DatetimeIndex
         if not isinstance(df.index, pd.DatetimeIndex):
-            warnings.append(
-                f"{name}: Index is not DatetimeIndex (got {type(df.index).__name__})"
-            )
+            warnings.append(f"{name}: Index is not DatetimeIndex (got {type(df.index).__name__})")
         else:
             info["start_date"] = str(df.index[0])
             info["end_date"] = str(df.index[-1])
@@ -235,18 +228,12 @@ class DataFrameValidator:
             # High >= Low
             invalid_hl = (df["high"] < df["low"]).sum()
             if invalid_hl > 0:
-                errors.append(
-                    f"{name}: {invalid_hl} rows where high < low (invalid OHLC)"
-                )
+                errors.append(f"{name}: {invalid_hl} rows where high < low (invalid OHLC)")
 
             # High >= Open, Close
-            invalid_high = (
-                (df["high"] < df["open"]) | (df["high"] < df["close"])
-            ).sum()
+            invalid_high = ((df["high"] < df["open"]) | (df["high"] < df["close"])).sum()
             if invalid_high > 0:
-                warnings.append(
-                    f"{name}: {invalid_high} rows where high < open or close"
-                )
+                warnings.append(f"{name}: {invalid_high} rows where high < open or close")
 
             # Low <= Open, Close
             invalid_low = ((df["low"] > df["open"]) | (df["low"] > df["close"])).sum()
@@ -254,9 +241,7 @@ class DataFrameValidator:
                 warnings.append(f"{name}: {invalid_low} rows where low > open or close")
 
         is_valid = len(errors) == 0
-        result = ValidationResult(
-            is_valid=is_valid, errors=errors, warnings=warnings, info=info
-        )
+        result = ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings, info=info)
 
         if raise_on_error:
             result.raise_if_invalid(f"{name} validation")
@@ -293,18 +278,14 @@ class DataFrameValidator:
         # Check not None/empty
         if df is None:
             errors.append(f"{name}: DataFrame is None")
-            result = ValidationResult(
-                is_valid=False, errors=errors, warnings=warnings, info=info
-            )
+            result = ValidationResult(is_valid=False, errors=errors, warnings=warnings, info=info)
             if raise_on_error:
                 result.raise_if_invalid(f"{name} validation")
             return result
 
         if df.empty:
             errors.append(f"{name}: DataFrame is empty")
-            result = ValidationResult(
-                is_valid=False, errors=errors, warnings=warnings, info=info
-            )
+            result = ValidationResult(is_valid=False, errors=errors, warnings=warnings, info=info)
             if raise_on_error:
                 result.raise_if_invalid(f"{name} validation")
             return result
@@ -323,13 +304,9 @@ class DataFrameValidator:
             if nan_count > 0:
                 nan_pct = nan_count / len(df) * 100
                 if nan_pct > 10:
-                    errors.append(
-                        f"{name}: 'spread' has {nan_count} NaN values ({nan_pct:.1f}%)"
-                    )
+                    errors.append(f"{name}: 'spread' has {nan_count} NaN values ({nan_pct:.1f}%)")
                 else:
-                    warnings.append(
-                        f"{name}: 'spread' has {nan_count} NaN values ({nan_pct:.1f}%)"
-                    )
+                    warnings.append(f"{name}: 'spread' has {nan_count} NaN values ({nan_pct:.1f}%)")
 
             # Inf
             inf_count = np.isinf(spread).sum()
@@ -365,9 +342,7 @@ class DataFrameValidator:
         info["optional_columns_present"] = optional_present
 
         is_valid = len(errors) == 0
-        result = ValidationResult(
-            is_valid=is_valid, errors=errors, warnings=warnings, info=info
-        )
+        result = ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings, info=info)
 
         if raise_on_error:
             result.raise_if_invalid(f"{name} validation")
@@ -406,18 +381,14 @@ class DataFrameValidator:
 
         if df is None:
             errors.append(f"{name}: DataFrame is None")
-            result = ValidationResult(
-                is_valid=False, errors=errors, warnings=warnings, info=info
-            )
+            result = ValidationResult(is_valid=False, errors=errors, warnings=warnings, info=info)
             if raise_on_error:
                 result.raise_if_invalid(f"{name} validation")
             return result
 
         if df.empty:
             errors.append(f"{name}: DataFrame is empty")
-            result = ValidationResult(
-                is_valid=False, errors=errors, warnings=warnings, info=info
-            )
+            result = ValidationResult(is_valid=False, errors=errors, warnings=warnings, info=info)
             if raise_on_error:
                 result.raise_if_invalid(f"{name} validation")
             return result
@@ -438,9 +409,7 @@ class DataFrameValidator:
                 high_nan_cols.append((col, nan_pct))
 
         if high_nan_cols:
-            warnings.append(
-                f"{name}: {len(high_nan_cols)} columns with >{max_nan_pct}% NaN values"
-            )
+            warnings.append(f"{name}: {len(high_nan_cols)} columns with >{max_nan_pct}% NaN values")
 
         # Check for infinite values
         inf_cols = []
@@ -450,9 +419,7 @@ class DataFrameValidator:
                 inf_cols.append((col, inf_count))
 
         if inf_cols:
-            errors.append(
-                f"{name}: Columns with infinite values: {[c[0] for c in inf_cols[:5]]}"
-            )
+            errors.append(f"{name}: Columns with infinite values: {[c[0] for c in inf_cols[:5]]}")
 
         # Check for extreme outliers (values > 1e10)
         extreme_cols = []
@@ -462,16 +429,12 @@ class DataFrameValidator:
                 extreme_cols.append((col, max_abs))
 
         if extreme_cols:
-            warnings.append(
-                f"{name}: {len(extreme_cols)} columns with extreme values (>1e10)"
-            )
+            warnings.append(f"{name}: {len(extreme_cols)} columns with extreme values (>1e10)")
 
         info["nan_summary"] = f"{len(high_nan_cols)} high-NaN columns"
 
         is_valid = len(errors) == 0
-        result = ValidationResult(
-            is_valid=is_valid, errors=errors, warnings=warnings, info=info
-        )
+        result = ValidationResult(is_valid=is_valid, errors=errors, warnings=warnings, info=info)
 
         if raise_on_error:
             result.raise_if_invalid(f"{name} validation")
@@ -518,8 +481,8 @@ def validate_positive_number(
 def validate_in_range(
     value: float,
     name: str,
-    min_val: Optional[float] = None,
-    max_val: Optional[float] = None,
+    min_val: float | None = None,
+    max_val: float | None = None,
 ) -> None:
     """
     Validate that a value is within a specified range.

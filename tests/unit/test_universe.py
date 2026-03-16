@@ -5,12 +5,11 @@
 
 import pandas as pd
 import pytest
-
 from quantcore.data.universe import (
-    Sector,
-    UniverseSymbol,
-    UniverseManager,
     INITIAL_LIQUID_UNIVERSE,
+    Sector,
+    UniverseManager,
+    UniverseSymbol,
 )
 
 

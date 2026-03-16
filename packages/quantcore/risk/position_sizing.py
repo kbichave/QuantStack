@@ -4,11 +4,9 @@ Position sizing with ATR-based risk and alignment scaling.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+
 import numpy as np
 from loguru import logger
-
-from quantcore.config.settings import get_settings
 
 
 @dataclass

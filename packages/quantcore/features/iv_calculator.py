@@ -18,14 +18,14 @@ Usage:
     low, high = manager.get_iv_thresholds("AAPL")
 """
 
-from datetime import datetime, date, timedelta
-from typing import Optional, Tuple, Dict, Any, List
-import pandas as pd
+from datetime import datetime, timedelta
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 from quantcore.data.options_storage import OptionsDataStore, get_options_store
-from quantcore.features.options_features import compute_iv_rank, compute_iv_percentile
+from quantcore.features.options_features import compute_iv_percentile, compute_iv_rank
 
 
 class IVHistoryManager:
@@ -38,7 +38,7 @@ class IVHistoryManager:
 
     def __init__(
         self,
-        store: Optional[OptionsDataStore] = None,
+        store: OptionsDataStore | None = None,
         lookback_days: int = 252,
     ):
         """
@@ -52,16 +52,16 @@ class IVHistoryManager:
         self.lookback_days = lookback_days
 
         # Cache for IV statistics
-        self._stats_cache: Dict[str, Dict[str, float]] = {}
+        self._stats_cache: dict[str, dict[str, float]] = {}
 
     def build_iv_history(
         self,
         symbol: str,
         fetcher,  # AlphaVantageClient
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
         use_realized_vol: bool = True,
-        ohlcv_data: Optional[pd.DataFrame] = None,
+        ohlcv_data: pd.DataFrame | None = None,
     ) -> int:
         """
         Build IV history for a symbol by fetching historical options data.
@@ -78,9 +78,7 @@ class IVHistoryManager:
             Number of records saved
         """
         if start_date is None:
-            start_date = (datetime.now() - timedelta(days=self.lookback_days)).strftime(
-                "%Y-%m-%d"
-            )
+            start_date = (datetime.now() - timedelta(days=self.lookback_days)).strftime("%Y-%m-%d")
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -90,9 +88,7 @@ class IVHistoryManager:
 
         # Try to get historical options data
         try:
-            records_saved = self._fetch_historical_iv(
-                symbol, fetcher, start_date, end_date
-            )
+            records_saved = self._fetch_historical_iv(symbol, fetcher, start_date, end_date)
         except Exception as e:
             logger.warning(f"Failed to fetch historical options IV for {symbol}: {e}")
 
@@ -165,7 +161,7 @@ class IVHistoryManager:
     def _extract_atm_iv(
         self,
         options_df: pd.DataFrame,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Extract ATM implied volatility from options chain."""
         if options_df.empty:
             return None
@@ -178,12 +174,10 @@ class IVHistoryManager:
         if "expiry" in options_df.columns:
             today = datetime.now().date()
             options_df = options_df.copy()
-            options_df["dte"] = (
-                pd.to_datetime(options_df["expiry"]).dt.date - today
-            ).apply(lambda x: x.days if hasattr(x, "days") else 999)
-            options_df = options_df[
-                (options_df["dte"] >= 20) & (options_df["dte"] <= 60)
-            ]
+            options_df["dte"] = (pd.to_datetime(options_df["expiry"]).dt.date - today).apply(
+                lambda x: x.days if hasattr(x, "days") else 999
+            )
+            options_df = options_df[(options_df["dte"] >= 20) & (options_df["dte"] <= 60)]
 
         if options_df.empty:
             return None
@@ -210,7 +204,7 @@ class IVHistoryManager:
         self,
         symbol: str,
         fetcher,
-        ohlcv_data: Optional[pd.DataFrame],
+        ohlcv_data: pd.DataFrame | None,
         start_date: str,
         end_date: str,
     ) -> int:
@@ -234,9 +228,7 @@ class IVHistoryManager:
         df = df[(df.index >= start_dt) & (df.index <= end_dt)]
 
         if len(df) < 60:
-            logger.warning(
-                f"Insufficient data for realized vol calculation: {len(df)} bars"
-            )
+            logger.warning(f"Insufficient data for realized vol calculation: {len(df)} bars")
             return 0
 
         # Calculate log returns
@@ -252,7 +244,7 @@ class IVHistoryManager:
             # Check if we already have ATM IV for this date
             existing = self.store.conn.execute(
                 """
-                SELECT atm_iv FROM iv_history 
+                SELECT atm_iv FROM iv_history
                 WHERE symbol = ? AND date = ? AND source = 'options_chain'
             """,
                 [symbol, idx.date()],
@@ -262,7 +254,7 @@ class IVHistoryManager:
                 # Already have options-based IV, just add realized vol
                 self.store.conn.execute(
                     """
-                    UPDATE iv_history 
+                    UPDATE iv_history
                     SET realized_vol_20d = ?, realized_vol_60d = ?
                     WHERE symbol = ? AND date = ?
                 """,
@@ -293,8 +285,8 @@ class IVHistoryManager:
     def get_iv_rank(
         self,
         symbol: str,
-        current_iv: Optional[float] = None,
-        lookback: Optional[int] = None,
+        current_iv: float | None = None,
+        lookback: int | None = None,
     ) -> float:
         """
         Get IV rank for a symbol.
@@ -327,8 +319,8 @@ class IVHistoryManager:
     def get_iv_percentile(
         self,
         symbol: str,
-        current_iv: Optional[float] = None,
-        lookback: Optional[int] = None,
+        current_iv: float | None = None,
+        lookback: int | None = None,
     ) -> float:
         """
         Get IV percentile for a symbol.
@@ -360,7 +352,7 @@ class IVHistoryManager:
         symbol: str,
         low_percentile: float = 25,
         high_percentile: float = 75,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """
         Get dynamic IV rank thresholds based on historical distribution.
 
@@ -393,7 +385,7 @@ class IVHistoryManager:
     def get_vol_regime(
         self,
         symbol: str,
-        current_iv: Optional[float] = None,
+        current_iv: float | None = None,
     ) -> str:
         """
         Classify current volatility regime.
@@ -439,10 +431,10 @@ class IVHistoryManager:
 
     def update_all_symbols(
         self,
-        symbols: List[str],
+        symbols: list[str],
         fetcher,
-        ohlcv_data_dict: Optional[Dict[str, pd.DataFrame]] = None,
-    ) -> Dict[str, int]:
+        ohlcv_data_dict: dict[str, pd.DataFrame] | None = None,
+    ) -> dict[str, int]:
         """
         Update IV history for multiple symbols.
 
@@ -471,8 +463,8 @@ class IVHistoryManager:
 
 def get_dynamic_iv_thresholds(
     symbol: str,
-    store: Optional[OptionsDataStore] = None,
-) -> Tuple[float, float]:
+    store: OptionsDataStore | None = None,
+) -> tuple[float, float]:
     """
     Convenience function to get dynamic IV thresholds for a symbol.
 
@@ -489,8 +481,8 @@ def get_dynamic_iv_thresholds(
 
 def get_current_iv_rank(
     symbol: str,
-    current_iv: Optional[float] = None,
-    store: Optional[OptionsDataStore] = None,
+    current_iv: float | None = None,
+    store: OptionsDataStore | None = None,
 ) -> float:
     """
     Convenience function to get current IV rank.

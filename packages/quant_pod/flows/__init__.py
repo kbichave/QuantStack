@@ -17,8 +17,8 @@ NO FALLBACKS - The system requires TradingCrew to function.
 
 from quant_pod.flows.trading_day_flow import (
     TradingDayFlow,
-    TradingDayState,
     TradingDayFlowAdapter,
+    TradingDayState,
 )
 
 __all__ = [

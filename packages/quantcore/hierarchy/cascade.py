@@ -6,16 +6,15 @@ Implements the top-down filtering: Weekly → Daily → 4H → 1H
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Optional, Literal, List
-import pandas as pd
-import numpy as np
-from loguru import logger
+from typing import Literal
 
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_PARAMS
-from quantcore.hierarchy.regime_classifier import WeeklyRegimeClassifier, RegimeContext
+import pandas as pd
+
+from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
+from quantcore.hierarchy.alignment import AlignmentResult, HierarchicalAlignment
+from quantcore.hierarchy.regime_classifier import RegimeContext, WeeklyRegimeClassifier
+from quantcore.hierarchy.swing_context import SwingContext, SwingContextAnalyzer
 from quantcore.hierarchy.trend_filter import DailyTrendFilter, TrendContext
-from quantcore.hierarchy.swing_context import SwingContextAnalyzer, SwingContext
-from quantcore.hierarchy.alignment import HierarchicalAlignment, AlignmentResult
 
 
 @dataclass
@@ -31,7 +30,7 @@ class Signal:
     alignment_score: float  # Cross-TF alignment (0-1)
 
     # Timeframe breakdown
-    tf_breakdown: Dict[str, str] = field(default_factory=dict)
+    tf_breakdown: dict[str, str] = field(default_factory=dict)
 
     # Metadata
     generated_at: datetime = field(default_factory=datetime.now)
@@ -66,13 +65,13 @@ class CascadeResult:
     """Result of cascade evaluation."""
 
     passed: bool
-    signal: Optional[Signal] = None
-    weekly_ctx: Optional[RegimeContext] = None
-    daily_ctx: Optional[TrendContext] = None
-    h4_ctx: Optional[SwingContext] = None
-    alignment: Optional[AlignmentResult] = None
-    rejection_stage: Optional[str] = None
-    rejection_reason: Optional[str] = None
+    signal: Signal | None = None
+    weekly_ctx: RegimeContext | None = None
+    daily_ctx: TrendContext | None = None
+    h4_ctx: SwingContext | None = None
+    alignment: AlignmentResult | None = None
+    rejection_stage: str | None = None
+    rejection_reason: str | None = None
 
 
 class SignalCascade:
@@ -110,9 +109,9 @@ class SignalCascade:
     def evaluate(
         self,
         symbol: str,
-        data: Dict[Timeframe, pd.DataFrame],
+        data: dict[Timeframe, pd.DataFrame],
         direction: Literal["LONG", "SHORT"],
-        ml_probability: Optional[float] = None,
+        ml_probability: float | None = None,
     ) -> CascadeResult:
         """
         Evaluate cascade for a potential signal.
@@ -195,13 +194,9 @@ class SignalCascade:
 
         # Step 4: Check alignment
         if direction == "LONG":
-            alignment = self.alignment_checker.check_long_alignment(
-                weekly_ctx, daily_ctx, h4_ctx
-            )
+            alignment = self.alignment_checker.check_long_alignment(weekly_ctx, daily_ctx, h4_ctx)
         else:
-            alignment = self.alignment_checker.check_short_alignment(
-                weekly_ctx, daily_ctx, h4_ctx
-            )
+            alignment = self.alignment_checker.check_short_alignment(weekly_ctx, daily_ctx, h4_ctx)
 
         if alignment.score < self.min_alignment_score:
             return CascadeResult(
@@ -251,12 +246,12 @@ class SignalCascade:
         self,
         symbol: str,
         direction: Literal["LONG", "SHORT"],
-        data: Dict[Timeframe, pd.DataFrame],
-        weekly_ctx: Optional[RegimeContext],
-        daily_ctx: Optional[TrendContext],
-        h4_ctx: Optional[SwingContext],
+        data: dict[Timeframe, pd.DataFrame],
+        weekly_ctx: RegimeContext | None,
+        daily_ctx: TrendContext | None,
+        h4_ctx: SwingContext | None,
         alignment: AlignmentResult,
-        ml_probability: Optional[float],
+        ml_probability: float | None,
     ) -> Signal:
         """Create a Signal object from cascade results."""
         # Get 1H data for entry/TP/SL calculation
@@ -305,12 +300,12 @@ class SignalCascade:
     def generate_signals(
         self,
         symbol: str,
-        data: Dict[Timeframe, pd.DataFrame],
+        data: dict[Timeframe, pd.DataFrame],
         check_long: bool = True,
         check_short: bool = True,
-        ml_probability_long: Optional[float] = None,
-        ml_probability_short: Optional[float] = None,
-    ) -> List[Signal]:
+        ml_probability_long: float | None = None,
+        ml_probability_short: float | None = None,
+    ) -> list[Signal]:
         """
         Generate all valid signals for a symbol.
 

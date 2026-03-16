@@ -40,13 +40,11 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from threading import Lock
-from typing import List, Optional, Set
 
 import yaml
 from loguru import logger
 
 from quant_pod.execution.portfolio_state import get_portfolio_state
-
 
 # =============================================================================
 # LIMITS CONFIG
@@ -58,25 +56,25 @@ class RiskLimits:
     """Configurable hard limits. Load from env or YAML."""
 
     # Per-symbol
-    max_position_pct: float = 0.10       # 10% of equity per symbol
+    max_position_pct: float = 0.10  # 10% of equity per symbol
     max_position_notional: float = 20_000.0  # Hard $$ cap per position
 
     # Portfolio-level
     max_gross_exposure_pct: float = 1.50  # 150% gross (allows modest leverage)
-    max_net_exposure_pct: float = 1.00    # 100% net long
+    max_net_exposure_pct: float = 1.00  # 100% net long
 
     # Daily loss limit
-    daily_loss_limit_pct: float = 0.02    # -2% of equity halts trading for the day
+    daily_loss_limit_pct: float = 0.02  # -2% of equity halts trading for the day
 
     # Liquidity
-    min_daily_volume: int = 500_000       # Won't trade below 500k ADV
-    max_participation_pct: float = 0.01   # Order <= 1% of ADV
+    min_daily_volume: int = 500_000  # Won't trade below 500k ADV
+    max_participation_pct: float = 0.01  # Order <= 1% of ADV
 
     # Restricted list
-    restricted_symbols: Set[str] = field(default_factory=set)
+    restricted_symbols: set[str] = field(default_factory=set)
 
     @classmethod
-    def from_env(cls) -> "RiskLimits":
+    def from_env(cls) -> RiskLimits:
         """Load limits from environment variables (override defaults)."""
         limits = cls()
         if v := os.getenv("RISK_MAX_POSITION_PCT"):
@@ -92,7 +90,7 @@ class RiskLimits:
         return limits
 
     @classmethod
-    def from_yaml(cls, path: str) -> "RiskLimits":
+    def from_yaml(cls, path: str) -> RiskLimits:
         """Load limits from a YAML config file."""
         with open(path) as f:
             data = yaml.safe_load(f)
@@ -123,10 +121,10 @@ class RiskVerdict:
     """Result of a risk gate check."""
 
     approved: bool
-    violations: List[RiskViolation] = field(default_factory=list)
+    violations: list[RiskViolation] = field(default_factory=list)
     # Callers MUST use approved_quantity, not the original order quantity.
     # When approved=True and approved_quantity < requested, the order was scaled down.
-    approved_quantity: Optional[int] = None
+    approved_quantity: int | None = None
 
     @property
     def reason(self) -> str:
@@ -160,13 +158,13 @@ class RiskGate:
 
     def __init__(
         self,
-        limits: Optional[RiskLimits] = None,
-        portfolio: Optional["PortfolioState"] = None,  # type: ignore[name-defined]
+        limits: RiskLimits | None = None,
+        portfolio: PortfolioState | None = None,  # type: ignore[name-defined]  # noqa: F821
     ):
         self.limits = limits or RiskLimits.from_env()
         # Accept injected PortfolioState (preferred) or fall back to singleton
         self._portfolio = portfolio if portfolio is not None else get_portfolio_state()
-        self._daily_halted: Optional[date] = None
+        self._daily_halted: date | None = None
         # Recover halt state from previous session if sentinel is present
         self._load_halt_sentinel()
         logger.info(
@@ -211,8 +209,7 @@ class RiskGate:
             # Treat an unreadable sentinel as active to be safe
             self._daily_halted = date.today()
             logger.warning(
-                f"[RISK] Could not parse daily halt sentinel: {e} — "
-                "treating as active halt"
+                f"[RISK] Could not parse daily halt sentinel: {e} — treating as active halt"
             )
 
     # -------------------------------------------------------------------------
@@ -238,7 +235,7 @@ class RiskGate:
             daily_volume: Average daily volume — REQUIRED. Pass 0 only if truly
                 unknown; the gate will reject the order rather than skip the check.
         """
-        violations: List[RiskViolation] = []
+        violations: list[RiskViolation] = []
         snapshot = self._portfolio.get_snapshot()
 
         # -- 1. Daily halt check (fast path — checked before all other work)
@@ -309,8 +306,7 @@ class RiskGate:
                     limit=self.limits.min_daily_volume,
                     actual=daily_volume,
                     description=(
-                        f"{symbol} ADV {daily_volume:,} < minimum "
-                        f"{self.limits.min_daily_volume:,}"
+                        f"{symbol} ADV {daily_volume:,} < minimum {self.limits.min_daily_volume:,}"
                     ),
                 )
             )
@@ -334,9 +330,7 @@ class RiskGate:
             order_notional = quantity * current_price
 
             existing_pos = self._portfolio.get_position(symbol)
-            existing_notional = (
-                abs(existing_pos.quantity) * current_price if existing_pos else 0.0
-            )
+            existing_notional = abs(existing_pos.quantity) * current_price if existing_pos else 0.0
             new_total_notional = existing_notional + order_notional
 
             max_notional_by_pct = equity * self.limits.max_position_pct
@@ -430,10 +424,10 @@ class RiskGate:
 
 
 # Singleton
-_risk_gate: Optional[RiskGate] = None
+_risk_gate: RiskGate | None = None
 
 
-def get_risk_gate(limits: Optional[RiskLimits] = None) -> RiskGate:
+def get_risk_gate(limits: RiskLimits | None = None) -> RiskGate:
     """Get the singleton RiskGate instance."""
     global _risk_gate
     if _risk_gate is None:

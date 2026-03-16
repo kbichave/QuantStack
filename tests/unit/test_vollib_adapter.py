@@ -3,9 +3,8 @@
 
 """Unit tests for vollib adapter."""
 
-import pytest
 import numpy as np
-from unittest.mock import patch, MagicMock
+import pytest
 
 
 class TestVolibAdapter:

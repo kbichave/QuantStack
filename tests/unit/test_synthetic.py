@@ -3,18 +3,15 @@
 
 """Tests for quantcore.data.synthetic module."""
 
-from datetime import datetime
-
 import numpy as np
 import pandas as pd
 import pytest
-
 from quantcore.data.synthetic import (
     SyntheticMarketConfig,
-    generate_synthetic_ohlcv,
-    generate_synthetic_multi_symbol,
-    validate_synthetic_ohlcv,
     _get_bars_per_year,
+    generate_synthetic_multi_symbol,
+    generate_synthetic_ohlcv,
+    validate_synthetic_ohlcv,
 )
 
 

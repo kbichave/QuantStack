@@ -6,20 +6,17 @@ Integrates with swing_context to add Elliott Wave-style interpretation.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
-import pandas as pd
-import numpy as np
-from loguru import logger
+from typing import Any
 
+import pandas as pd
+
+from quantcore.config.timeframes import Timeframe
 from quantcore.features.waves import (
+    WAVE_CONFIGS,
+    WaveConfig,
     WaveFeatures,
     WaveRole,
-    WaveConfig,
-    WAVE_CONFIGS,
-    SwingPoint,
-    SwingLeg,
 )
-from quantcore.config.timeframes import Timeframe
 
 
 @dataclass
@@ -91,7 +88,7 @@ class WaveContextSummary:
             return True
         return False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "wave_role": self.wave_role,
@@ -161,9 +158,7 @@ class WaveContextAnalyzer:
         prob_corr_up = float(current.get("prob_corr_up", 0.0))
 
         # Derive flags
-        is_corrective_down = (
-            wave_role == WaveRole.CORR_DOWN.value or prob_corr_down > 0.6
-        )
+        is_corrective_down = wave_role == WaveRole.CORR_DOWN.value or prob_corr_down > 0.6
 
         is_corrective_up = wave_role == WaveRole.CORR_UP.value or prob_corr_up > 0.6
 
@@ -269,13 +264,11 @@ class WaveContextAnalyzer:
 
         # Derive additional context columns
         result["wave_is_corr_down"] = (
-            (result["wave_role"] == WaveRole.CORR_DOWN.value)
-            | (result["prob_corr_down"] > 0.6)
+            (result["wave_role"] == WaveRole.CORR_DOWN.value) | (result["prob_corr_down"] > 0.6)
         ).astype(int)
 
         result["wave_is_corr_up"] = (
-            (result["wave_role"] == WaveRole.CORR_UP.value)
-            | (result["prob_corr_up"] > 0.6)
+            (result["wave_role"] == WaveRole.CORR_UP.value) | (result["prob_corr_up"] > 0.6)
         ).astype(int)
 
         result["wave_is_late_impulse"] = (
@@ -319,8 +312,8 @@ class MultiTimeframeWaveContext:
     def analyze(
         self,
         df_h4: pd.DataFrame,
-        df_d1: Optional[pd.DataFrame] = None,
-    ) -> Dict[str, WaveContextSummary]:
+        df_d1: pd.DataFrame | None = None,
+    ) -> dict[str, WaveContextSummary]:
         """
         Analyze wave context for both timeframes.
 
@@ -346,7 +339,7 @@ class MultiTimeframeWaveContext:
 
     def get_combined_signal_quality(
         self,
-        contexts: Dict[str, WaveContextSummary],
+        contexts: dict[str, WaveContextSummary],
         direction: str,
     ) -> float:
         """

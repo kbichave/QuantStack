@@ -10,7 +10,8 @@ Provides centralized configuration management for:
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any
+
 import yaml
 from loguru import logger
 
@@ -50,7 +51,7 @@ class SymbolConfig:
     name: str
     sector: Sector
     is_etf: bool = False
-    sector_etf: Optional[str] = None
+    sector_etf: str | None = None
     use_for_regime: bool = False
 
     # Per-ticker parameters (from ticker_params.yaml)
@@ -71,10 +72,10 @@ class SymbolConfig:
 class UniverseConfig:
     """Complete universe configuration."""
 
-    benchmarks: List[SymbolConfig] = field(default_factory=list)
-    sector_etfs: List[SymbolConfig] = field(default_factory=list)
-    other_etfs: List[SymbolConfig] = field(default_factory=list)
-    stocks: List[SymbolConfig] = field(default_factory=list)
+    benchmarks: list[SymbolConfig] = field(default_factory=list)
+    sector_etfs: list[SymbolConfig] = field(default_factory=list)
+    other_etfs: list[SymbolConfig] = field(default_factory=list)
+    stocks: list[SymbolConfig] = field(default_factory=list)
 
     # Defaults
     default_min_dte: int = 20
@@ -86,40 +87,40 @@ class UniverseConfig:
     default_iv_rank_high: float = 70.0
 
     @property
-    def all_symbols(self) -> List[SymbolConfig]:
+    def all_symbols(self) -> list[SymbolConfig]:
         """Get all symbols in universe."""
         return self.benchmarks + self.sector_etfs + self.other_etfs + self.stocks
 
     @property
-    def all_etfs(self) -> List[SymbolConfig]:
+    def all_etfs(self) -> list[SymbolConfig]:
         """Get all ETF symbols."""
         return self.benchmarks + self.sector_etfs + self.other_etfs
 
     @property
-    def symbol_list(self) -> List[str]:
+    def symbol_list(self) -> list[str]:
         """Get list of all symbol strings."""
         return [s.symbol for s in self.all_symbols]
 
     @property
-    def tradable_symbols(self) -> List[str]:
+    def tradable_symbols(self) -> list[str]:
         """Get symbols that can be traded (excludes benchmark-only)."""
         return [s.symbol for s in self.all_symbols]
 
-    def get_symbol(self, symbol: str) -> Optional[SymbolConfig]:
+    def get_symbol(self, symbol: str) -> SymbolConfig | None:
         """Get configuration for a specific symbol."""
         for s in self.all_symbols:
             if s.symbol == symbol:
                 return s
         return None
 
-    def get_sector_etf(self, sector: Sector) -> Optional[str]:
+    def get_sector_etf(self, sector: Sector) -> str | None:
         """Get sector ETF for a given sector."""
         for etf in self.sector_etfs:
             if etf.sector == sector:
                 return etf.symbol
         return None
 
-    def get_symbols_by_sector(self, sector: Sector) -> List[str]:
+    def get_symbols_by_sector(self, sector: Sector) -> list[str]:
         """Get all symbols in a sector."""
         return [s.symbol for s in self.all_symbols if s.sector == sector]
 
@@ -143,7 +144,7 @@ class OptionsConfigLoader:
 
     def __init__(
         self,
-        config_dir: Optional[Path] = None,
+        config_dir: Path | None = None,
     ):
         """
         Initialize config loader.
@@ -152,8 +153,8 @@ class OptionsConfigLoader:
             config_dir: Directory containing config files (default: configs/options/)
         """
         self.config_dir = config_dir or self.DEFAULT_CONFIG_DIR
-        self._universe_config: Optional[UniverseConfig] = None
-        self._ticker_params: Dict[str, Dict[str, Any]] = {}
+        self._universe_config: UniverseConfig | None = None
+        self._ticker_params: dict[str, dict[str, Any]] = {}
 
     def load(self) -> UniverseConfig:
         """
@@ -170,17 +171,15 @@ class OptionsConfigLoader:
         ticker_params_path = self.config_dir / "ticker_params.yaml"
 
         if not universe_path.exists():
-            logger.warning(
-                f"Universe config not found at {universe_path}, using defaults"
-            )
+            logger.warning(f"Universe config not found at {universe_path}, using defaults")
             return self._create_default_config()
 
-        with open(universe_path, "r") as f:
+        with open(universe_path) as f:
             universe_data = yaml.safe_load(f)
 
         # Load ticker params if exists
         if ticker_params_path.exists():
-            with open(ticker_params_path, "r") as f:
+            with open(ticker_params_path) as f:
                 self._ticker_params = yaml.safe_load(f) or {}
 
         # Parse defaults
@@ -220,8 +219,8 @@ class OptionsConfigLoader:
 
     def _parse_symbol(
         self,
-        item: Dict[str, Any],
-        defaults: Dict[str, Any],
+        item: dict[str, Any],
+        defaults: dict[str, Any],
     ) -> SymbolConfig:
         """Parse a symbol entry from YAML."""
         symbol = item["symbol"]
@@ -275,9 +274,7 @@ class OptionsConfigLoader:
             ),
             earnings_buffer_days=ticker_overrides.get(
                 "earnings_buffer_days",
-                item.get(
-                    "earnings_buffer_days", defaults.get("earnings_buffer_days", 5)
-                ),
+                item.get("earnings_buffer_days", defaults.get("earnings_buffer_days", 5)),
             ),
             volatility_regime=vol_regime,
             min_option_volume=ticker_overrides.get(
@@ -304,7 +301,7 @@ class OptionsConfigLoader:
             ],
         )
 
-    def get_symbol_params(self, symbol: str) -> Optional[SymbolConfig]:
+    def get_symbol_params(self, symbol: str) -> SymbolConfig | None:
         """
         Get parameters for a specific symbol.
 
@@ -340,7 +337,7 @@ class OptionsConfigLoader:
 
 
 # Singleton instance for convenience
-_config_loader: Optional[OptionsConfigLoader] = None
+_config_loader: OptionsConfigLoader | None = None
 
 
 def get_options_config() -> UniverseConfig:
@@ -351,7 +348,7 @@ def get_options_config() -> UniverseConfig:
     return _config_loader.load()
 
 
-def get_symbol_config(symbol: str) -> Optional[SymbolConfig]:
+def get_symbol_config(symbol: str) -> SymbolConfig | None:
     """Get config for a specific symbol."""
     global _config_loader
     if _config_loader is None:

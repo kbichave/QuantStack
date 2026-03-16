@@ -13,9 +13,9 @@ Provides a clock abstraction that:
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import date, timedelta
-from typing import Iterator, List, Optional, Tuple
+from datetime import date
 
 from loguru import logger
 
@@ -66,7 +66,7 @@ class HistoricalClock:
 
     def __init__(
         self,
-        trading_days: List[date],
+        trading_days: list[date],
         warmup_days: int = 20,
     ):
         """
@@ -84,18 +84,17 @@ class HistoricalClock:
 
         # Current position
         self._current_index = warmup_days  # Start after warmup
-        self._current_date: Optional[date] = None
+        self._current_date: date | None = None
 
         # Cache for efficiency
         self._date_to_index = {d: i for i, d in enumerate(self._trading_days)}
 
         logger.info(
-            f"HistoricalClock initialized: {len(self._trading_days)} days, "
-            f"warmup={warmup_days}"
+            f"HistoricalClock initialized: {len(self._trading_days)} days, warmup={warmup_days}"
         )
 
     @property
-    def current_date(self) -> Optional[date]:
+    def current_date(self) -> date | None:
         """Get current simulation date."""
         return self._current_date
 
@@ -187,7 +186,7 @@ class HistoricalClock:
             end=self._current_date,
         )
 
-    def get_lookback_dates(self, days: int) -> List[date]:
+    def get_lookback_dates(self, days: int) -> list[date]:
         """
         Get list of lookback trading dates.
 
@@ -200,7 +199,7 @@ class HistoricalClock:
         start_idx = max(0, self._current_index - days)
         return self._trading_days[start_idx : self._current_index]
 
-    def get_previous_date(self, n: int = 1) -> Optional[date]:
+    def get_previous_date(self, n: int = 1) -> date | None:
         """
         Get date n trading days ago.
 
@@ -253,9 +252,7 @@ class HistoricalClock:
         next_date = self._trading_days[next_idx]
         current_quarter = (self._current_date.month - 1) // 3
         next_quarter = (next_date.month - 1) // 3
-        return (
-            next_quarter != current_quarter or next_date.year != self._current_date.year
-        )
+        return next_quarter != current_quarter or next_date.year != self._current_date.year
 
     def is_year_end(self) -> bool:
         """
@@ -316,7 +313,7 @@ class HistoricalClock:
 
         return self._current_index - ref_idx
 
-    def get_dates_between(self, start: date, end: date) -> List[date]:
+    def get_dates_between(self, start: date, end: date) -> list[date]:
         """Get all trading days between two dates (inclusive)."""
         return [d for d in self._trading_days if start <= d <= end]
 
@@ -325,9 +322,7 @@ class HistoricalClock:
         return len(self._trading_days)
 
     def __repr__(self) -> str:
-        current = (
-            self._current_date.isoformat() if self._current_date else "not started"
-        )
+        current = self._current_date.isoformat() if self._current_date else "not started"
         return (
             f"HistoricalClock(current={current}, "
             f"progress={self.progress:.1%}, days={len(self._trading_days)})"

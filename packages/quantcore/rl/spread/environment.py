@@ -10,13 +10,14 @@ MATURITY: EXPERIMENTAL
 - USD regime and curve shape require additional data (stubbed with neutral values)
 """
 
-from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.rl.base import RLEnvironment, State, Action, Reward
+from quantcore.rl.base import Action, Reward, RLEnvironment, State
 
 
 @dataclass
@@ -46,8 +47,8 @@ class SpreadDataRequirements:
         - 'curve' column: Futures curve shape indicator
     """
 
-    required_columns: List[str] = None
-    optional_columns: List[str] = None
+    required_columns: list[str] = None
+    optional_columns: list[str] = None
 
     def __post_init__(self):
         self.required_columns = ["spread"]
@@ -98,7 +99,7 @@ class SpreadEnvironment(RLEnvironment):
 
     def __init__(
         self,
-        spread_data: Optional[pd.DataFrame] = None,
+        spread_data: pd.DataFrame | None = None,
         max_position_value: float = 100000,
         transaction_cost_bps: float = 5,
         zscore_lookback: int = 60,
@@ -131,15 +132,15 @@ class SpreadEnvironment(RLEnvironment):
         self.correlation_lookback = correlation_lookback
 
         # State
-        self.position: Optional[SpreadPosition] = None
+        self.position: SpreadPosition | None = None
         self.data_idx = 0
 
         # History
-        self.equity_curve: List[float] = []
-        self.trades: List[Dict] = []
+        self.equity_curve: list[float] = []
+        self.trades: list[dict] = []
 
         # Generated data if not provided
-        self.generated_spread: List[float] = []
+        self.generated_spread: list[float] = []
 
         # Track warnings to avoid spamming logs
         self._warned_missing_wti_brent = False
@@ -148,8 +149,8 @@ class SpreadEnvironment(RLEnvironment):
         self._warned_synthetic_data = False
 
         # Precompute volatility percentiles for efficiency
-        self._volatility_cache: Optional[pd.Series] = None
-        self._correlation_cache: Optional[pd.Series] = None
+        self._volatility_cache: pd.Series | None = None
+        self._correlation_cache: pd.Series | None = None
 
         # Validate and precompute if data provided
         if self.spread_data is not None:
@@ -190,9 +191,7 @@ class SpreadEnvironment(RLEnvironment):
             return
 
         # Precompute rolling volatility (as percentile rank)
-        spread_returns = (
-            self.spread_data["spread"].pct_change(fill_method=None).fillna(0)
-        )
+        spread_returns = self.spread_data["spread"].pct_change(fill_method=None).fillna(0)
         rolling_vol = spread_returns.rolling(window=self.volatility_lookback).std()
 
         # Convert to percentile rank over full history (expanding window)
@@ -244,10 +243,7 @@ class SpreadEnvironment(RLEnvironment):
         self.trades = []
 
         # Reset data index
-        if (
-            self.spread_data is not None
-            and len(self.spread_data) > self.zscore_lookback + 150
-        ):
+        if self.spread_data is not None and len(self.spread_data) > self.zscore_lookback + 150:
             min_idx = self.zscore_lookback + 10
             max_idx = len(self.spread_data) - 100
             if max_idx > min_idx:
@@ -266,7 +262,7 @@ class SpreadEnvironment(RLEnvironment):
 
         return self._get_state()
 
-    def step(self, action: Action) -> Tuple[State, Reward, bool, Dict[str, Any]]:
+    def step(self, action: Action) -> tuple[State, Reward, bool, dict[str, Any]]:
         """
         Take trading action.
 
@@ -366,8 +362,7 @@ class SpreadEnvironment(RLEnvironment):
                 percentile,
                 self.position.direction,
                 self.position.size,
-                self.position.unrealized_pnl
-                / (self.max_position_value * 0.01),  # Normalize
+                self.position.unrealized_pnl / (self.max_position_value * 0.01),  # Normalize
                 min(self.position.bars_held / self.max_holding_bars, 1.0),
                 volatility,
                 correlation,
@@ -392,9 +387,7 @@ class SpreadEnvironment(RLEnvironment):
         current_zscore = self._get_spread_zscore()
 
         # Calculate transaction cost
-        position_change = abs(
-            direction * size - self.position.direction * self.position.size
-        )
+        position_change = abs(direction * size - self.position.direction * self.position.size)
         cost = position_change * self.max_position_value * self.transaction_cost
 
         # Update position
@@ -486,9 +479,7 @@ class SpreadEnvironment(RLEnvironment):
             components["hold_penalty"] = 0.0
 
         # Transaction cost penalty
-        components["cost_penalty"] = -transaction_cost / (
-            self.max_position_value * 0.001
-        )
+        components["cost_penalty"] = -transaction_cost / (self.max_position_value * 0.001)
 
         total = sum(components.values())
 
@@ -532,8 +523,7 @@ class SpreadEnvironment(RLEnvironment):
         elif self.generated_spread:
             if self.data_idx > 0 and self.data_idx < len(self.generated_spread):
                 return (
-                    self.generated_spread[self.data_idx]
-                    - self.generated_spread[self.data_idx - 1]
+                    self.generated_spread[self.data_idx] - self.generated_spread[self.data_idx - 1]
                 )
         return 0.0
 
@@ -548,9 +538,7 @@ class SpreadEnvironment(RLEnvironment):
             current = self.spread_data.iloc[self.data_idx]["spread"]
             return float((current - mean) / (std + 1e-8))
         elif self.generated_spread and self.data_idx >= self.zscore_lookback:
-            recent = self.generated_spread[
-                self.data_idx - self.zscore_lookback : self.data_idx + 1
-            ]
+            recent = self.generated_spread[self.data_idx - self.zscore_lookback : self.data_idx + 1]
             mean = np.mean(recent)
             std = np.std(recent)
             return (self.generated_spread[self.data_idx] - mean) / (std + 1e-8)
@@ -590,9 +578,7 @@ class SpreadEnvironment(RLEnvironment):
         Computed from rolling standard deviation of spread returns.
         """
         # Use precomputed cache if available
-        if self._volatility_cache is not None and self.data_idx < len(
-            self._volatility_cache
-        ):
+        if self._volatility_cache is not None and self.data_idx < len(self._volatility_cache):
             return float(self._volatility_cache.iloc[self.data_idx])
 
         # Compute on-the-fly for synthetic data
@@ -606,15 +592,10 @@ class SpreadEnvironment(RLEnvironment):
             # Compare to longer history for percentile
             if self.data_idx >= self.volatility_lookback * 2:
                 historical = self.generated_spread[: self.data_idx + 1]
-                historical_returns = np.diff(historical) / (
-                    np.array(historical[:-1]) + 1e-8
-                )
+                historical_returns = np.diff(historical) / (np.array(historical[:-1]) + 1e-8)
                 # Rolling volatility
                 vol_series = (
-                    pd.Series(historical_returns)
-                    .rolling(self.volatility_lookback)
-                    .std()
-                    .dropna()
+                    pd.Series(historical_returns).rolling(self.volatility_lookback).std().dropna()
                 )
                 if len(vol_series) > 0:
                     return float((vol_series <= current_vol).mean())
@@ -631,9 +612,7 @@ class SpreadEnvironment(RLEnvironment):
         representing the typical high correlation between these benchmarks.
         """
         # Use precomputed cache if available
-        if self._correlation_cache is not None and self.data_idx < len(
-            self._correlation_cache
-        ):
+        if self._correlation_cache is not None and self.data_idx < len(self._correlation_cache):
             return float(self._correlation_cache.iloc[self.data_idx])
 
         # Log warning once if data not available
@@ -664,9 +643,7 @@ class SpreadEnvironment(RLEnvironment):
         if self.spread_data is not None and "usd" in self.spread_data.columns:
             if self.data_idx >= self.zscore_lookback:
                 usd = self.spread_data["usd"]
-                recent = usd.iloc[
-                    self.data_idx - self.zscore_lookback : self.data_idx + 1
-                ]
+                recent = usd.iloc[self.data_idx - self.zscore_lookback : self.data_idx + 1]
                 current = usd.iloc[self.data_idx]
                 mean = recent.mean()
                 std = recent.std()

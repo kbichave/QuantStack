@@ -20,14 +20,12 @@ import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, Optional, Tuple
 from urllib.parse import parse_qs, urlencode
 
 import requests
 from loguru import logger
-from pydantic import BaseModel
 
-from quant_pod.tools.etrade.models import AuthStatus, TokenData
+from quant_pod.tools.etrade.models import AuthStatus
 
 # =============================================================================
 # CONSTANTS
@@ -83,10 +81,10 @@ class ETradeAuthManager:
 
     def __init__(
         self,
-        consumer_key: Optional[str] = None,
-        consumer_secret: Optional[str] = None,
-        sandbox: Optional[bool] = None,
-        token_path: Optional[Path] = None,
+        consumer_key: str | None = None,
+        consumer_secret: str | None = None,
+        sandbox: bool | None = None,
+        token_path: Path | None = None,
     ):
         """
         Initialize the auth manager.
@@ -98,9 +96,7 @@ class ETradeAuthManager:
             token_path: Path for token persistence (default ~/.etrade_tokens.json)
         """
         self.consumer_key = consumer_key or os.getenv("ETRADE_CONSUMER_KEY", "")
-        self.consumer_secret = consumer_secret or os.getenv(
-            "ETRADE_CONSUMER_SECRET", ""
-        )
+        self.consumer_secret = consumer_secret or os.getenv("ETRADE_CONSUMER_SECRET", "")
 
         # Sandbox mode from env or parameter (default to sandbox for safety)
         if sandbox is None:
@@ -115,11 +111,11 @@ class ETradeAuthManager:
         self._lock = Lock()
 
         # OAuth state
-        self._request_token: Optional[str] = None
-        self._request_token_secret: Optional[str] = None
-        self._access_token: Optional[str] = None
-        self._access_token_secret: Optional[str] = None
-        self._expires_at: Optional[datetime] = None
+        self._request_token: str | None = None
+        self._request_token_secret: str | None = None
+        self._access_token: str | None = None
+        self._access_token_secret: str | None = None
+        self._expires_at: datetime | None = None
 
         # Rate limiting
         self._last_request_time = 0.0
@@ -152,7 +148,7 @@ class ETradeAuthManager:
             return
 
         try:
-            with open(self.token_path, "r") as f:
+            with open(self.token_path) as f:
                 data = json.load(f)
 
             # Check environment match
@@ -178,7 +174,7 @@ class ETradeAuthManager:
             # Load existing data
             data = {}
             if self.token_path.exists():
-                with open(self.token_path, "r") as f:
+                with open(self.token_path) as f:
                     data = json.load(f)
 
             # Update with current tokens
@@ -186,9 +182,7 @@ class ETradeAuthManager:
             data[env_key] = {
                 "access_token": self._access_token,
                 "access_token_secret": self._access_token_secret,
-                "expires_at": (
-                    self._expires_at.isoformat() if self._expires_at else None
-                ),
+                "expires_at": (self._expires_at.isoformat() if self._expires_at else None),
                 "updated_at": datetime.now().isoformat(),
             }
 
@@ -230,9 +224,7 @@ class ETradeAuthManager:
             return False
 
         if self._expires_at:
-            threshold = self._expires_at - timedelta(
-                hours=TOKEN_REFRESH_THRESHOLD_HOURS
-            )
+            threshold = self._expires_at - timedelta(hours=TOKEN_REFRESH_THRESHOLD_HOURS)
             return datetime.now() >= threshold
 
         return False
@@ -257,11 +249,11 @@ class ETradeAuthManager:
         self,
         method: str,
         url: str,
-        token: Optional[str] = None,
-        token_secret: Optional[str] = None,
-        verifier: Optional[str] = None,
-        extra_params: Optional[Dict[str, str]] = None,
-    ) -> Dict[str, str]:
+        token: str | None = None,
+        token_secret: str | None = None,
+        verifier: str | None = None,
+        extra_params: dict[str, str] | None = None,
+    ) -> dict[str, str]:
         """
         Generate OAuth 1.0a authorization header.
 
@@ -327,7 +319,7 @@ class ETradeAuthManager:
 
         return {"Authorization": auth_header}
 
-    def get_request_token(self) -> Tuple[str, str]:
+    def get_request_token(self) -> tuple[str, str]:
         """
         Step 1: Get OAuth request token.
 
@@ -358,7 +350,7 @@ class ETradeAuthManager:
                 logger.error(f"Failed to get request token: {e}")
                 raise
 
-    def get_authorization_url(self, callback_url: Optional[str] = None) -> str:
+    def get_authorization_url(self, callback_url: str | None = None) -> str:
         """
         Step 2: Get URL for user authorization.
 
@@ -419,9 +411,7 @@ class ETradeAuthManager:
                 # Set expiration to midnight Eastern (rough approximation)
                 self._expires_at = datetime.now().replace(
                     hour=23, minute=59, second=59
-                ) + timedelta(
-                    hours=5
-                )  # EST offset
+                ) + timedelta(hours=5)  # EST offset
 
                 # Clear request tokens
                 self._request_token = None
@@ -516,7 +506,7 @@ class ETradeAuthManager:
                 logger.error(f"Failed to revoke token: {e}")
                 return False
 
-    def get_auth_headers(self, method: str, url: str) -> Dict[str, str]:
+    def get_auth_headers(self, method: str, url: str) -> dict[str, str]:
         """
         Get OAuth headers for an authenticated API request.
 
@@ -576,7 +566,7 @@ def create_auth_router(auth_manager: ETradeAuthManager):
         FastAPI APIRouter
     """
     try:
-        from fastapi import APIRouter, Query, Request
+        from fastapi import APIRouter, Query, Request  # noqa: F401
         from fastapi.responses import HTMLResponse, RedirectResponse
     except ImportError:
         logger.warning("FastAPI not installed - auth endpoints not available")

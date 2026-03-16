@@ -20,7 +20,6 @@ import asyncio
 import json
 import os
 import sys
-from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -30,8 +29,8 @@ from loguru import logger
 _project_root = Path(__file__).parent.parent.parent.parent
 load_dotenv(_project_root / ".env")
 
-from quant_arena.historical.config import HistoricalConfig
-from quant_arena.historical.engine import HistoricalEngine
+from quant_arena.historical.config import HistoricalConfig  # noqa: E402
+from quant_arena.historical.engine import HistoricalEngine  # noqa: E402
 
 
 def setup_logging(verbose: bool = False) -> None:
@@ -58,13 +57,13 @@ def parse_args() -> argparse.Namespace:
 Examples:
     # Run with defaults (SPY, QQQ, IWM, WTI, BRENT)
     python -m quant_arena.historical.run
-    
+
     # Custom symbols and equity
     python -m quant_arena.historical.run --symbols SPY,QQQ --equity 50000
-    
+
     # Specific date range
     python -m quant_arena.historical.run --start 2015-01-01 --end 2023-12-31
-    
+
     # Save results to JSON
     python -m quant_arena.historical.run --output results.json
         """,
@@ -293,9 +292,7 @@ def print_config(config: HistoricalConfig) -> None:
     """Print configuration summary."""
     print("\n📋 Configuration:")
     print(f"   Symbols:        {', '.join(config.symbols)}")
-    print(
-        f"   Date range:     {config.start_date or 'earliest'} to {config.end_date or 'today'}"
-    )
+    print(f"   Date range:     {config.start_date or 'earliest'} to {config.end_date or 'today'}")
     print(f"   Initial equity: ${config.initial_equity:,.0f}")
     print(f"   Max position:   {config.max_position_pct:.0%}")
     print(f"   Max drawdown:   {config.max_drawdown_halt_pct:.0%}")
@@ -328,7 +325,7 @@ def print_result(result) -> None:
     print(f"   Trading days: {result.trading_days:,}")
     print(f"   Symbols: {', '.join(result.symbols)}")
 
-    print(f"\n💰 Performance:")
+    print("\n💰 Performance:")
     print(f"   Initial equity:  ${result.initial_equity:>12,.0f}")
     print(f"   Final equity:    ${result.final_equity:>12,.0f}")
     print(f"   Total return:    {result.total_return:>12.1%}")
@@ -336,10 +333,10 @@ def print_result(result) -> None:
     if result.sharpe_ratio is not None:
         print(f"   Sharpe ratio:    {result.sharpe_ratio:>12.2f}")
 
-    print(f"\n⚠️  Risk:")
+    print("\n⚠️  Risk:")
     print(f"   Max drawdown:    {result.max_drawdown:>12.1%}")
 
-    print(f"\n📈 Trading:")
+    print("\n📈 Trading:")
     print(f"   Total trades:    {result.total_trades:>12,}")
     print(f"   Win rate:        {result.win_rate:>12.1%}")
 

@@ -5,15 +5,11 @@ Validates if all timeframes agree and calculates alignment score.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Literal
-import pandas as pd
-import numpy as np
-from loguru import logger
+from typing import Literal
 
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_HIERARCHY
 from quantcore.hierarchy.regime_classifier import RegimeContext, RegimeType
-from quantcore.hierarchy.trend_filter import TrendContext, TrendDirection
 from quantcore.hierarchy.swing_context import SwingContext, SwingPhase
+from quantcore.hierarchy.trend_filter import TrendContext, TrendDirection
 
 
 @dataclass
@@ -25,12 +21,12 @@ class AlignmentResult:
     direction: Literal["LONG", "SHORT", "NEUTRAL"]
 
     # Individual timeframe contexts
-    weekly_context: Optional[RegimeContext] = None
-    daily_context: Optional[TrendContext] = None
-    h4_context: Optional[SwingContext] = None
+    weekly_context: RegimeContext | None = None
+    daily_context: TrendContext | None = None
+    h4_context: SwingContext | None = None
 
     # Breakdown of alignment factors
-    factors: Dict[str, float] = field(default_factory=dict)
+    factors: dict[str, float] = field(default_factory=dict)
 
     # Reasons for misalignment
     rejection_reasons: list = field(default_factory=list)
@@ -56,9 +52,9 @@ class HierarchicalAlignment:
 
     def check_long_alignment(
         self,
-        weekly_ctx: Optional[RegimeContext] = None,
-        daily_ctx: Optional[TrendContext] = None,
-        h4_ctx: Optional[SwingContext] = None,
+        weekly_ctx: RegimeContext | None = None,
+        daily_ctx: TrendContext | None = None,
+        h4_ctx: SwingContext | None = None,
     ) -> AlignmentResult:
         """
         Check if all timeframes support a long mean-reversion trade.
@@ -147,9 +143,7 @@ class HierarchicalAlignment:
         overall_score = sum(factors[k] * weights[k] for k in factors)
 
         # Determine if aligned
-        aligned = (
-            overall_score >= self.MIN_ALIGNMENT_SCORE and len(rejection_reasons) == 0
-        )
+        aligned = overall_score >= self.MIN_ALIGNMENT_SCORE and len(rejection_reasons) == 0
 
         return AlignmentResult(
             aligned=aligned,
@@ -164,9 +158,9 @@ class HierarchicalAlignment:
 
     def check_short_alignment(
         self,
-        weekly_ctx: Optional[RegimeContext] = None,
-        daily_ctx: Optional[TrendContext] = None,
-        h4_ctx: Optional[SwingContext] = None,
+        weekly_ctx: RegimeContext | None = None,
+        daily_ctx: TrendContext | None = None,
+        h4_ctx: SwingContext | None = None,
     ) -> AlignmentResult:
         """
         Check if all timeframes support a short mean-reversion trade.
@@ -252,9 +246,7 @@ class HierarchicalAlignment:
         weights = {"weekly": 0.35, "daily": 0.35, "h4": 0.30}
         overall_score = sum(factors[k] * weights[k] for k in factors)
 
-        aligned = (
-            overall_score >= self.MIN_ALIGNMENT_SCORE and len(rejection_reasons) == 0
-        )
+        aligned = overall_score >= self.MIN_ALIGNMENT_SCORE and len(rejection_reasons) == 0
 
         return AlignmentResult(
             aligned=aligned,
@@ -269,9 +261,9 @@ class HierarchicalAlignment:
 
     def get_best_direction(
         self,
-        weekly_ctx: Optional[RegimeContext] = None,
-        daily_ctx: Optional[TrendContext] = None,
-        h4_ctx: Optional[SwingContext] = None,
+        weekly_ctx: RegimeContext | None = None,
+        daily_ctx: TrendContext | None = None,
+        h4_ctx: SwingContext | None = None,
     ) -> AlignmentResult:
         """
         Get the best-aligned trade direction.

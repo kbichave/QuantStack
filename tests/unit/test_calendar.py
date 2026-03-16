@@ -8,10 +8,10 @@ Verifies:
 4. Edge cases and error handling
 """
 
-from datetime import date, timedelta
-import pytest
+from datetime import date
 
-from quantcore.core.calendar import TradingCalendar, SUPPORTED_EXCHANGES
+import pytest
+from quantcore.core.calendar import TradingCalendar
 from quantcore.core.errors import CalendarError
 
 

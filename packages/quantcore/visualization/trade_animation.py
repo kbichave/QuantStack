@@ -20,16 +20,15 @@ Usage:
 
 import io
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 import numpy as np
 import pandas as pd
 from loguru import logger
+from matplotlib.patches import Rectangle
 
 # Try to import PIL for GIF generation
 try:
@@ -110,7 +109,7 @@ def _draw_candlestick(
 
 def generate_trade_animation_gif(
     data: pd.DataFrame,
-    trades: List[Dict],
+    trades: list[dict],
     output_dir: Path,
     report_timestamp: str = None,
     strategy_name: str = "Strategy",
@@ -122,7 +121,7 @@ def generate_trade_animation_gif(
     price_label: str = "Price ($)",
     show_zscore: bool = False,
     zscore_column: str = "zscore",
-) -> Optional[str]:
+) -> str | None:
     """
     Generate TradingView-style animated GIF showing backtest with candlesticks,
     trade markers, P&L labels, and running equity curve.
@@ -178,9 +177,7 @@ def generate_trade_animation_gif(
             step = max(step, 5)
 
         # Check if we have OHLC data
-        has_ohlc = all(
-            col in plot_data.columns for col in ["open", "high", "low", "close"]
-        )
+        has_ohlc = all(col in plot_data.columns for col in ["open", "high", "low", "close"])
 
         # Extract price data
         if price_column in plot_data.columns:
@@ -234,9 +231,7 @@ def generate_trade_animation_gif(
             # Create figure
             if show_zscore:
                 fig = plt.figure(figsize=(14, 9), facecolor=THEME["bg_color"])
-                gs = fig.add_gridspec(
-                    4, 1, height_ratios=[3.5, 1, 1.2, 0.6], hspace=0.05
-                )
+                gs = fig.add_gridspec(4, 1, height_ratios=[3.5, 1, 1.2, 0.6], hspace=0.05)
                 ax_price = fig.add_subplot(gs[0])
                 ax_zscore = fig.add_subplot(gs[1])
                 ax_equity = fig.add_subplot(gs[2])
@@ -390,13 +385,13 @@ def generate_trade_animation_gif(
                         fontsize=10,
                         color=pnl_color,
                         fontweight="bold",
-                        bbox=dict(
-                            boxstyle="round,pad=0.3",
-                            facecolor=THEME["bg_color"],
-                            edgecolor=pnl_color,
-                            alpha=0.9,
-                        ),
-                        arrowprops=dict(arrowstyle="-", color=pnl_color, alpha=0.5),
+                        bbox={
+                            "boxstyle": "round,pad=0.3",
+                            "facecolor": THEME["bg_color"],
+                            "edgecolor": pnl_color,
+                            "alpha": 0.9,
+                        },
+                        arrowprops={"arrowstyle": "-", "color": pnl_color, "alpha": 0.5},
                     )
 
             # Price axis formatting
@@ -404,17 +399,13 @@ def generate_trade_animation_gif(
                 price_label, fontsize=10, color=THEME["text_color"], fontweight="bold"
             )
             ax_price.set_xlim(-2, window_size + 5)
-            ax_price.set_ylim(
-                min(window_lows) - y_range * 0.2, max(window_highs) + y_range * 0.2
-            )
+            ax_price.set_ylim(min(window_lows) - y_range * 0.2, max(window_highs) + y_range * 0.2)
             ax_price.set_xticklabels([])
 
             # Current price indicator
             current_price = window_closes[-1]
             price_color = (
-                THEME["green_color"]
-                if current_price >= window_opens[-1]
-                else THEME["red_color"]
+                THEME["green_color"] if current_price >= window_opens[-1] else THEME["red_color"]
             )
             ax_price.axhline(
                 y=current_price,
@@ -432,12 +423,12 @@ def generate_trade_animation_gif(
                 fontsize=10,
                 color=price_color,
                 fontweight="bold",
-                bbox=dict(
-                    boxstyle="round,pad=0.2",
-                    facecolor=price_color,
-                    edgecolor="none",
-                    alpha=0.2,
-                ),
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "facecolor": price_color,
+                    "edgecolor": "none",
+                    "alpha": 0.2,
+                },
             )
 
             # Title
@@ -570,9 +561,7 @@ def generate_trade_animation_gif(
                 color=THEME["red_color"],
                 alpha=0.3,
             )
-            ax_equity.plot(
-                x_eq, equity_slice, color=THEME["purple_color"], linewidth=2.5
-            )
+            ax_equity.plot(x_eq, equity_slice, color=THEME["purple_color"], linewidth=2.5)
 
             # Baseline
             ax_equity.axhline(
@@ -585,7 +574,7 @@ def generate_trade_animation_gif(
             ax_equity.text(
                 -1,
                 initial_capital,
-                f"${initial_capital/1000:.0f}K",
+                f"${initial_capital / 1000:.0f}K",
                 fontsize=8,
                 color=THEME["text_dim"],
                 va="center",
@@ -600,23 +589,15 @@ def generate_trade_animation_gif(
             # Date labels on X-axis
             if hasattr(window_dates[0], "strftime"):
                 n_labels = 5
-                label_indices = np.linspace(
-                    0, len(window_dates) - 1, n_labels, dtype=int
-                )
-                date_labels = [
-                    window_dates[idx].strftime("%b %y") for idx in label_indices
-                ]
+                label_indices = np.linspace(0, len(window_dates) - 1, n_labels, dtype=int)
+                date_labels = [window_dates[idx].strftime("%b %y") for idx in label_indices]
                 ax_equity.set_xticks(label_indices)
-                ax_equity.set_xticklabels(
-                    date_labels, fontsize=8, color=THEME["text_dim"]
-                )
+                ax_equity.set_xticklabels(date_labels, fontsize=8, color=THEME["text_dim"])
 
             # Current equity indicator
             final_equity = equity_slice[-1]
             eq_color = (
-                THEME["green_color"]
-                if final_equity >= initial_capital
-                else THEME["red_color"]
+                THEME["green_color"] if final_equity >= initial_capital else THEME["red_color"]
             )
             ax_equity.text(
                 window_size + 1,
@@ -627,12 +608,12 @@ def generate_trade_animation_gif(
                 fontsize=10,
                 color=eq_color,
                 fontweight="bold",
-                bbox=dict(
-                    boxstyle="round,pad=0.2",
-                    facecolor=eq_color,
-                    edgecolor="none",
-                    alpha=0.2,
-                ),
+                bbox={
+                    "boxstyle": "round,pad=0.2",
+                    "facecolor": eq_color,
+                    "edgecolor": "none",
+                    "alpha": 0.2,
+                },
             )
 
             # === STATS PANEL ===
@@ -644,9 +625,7 @@ def generate_trade_animation_gif(
             # Count trades up to current point
             trades_so_far = sum(1 for idx in trade_exits if idx < end_idx)
             wins_so_far = sum(
-                1
-                for idx in trade_exits
-                if idx < end_idx and trade_exits[idx].get("pnl", 0) > 0
+                1 for idx in trade_exits if idx < end_idx and trade_exits[idx].get("pnl", 0) > 0
             )
             win_rate = (wins_so_far / trades_so_far * 100) if trades_so_far > 0 else 0
 
@@ -664,7 +643,7 @@ def generate_trade_animation_gif(
                 stats_items.append((f"Z-Score: {current_z:.2f}", z_color))
 
             x_positions = np.linspace(0.1, 0.9, len(stats_items))
-            for (text, color), x_pos in zip(stats_items, x_positions):
+            for (text, color), x_pos in zip(stats_items, x_positions, strict=False):
                 ax_stats.text(
                     x_pos,
                     0.5,
@@ -677,9 +656,7 @@ def generate_trade_animation_gif(
                     transform=ax_stats.transAxes,
                 )
 
-            plt.subplots_adjust(
-                left=0.07, right=0.93, top=0.94, bottom=0.04, hspace=0.12
-            )
+            plt.subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.04, hspace=0.12)
 
             # Save frame
             buf = io.BytesIO()
@@ -725,14 +702,14 @@ def generate_trade_animation_gif(
 
 def generate_options_trade_gif(
     data: pd.DataFrame,
-    trades: List[Dict],
+    trades: list[dict],
     output_dir: Path,
     symbol: str,
     strategy_name: str = "Options",
     report_timestamp: str = None,
     initial_capital: float = 100000,
     **kwargs,
-) -> Optional[str]:
+) -> str | None:
     """
     Convenience function to generate GIF for options trades.
 

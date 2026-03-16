@@ -36,21 +36,21 @@ Usage:
 # Import schemas first (no dependencies on other crew modules)
 from quant_pod.crews.schemas import (
     AnalysisNote,
-    PodResearchNote,
     DailyBrief,
-    SymbolBrief,
-    TradeDecision,
-    RiskVerdict,
     KeyLevel,
+    PodResearchNote,
+    RiskVerdict,
+    SymbolBrief,
     TaskEnvelope,
+    TradeDecision,
 )
 
 # Import crew class (depends on schemas)
 from quant_pod.crews.trading_crew import (
     TradingCrew,
     create_trading_crew,
-    run_trading_analysis,
     list_available_agents,
+    run_trading_analysis,
 )
 
 __all__ = [

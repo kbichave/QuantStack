@@ -2,17 +2,15 @@
 Trading strategy implementations for backtesting.
 """
 
-from typing import Any, Dict, List, Optional
-
 import numpy as np
 import pandas as pd
 
-from quantcore.backtesting.engine import run_backtest_with_params, calculate_metrics
+from quantcore.backtesting.engine import calculate_metrics, run_backtest_with_params
 from quantcore.utils.formatting import (
-    print_info,
-    print_success,
     print_error,
+    print_info,
     print_section,
+    print_success,
 )
 
 
@@ -22,7 +20,7 @@ def backtest_spread_strategy(
     entry_zscore: float,
     exit_zscore: float,
     position_size: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Backtest spread mean reversion strategy."""
     return run_backtest_with_params(
         data, initial_capital, entry_zscore, exit_zscore, position_size, 0.05, None
@@ -34,7 +32,7 @@ def backtest_sma_crossover(
     initial_capital: float,
     fast: int = 20,
     slow: int = 50,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Backtest SMA crossover strategy on WTI."""
     capital = initial_capital
     position = 0
@@ -80,9 +78,7 @@ def backtest_sma_crossover(
             trades.append({"pnl": pnl})
             position = 0
 
-        mtm = capital + (
-            position * (price - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (price - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -93,7 +89,7 @@ def backtest_bollinger_bands(
     initial_capital: float,
     period: int = 20,
     std_dev: float = 2.0,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Backtest Bollinger Band mean reversion strategy."""
     capital = initial_capital
     position = 0
@@ -138,9 +134,7 @@ def backtest_bollinger_bands(
             trades.append({"pnl": pnl})
             position = 0
 
-        mtm = capital + (
-            position * (price - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (price - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -152,7 +146,7 @@ def backtest_rsi_strategy(
     period: int = 14,
     oversold: int = 30,
     overbought: int = 70,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Backtest RSI overbought/oversold strategy."""
     capital = initial_capital
     position = 0
@@ -198,9 +192,7 @@ def backtest_rsi_strategy(
             trades.append({"pnl": pnl})
             position = 0
 
-        mtm = capital + (
-            position * (price - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (price - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -210,7 +202,7 @@ def backtest_momentum_strategy(
     data: pd.DataFrame,
     initial_capital: float,
     lookback: int = 10,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Backtest momentum (ROC) strategy."""
     capital = initial_capital
     position = 0
@@ -252,9 +244,7 @@ def backtest_momentum_strategy(
             trades.append({"pnl": pnl})
             position = 0
 
-        mtm = capital + (
-            position * (price - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (price - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -266,7 +256,7 @@ def backtest_macd_strategy(
     fast: int = 12,
     slow: int = 26,
     signal: int = 9,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Backtest MACD signal line crossover strategy."""
     capital = initial_capital
     position = 0
@@ -313,9 +303,7 @@ def backtest_macd_strategy(
             trades.append({"pnl": pnl})
             position = 0
 
-        mtm = capital + (
-            position * (price - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (price - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -325,7 +313,7 @@ def backtest_hmm_strategy(
     data: pd.DataFrame,
     hmm_model: object,
     initial_capital: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Backtest HMM regime-enhanced strategy.
     Only trade when regime is favorable.
@@ -355,7 +343,7 @@ def backtest_hmm_strategy(
             regime_result = hmm_model.predict(window)
             is_bullish = regime_result.state.name in ["LOW_VOL_BULL", "HIGH_VOL_BULL"]
             is_stable = regime_result.regime_stability > 0.6
-        except:
+        except Exception:
             is_bullish = True
             is_stable = True
 
@@ -380,9 +368,7 @@ def backtest_hmm_strategy(
             trades.append({"pnl": pnl})
             position = 0
 
-        mtm = capital + (
-            position * (spread - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (spread - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -392,7 +378,7 @@ def backtest_changepoint_strategy(
     data: pd.DataFrame,
     changepoint_model: object,
     initial_capital: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Backtest changepoint-enhanced strategy.
     Reduce position when regime change is likely.
@@ -424,7 +410,7 @@ def backtest_changepoint_strategy(
             window_df = cp_data.iloc[i - 60 : i]
             cp_result = changepoint_model.detect(window_df, feature="returns")
             high_change_prob = cp_result.regime_change_probability > 0.3
-        except:
+        except Exception:
             high_change_prob = False
 
         # Determine effective size for NEW entries only
@@ -459,9 +445,7 @@ def backtest_changepoint_strategy(
                 entry_size = 0
 
         # Mark to market uses entry_size
-        mtm = capital + (
-            position * (spread - entry_price) * entry_size if position != 0 else 0
-        )
+        mtm = capital + (position * (spread - entry_price) * entry_size if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -471,7 +455,7 @@ def backtest_tft_strategy(
     data: pd.DataFrame,
     tft_model: object,
     initial_capital: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Backtest TFT transformer-enhanced strategy.
     Use TFT regime predictions to filter trades.
@@ -505,7 +489,7 @@ def backtest_tft_strategy(
             is_trending_up = tft_result.predicted_regime.name == "TRENDING_UP"
             is_trending_down = tft_result.predicted_regime.name == "TRENDING_DOWN"
             confidence = tft_result.confidence
-        except:
+        except Exception:
             is_trending_up = False
             is_trending_down = False
             confidence = 0.5
@@ -531,9 +515,7 @@ def backtest_tft_strategy(
             trades.append({"pnl": pnl})
             position = 0
 
-        mtm = capital + (
-            position * (spread - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (spread - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -541,9 +523,9 @@ def backtest_tft_strategy(
 
 def backtest_ensemble_strategy(
     data: pd.DataFrame,
-    models: Dict[str, object],
+    models: dict[str, object],
     initial_capital: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Backtest ensemble strategy combining all models.
     Uses voting mechanism to make decisions.
@@ -591,7 +573,7 @@ def backtest_ensemble_strategy(
                     votes_long += 1
                 else:
                     votes_short += 1
-            except:
+            except Exception:
                 pass
 
         # Changepoint vote
@@ -604,7 +586,7 @@ def backtest_ensemble_strategy(
                         votes_long += 1
                     elif zscore > 2:
                         votes_short += 1
-            except:
+            except Exception:
                 pass
 
         # TFT vote
@@ -616,7 +598,7 @@ def backtest_ensemble_strategy(
                     votes_long += 1
                 elif result.predicted_regime.name == "TRENDING_DOWN":
                     votes_short += 1
-            except:
+            except Exception:
                 pass
 
         # Make decision based on votes
@@ -633,30 +615,24 @@ def backtest_ensemble_strategy(
                 capital -= SPREAD_COST * POSITION_SIZE
         elif position == 1:
             if zscore > 0 or votes_short >= threshold:
-                pnl = (
-                    spread - entry_price
-                ) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
+                pnl = (spread - entry_price) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
                 capital += pnl
                 trades.append({"pnl": pnl})
                 position = 0
         elif position == -1:
             if zscore < 0 or votes_long >= threshold:
-                pnl = (
-                    entry_price - spread
-                ) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
+                pnl = (entry_price - spread) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
                 capital += pnl
                 trades.append({"pnl": pnl})
                 position = 0
 
-        mtm = capital + (
-            position * (spread - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (spread - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
 
 
-def backtest_buy_hold(data: pd.DataFrame, initial_capital: float) -> Dict[str, float]:
+def backtest_buy_hold(data: pd.DataFrame, initial_capital: float) -> dict[str, float]:
     """Backtest buy and hold WTI."""
     if data.empty:
         return {
@@ -703,7 +679,7 @@ def backtest_rl_spread_strategy(
     data: pd.DataFrame,
     spread_agent: object,
     initial_capital: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Backtest using the trained Spread RL agent.
     """
@@ -716,13 +692,9 @@ def backtest_rl_spread_strategy(
     POSITION_SIZE = 1000
     COST = 0.05
 
-    spread_series = (
-        data["spread"].values if "spread" in data.columns else np.zeros(len(data))
-    )
+    spread_series = data["spread"].values if "spread" in data.columns else np.zeros(len(data))
     zscore_series = (
-        data["spread_zscore"].values
-        if "spread_zscore" in data.columns
-        else np.zeros(len(data))
+        data["spread_zscore"].values if "spread_zscore" in data.columns else np.zeros(len(data))
     )
 
     for i in range(60, len(data)):
@@ -739,7 +711,7 @@ def backtest_rl_spread_strategy(
                 action_idx = int(action.value)
             else:
                 action_idx = 2 if zscore < -2 else (4 if zscore > 2 else 0)
-        except:
+        except Exception:
             action_idx = 2 if zscore < -2 else (4 if zscore > 2 else 0)
 
         if action_idx in [1, 2] and position == 0:
@@ -759,9 +731,7 @@ def backtest_rl_spread_strategy(
             trades.append({"pnl": pnl})
             position = 0
 
-        mtm = capital + (
-            position * (spread - entry_price) * POSITION_SIZE if position != 0 else 0
-        )
+        mtm = capital + (position * (spread - entry_price) * POSITION_SIZE if position != 0 else 0)
         equity_curve.append(mtm)
 
     return calculate_metrics(capital, initial_capital, trades, equity_curve)
@@ -769,9 +739,9 @@ def backtest_rl_spread_strategy(
 
 def backtest_rl_enhanced_strategy(
     data: pd.DataFrame,
-    rl_agents: Dict[str, object],
+    rl_agents: dict[str, object],
     initial_capital: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Backtest spread strategy enhanced with RL execution and sizing.
 
@@ -830,7 +800,7 @@ def backtest_rl_enhanced_strategy(
                 action = sizing_agent.select_action(state, deterministic=True)
                 size_scale = float(action.value) if hasattr(action, "value") else 0.5
                 size_scale = max(0.25, min(1.0, size_scale))
-            except:
+            except Exception:
                 size_scale = 0.5
         else:
             size_scale = 0.5
@@ -850,13 +820,9 @@ def backtest_rl_enhanced_strategy(
         elif base_signal == 0 and position != 0:
             # Use entry_position_size for P&L, not current size
             if position == 1:
-                pnl = (
-                    spread - entry_price
-                ) * entry_position_size - COST * entry_position_size
+                pnl = (spread - entry_price) * entry_position_size - COST * entry_position_size
             else:
-                pnl = (
-                    entry_price - spread
-                ) * entry_position_size - COST * entry_position_size
+                pnl = (entry_price - spread) * entry_position_size - COST * entry_position_size
             capital += pnl
             trades.append({"pnl": pnl})
             position = 0
@@ -864,9 +830,7 @@ def backtest_rl_enhanced_strategy(
 
         # Mark to market uses entry_position_size
         mtm = capital + (
-            position * (spread - entry_price) * entry_position_size
-            if position != 0
-            else 0
+            position * (spread - entry_price) * entry_position_size if position != 0 else 0
         )
         equity_curve.append(mtm)
 
@@ -874,11 +838,11 @@ def backtest_rl_enhanced_strategy(
 
 
 def run_strategy_comparison(
-    all_data: Dict[str, pd.DataFrame],
+    all_data: dict[str, pd.DataFrame],
     spread_df: pd.DataFrame,
-    regime_models: Dict[str, object],
+    regime_models: dict[str, object],
     initial_capital: float = 100000,
-    rl_agents: Optional[Dict[str, object]] = None,
+    rl_agents: dict[str, object] | None = None,
 ) -> pd.DataFrame:
     """
     Run and compare multiple trading strategies.
@@ -911,9 +875,7 @@ def run_strategy_comparison(
     print("─" * 50)
 
     print_info("Testing Spread Mean Reversion...")
-    baseline_result = backtest_spread_strategy(
-        test_data, initial_capital, 2.0, 0.0, 1000
-    )
+    baseline_result = backtest_spread_strategy(test_data, initial_capital, 2.0, 0.0, 1000)
     baseline_result["strategy"] = "Spread Mean Reversion"
     baseline_result["type"] = "Rule-Based"
     results.append(baseline_result)
@@ -964,9 +926,7 @@ def run_strategy_comparison(
 
     if "hmm" in regime_models:
         print_info("Testing HMM Regime...")
-        hmm_result = backtest_hmm_strategy(
-            test_data, regime_models["hmm"], initial_capital
-        )
+        hmm_result = backtest_hmm_strategy(test_data, regime_models["hmm"], initial_capital)
         hmm_result["strategy"] = "HMM Regime"
         hmm_result["type"] = "ML-Based"
         results.append(hmm_result)
@@ -984,9 +944,7 @@ def run_strategy_comparison(
 
     if "tft" in regime_models:
         print_info("Testing TFT Transformer...")
-        tft_result = backtest_tft_strategy(
-            test_data, regime_models["tft"], initial_capital
-        )
+        tft_result = backtest_tft_strategy(test_data, regime_models["tft"], initial_capital)
         tft_result["strategy"] = "TFT Transformer"
         tft_result["type"] = "ML-Based"
         results.append(tft_result)
@@ -994,9 +952,7 @@ def run_strategy_comparison(
 
     if len(regime_models) >= 2:
         print_info("Testing ML Ensemble...")
-        ensemble_result = backtest_ensemble_strategy(
-            test_data, regime_models, initial_capital
-        )
+        ensemble_result = backtest_ensemble_strategy(test_data, regime_models, initial_capital)
         ensemble_result["strategy"] = "ML Ensemble"
         ensemble_result["type"] = "ML-Based"
         results.append(ensemble_result)
@@ -1064,9 +1020,7 @@ def run_strategy_comparison(
         )
 
         for _, row in type_results.iterrows():
-            pnl = row.get(
-                "total_pnl", row.get("total_return_pct", 0) / 100 * initial_capital
-            )
+            pnl = row.get("total_pnl", row.get("total_return_pct", 0) / 100 * initial_capital)
             print(
                 f"  {row['strategy']:<25} ${pnl:>12,.0f} {row['total_return_pct']:>9.1f}% {row['sharpe_ratio']:>8.2f} {row['max_drawdown']:>7.1f}% {row['win_rate']:>7.1f}% {int(row['total_trades']):>8}"
             )
@@ -1085,15 +1039,11 @@ def run_strategy_comparison(
 
     if not ml_based.empty:
         best_ml = ml_based.loc[ml_based["sharpe_ratio"].idxmax()]
-        print(
-            f"🥇 Best ML-Based:   {best_ml['strategy']} (Sharpe: {best_ml['sharpe_ratio']:.2f})"
-        )
+        print(f"🥇 Best ML-Based:   {best_ml['strategy']} (Sharpe: {best_ml['sharpe_ratio']:.2f})")
 
     if not rl_based.empty:
         best_rl = rl_based.loc[rl_based["sharpe_ratio"].idxmax()]
-        print(
-            f"🥇 Best RL-Based:   {best_rl['strategy']} (Sharpe: {best_rl['sharpe_ratio']:.2f})"
-        )
+        print(f"🥇 Best RL-Based:   {best_rl['strategy']} (Sharpe: {best_rl['sharpe_ratio']:.2f})")
 
     best = df_results.loc[df_results["sharpe_ratio"].idxmax()]
     print(

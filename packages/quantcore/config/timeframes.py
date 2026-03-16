@@ -6,33 +6,32 @@ The hierarchy flows from macro (Weekly) to execution (sub-minute):
     → 1H (Execution) → 30M / 15M / 5M (Intraday Scalp) → 1M (Order Flow) → 5S (HFT)
 """
 
-from enum import Enum
 from dataclasses import dataclass
-from typing import Dict, List
+from enum import Enum
 
 
 class Timeframe(Enum):
     """Supported timeframes for analysis."""
 
     # Swing / position
-    W1 = "1W"   # Macro regime
-    D1 = "1D"   # Intermediate trend
-    H4 = "4H"   # Swing context
-    H1 = "1H"   # Execution (daily trading)
+    W1 = "1W"  # Macro regime
+    D1 = "1D"  # Intermediate trend
+    H4 = "4H"  # Swing context
+    H1 = "1H"  # Execution (daily trading)
 
     # Intraday
     M30 = "30M"  # Intraday momentum
     M15 = "15M"  # Intraday structure
-    M5  = "5M"   # Scalp setup
-    M1  = "1M"   # Order flow / entry timing
+    M5 = "5M"  # Scalp setup
+    M1 = "1M"  # Order flow / entry timing
 
     # HFT / tick
-    S5  = "5S"   # 5-second bars (high-frequency)
+    S5 = "5S"  # 5-second bars (high-frequency)
 
 
 # Hierarchy from highest (macro) to lowest (finest resolution).
 # Index 0 = coarsest; higher index = finer.
-TIMEFRAME_HIERARCHY: List[Timeframe] = [
+TIMEFRAME_HIERARCHY: list[Timeframe] = [
     Timeframe.W1,
     Timeframe.D1,
     Timeframe.H4,
@@ -91,7 +90,7 @@ class TimeframeParams:
 
 
 # Timeframe-specific parameters
-TIMEFRAME_PARAMS: Dict[Timeframe, TimeframeParams] = {
+TIMEFRAME_PARAMS: dict[Timeframe, TimeframeParams] = {
     Timeframe.W1: TimeframeParams(
         ema_fast=10,
         ema_slow=20,
@@ -222,7 +221,7 @@ TIMEFRAME_PARAMS: Dict[Timeframe, TimeframeParams] = {
         zscore_exit_threshold=0.5,
         tp_atr_multiple=1.5,
         sl_atr_multiple=0.75,
-        max_hold_bars=8,   # ~4 hours of 30m bars
+        max_hold_bars=8,  # ~4 hours of 30m bars
         resample_rule="30min",
     ),
     Timeframe.M15: TimeframeParams(
@@ -336,13 +335,13 @@ TIMEFRAME_PARAMS: Dict[Timeframe, TimeframeParams] = {
 }
 
 
-def get_higher_timeframes(tf: Timeframe) -> List[Timeframe]:
+def get_higher_timeframes(tf: Timeframe) -> list[Timeframe]:
     """Get all timeframes higher than the given one in the hierarchy."""
     tf_idx = TIMEFRAME_HIERARCHY.index(tf)
     return TIMEFRAME_HIERARCHY[:tf_idx]
 
 
-def get_lower_timeframes(tf: Timeframe) -> List[Timeframe]:
+def get_lower_timeframes(tf: Timeframe) -> list[Timeframe]:
     """Get all timeframes lower than the given one in the hierarchy."""
     tf_idx = TIMEFRAME_HIERARCHY.index(tf)
     return TIMEFRAME_HIERARCHY[tf_idx + 1 :]

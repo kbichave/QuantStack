@@ -4,10 +4,10 @@ Execution Algorithms.
 TWAP, VWAP, IS minimization, and POV algorithms.
 """
 
-import numpy as np
-from typing import List, Optional
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+import numpy as np
 
 from quantcore.microstructure.order_book import Side
 
@@ -27,7 +27,7 @@ class ExecutionPlan:
     parent_size: float
     parent_side: Side
     horizon: float
-    slices: List[ExecutionSlice]
+    slices: list[ExecutionSlice]
     algo_name: str
 
 
@@ -35,9 +35,7 @@ class ExecutionAlgo(ABC):
     """Base class for execution algorithms."""
 
     @abstractmethod
-    def create_plan(
-        self, order_size: float, side: Side, horizon: float
-    ) -> ExecutionPlan:
+    def create_plan(self, order_size: float, side: Side, horizon: float) -> ExecutionPlan:
         pass
 
 
@@ -51,9 +49,7 @@ class TWAPExecutor(ExecutionAlgo):
     def __init__(self, n_slices: int = 20):
         self.n_slices = n_slices
 
-    def create_plan(
-        self, order_size: float, side: Side, horizon: float
-    ) -> ExecutionPlan:
+    def create_plan(self, order_size: float, side: Side, horizon: float) -> ExecutionPlan:
         slice_size = order_size / self.n_slices
         slice_interval = horizon / self.n_slices
 
@@ -78,7 +74,7 @@ class VWAPExecutor(ExecutionAlgo):
     Trades proportional to expected volume profile.
     """
 
-    def __init__(self, volume_profile: Optional[np.ndarray] = None, n_slices: int = 20):
+    def __init__(self, volume_profile: np.ndarray | None = None, n_slices: int = 20):
         self.n_slices = n_slices
 
         if volume_profile is not None:
@@ -89,15 +85,11 @@ class VWAPExecutor(ExecutionAlgo):
             profile = 1 + 0.5 * (np.cos(np.pi * x) ** 2)
             self.volume_profile = profile / profile.sum()
 
-    def create_plan(
-        self, order_size: float, side: Side, horizon: float
-    ) -> ExecutionPlan:
+    def create_plan(self, order_size: float, side: Side, horizon: float) -> ExecutionPlan:
         slice_interval = horizon / self.n_slices
 
         slices = [
-            ExecutionSlice(
-                time=i * slice_interval, quantity=order_size * self.volume_profile[i]
-            )
+            ExecutionSlice(time=i * slice_interval, quantity=order_size * self.volume_profile[i])
             for i in range(self.n_slices)
         ]
 
@@ -131,9 +123,7 @@ class ISExecutor(ExecutionAlgo):
         self.risk_aversion = risk_aversion
         self.n_slices = n_slices
 
-    def create_plan(
-        self, order_size: float, side: Side, horizon: float
-    ) -> ExecutionPlan:
+    def create_plan(self, order_size: float, side: Side, horizon: float) -> ExecutionPlan:
         kappa = np.sqrt(self.risk_aversion * self.volatility**2 / (self.eta + 1e-10))
 
         times = np.linspace(0, horizon, self.n_slices + 1)
@@ -147,8 +137,7 @@ class ISExecutor(ExecutionAlgo):
         trade_sizes = -np.diff(remaining)
 
         slices = [
-            ExecutionSlice(time=times[i], quantity=trade_sizes[i])
-            for i in range(self.n_slices)
+            ExecutionSlice(time=times[i], quantity=trade_sizes[i]) for i in range(self.n_slices)
         ]
 
         return ExecutionPlan(

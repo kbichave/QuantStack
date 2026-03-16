@@ -13,9 +13,9 @@ Each higher timeframe provides context for the lower timeframe's decision making
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -23,26 +23,26 @@ from loguru import logger
 
 # Import from quantcore hierarchy modules
 try:
+    from quantcore.config.timeframes import (
+        TIMEFRAME_HIERARCHY,  # noqa: F401
+        TIMEFRAME_PARAMS,  # noqa: F401
+        Timeframe,  # noqa: F401
+    )
+    from quantcore.hierarchy.alignment import AlignmentResult, HierarchicalAlignment  # noqa: F401
     from quantcore.hierarchy.regime_classifier import (
+        RegimeContext,  # noqa: F401
         RegimeType,
-        RegimeContext,
         WeeklyRegimeClassifier,
     )
-    from quantcore.hierarchy.trend_filter import (
-        TrendDirection,
-        TrendContext,
-        DailyTrendFilter,
-    )
     from quantcore.hierarchy.swing_context import (
-        SwingPhase,
-        SwingContext,
+        SwingContext,  # noqa: F401
         SwingContextAnalyzer,
+        SwingPhase,
     )
-    from quantcore.hierarchy.alignment import HierarchicalAlignment, AlignmentResult
-    from quantcore.config.timeframes import (
-        Timeframe,
-        TIMEFRAME_HIERARCHY,
-        TIMEFRAME_PARAMS,
+    from quantcore.hierarchy.trend_filter import (
+        DailyTrendFilter,
+        TrendContext,  # noqa: F401
+        TrendDirection,
     )
 
     QUANTCORE_AVAILABLE = True
@@ -122,7 +122,7 @@ class MTFContext:
     # Cross-timeframe alignment
     alignment_score: float = 0.5  # 0-1, how well TFs agree
     alignment_direction: Literal["LONG", "SHORT", "NEUTRAL"] = "NEUTRAL"
-    alignment_factors: Dict[str, float] = field(default_factory=dict)
+    alignment_factors: dict[str, float] = field(default_factory=dict)
 
     # Trading implications
     trade_bias: Literal["long", "short", "neutral"] = "neutral"
@@ -130,7 +130,7 @@ class MTFContext:
     position_scale: float = 1.0  # 0-1 scaling based on alignment
 
     # Rejection reasons if any
-    rejection_reasons: List[str] = field(default_factory=list)
+    rejection_reasons: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         """Compute derived fields."""
@@ -180,12 +180,11 @@ class MTFContext:
         """Check if context favors mean-reversion strategies."""
         return (
             self.weekly_regime == RegimeType.SIDEWAYS
-            or self.h4_swing_phase
-            in [SwingPhase.CORRECTION_DOWN, SwingPhase.CORRECTION_UP]
+            or self.h4_swing_phase in [SwingPhase.CORRECTION_DOWN, SwingPhase.CORRECTION_UP]
             or (self.h4_near_swing_low or self.h4_near_swing_high)
         )
 
-    def get_strategy_weights(self) -> Dict[str, float]:
+    def get_strategy_weights(self) -> dict[str, float]:
         """
         Get suggested strategy weights based on MTF context.
 
@@ -248,15 +247,15 @@ DAILY (Intermediate Trend):
 
 4H (Swing Context):
   • Phase: {self.h4_swing_phase.value}
-  • Near Swing Low: {'YES' if self.h4_near_swing_low else 'NO'}
-  • Near Swing High: {'YES' if self.h4_near_swing_high else 'NO'}
+  • Near Swing Low: {"YES" if self.h4_near_swing_low else "NO"}
+  • Near Swing High: {"YES" if self.h4_near_swing_high else "NO"}
   • Correction Depth: {self.h4_correction_depth:.1%}
-  • Exhaustion Warning: {'YES' if self.h4_trend_exhaustion else 'NO'}
+  • Exhaustion Warning: {"YES" if self.h4_trend_exhaustion else "NO"}
 
 1H (Execution):
   • Setup: {self.h1_setup}
   • RSI: {self.h1_rsi:.1f}
-  • Volume Surge: {'YES' if self.h1_volume_surge else 'NO'}
+  • Volume Surge: {"YES" if self.h1_volume_surge else "NO"}
 
 ═══════════════════════════════════════════════════════════════════════════════
                     CROSS-TIMEFRAME ALIGNMENT
@@ -267,9 +266,9 @@ DAILY (Intermediate Trend):
   • Trade Bias: {self.trade_bias.upper()}
   • Suggested Holding: {self.suggested_holding_period.upper()}
   • Position Scale: {self.position_scale:.0%}
-  • Allows Long: {'YES' if self.allows_long else 'NO'}
-  • Allows Short: {'YES' if self.allows_short else 'NO'}
-  • High Conviction: {'YES' if self.is_high_conviction else 'NO'}
+  • Allows Long: {"YES" if self.allows_long else "NO"}
+  • Allows Short: {"YES" if self.allows_short else "NO"}
+  • High Conviction: {"YES" if self.is_high_conviction else "NO"}
 
 {self._format_rejection_reasons()}
 ═══════════════════════════════════════════════════════════════════════════════
@@ -281,7 +280,7 @@ DAILY (Intermediate Trend):
             return ""
         return "CAUTION:\n" + "\n".join(f"  ⚠ {r}" for r in self.rejection_reasons)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "symbol": self.symbol,
@@ -329,21 +328,17 @@ class MTFContextBuilder:
                 self._trend_filter = DailyTrendFilter()
                 self._swing_analyzer = SwingContextAnalyzer()
                 self._alignment_checker = HierarchicalAlignment()
-                logger.info(
-                    "MTFContextBuilder initialized with quantcore hierarchy modules"
-                )
+                logger.info("MTFContextBuilder initialized with quantcore hierarchy modules")
             except Exception as e:
                 logger.warning(f"Failed to initialize quantcore modules: {e}")
         else:
-            logger.warning(
-                "quantcore hierarchy modules not available, using basic analysis"
-            )
+            logger.warning("quantcore hierarchy modules not available, using basic analysis")
 
     def build(
         self,
         symbol: str,
-        mtf_data: Dict[str, pd.DataFrame],
-        timestamp: Optional[datetime] = None,
+        mtf_data: dict[str, pd.DataFrame],
+        timestamp: datetime | None = None,
     ) -> MTFContext:
         """
         Build MTFContext from multi-timeframe data.
@@ -379,7 +374,7 @@ class MTFContextBuilder:
 
         return ctx
 
-    def _analyze_weekly(self, ctx: MTFContext, df: Optional[pd.DataFrame]) -> None:
+    def _analyze_weekly(self, ctx: MTFContext, df: pd.DataFrame | None) -> None:
         """Analyze weekly timeframe for macro regime."""
         if df is None or df.empty:
             return
@@ -421,7 +416,7 @@ class MTFContextBuilder:
             ctx.weekly_regime = RegimeType.SIDEWAYS
             ctx.weekly_confidence = 0.5
 
-    def _analyze_daily(self, ctx: MTFContext, df: Optional[pd.DataFrame]) -> None:
+    def _analyze_daily(self, ctx: MTFContext, df: pd.DataFrame | None) -> None:
         """Analyze daily timeframe for intermediate trend."""
         if df is None or df.empty:
             return
@@ -470,7 +465,7 @@ class MTFContextBuilder:
             ctx.daily_trend = TrendDirection.NEUTRAL
             ctx.daily_strength = 0.3
 
-    def _analyze_4h(self, ctx: MTFContext, df: Optional[pd.DataFrame]) -> None:
+    def _analyze_4h(self, ctx: MTFContext, df: pd.DataFrame | None) -> None:
         """Analyze 4H timeframe for swing context."""
         if df is None or df.empty:
             return
@@ -529,7 +524,7 @@ class MTFContextBuilder:
         else:
             ctx.h4_swing_phase = SwingPhase.CONSOLIDATION
 
-    def _analyze_1h(self, ctx: MTFContext, df: Optional[pd.DataFrame]) -> None:
+    def _analyze_1h(self, ctx: MTFContext, df: pd.DataFrame | None) -> None:
         """Analyze 1H timeframe for execution setup."""
         if df is None or df.empty:
             return
@@ -578,15 +573,9 @@ class MTFContextBuilder:
         factors = {}
 
         # Weekly-Daily alignment
-        if (
-            ctx.weekly_regime == RegimeType.BULL
-            and ctx.daily_trend == TrendDirection.UP
-        ):
+        if ctx.weekly_regime == RegimeType.BULL and ctx.daily_trend == TrendDirection.UP:
             factors["weekly_daily"] = 1.0
-        elif (
-            ctx.weekly_regime == RegimeType.BEAR
-            and ctx.daily_trend == TrendDirection.DOWN
-        ):
+        elif ctx.weekly_regime == RegimeType.BEAR and ctx.daily_trend == TrendDirection.DOWN:
             factors["weekly_daily"] = 1.0
         elif ctx.weekly_regime == RegimeType.SIDEWAYS:
             factors["weekly_daily"] = 0.5
@@ -627,15 +616,9 @@ class MTFContextBuilder:
         ctx.alignment_factors = factors
 
         # Determine alignment direction
-        if (
-            ctx.weekly_regime == RegimeType.BULL
-            and ctx.daily_trend == TrendDirection.UP
-        ):
+        if ctx.weekly_regime == RegimeType.BULL and ctx.daily_trend == TrendDirection.UP:
             ctx.alignment_direction = "LONG"
-        elif (
-            ctx.weekly_regime == RegimeType.BEAR
-            and ctx.daily_trend == TrendDirection.DOWN
-        ):
+        elif ctx.weekly_regime == RegimeType.BEAR and ctx.daily_trend == TrendDirection.DOWN:
             ctx.alignment_direction = "SHORT"
         else:
             ctx.alignment_direction = "NEUTRAL"
@@ -663,9 +646,7 @@ class MTFContextBuilder:
 
         # Add rejection reasons
         if not ctx.allows_long and not ctx.allows_short:
-            ctx.rejection_reasons.append(
-                "Neither long nor short allowed by MTF context"
-            )
+            ctx.rejection_reasons.append("Neither long nor short allowed by MTF context")
         if ctx.h4_trend_exhaustion:
             ctx.rejection_reasons.append("4H trend showing exhaustion signs")
         if ctx.alignment_score < 0.4:
@@ -707,7 +688,7 @@ class MTFContextBuilder:
 # SINGLETON BUILDER
 # =============================================================================
 
-_builder_instance: Optional[MTFContextBuilder] = None
+_builder_instance: MTFContextBuilder | None = None
 
 
 def get_mtf_context_builder() -> MTFContextBuilder:
@@ -720,8 +701,8 @@ def get_mtf_context_builder() -> MTFContextBuilder:
 
 def build_mtf_context(
     symbol: str,
-    mtf_data: Dict[str, pd.DataFrame],
-    timestamp: Optional[datetime] = None,
+    mtf_data: dict[str, pd.DataFrame],
+    timestamp: datetime | None = None,
 ) -> MTFContext:
     """
     Convenience function to build MTF context.

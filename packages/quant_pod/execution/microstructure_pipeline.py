@@ -65,12 +65,10 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 from loguru import logger
-
 from quantcore.data.streaming.tick_models import QuoteTick, TradeTick
-from quantcore.execution.fill_tracker import FillTracker, FillEvent
+from quantcore.execution.fill_tracker import FillEvent, FillTracker
 from quantcore.execution.risk_gate import (
     PreTradeRiskGate,
     RiskGateError,
@@ -78,6 +76,7 @@ from quantcore.execution.risk_gate import (
 )
 from quantcore.execution.smart_order_router import SmartOrderRouter, SmartOrderRouterError
 from quantcore.microstructure.microstructure_features import MicrostructureFeatureEngine
+
 from quant_pod.agents.microstructure_signal_agent import MicrostructureSignalAgent
 
 # ---- HF risk gate defaults (tunable via env vars) ----
@@ -91,13 +90,13 @@ _BROKER_ACCOUNT_ID = os.getenv("BROKER_ACCOUNT_ID", "default")
 
 @dataclass
 class _PipelineStats:
-    ticks_processed:   int = 0
+    ticks_processed: int = 0
     signals_generated: int = 0
-    risk_rejections:   int = 0
-    orders_placed:     int = 0
-    router_errors:     int = 0
-    exceptions:        int = 0
-    symbols_active:    set = field(default_factory=set)
+    risk_rejections: int = 0
+    orders_placed: int = 0
+    router_errors: int = 0
+    exceptions: int = 0
+    symbols_active: set = field(default_factory=set)
 
 
 class MicrostructurePipeline:
@@ -134,12 +133,12 @@ class MicrostructurePipeline:
     @classmethod
     def build(
         cls,
-        symbols: List[str],
+        symbols: list[str],
         sor: SmartOrderRouter,
         fill_tracker: FillTracker,
         account_id: str = _BROKER_ACCOUNT_ID,
         asset_class: str = "equity",
-    ) -> "MicrostructurePipeline":
+    ) -> MicrostructurePipeline:
         """Build a ready-to-use pipeline for the given symbols.
 
         Args:
@@ -260,10 +259,7 @@ class MicrostructurePipeline:
             order = await self._agent.on_features(features)
         except Exception as _e:
             self._stats.exceptions += 1
-            logger.warning(
-                f"[MicroPipeline] Signal evaluation error for "
-                f"{features.symbol}: {_e}"
-            )
+            logger.warning(f"[MicroPipeline] Signal evaluation error for {features.symbol}: {_e}")
             return
 
         if order is None:
@@ -276,7 +272,6 @@ class MicrostructurePipeline:
         # Use a safe price estimate: features don't carry last trade price directly,
         # so we attempt to get it from fill_tracker; fall back to 0 (gate uses notional)
         try:
-            from quantcore.execution.fill_tracker import FillTracker
             pos = self._fill_tracker.get_position(features.symbol)
             current_price = pos.avg_cost if pos else 0.0
         except Exception:
@@ -286,9 +281,7 @@ class MicrostructurePipeline:
             self._risk_gate.check(order=order, current_price=current_price)
         except RiskGateError as rge:
             self._stats.risk_rejections += 1
-            logger.debug(
-                f"[MicroPipeline] Risk gate BLOCKED {order.symbol}: {rge.message}"
-            )
+            logger.debug(f"[MicroPipeline] Risk gate BLOCKED {order.symbol}: {rge.message}")
             return
 
         # Route order through SmartOrderRouter
@@ -303,10 +296,7 @@ class MicrostructurePipeline:
             )
 
             if result.status == "rejected":
-                logger.debug(
-                    f"[MicroPipeline] SOR REJECTED {order.symbol}: "
-                    f"{result.reject_reason}"
-                )
+                logger.debug(f"[MicroPipeline] SOR REJECTED {order.symbol}: {result.reject_reason}")
                 return
 
             # Record fill so FillTracker + downstream risk gate stays consistent
@@ -331,21 +321,17 @@ class MicrostructurePipeline:
         except SmartOrderRouterError as sor_err:
             self._stats.router_errors += 1
             logger.warning(
-                f"[MicroPipeline] SOR exhausted all brokers for "
-                f"{order.symbol}: {sor_err}"
+                f"[MicroPipeline] SOR exhausted all brokers for {order.symbol}: {sor_err}"
             )
         except Exception as _e:
             self._stats.exceptions += 1
-            logger.error(
-                f"[MicroPipeline] Unexpected routing error for "
-                f"{order.symbol}: {_e}"
-            )
+            logger.error(f"[MicroPipeline] Unexpected routing error for {order.symbol}: {_e}")
 
     # -------------------------------------------------------------------------
     # Observability
     # -------------------------------------------------------------------------
 
-    def stats(self) -> Dict:
+    def stats(self) -> dict:
         """Return pipeline counters for monitoring / MCP tool exposure."""
         return {
             "ticks_processed": self._stats.ticks_processed,

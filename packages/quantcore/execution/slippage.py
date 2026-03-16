@@ -9,10 +9,9 @@ Models slippage as function of:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
-import pandas as pd
+
 import numpy as np
-from loguru import logger
+import pandas as pd
 
 
 @dataclass
@@ -106,9 +105,7 @@ class VolumeSlippageModel(SlippageModel):
         vol_pct = volatility / 100 if volatility > 1 else volatility
 
         # Temporary impact (recovers)
-        temp_impact = (
-            self.temporary_impact_coef * vol_pct * np.sqrt(participation) * 10000
-        )
+        temp_impact = self.temporary_impact_coef * vol_pct * np.sqrt(participation) * 10000
 
         # Permanent impact (doesn't recover)
         perm_impact = self.permanent_impact_coef * vol_pct * participation * 10000
@@ -211,9 +208,7 @@ class CompositeSlippageModel(SlippageModel):
         spread_bps: float,
     ) -> SlippageEstimate:
         """Estimate composite slippage (max of models)."""
-        vol_est = self.volume_model.estimate(
-            trade_size, price, volume, volatility, spread_bps
-        )
+        vol_est = self.volume_model.estimate(trade_size, price, volume, volatility, spread_bps)
         volat_est = self.volatility_model.estimate(
             trade_size, price, volume, volatility, spread_bps
         )

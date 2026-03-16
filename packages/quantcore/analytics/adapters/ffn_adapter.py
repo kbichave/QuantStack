@@ -13,18 +13,19 @@ Provides:
 FFN (Financial Functions) is a battle-tested library for portfolio analysis.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from loguru import logger
 
 
 def compute_portfolio_stats_ffn(
-    equity_curve: Union[pd.Series, List[float], np.ndarray],
+    equity_curve: pd.Series | list[float] | np.ndarray,
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
-    benchmark: Optional[Union[pd.Series, List[float]]] = None,
-) -> Dict[str, Any]:
+    benchmark: pd.Series | list[float] | None = None,
+) -> dict[str, Any]:
     """
     Compute comprehensive portfolio statistics using ffn.
 
@@ -70,14 +71,10 @@ def compute_portfolio_stats_ffn(
         stats = {
             # Return metrics
             "total_return": (
-                float(perf.total_return)
-                if hasattr(perf, "total_return")
-                else _total_return(equity)
+                float(perf.total_return) if hasattr(perf, "total_return") else _total_return(equity)
             ),
             "cagr": (
-                float(perf.cagr)
-                if hasattr(perf, "cagr")
-                else _cagr(equity, periods_per_year)
+                float(perf.cagr) if hasattr(perf, "cagr") else _cagr(equity, periods_per_year)
             ),
             "daily_mean": float(returns.mean()),
             "daily_std": float(returns.std()),
@@ -85,19 +82,13 @@ def compute_portfolio_stats_ffn(
             "annualized_volatility": float(returns.std() * np.sqrt(periods_per_year)),
             # Risk metrics
             "max_drawdown": (
-                float(perf.max_drawdown)
-                if hasattr(perf, "max_drawdown")
-                else _max_drawdown(equity)
+                float(perf.max_drawdown) if hasattr(perf, "max_drawdown") else _max_drawdown(equity)
             ),
             "avg_drawdown": (
-                float(perf.avg_drawdown)
-                if hasattr(perf, "avg_drawdown")
-                else _avg_drawdown(equity)
+                float(perf.avg_drawdown) if hasattr(perf, "avg_drawdown") else _avg_drawdown(equity)
             ),
             "avg_drawdown_days": (
-                float(perf.avg_drawdown_days)
-                if hasattr(perf, "avg_drawdown_days")
-                else None
+                float(perf.avg_drawdown_days) if hasattr(perf, "avg_drawdown_days") else None
             ),
             # Risk-adjusted ratios
             "sharpe_ratio": (
@@ -152,9 +143,7 @@ def compute_portfolio_stats_ffn(
 
     except ImportError:
         logger.warning("ffn not available, using internal calculations")
-        return _compute_stats_internal(
-            equity, returns, risk_free_rate, periods_per_year
-        )
+        return _compute_stats_internal(equity, returns, risk_free_rate, periods_per_year)
 
 
 def _compute_stats_internal(
@@ -162,7 +151,7 @@ def _compute_stats_internal(
     returns: pd.Series,
     risk_free_rate: float,
     periods_per_year: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Internal implementation without ffn."""
     return {
         "total_return": _total_return(equity),
@@ -191,11 +180,11 @@ def _compute_stats_internal(
 
 
 def compute_factor_stats_ffn(
-    returns: Union[pd.Series, List[float], np.ndarray],
-    benchmark_returns: Union[pd.Series, List[float], np.ndarray],
+    returns: pd.Series | list[float] | np.ndarray,
+    benchmark_returns: pd.Series | list[float] | np.ndarray,
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute factor/benchmark-relative statistics.
 
@@ -240,8 +229,8 @@ def compute_factor_stats_ffn(
 
     # Convert to excess returns
     rf_period = risk_free_rate / periods_per_year
-    excess_ret = ret - rf_period
-    excess_bench = bench - rf_period
+    ret - rf_period
+    bench - rf_period
 
     # Beta and Alpha (CAPM regression)
     cov_matrix = np.cov(ret, bench)
@@ -299,19 +288,17 @@ def compute_factor_stats_ffn(
         "treynor_ratio": float(treynor_ratio),
         "up_capture": float(up_capture),
         "down_capture": float(down_capture),
-        "capture_ratio": (
-            float(up_capture / down_capture) if down_capture != 0 else None
-        ),
+        "capture_ratio": (float(up_capture / down_capture) if down_capture != 0 else None),
         "active_return": float(active_returns.mean() * periods_per_year),
     }
 
 
 def generate_tearsheet_data(
-    equity_curve: Union[pd.Series, List[float], np.ndarray],
-    benchmark: Optional[Union[pd.Series, List[float]]] = None,
+    equity_curve: pd.Series | list[float] | np.ndarray,
+    benchmark: pd.Series | list[float] | None = None,
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Generate comprehensive tearsheet data for reporting.
 
@@ -340,9 +327,7 @@ def generate_tearsheet_data(
     returns = equity.pct_change().dropna()
 
     # Summary statistics
-    summary = compute_portfolio_stats_ffn(
-        equity, risk_free_rate, periods_per_year, benchmark
-    )
+    summary = compute_portfolio_stats_ffn(equity, risk_free_rate, periods_per_year, benchmark)
 
     # Monthly returns table
     try:
@@ -357,9 +342,7 @@ def generate_tearsheet_data(
     # Rolling metrics (21-day rolling window)
     rolling_window = min(21, len(returns) // 2)
     if rolling_window > 5:
-        rolling_sharpe = _rolling_sharpe(
-            returns, rolling_window, risk_free_rate, periods_per_year
-        )
+        rolling_sharpe = _rolling_sharpe(returns, rolling_window, risk_free_rate, periods_per_year)
         rolling_vol = returns.rolling(rolling_window).std() * np.sqrt(periods_per_year)
     else:
         rolling_sharpe = pd.Series()
@@ -446,9 +429,7 @@ def _avg_drawdown(equity: pd.Series) -> float:
     return float(dd_values.mean())
 
 
-def _sharpe_ratio(
-    returns: pd.Series, risk_free_rate: float, periods_per_year: int
-) -> float:
+def _sharpe_ratio(returns: pd.Series, risk_free_rate: float, periods_per_year: int) -> float:
     """Calculate Sharpe ratio."""
     if returns.std() == 0:
         return 0.0
@@ -458,9 +439,7 @@ def _sharpe_ratio(
     return float(excess_returns.mean() / returns.std() * np.sqrt(periods_per_year))
 
 
-def _sortino_ratio(
-    returns: pd.Series, risk_free_rate: float, periods_per_year: int
-) -> float:
+def _sortino_ratio(returns: pd.Series, risk_free_rate: float, periods_per_year: int) -> float:
     """Calculate Sortino ratio."""
     rf_period = risk_free_rate / periods_per_year
     excess_returns = returns - rf_period
@@ -483,14 +462,14 @@ def _calmar_ratio(equity: pd.Series, periods_per_year: int) -> float:
     return float(cagr / max_dd)
 
 
-def _drawdown_details(equity: pd.Series) -> Dict[str, Any]:
+def _drawdown_details(equity: pd.Series) -> dict[str, Any]:
     """Get detailed drawdown information."""
     running_max = equity.expanding().max()
     drawdown = (equity - running_max) / running_max
 
     # Find max drawdown point
     max_dd_idx = drawdown.idxmin()
-    max_dd = drawdown.min()
+    drawdown.min()
 
     # Find peak before max DD
     peak_idx = running_max.loc[:max_dd_idx].idxmax()
@@ -509,9 +488,7 @@ def _drawdown_details(equity: pd.Series) -> Dict[str, Any]:
         "max_dd_start": str(peak_idx) if peak_idx is not None else None,
         "max_dd_trough": str(max_dd_idx) if max_dd_idx is not None else None,
         "max_dd_recovery": str(recovery_idx) if recovery_idx is not None else None,
-        "max_dd_duration": (
-            len(equity.loc[peak_idx:max_dd_idx]) if peak_idx is not None else None
-        ),
+        "max_dd_duration": (len(equity.loc[peak_idx:max_dd_idx]) if peak_idx is not None else None),
         "max_dd_recovery_duration": recovery_duration,
     }
 
@@ -520,14 +497,12 @@ def _resample_returns(returns: pd.Series, freq: str) -> pd.Series:
     """Resample returns to specified frequency."""
     if not isinstance(returns.index, pd.DatetimeIndex):
         # Create a date range
-        returns.index = pd.date_range(
-            start="2020-01-01", periods=len(returns), freq="D"
-        )
+        returns.index = pd.date_range(start="2020-01-01", periods=len(returns), freq="D")
 
     return (1 + returns).resample(freq).prod() - 1
 
 
-def _build_monthly_table(monthly_returns: pd.Series) -> Dict[str, Any]:
+def _build_monthly_table(monthly_returns: pd.Series) -> dict[str, Any]:
     """Build monthly return table by year."""
     if len(monthly_returns) == 0:
         return {}
@@ -536,15 +511,13 @@ def _build_monthly_table(monthly_returns: pd.Series) -> Dict[str, Any]:
     df["year"] = df.index.year
     df["month"] = df.index.month
 
-    pivot = df.pivot_table(
-        values="return", index="year", columns="month", aggfunc="sum"
-    )
+    pivot = df.pivot_table(values="return", index="year", columns="month", aggfunc="sum")
     pivot["YTD"] = pivot.sum(axis=1)
 
     return pivot.to_dict()
 
 
-def _get_drawdown_periods(equity: pd.Series, top_n: int = 5) -> List[Dict[str, Any]]:
+def _get_drawdown_periods(equity: pd.Series, top_n: int = 5) -> list[dict[str, Any]]:
     """Get top N drawdown periods."""
     running_max = equity.expanding().max()
     drawdown = (equity - running_max) / running_max
@@ -554,7 +527,7 @@ def _get_drawdown_periods(equity: pd.Series, top_n: int = 5) -> List[Dict[str, A
     in_drawdown = False
     start_idx = None
 
-    for i, (idx, dd) in enumerate(drawdown.items()):
+    for _i, (idx, dd) in enumerate(drawdown.items()):
         if dd < 0 and not in_drawdown:
             in_drawdown = True
             start_idx = idx

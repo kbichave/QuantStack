@@ -8,10 +8,8 @@ Adds market-wide and sector-relative features to individual symbols:
 - Beta estimation
 """
 
-from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
-from loguru import logger
 
 
 class CrossAssetFeatures:
@@ -45,7 +43,7 @@ class CrossAssetFeatures:
         self.lookback = lookback
         self.beta_lookback = beta_lookback
 
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get list of feature names computed by this class."""
         return [
             "returns",
@@ -69,9 +67,9 @@ class CrossAssetFeatures:
     def compute(
         self,
         symbol_data: pd.DataFrame,
-        spy_data: Optional[pd.DataFrame] = None,
-        qqq_data: Optional[pd.DataFrame] = None,
-        sector_etf_data: Optional[pd.DataFrame] = None,
+        spy_data: pd.DataFrame | None = None,
+        qqq_data: pd.DataFrame | None = None,
+        sector_etf_data: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """
         Compute cross-asset features.
@@ -145,9 +143,7 @@ class CrossAssetFeatures:
 
         # Relative strength z-score
         rs = result[f"{prefix}_relative_strength"]
-        result[f"{prefix}_rs_zscore"] = (rs - rs.rolling(60).mean()) / rs.rolling(
-            60
-        ).std()
+        result[f"{prefix}_rs_zscore"] = (rs - rs.rolling(60).mean()) / rs.rolling(60).std()
 
         # Rolling beta
         result[f"{prefix}_beta"] = self._compute_rolling_beta(
@@ -167,9 +163,7 @@ class CrossAssetFeatures:
             symbol_vol_avg = result["volume"].rolling(20).mean()
             bench_vol_avg = aligned_vol["bench_volume"].rolling(20).mean()
 
-            result[f"{prefix}_relative_volume"] = (
-                symbol_vol_avg / bench_vol_avg.replace(0, np.nan)
-            )
+            result[f"{prefix}_relative_volume"] = symbol_vol_avg / bench_vol_avg.replace(0, np.nan)
 
         return result
 
@@ -204,9 +198,7 @@ class CrossAssetFeatures:
         )
 
         # Outperforming sector flag
-        result["outperforming_sector"] = (result["sector_relative_perf"] > 0).astype(
-            int
-        )
+        result["outperforming_sector"] = (result["sector_relative_perf"] > 0).astype(int)
 
         return result
 
@@ -240,9 +232,7 @@ class CrossAssetFeatures:
         spy["above_200ma"] = (spy["close"] > spy["ma_200"]).astype(int)
 
         result = result.join(
-            spy[["regime_bullish", "regime_bearish", "above_200ma"]].add_prefix(
-                "market_"
-            ),
+            spy[["regime_bullish", "regime_bearish", "above_200ma"]].add_prefix("market_"),
             how="left",
         )
 
@@ -291,15 +281,15 @@ class CrossAssetFeatureBuilder:
 
     def __init__(self):
         """Initialize feature builder."""
-        self.spy_data: Optional[pd.DataFrame] = None
-        self.qqq_data: Optional[pd.DataFrame] = None
-        self.sector_etfs: Dict[str, pd.DataFrame] = {}
+        self.spy_data: pd.DataFrame | None = None
+        self.qqq_data: pd.DataFrame | None = None
+        self.sector_etfs: dict[str, pd.DataFrame] = {}
         self._feature_computer = CrossAssetFeatures()
 
     def set_market_data(
         self,
         spy_data: pd.DataFrame,
-        qqq_data: Optional[pd.DataFrame] = None,
+        qqq_data: pd.DataFrame | None = None,
     ) -> "CrossAssetFeatureBuilder":
         """
         Set market benchmark data.
@@ -314,7 +304,7 @@ class CrossAssetFeatureBuilder:
 
     def set_sector_etfs(
         self,
-        sector_etfs: Dict[str, pd.DataFrame],
+        sector_etfs: dict[str, pd.DataFrame],
     ) -> "CrossAssetFeatureBuilder":
         """
         Set sector ETF data.
@@ -329,7 +319,7 @@ class CrossAssetFeatureBuilder:
         self,
         symbol_data: pd.DataFrame,
         symbol: str,
-        sector: Optional[str] = None,
+        sector: str | None = None,
     ) -> pd.DataFrame:
         """
         Build cross-asset features for a symbol.
@@ -370,6 +360,6 @@ SECTOR_ETF_MAP = {
 }
 
 
-def get_sector_etf(sector: str) -> Optional[str]:
+def get_sector_etf(sector: str) -> str | None:
     """Get sector ETF symbol for a sector."""
     return SECTOR_ETF_MAP.get(sector.upper())

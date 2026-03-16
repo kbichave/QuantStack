@@ -20,20 +20,14 @@ Design principles:
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import List
 
 import pytest
-
 from quant_arena.historical.sim_broker import (
     Order,
     OrderSide,
     OrderStatus,
-    PortfolioState,
-    Position,
     SimBroker,
-    Trade,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -51,7 +45,7 @@ def make_broker(
     return SimBroker(
         initial_equity=initial_equity,
         slippage_bps=slippage_bps,
-        commission_per_share=0.0,   # zero commission simplifies P&L assertions
+        commission_per_share=0.0,  # zero commission simplifies P&L assertions
         max_position_pct=max_position_pct,
         max_drawdown_halt_pct=max_drawdown_halt_pct,
         max_daily_loss_pct=max_daily_loss_pct,
@@ -264,9 +258,9 @@ class TestOrderAuditTrail:
 
     def test_rejected_order_appears_in_audit(self):
         broker = make_broker()
-        d0 = date(2024, 1, 2)
+        date(2024, 1, 2)
         # No price update — order will be rejected
-        order = broker.submit_order("SPY", OrderSide.BUY, 50)
+        broker.submit_order("SPY", OrderSide.BUY, 50)
 
         audit = broker.get_order_audit()
         assert len(audit) == 1

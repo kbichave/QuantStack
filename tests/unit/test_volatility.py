@@ -6,7 +6,6 @@
 import numpy as np
 import pandas as pd
 import pytest
-
 from quantcore.config.timeframes import Timeframe
 from quantcore.features.volatility import VolatilityFeatures
 
@@ -183,12 +182,8 @@ class TestBollingerBands:
         result = features.compute(ohlcv)
 
         valid_idx = result["bb_upper"].notna()
-        assert (
-            result.loc[valid_idx, "bb_upper"] >= result.loc[valid_idx, "bb_middle"]
-        ).all()
-        assert (
-            result.loc[valid_idx, "bb_middle"] >= result.loc[valid_idx, "bb_lower"]
-        ).all()
+        assert (result.loc[valid_idx, "bb_upper"] >= result.loc[valid_idx, "bb_middle"]).all()
+        assert (result.loc[valid_idx, "bb_middle"] >= result.loc[valid_idx, "bb_lower"]).all()
 
     def test_bb_width_positive(self, features, ohlcv):
         """Test Bollinger Band width is positive."""
@@ -310,7 +305,7 @@ class TestVolatilityZScore:
 
         # Should be -1 (low), 0 (normal), or 1 (high)
         valid_values = vol_regime.dropna()
-        assert set(valid_values.unique()).issubset({-1, 0, 1, -1.0, 0.0, 1.0})
+        assert set(valid_values.unique()).issubset({-1, 0, 1, -1.0})
 
 
 class TestHVolRatio:

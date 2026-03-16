@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence
 
 from loguru import logger
 
@@ -21,10 +21,10 @@ class PodSelection:
     """Pod + IC roster assembled for a task envelope."""
 
     asset_class: str
-    ic_agents: List[str] = field(default_factory=list)
-    pod_managers: List[str] = field(default_factory=list)
+    ic_agents: list[str] = field(default_factory=list)
+    pod_managers: list[str] = field(default_factory=list)
     profile_used: str = ""
-    declined: List[str] = field(default_factory=list)
+    declined: list[str] = field(default_factory=list)
 
     def ensure_dependencies(self) -> None:
         """Ensure pod managers have their dependent ICs scheduled."""
@@ -33,13 +33,11 @@ class PodSelection:
                 if ic not in self.ic_agents:
                     self.ic_agents.append(ic)
 
-    def prune_by_asset(self, registry: Dict[str, Dict[str, Sequence[str]]]) -> None:
+    def prune_by_asset(self, registry: dict[str, dict[str, Sequence[str]]]) -> None:
         """Drop units that do not support the requested asset class."""
         allowed_ics = []
         for ic in self.ic_agents:
-            if self.asset_class in registry["ics"].get(ic, {}).get(
-                "asset_classes", set()
-            ):
+            if self.asset_class in registry["ics"].get(ic, {}).get("asset_classes", set()):
                 allowed_ics.append(ic)
             else:
                 self.declined.append(ic)
@@ -55,7 +53,7 @@ class PodSelection:
                 self.declined.append(pod)
         self.pod_managers = allowed_pods
 
-    def as_log_dict(self) -> Dict[str, object]:
+    def as_log_dict(self) -> dict[str, object]:
         return {
             "asset_class": self.asset_class,
             "profile": self.profile_used,
@@ -77,11 +75,9 @@ class CrewAssembler:
     def assemble(
         self,
         envelope: TaskEnvelope,
-        llm_decider: Optional[Callable[[str], str]] = None,
+        llm_decider: Callable[[str], str] | None = None,
     ) -> PodSelection:
-        profile = PROFILE_DEFAULTS.get(
-            envelope.asset_class, PROFILE_DEFAULTS["equities"]
-        )
+        profile = PROFILE_DEFAULTS.get(envelope.asset_class, PROFILE_DEFAULTS["equities"])
 
         selection = PodSelection(
             asset_class=envelope.asset_class,
@@ -94,9 +90,7 @@ class CrewAssembler:
             override = self._llm_override(envelope, llm_decider)
             if override:
                 selection.ic_agents = override.get("ics", selection.ic_agents)
-                selection.pod_managers = override.get(
-                    "pod_managers", selection.pod_managers
-                )
+                selection.pod_managers = override.get("pod_managers", selection.pod_managers)
 
         selection.ensure_dependencies()
         selection.prune_by_asset(self._registry)
@@ -116,7 +110,7 @@ class CrewAssembler:
         self,
         envelope: TaskEnvelope,
         llm_decider: Callable[[str], str],
-    ) -> Optional[Dict[str, List[str]]]:
+    ) -> dict[str, list[str]] | None:
         """Optional LLM override: expects JSON with {ics:[], pod_managers:[]}."""
         prompt = self._build_prompt(envelope)
         try:
@@ -139,7 +133,7 @@ class CrewAssembler:
 
         ics = parsed.get("ics")
         pod_managers = parsed.get("pod_managers")
-        result: Dict[str, List[str]] = {}
+        result: dict[str, list[str]] = {}
         if isinstance(ics, list):
             result["ics"] = [str(x) for x in ics]
         if isinstance(pod_managers, list):
@@ -160,9 +154,9 @@ class CrewAssembler:
         )
 
 
-def _dedupe_in_order(items: List[str]) -> List[str]:
+def _dedupe_in_order(items: list[str]) -> list[str]:
     seen = set()
-    ordered: List[str] = []
+    ordered: list[str] = []
     for item in items:
         if item not in seen:
             ordered.append(item)

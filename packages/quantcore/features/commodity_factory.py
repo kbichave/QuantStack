@@ -4,27 +4,25 @@ Commodity feature factory.
 Orchestrates all commodity-specific feature calculations.
 """
 
-from typing import Dict, List, Optional
 import pandas as pd
-import numpy as np
 from loguru import logger
 
-from quantcore.data.base import AssetClass
 from quantcore.config.timeframes import Timeframe
-from quantcore.features.trend import TrendFeatures
-from quantcore.features.momentum import MomentumFeatures
-from quantcore.features.volatility import VolatilityFeatures
-from quantcore.features.volume import VolumeFeatures
-from quantcore.features.technical_indicators import TechnicalIndicators
-from quantcore.features.market_structure import MarketStructureFeatures
-from quantcore.features.gann import GannFeatures
-from quantcore.features.sentiment_features import SentimentFeatures
-from quantcore.features.commodity.spread_features import SpreadFeatures
+from quantcore.data.base import AssetClass
+from quantcore.features.commodity.cross_asset_features import CrossAssetFeatures
 from quantcore.features.commodity.curve_features import CurveFeatures
-from quantcore.features.commodity.seasonality_features import SeasonalityFeatures
 from quantcore.features.commodity.event_features import EventFeatures
 from quantcore.features.commodity.microstructure_features import MicrostructureFeatures
-from quantcore.features.commodity.cross_asset_features import CrossAssetFeatures
+from quantcore.features.commodity.seasonality_features import SeasonalityFeatures
+from quantcore.features.commodity.spread_features import SpreadFeatures
+from quantcore.features.gann import GannFeatures
+from quantcore.features.market_structure import MarketStructureFeatures
+from quantcore.features.momentum import MomentumFeatures
+from quantcore.features.sentiment_features import SentimentFeatures
+from quantcore.features.technical_indicators import TechnicalIndicators
+from quantcore.features.trend import TrendFeatures
+from quantcore.features.volatility import VolatilityFeatures
+from quantcore.features.volume import VolumeFeatures
 
 
 class CommodityFeatureFactory:
@@ -114,14 +112,14 @@ class CommodityFeatureFactory:
 
     def compute_features(
         self,
-        data: Dict[Timeframe, pd.DataFrame],
-        spread_data: Optional[pd.DataFrame] = None,
-        crack_spread_data: Optional[pd.DataFrame] = None,
-        curve_data: Optional[Dict[str, pd.DataFrame]] = None,
-        event_calendar: Optional[pd.DataFrame] = None,
-        cross_asset_data: Optional[Dict[str, pd.DataFrame]] = None,
-        news_sentiment_data: Optional[pd.DataFrame] = None,
-    ) -> Dict[Timeframe, pd.DataFrame]:
+        data: dict[Timeframe, pd.DataFrame],
+        spread_data: pd.DataFrame | None = None,
+        crack_spread_data: pd.DataFrame | None = None,
+        curve_data: dict[str, pd.DataFrame] | None = None,
+        event_calendar: pd.DataFrame | None = None,
+        cross_asset_data: dict[str, pd.DataFrame] | None = None,
+        news_sentiment_data: pd.DataFrame | None = None,
+    ) -> dict[Timeframe, pd.DataFrame]:
         """
         Compute all features for commodity data.
 
@@ -167,12 +165,12 @@ class CommodityFeatureFactory:
         self,
         df: pd.DataFrame,
         timeframe: Timeframe,
-        spread_data: Optional[pd.DataFrame] = None,
-        crack_spread_data: Optional[pd.DataFrame] = None,
-        curve_data: Optional[Dict[str, pd.DataFrame]] = None,
-        event_calendar: Optional[pd.DataFrame] = None,
-        cross_asset_data: Optional[Dict[str, pd.DataFrame]] = None,
-        news_sentiment_data: Optional[pd.DataFrame] = None,
+        spread_data: pd.DataFrame | None = None,
+        crack_spread_data: pd.DataFrame | None = None,
+        curve_data: dict[str, pd.DataFrame] | None = None,
+        event_calendar: pd.DataFrame | None = None,
+        cross_asset_data: dict[str, pd.DataFrame] | None = None,
+        news_sentiment_data: pd.DataFrame | None = None,
     ) -> pd.DataFrame:
         """Compute all features for a single timeframe."""
         result = df.copy()
@@ -328,7 +326,7 @@ class CommodityFeatureFactory:
 
         return result
 
-    def get_feature_names(self, timeframe: Timeframe) -> List[str]:
+    def get_feature_names(self, timeframe: Timeframe) -> list[str]:
         """
         Get list of all feature names for a timeframe.
 
@@ -421,7 +419,7 @@ class CommodityFeatureFactory:
 
         return list(set(features))  # Remove duplicates
 
-    def get_feature_groups(self) -> Dict[str, List[str]]:
+    def get_feature_groups(self) -> dict[str, list[str]]:
         """
         Get features organized by group.
 

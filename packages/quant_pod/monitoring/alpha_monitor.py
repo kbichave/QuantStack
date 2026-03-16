@@ -32,16 +32,15 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
 
 import requests
 from loguru import logger
 
 
 class AlertSeverity(str, Enum):
-    CRITICAL = "critical"   # rolling IC negative — signal is destroying value
-    WARNING = "warning"     # IC decaying toward zero — monitor closely
-    INFO = "info"           # win-rate or retraining flag
+    CRITICAL = "critical"  # rolling IC negative — signal is destroying value
+    WARNING = "warning"  # IC decaying toward zero — monitor closely
+    INFO = "info"  # win-rate or retraining flag
 
 
 @dataclass
@@ -68,8 +67,8 @@ class DegradationReport:
 
     checked_at: datetime
     n_agents_checked: int
-    alerts: List[DegradationAlert]
-    all_agents_ic_summary: List[Dict]
+    alerts: list[DegradationAlert]
+    all_agents_ic_summary: list[dict]
 
     @property
     def has_critical(self) -> bool:
@@ -107,12 +106,12 @@ class AlphaMonitor:
     # IC thresholds — set conservatively to avoid alert fatigue.
     # A signal with rolling IC between 0 and 0.01 is marginal but not dead;
     # only flag it when also showing DECAYING trend.
-    CRITICAL_IC_THRESHOLD = 0.0      # rolling IC < 0 → actively harmful
-    WARNING_IC_THRESHOLD = 0.01      # rolling IC < 0.01 AND DECAYING
+    CRITICAL_IC_THRESHOLD = 0.0  # rolling IC < 0 → actively harmful
+    WARNING_IC_THRESHOLD = 0.01  # rolling IC < 0.01 AND DECAYING
 
     def __init__(
         self,
-        webhook_url: Optional[str] = None,
+        webhook_url: str | None = None,
         min_observations: int = 10,
     ) -> None:
         """
@@ -141,7 +140,7 @@ class AlphaMonitor:
         tracker = SkillTracker(store)
         ic_summary = tracker.ic_summary()  # sorted by ICIR desc
 
-        alerts: List[DegradationAlert] = []
+        alerts: list[DegradationAlert] = []
         now = datetime.now()
 
         for entry in ic_summary:
@@ -164,13 +163,11 @@ class AlphaMonitor:
             )
             self._send_discord_alert(report)
         else:
-            logger.info(
-                f"[MONITOR] Alpha check clean — {len(ic_summary)} agents, no degradation"
-            )
+            logger.info(f"[MONITOR] Alpha check clean — {len(ic_summary)} agents, no degradation")
 
         return report
 
-    def check_agent(self, agent_id: str) -> Optional[DegradationAlert]:
+    def check_agent(self, agent_id: str) -> DegradationAlert | None:
         """
         Check a single agent. Returns None if the agent is healthy.
 
@@ -195,9 +192,9 @@ class AlphaMonitor:
 
     def _classify_agent(
         self,
-        entry: Dict,
+        entry: dict,
         tracker,
-    ) -> Optional[DegradationAlert]:
+    ) -> DegradationAlert | None:
         """
         Classify an agent's IC summary entry into an alert.
 
@@ -282,47 +279,55 @@ class AlphaMonitor:
             return
 
         color_map = {
-            "critical": 0xFF0000,   # Red
-            "warning": 0xFFAA00,    # Amber
-            "info": 0x3498DB,       # Blue
-            "clean": 0x2ECC71,      # Green
+            "critical": 0xFF0000,  # Red
+            "warning": 0xFFAA00,  # Amber
+            "info": 0x3498DB,  # Blue
+            "clean": 0x2ECC71,  # Green
         }
 
         status = report.overall_status
         embeds = []
 
         # Summary embed
-        embeds.append({
-            "title": f"QuantPod Alpha Monitor — {status.upper()}",
-            "color": color_map.get(status, 0x95A5A6),
-            "timestamp": report.checked_at.isoformat(),
-            "fields": [
-                {
-                    "name": "Agents Checked",
-                    "value": str(report.n_agents_checked),
-                    "inline": True,
-                },
-                {
-                    "name": "Alerts",
-                    "value": str(len(report.alerts)),
-                    "inline": True,
-                },
-            ],
-        })
+        embeds.append(
+            {
+                "title": f"QuantPod Alpha Monitor — {status.upper()}",
+                "color": color_map.get(status, 0x95A5A6),
+                "timestamp": report.checked_at.isoformat(),
+                "fields": [
+                    {
+                        "name": "Agents Checked",
+                        "value": str(report.n_agents_checked),
+                        "inline": True,
+                    },
+                    {
+                        "name": "Alerts",
+                        "value": str(len(report.alerts)),
+                        "inline": True,
+                    },
+                ],
+            }
+        )
 
         # One embed per alert (cap at 5 to avoid Discord 10-embed limit)
         for alert in report.alerts[:5]:
             embed_color = color_map.get(alert.severity.value, 0x95A5A6)
-            embeds.append({
-                "title": f"{alert.emoji} {alert.agent_id} — {alert.severity.value.upper()}",
-                "description": alert.message,
-                "color": embed_color,
-                "fields": [
-                    {"name": "Rolling IC(30)", "value": f"{alert.rolling_ic_30:.4f}", "inline": True},
-                    {"name": "ICIR", "value": f"{alert.icir:.3f}", "inline": True},
-                    {"name": "IC Trend", "value": alert.ic_trend, "inline": True},
-                ],
-            })
+            embeds.append(
+                {
+                    "title": f"{alert.emoji} {alert.agent_id} — {alert.severity.value.upper()}",
+                    "description": alert.message,
+                    "color": embed_color,
+                    "fields": [
+                        {
+                            "name": "Rolling IC(30)",
+                            "value": f"{alert.rolling_ic_30:.4f}",
+                            "inline": True,
+                        },
+                        {"name": "ICIR", "value": f"{alert.icir:.3f}", "inline": True},
+                        {"name": "IC Trend", "value": alert.ic_trend, "inline": True},
+                    ],
+                }
+            )
 
         payload = {
             "username": "QuantPod Monitor",

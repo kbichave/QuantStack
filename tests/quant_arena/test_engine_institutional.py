@@ -23,44 +23,41 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
-import pytest
-
 from quant_arena.historical.config import HistoricalConfig
 from quant_arena.historical.engine import HistoricalEngine, SimulationResult
 from quant_arena.historical.sim_broker import OrderSide, SimBroker
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_config(**kwargs) -> HistoricalConfig:
     """Build a minimal HistoricalConfig — large enough to pass engine init."""
-    defaults = dict(
-        symbols=["SPY", "QQQ"],
-        initial_equity=100_000.0,
-        max_leverage=1.0,
-        slippage_bps=5.0,
-        commission_per_share=0.005,
-        max_position_pct=0.25,
-        max_drawdown_halt_pct=0.20,
-        max_daily_loss_pct=0.05,
-        benchmark_symbol="SPY",
-        max_portfolio_correlation=1.0,  # disabled by default
-        walk_forward_mode=False,
-        walk_forward_n_folds=5,
-        walk_forward_test_days=63,
-    )
+    defaults = {
+        "symbols": ["SPY", "QQQ"],
+        "initial_equity": 100_000.0,
+        "max_leverage": 1.0,
+        "slippage_bps": 5.0,
+        "commission_per_share": 0.005,
+        "max_position_pct": 0.25,
+        "max_drawdown_halt_pct": 0.20,
+        "max_daily_loss_pct": 0.05,
+        "benchmark_symbol": "SPY",
+        "max_portfolio_correlation": 1.0,  # disabled by default
+        "walk_forward_mode": False,
+        "walk_forward_n_folds": 5,
+        "walk_forward_test_days": 63,
+    }
     defaults.update(kwargs)
     return HistoricalConfig(**defaults)
 
 
-def _make_engine(config: Optional[HistoricalConfig] = None) -> HistoricalEngine:
+def _make_engine(config: HistoricalConfig | None = None) -> HistoricalEngine:
     """
     Build an HistoricalEngine with mocked universe and data_loader so no
     real I/O happens during unit tests.
@@ -117,20 +114,25 @@ class _FakeSnap:
     date: date = date(2023, 1, 2)
 
 
-def _inject_snapshots(engine: HistoricalEngine, returns: List[float], start_equity: float = 100_000.0):
+def _inject_snapshots(
+    engine: HistoricalEngine, returns: list[float], start_equity: float = 100_000.0
+):
     """
     Populate broker daily_snapshots from a synthetic return series so that
     _generate_result() has data to work with.
     """
     snaps = [_FakeSnap(equity=start_equity, date=date(2023, 1, 2))]
     for i, r in enumerate(returns):
-        snaps.append(_FakeSnap(equity=snaps[-1].equity * (1 + r), date=date(2023, 1, 3) + timedelta(days=i)))
+        snaps.append(
+            _FakeSnap(equity=snaps[-1].equity * (1 + r), date=date(2023, 1, 3) + timedelta(days=i))
+        )
     engine.broker._daily_snapshots = snaps
 
 
 # ---------------------------------------------------------------------------
 # TestSimulationResultDefaults
 # ---------------------------------------------------------------------------
+
 
 class TestSimulationResultDefaults:
     """SimulationResult optional institutional fields default to None / empty."""
@@ -181,6 +183,7 @@ class TestSimulationResultDefaults:
 # TestConfigNewFields
 # ---------------------------------------------------------------------------
 
+
 class TestConfigNewFields:
     """Verify T1-3, T1-6, T2-6 fields are present in HistoricalConfig."""
 
@@ -208,6 +211,7 @@ class TestConfigNewFields:
 # ---------------------------------------------------------------------------
 # TestCorrelationCheckPasses
 # ---------------------------------------------------------------------------
+
 
 class TestCorrelationCheckPasses:
     """
@@ -301,6 +305,7 @@ class TestCorrelationCheckPasses:
 # TestGenerateResultSharpe
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateResultSharpe:
     """_generate_result() correctly populates Sharpe-related fields."""
 
@@ -310,13 +315,20 @@ class TestGenerateResultSharpe:
         returns = list(rng.normal(0.0005, 0.01, 100))
         _inject_snapshots(engine, returns)
 
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 110_000.0,
-            "total_return": 0.10,
-            "max_drawdown": -0.05,
-            "total_trades": 80,
-            "win_rate": 0.55,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 110_000.0,
+                    "total_return": 0.10,
+                    "max_drawdown": -0.05,
+                    "total_trades": 80,
+                    "win_rate": 0.55,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         assert result.sharpe_ratio is not None
@@ -328,13 +340,20 @@ class TestGenerateResultSharpe:
         returns = [0.001] * 100  # constant 10bps per day
         _inject_snapshots(engine, returns)
 
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 110_000.0,
-            "total_return": 0.10,
-            "max_drawdown": 0.0,
-            "total_trades": 100,
-            "win_rate": 1.0,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 110_000.0,
+                    "total_return": 0.10,
+                    "max_drawdown": 0.0,
+                    "total_trades": 100,
+                    "win_rate": 1.0,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         # With zero variance, Sharpe may be 0 (division by zero guard) or very high.
@@ -347,13 +366,20 @@ class TestGenerateResultSharpe:
         # Fewer than 10 observations → CI not computed
         _inject_snapshots(engine, [0.001] * 5)
 
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 100_500.0,
-            "total_return": 0.005,
-            "max_drawdown": 0.0,
-            "total_trades": 0,
-            "win_rate": 0.0,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 100_500.0,
+                    "total_return": 0.005,
+                    "max_drawdown": 0.0,
+                    "total_trades": 0,
+                    "win_rate": 0.0,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         # With < 10 returns the quantcore branch is not entered; CI stays None
@@ -364,16 +390,21 @@ class TestGenerateResultSharpe:
 # TestGenerateResultBenchmark
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateResultBenchmark:
     """_generate_result() benchmark comparison (T1-6): alpha / beta / IR fields."""
 
-    def _engine_with_spy_data(self, strat_returns: List[float], bench_returns: List[float]) -> HistoricalEngine:
+    def _engine_with_spy_data(
+        self, strat_returns: list[float], bench_returns: list[float]
+    ) -> HistoricalEngine:
         engine = _make_engine()
         _inject_snapshots(engine, strat_returns)
 
         # Stub data_loader.get_price_history for SPY
         n = len(bench_returns) + 1
-        spy_prices = pd.Series([100.0 * float(np.prod(1 + np.array(bench_returns[:i]))) for i in range(n)])
+        spy_prices = pd.Series(
+            [100.0 * float(np.prod(1 + np.array(bench_returns[:i]))) for i in range(n)]
+        )
         engine.data_loader.get_price_history = MagicMock(return_value=spy_prices)
         engine.data_loader.end = date(2023, 12, 31)
 
@@ -386,10 +417,20 @@ class TestGenerateResultBenchmark:
         strat = [1.2 * r + rng.normal(0, 0.002) for r in bench]
         engine = self._engine_with_spy_data(strat, bench)
 
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 115_000.0, "total_return": 0.15,
-            "max_drawdown": -0.05, "total_trades": 80, "win_rate": 0.6,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 115_000.0,
+                    "total_return": 0.15,
+                    "max_drawdown": -0.05,
+                    "total_trades": 80,
+                    "win_rate": 0.6,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         if result.beta is not None:
@@ -402,10 +443,20 @@ class TestGenerateResultBenchmark:
         strat = [r + rng.normal(0, 0.003) for r in bench]
         engine = self._engine_with_spy_data(strat, bench)
 
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 108_000.0, "total_return": 0.08,
-            "max_drawdown": -0.04, "total_trades": 50, "win_rate": 0.55,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 108_000.0,
+                    "total_return": 0.08,
+                    "max_drawdown": -0.04,
+                    "total_trades": 50,
+                    "win_rate": 0.55,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         if result.benchmark_return is not None:
@@ -417,10 +468,20 @@ class TestGenerateResultBenchmark:
         engine.data_loader.get_price_history = MagicMock(return_value=pd.Series([], dtype=float))
         engine.data_loader.end = date(2023, 12, 31)
 
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 105_000.0, "total_return": 0.05,
-            "max_drawdown": -0.02, "total_trades": 40, "win_rate": 0.6,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 105_000.0,
+                    "total_return": 0.05,
+                    "max_drawdown": -0.02,
+                    "total_trades": 40,
+                    "win_rate": 0.6,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         # Fields stay None on missing benchmark data — must not raise
@@ -431,10 +492,13 @@ class TestGenerateResultBenchmark:
 # TestGenerateResultWalkForward
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateResultWalkForward:
     """Walk-forward (T1-3) runs when config.walk_forward_mode=True."""
 
-    def _wf_engine(self, n_returns: int = 200, n_folds: int = 3, test_days: int = 40) -> HistoricalEngine:
+    def _wf_engine(
+        self, n_returns: int = 200, n_folds: int = 3, test_days: int = 40
+    ) -> HistoricalEngine:
         config = _make_config(
             walk_forward_mode=True,
             walk_forward_n_folds=n_folds,
@@ -450,16 +514,28 @@ class TestGenerateResultWalkForward:
 
     def test_walk_forward_summary_populated(self):
         engine = self._wf_engine()
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 120_000.0, "total_return": 0.20,
-            "max_drawdown": -0.06, "total_trades": 120, "win_rate": 0.58,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 120_000.0,
+                    "total_return": 0.20,
+                    "max_drawdown": -0.06,
+                    "total_trades": 120,
+                    "win_rate": 0.58,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         # walk_forward_summary should be populated (not None) for a long enough series
         # Exact value depends on whether quantcore is installed; check type or None
         # If quantcore unavailable, result is still not an error — just None
-        assert result.walk_forward_summary is None or hasattr(result.walk_forward_summary, "n_folds")
+        assert result.walk_forward_summary is None or hasattr(
+            result.walk_forward_summary, "n_folds"
+        )
 
     def test_walk_forward_disabled_gives_none(self):
         config = _make_config(walk_forward_mode=False)
@@ -469,10 +545,20 @@ class TestGenerateResultWalkForward:
         engine.data_loader.get_price_history = MagicMock(return_value=pd.Series([], dtype=float))
         engine.data_loader.end = date(2023, 12, 31)
 
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 108_000.0, "total_return": 0.08,
-            "max_drawdown": -0.03, "total_trades": 60, "win_rate": 0.52,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 108_000.0,
+                    "total_return": 0.08,
+                    "max_drawdown": -0.03,
+                    "total_trades": 60,
+                    "win_rate": 0.52,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         assert result.walk_forward_summary is None
@@ -480,10 +566,20 @@ class TestGenerateResultWalkForward:
     def test_walk_forward_too_few_returns_gives_none(self):
         # If there aren't enough returns to form folds, result is gracefully None
         engine = self._wf_engine(n_returns=15)  # < 20 returns threshold
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 101_000.0, "total_return": 0.01,
-            "max_drawdown": -0.01, "total_trades": 5, "win_rate": 0.5,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 101_000.0,
+                    "total_return": 0.01,
+                    "max_drawdown": -0.01,
+                    "total_trades": 5,
+                    "win_rate": 0.5,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         assert result.walk_forward_summary is None
@@ -492,6 +588,7 @@ class TestGenerateResultWalkForward:
 # ---------------------------------------------------------------------------
 # TestGenerateResultOverfitting
 # ---------------------------------------------------------------------------
+
 
 class TestGenerateResultOverfitting:
     """Overfitting verdict field is populated if quantcore is available."""
@@ -503,10 +600,20 @@ class TestGenerateResultOverfitting:
         engine.data_loader.get_price_history = MagicMock(return_value=pd.Series([], dtype=float))
         engine.data_loader.end = date(2023, 12, 31)
 
-        with patch.object(engine.broker, "get_summary", return_value={
-            "final_equity": 106_000.0, "total_return": 0.06,
-            "max_drawdown": -0.03, "total_trades": 50, "win_rate": 0.54,
-        }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+        with (
+            patch.object(
+                engine.broker,
+                "get_summary",
+                return_value={
+                    "final_equity": 106_000.0,
+                    "total_return": 0.06,
+                    "max_drawdown": -0.03,
+                    "total_trades": 50,
+                    "win_rate": 0.54,
+                },
+            ),
+            patch.object(engine.broker, "get_trade_history", return_value=[]),
+        ):
             result = engine._generate_result()
 
         # Either empty (quantcore absent) or one of the valid verdicts
@@ -522,6 +629,7 @@ class TestGenerateResultOverfitting:
 
         # Simulate ImportError for overfitting module
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):
@@ -530,10 +638,20 @@ class TestGenerateResultOverfitting:
             return real_import(name, *args, **kwargs)
 
         with patch("builtins.__import__", side_effect=fake_import):
-            with patch.object(engine.broker, "get_summary", return_value={
-                "final_equity": 103_000.0, "total_return": 0.03,
-                "max_drawdown": -0.01, "total_trades": 20, "win_rate": 0.5,
-            }), patch.object(engine.broker, "get_trade_history", return_value=[]):
+            with (
+                patch.object(
+                    engine.broker,
+                    "get_summary",
+                    return_value={
+                        "final_equity": 103_000.0,
+                        "total_return": 0.03,
+                        "max_drawdown": -0.01,
+                        "total_trades": 20,
+                        "win_rate": 0.5,
+                    },
+                ),
+                patch.object(engine.broker, "get_trade_history", return_value=[]),
+            ):
                 result = engine._generate_result()
 
         # Should not raise; verdict empty when module unavailable
@@ -544,6 +662,7 @@ class TestGenerateResultOverfitting:
 # TestGetTca
 # ---------------------------------------------------------------------------
 
+
 class TestGetTca:
     """_get_tca() caches the TCA engine and handles missing module gracefully."""
 
@@ -553,6 +672,7 @@ class TestGetTca:
         engine._tca_available = None
 
         import builtins
+
         real_import = builtins.__import__
 
         def fake_import(name, *args, **kwargs):

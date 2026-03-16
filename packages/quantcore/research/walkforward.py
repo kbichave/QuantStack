@@ -8,10 +8,11 @@ Provides rigorous time-series cross-validation:
 - Out-of-sample performance tracking
 """
 
+from collections.abc import Callable, Generator
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional, Callable, Generator
-from dataclasses import dataclass
 from loguru import logger
 
 
@@ -32,11 +33,11 @@ class WalkForwardFold:
 class WalkForwardResult:
     """Result from walk-forward validation."""
 
-    folds: List[WalkForwardFold]
-    train_metrics: List[Dict]
-    test_metrics: List[Dict]
-    aggregate_train: Dict
-    aggregate_test: Dict
+    folds: list[WalkForwardFold]
+    train_metrics: list[dict]
+    test_metrics: list[dict]
+    aggregate_train: dict
+    aggregate_test: dict
     overfit_ratio: float  # train/test performance ratio
 
 
@@ -75,7 +76,7 @@ class WalkForwardValidator:
     def split(
         self,
         data: pd.DataFrame,
-    ) -> Generator[Tuple[np.ndarray, np.ndarray], None, None]:
+    ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
         """
         Generate train/test indices for walk-forward validation.
 
@@ -115,7 +116,7 @@ class WalkForwardValidator:
 
             yield train_idx, test_idx
 
-    def get_folds(self, data: pd.DataFrame) -> List[WalkForwardFold]:
+    def get_folds(self, data: pd.DataFrame) -> list[WalkForwardFold]:
         """Get detailed fold information."""
         folds = []
 
@@ -138,7 +139,7 @@ class WalkForwardValidator:
         data: pd.DataFrame,
         model_fn: Callable,
         evaluate_fn: Callable,
-        features: List[str],
+        features: list[str],
         target: str,
     ) -> WalkForwardResult:
         """
@@ -162,7 +163,7 @@ class WalkForwardValidator:
         y = data[target].values
 
         for i, (train_idx, test_idx) in enumerate(self.split(data)):
-            logger.info(f"Walk-forward fold {i+1}/{self.n_splits}")
+            logger.info(f"Walk-forward fold {i + 1}/{self.n_splits}")
 
             X_train, y_train = X[train_idx], y[train_idx]
             X_test, y_test = X[test_idx], y[test_idx]
@@ -199,7 +200,7 @@ class WalkForwardValidator:
             overfit_ratio=overfit_ratio,
         )
 
-    def _aggregate_metrics(self, metrics_list: List[Dict]) -> Dict:
+    def _aggregate_metrics(self, metrics_list: list[dict]) -> dict:
         """Aggregate metrics across folds."""
         if not metrics_list:
             return {}
@@ -247,7 +248,7 @@ class CombinatorialPurgedCV:
     def split(
         self,
         data: pd.DataFrame,
-    ) -> Generator[Tuple[np.ndarray, np.ndarray], None, None]:
+    ) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
         """
         Generate train/test splits with purging and embargo.
 
@@ -288,9 +289,7 @@ class CombinatorialPurgedCV:
 
             # Train indices = everything except test and purged
             all_test = set(test_idx)
-            train_idx = [
-                i for i in range(n) if i not in all_test and i not in purge_idx
-            ]
+            train_idx = [i for i in range(n) if i not in all_test and i not in purge_idx]
 
             yield np.array(train_idx), np.array(sorted(test_idx))
 
@@ -301,7 +300,7 @@ def backtest_walk_forward(
     returns_col: str,
     n_splits: int = 5,
     test_size: int = 252,
-) -> Dict:
+) -> dict:
     """
     Simple walk-forward backtest of a signal.
 
@@ -327,7 +326,7 @@ def backtest_walk_forward(
         "fold_dates": [],
     }
 
-    for fold_id, (train_idx, test_idx) in enumerate(validator.split(data)):
+    for _fold_id, (_train_idx, test_idx) in enumerate(validator.split(data)):
         # Get test period
         test_data = data.iloc[test_idx]
 
@@ -425,9 +424,10 @@ class CPCVEvaluator:
         if not oos_return_series:
             logger.warning("CPCVEvaluator: no valid splits produced")
             from quantcore.research.overfitting import (
-                OverfittingReport,
                 DSRResult,
+                OverfittingReport,
             )
+
             dummy_dsr = DSRResult(
                 observed_sharpe=0.0,
                 benchmark_sharpe=0.0,
@@ -476,9 +476,10 @@ class CPCVEvaluator:
             Dict of {strategy_name: OverfittingReport} plus a combined PBO.
         """
         import numpy as np
+
         from quantcore.research.overfitting import (
-            run_overfitting_analysis,
             probability_of_backtest_overfitting,
+            run_overfitting_analysis,
         )
 
         n = len(strategy_signals)
@@ -503,9 +504,7 @@ class CPCVEvaluator:
         r_matrix = np.column_stack([aligned[nm].reindex(common_dates).values for nm in all_names])
 
         # PBO across all strategies
-        pbo_result = probability_of_backtest_overfitting(
-            r_matrix, n_splits=self.cpcv.n_splits
-        )
+        pbo_result = probability_of_backtest_overfitting(r_matrix, n_splits=self.cpcv.n_splits)
 
         # Per-strategy DSR
         results = {}
@@ -538,7 +537,7 @@ Fold {fold.fold_id + 1}:
   Test:  {fold.test_start.date()} to {fold.test_end.date()} ({fold.test_size} bars)
 """
 
-    report += f"""
+    report += """
 Aggregate Results:
 ------------------
 Train Performance:
@@ -546,7 +545,7 @@ Train Performance:
     for key, val in result.aggregate_train.items():
         report += f"  {key}: {val:.4f}\n"
 
-    report += f"""
+    report += """
 Test Performance:
 """
     for key, val in result.aggregate_test.items():

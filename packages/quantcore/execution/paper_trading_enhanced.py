@@ -13,25 +13,20 @@ Production-grade paper trading with:
 """
 
 import json
-import time
-from dataclasses import dataclass, field, asdict
+import uuid
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from threading import Thread, Event
-import uuid
+from typing import Any
 
-import numpy as np
 import pandas as pd
 from loguru import logger
 
-from quantcore.microstructure.order_book import OrderBook, Order, OrderType, Side
+from quantcore.microstructure.impact_models import ImpactModel
 from quantcore.microstructure.matching_engine import (
     MatchingEngine,
-    Fill,
-    ExecutionReport,
 )
-from quantcore.microstructure.impact_models import ImpactModel, ImpactParams
+from quantcore.microstructure.order_book import Order, OrderBook, OrderType, Side
 
 
 @dataclass
@@ -44,7 +39,7 @@ class EnhancedPaperOrder:
     side: str  # "BUY" or "SELL"
     order_type: str  # "MARKET", "LIMIT"
     quantity: float
-    limit_price: Optional[float] = None
+    limit_price: float | None = None
 
     # Signal info
     signal_strength: float = 0.0
@@ -54,18 +49,18 @@ class EnhancedPaperOrder:
     status: str = "PENDING"  # PENDING, SUBMITTED, PARTIAL, FILLED, CANCELLED, REJECTED
     filled_quantity: float = 0.0
     avg_fill_price: float = 0.0
-    fills: List[Dict] = field(default_factory=list)
+    fills: list[dict] = field(default_factory=list)
 
     # Timing
-    submitted_at: Optional[datetime] = None
-    filled_at: Optional[datetime] = None
+    submitted_at: datetime | None = None
+    filled_at: datetime | None = None
 
     # Costs
     commission: float = 0.0
     slippage: float = 0.0
     market_impact: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "order_id": self.order_id,
@@ -81,9 +76,7 @@ class EnhancedPaperOrder:
             "filled_quantity": self.filled_quantity,
             "avg_fill_price": self.avg_fill_price,
             "fills": self.fills,
-            "submitted_at": (
-                self.submitted_at.isoformat() if self.submitted_at else None
-            ),
+            "submitted_at": (self.submitted_at.isoformat() if self.submitted_at else None),
             "filled_at": self.filled_at.isoformat() if self.filled_at else None,
             "commission": self.commission,
             "slippage": self.slippage,
@@ -105,7 +98,7 @@ class OrderBookState:
     ask_depth_5: float  # Total volume at top 5 ask levels
     imbalance: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "timestamp": self.timestamp.isoformat(),
             "symbol": self.symbol,
@@ -140,9 +133,9 @@ class EnhancedPaperPosition:
     total_commission: float = 0.0
 
     # Order history
-    order_ids: List[str] = field(default_factory=list)
+    order_ids: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "side": self.side,
@@ -179,7 +172,7 @@ class ExecutionQualityMetrics:
     # Arrival price comparison (Implementation Shortfall)
     implementation_shortfall_bps: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -248,17 +241,17 @@ class EnhancedPaperTradingEngine:
         self.log_book_states = log_book_states
 
         # Microstructure components
-        self.engines: Dict[str, MatchingEngine] = {}
+        self.engines: dict[str, MatchingEngine] = {}
         self.impact_model = ImpactModel(
             volatility=volatility,
             daily_volume=daily_volume,
         )
 
         # State
-        self.positions: Dict[str, EnhancedPaperPosition] = {}
-        self.orders: List[EnhancedPaperOrder] = []
-        self.book_states: List[OrderBookState] = []
-        self.equity_curve: List[Dict] = []
+        self.positions: dict[str, EnhancedPaperPosition] = {}
+        self.orders: list[EnhancedPaperOrder] = []
+        self.book_states: list[OrderBookState] = []
+        self.equity_curve: list[dict] = []
 
         # Metrics
         self.total_trades = 0
@@ -269,9 +262,7 @@ class EnhancedPaperTradingEngine:
 
         logger.info(f"Enhanced Paper Trading initialized: ${initial_capital:,.2f}")
 
-    def _get_or_create_engine(
-        self, symbol: str, current_price: float
-    ) -> MatchingEngine:
+    def _get_or_create_engine(self, symbol: str, current_price: float) -> MatchingEngine:
         """Get or create matching engine for symbol."""
         if symbol not in self.engines:
             self.engines[symbol] = MatchingEngine()
@@ -353,7 +344,7 @@ class EnhancedPaperTradingEngine:
         quantity: float,
         current_price: float,
         order_type: str = "MARKET",
-        limit_price: Optional[float] = None,
+        limit_price: float | None = None,
         signal_strength: float = 0.0,
         signal_reason: str = "",
     ) -> EnhancedPaperOrder:
@@ -400,9 +391,7 @@ class EnhancedPaperTradingEngine:
 
         # Create order
         book_side = Side.BID if side == "BUY" else Side.ASK
-        book_order_type = (
-            OrderType.MARKET if order_type == "MARKET" else OrderType.LIMIT
-        )
+        book_order_type = OrderType.MARKET if order_type == "MARKET" else OrderType.LIMIT
         book_order = Order(
             order_id=0,
             side=book_side,
@@ -436,9 +425,7 @@ class EnhancedPaperTradingEngine:
             order.commission = trade_value * self.commission_rate
 
             # Slippage: difference from arrival price
-            order.slippage = (
-                abs(report.avg_price - arrival_price) / arrival_price * 10000
-            )  # bps
+            order.slippage = abs(report.avg_price - arrival_price) / arrival_price * 10000  # bps
 
             # Market impact
             impact = self.impact_model.estimate(
@@ -499,9 +486,7 @@ class EnhancedPaperTradingEngine:
             pos.order_ids.append(order_id)
 
             # Same direction: add to position
-            if (pos.side == "LONG" and side == "BUY") or (
-                pos.side == "SHORT" and side == "SELL"
-            ):
+            if (pos.side == "LONG" and side == "BUY") or (pos.side == "SHORT" and side == "SELL"):
                 # Average price update
                 total_value = pos.quantity * pos.avg_entry_price + quantity * fill_price
                 pos.quantity += quantity
@@ -550,7 +535,7 @@ class EnhancedPaperTradingEngine:
                 pos.total_impact += order.market_impact
                 pos.total_commission += order.commission
 
-    def update_prices(self, prices: Dict[str, float]) -> None:
+    def update_prices(self, prices: dict[str, float]) -> None:
         """Update current prices and mark to market."""
         for symbol, price in prices.items():
             if symbol in self.positions:
@@ -586,27 +571,19 @@ class EnhancedPaperTradingEngine:
         if filled_orders:
             metrics.total_volume = sum(o.filled_quantity for o in filled_orders)
             metrics.avg_slippage_bps = (
-                self.total_slippage / metrics.total_volume
-                if metrics.total_volume > 0
-                else 0
+                self.total_slippage / metrics.total_volume if metrics.total_volume > 0 else 0
             )
             metrics.avg_impact_bps = (
-                self.total_impact / metrics.total_volume
-                if metrics.total_volume > 0
-                else 0
+                self.total_impact / metrics.total_volume if metrics.total_volume > 0 else 0
             )
             metrics.total_commission = self.total_commission
 
             # VWAP
-            total_value = sum(
-                o.avg_fill_price * o.filled_quantity for o in filled_orders
-            )
+            total_value = sum(o.avg_fill_price * o.filled_quantity for o in filled_orders)
             metrics.vwap_price = total_value / metrics.total_volume
 
             # Implementation shortfall
-            metrics.implementation_shortfall_bps = (
-                metrics.avg_slippage_bps + metrics.avg_impact_bps
-            )
+            metrics.implementation_shortfall_bps = metrics.avg_slippage_bps + metrics.avg_impact_bps
 
         return metrics
 
@@ -638,7 +615,7 @@ class EnhancedPaperTradingEngine:
 
         return "\n".join(lines)
 
-    def save_audit_log(self, filename: Optional[str] = None) -> Path:
+    def save_audit_log(self, filename: str | None = None) -> Path:
         """
         Save complete audit log to JSON file.
 

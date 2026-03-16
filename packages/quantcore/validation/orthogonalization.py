@@ -5,9 +5,9 @@ Removes redundant features to prevent overfitting.
 """
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Dict
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
@@ -19,9 +19,9 @@ class OrthogonalizationResult:
 
     original_features: int
     selected_features: int
-    removed_features: List[str]
-    feature_clusters: Dict[str, List[str]]
-    explained_variance_ratio: Optional[float] = None
+    removed_features: list[str]
+    feature_clusters: dict[str, list[str]]
+    explained_variance_ratio: float | None = None
 
 
 class CorrelationFilter:
@@ -45,9 +45,9 @@ class CorrelationFilter:
         """
         self.threshold = threshold
         self.method = method
-        self._selected_features: List[str] = []
-        self._removed_features: List[str] = []
-        self._clusters: Dict[str, List[str]] = {}
+        self._selected_features: list[str] = []
+        self._removed_features: list[str] = []
+        self._clusters: dict[str, list[str]] = {}
 
     def fit(self, X: pd.DataFrame) -> "CorrelationFilter":
         """
@@ -97,14 +97,10 @@ class CorrelationFilter:
                 clusters[col_i] = cluster
 
         self._selected_features = [X.columns[i] for i in sorted(to_keep)]
-        self._removed_features = [
-            c for c in X.columns if c not in self._selected_features
-        ]
+        self._removed_features = [c for c in X.columns if c not in self._selected_features]
         self._clusters = clusters
 
-        logger.info(
-            f"Correlation filter: {n_features} -> {len(self._selected_features)} features"
-        )
+        logger.info(f"Correlation filter: {n_features} -> {len(self._selected_features)} features")
 
         return self
 
@@ -120,8 +116,7 @@ class CorrelationFilter:
     def get_result(self) -> OrthogonalizationResult:
         """Get orthogonalization result."""
         return OrthogonalizationResult(
-            original_features=len(self._selected_features)
-            + len(self._removed_features),
+            original_features=len(self._selected_features) + len(self._removed_features),
             selected_features=len(self._selected_features),
             removed_features=self._removed_features,
             feature_clusters=self._clusters,
@@ -137,7 +132,7 @@ class PCAReducer:
 
     def __init__(
         self,
-        n_components: Optional[int] = None,
+        n_components: int | None = None,
         variance_threshold: float = 0.95,
         scale: bool = True,
     ):
@@ -153,9 +148,9 @@ class PCAReducer:
         self.variance_threshold = variance_threshold
         self.scale = scale
 
-        self._pca: Optional[PCA] = None
-        self._scaler: Optional[StandardScaler] = None
-        self._feature_names: List[str] = []
+        self._pca: PCA | None = None
+        self._scaler: StandardScaler | None = None
+        self._feature_names: list[str] = []
 
     def fit(self, X: pd.DataFrame) -> "PCAReducer":
         """
@@ -221,7 +216,7 @@ class PCAReducer:
 
         components = self._pca.transform(X_scaled)
 
-        col_names = [f"PC{i+1}" for i in range(components.shape[1])]
+        col_names = [f"PC{i + 1}" for i in range(components.shape[1])]
         return pd.DataFrame(components, index=X.index, columns=col_names)
 
     def fit_transform(self, X: pd.DataFrame) -> pd.DataFrame:
@@ -237,14 +232,14 @@ class PCAReducer:
         loadings = pd.DataFrame(
             self._pca.components_.T,
             index=self._feature_names,
-            columns=[f"PC{i+1}" for i in range(self._pca.n_components_)],
+            columns=[f"PC{i + 1}" for i in range(self._pca.n_components_)],
         )
         return loadings
 
     def get_top_features(
         self,
         n_features: int = 5,
-    ) -> Dict[str, List[Tuple[str, float]]]:
+    ) -> dict[str, list[tuple[str, float]]]:
         """
         Get top contributing features for each component.
 
@@ -260,8 +255,7 @@ class PCAReducer:
         for col in loadings.columns:
             sorted_loadings = loadings[col].abs().sort_values(ascending=False)
             top_features = [
-                (feat, loadings.loc[feat, col])
-                for feat in sorted_loadings.head(n_features).index
+                (feat, loadings.loc[feat, col]) for feat in sorted_loadings.head(n_features).index
             ]
             result[col] = top_features
 
@@ -346,7 +340,7 @@ class FeatureOrthogonalizer:
         self.fit(X)
         return self.transform(X)
 
-    def get_feature_importance_mapping(self) -> Dict[str, List[str]]:
+    def get_feature_importance_mapping(self) -> dict[str, list[str]]:
         """
         Get mapping from output features to original features.
 

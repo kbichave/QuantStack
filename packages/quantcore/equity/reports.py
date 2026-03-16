@@ -7,7 +7,7 @@ Includes quant research metrics integration.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -15,8 +15,8 @@ from loguru import logger
 # Import quant research integration
 try:
     from quantcore.research.quant_metrics import (
+        QuantResearchReport,  # noqa: F401
         run_signal_diagnostics,
-        QuantResearchReport,
     )
 
     QUANT_METRICS_AVAILABLE = True
@@ -49,10 +49,10 @@ class StrategyResult:
     win_rate: float
     num_trades: int
     avg_trade_pnl: float
-    per_ticker: Dict[str, TickerStrategyResult] = field(default_factory=dict)
+    per_ticker: dict[str, TickerStrategyResult] = field(default_factory=dict)
     best_ticker: str = ""
     worst_ticker: str = ""
-    train_metrics: Dict[str, Any] = field(default_factory=dict)
+    train_metrics: dict[str, Any] = field(default_factory=dict)
     # Quant research metrics
     ic: float = 0.0
     ic_ir: float = 0.0
@@ -67,12 +67,12 @@ class PipelineReport:
 
     timestamp: str
     symbols_count: int
-    data_summary: Dict[str, str]
-    split_info: Dict[str, str]
-    strategy_results: Dict[str, StrategyResult]
-    ticker_breakdown: Dict[str, Dict[str, float]]  # ticker -> strategy -> pnl
+    data_summary: dict[str, str]
+    split_info: dict[str, str]
+    strategy_results: dict[str, StrategyResult]
+    ticker_breakdown: dict[str, dict[str, float]]  # ticker -> strategy -> pnl
     best_strategy: str
-    recommendations: List[str]
+    recommendations: list[str]
 
 
 def generate_text_report(report: PipelineReport, output_path: Path) -> None:
@@ -91,7 +91,7 @@ def generate_text_report(report: PipelineReport, output_path: Path) -> None:
     lines.append("=" * 80)
     lines.append(f"  Generated: {report.timestamp}")
     lines.append(f"  Symbols: {report.symbols_count}")
-    lines.append(f"  Trade Size: 100 shares, $0 commission")
+    lines.append("  Trade Size: 100 shares, $0 commission")
     lines.append("")
 
     # Data Integrity Notice
@@ -126,20 +126,14 @@ def generate_text_report(report: PipelineReport, output_path: Path) -> None:
     lines.append(header)
     lines.append("  " + "-" * 78)
 
-    for name, result in sorted(
-        report.strategy_results.items(), key=lambda x: -x[1].total_pnl
-    ):
-        best_pnl = (
-            result.per_ticker.get(
-                result.best_ticker, TickerStrategyResult("", "", 0, 0, 0, 0)
-            ).pnl
+    for name, result in sorted(report.strategy_results.items(), key=lambda x: -x[1].total_pnl):
+        (
+            result.per_ticker.get(result.best_ticker, TickerStrategyResult("", "", 0, 0, 0, 0)).pnl
             if result.best_ticker
             else 0
         )
-        worst_pnl = (
-            result.per_ticker.get(
-                result.worst_ticker, TickerStrategyResult("", "", 0, 0, 0, 0)
-            ).pnl
+        (
+            result.per_ticker.get(result.worst_ticker, TickerStrategyResult("", "", 0, 0, 0, 0)).pnl
             if result.worst_ticker
             else 0
         )
@@ -236,8 +230,6 @@ def enrich_with_quant_metrics(
         result.sortino_ratio = quant_report.sortino_ratio
         result.annual_turnover = quant_report.annual_turnover
     except Exception as e:
-        logger.warning(
-            f"Failed to compute quant metrics for {result.strategy_name}: {e}"
-        )
+        logger.warning(f"Failed to compute quant metrics for {result.strategy_name}: {e}")
 
     return result

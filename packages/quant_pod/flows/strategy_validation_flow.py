@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -65,26 +65,28 @@ _DSR_N_TRIALS = int(os.getenv("DSR_N_TRIALS", "10"))
 
 # WalkForward config
 _N_SPLITS = int(os.getenv("WF_N_SPLITS", "5"))
-_TEST_SIZE = int(os.getenv("WF_TEST_SIZE", "63"))   # quarterly OOS windows
+_TEST_SIZE = int(os.getenv("WF_TEST_SIZE", "63"))  # quarterly OOS windows
 _MIN_TRAIN = int(os.getenv("WF_MIN_TRAIN", "252"))  # 1 year minimum IS
-_GAP = int(os.getenv("WF_GAP", "21"))              # 1-month embargo between IS and OOS
+_GAP = int(os.getenv("WF_GAP", "21"))  # 1-month embargo between IS and OOS
 
 # Thresholds
-_OVERFIT_RATIO_THRESHOLD = float(os.getenv("OVERFIT_RATIO_THRESHOLD", "1.5"))  # IS/OOS > 1.5 → degraded
+_OVERFIT_RATIO_THRESHOLD = float(
+    os.getenv("OVERFIT_RATIO_THRESHOLD", "1.5")
+)  # IS/OOS > 1.5 → degraded
 _PBO_THRESHOLD = float(os.getenv("PBO_THRESHOLD", "0.5"))
 
 ValidationVerdict = Literal["passed", "degraded", "overfit", "insufficient_data"]
 
 
 class ValidationState(BaseModel):
-    symbols: List[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
     lookback_days: int = 760  # ~3 years of daily bars
 
     # Flow-populated during execution
-    returns_df: Optional[Any] = None   # pd.DataFrame; Any to avoid Pydantic serialization issues
-    wf_result: Optional[Dict[str, Any]] = None
-    dsr_result: Optional[Any] = None
-    pbo_result: Optional[Any] = None
+    returns_df: Any | None = None  # pd.DataFrame; Any to avoid Pydantic serialization issues
+    wf_result: dict[str, Any] | None = None
+    dsr_result: Any | None = None
+    pbo_result: Any | None = None
     overfit_ratio: float = 1.0
     verdict: str = "insufficient_data"
     detail: str = ""
@@ -108,7 +110,7 @@ class StrategyValidationFlow(Flow[ValidationState]):
     # =========================================================================
 
     @start()
-    def load_historical_data(self) -> Dict[str, Any]:
+    def load_historical_data(self) -> dict[str, Any]:
         """Load daily close returns from DataStore for all symbols."""
         logger.info("═══ STRATEGY VALIDATION: LOAD DATA ═══")
 
@@ -122,10 +124,10 @@ class StrategyValidationFlow(Flow[ValidationState]):
         end_date = datetime.combine(date.today(), datetime.min.time())
         start_date = end_date - timedelta(days=self.state.lookback_days)
 
-        returns_dict: Dict[str, pd.Series] = {}
+        returns_dict: dict[str, pd.Series] = {}
         try:
-            from quantcore.data.storage import DataStore
             from quantcore.config.timeframes import Timeframe
+            from quantcore.data.storage import DataStore
 
             store = DataStore()
             for sym in symbols:
@@ -167,7 +169,7 @@ class StrategyValidationFlow(Flow[ValidationState]):
         if n_bars < _MIN_BARS:
             msg = (
                 f"Insufficient history: {n_bars} bars < minimum {_MIN_BARS} "
-                f"(≈{_MIN_BARS//252} years required)"
+                f"(≈{_MIN_BARS // 252} years required)"
             )
             logger.warning(f"[Validation] {msg}")
             self.state.verdict = "insufficient_data"
@@ -184,7 +186,7 @@ class StrategyValidationFlow(Flow[ValidationState]):
     # =========================================================================
 
     @listen(load_historical_data)
-    def run_walk_forward(self, load_result: Dict) -> Dict[str, Any]:
+    def run_walk_forward(self, load_result: dict) -> dict[str, Any]:
         """Run walk-forward validation on the portfolio return series."""
         if load_result.get("status") != "ok":
             return {"status": "skipped", "reason": load_result.get("status")}
@@ -205,8 +207,8 @@ class StrategyValidationFlow(Flow[ValidationState]):
                 expanding=True,
             )
 
-            is_sharpes: List[float] = []
-            oos_sharpes: List[float] = []
+            is_sharpes: list[float] = []
+            oos_sharpes: list[float] = []
 
             for train_idx, test_idx in validator.split(data):
                 r_train = returns_series.iloc[train_idx]
@@ -247,7 +249,7 @@ class StrategyValidationFlow(Flow[ValidationState]):
     # =========================================================================
 
     @listen(run_walk_forward)
-    def run_overfitting_checks(self, wf_result: Dict) -> Dict[str, Any]:
+    def run_overfitting_checks(self, wf_result: dict) -> dict[str, Any]:
         """Run Deflated Sharpe Ratio and Probability of Backtest Overfitting."""
         if wf_result.get("status") != "ok":
             return {"status": "skipped", "reason": wf_result.get("status")}
@@ -293,29 +295,24 @@ class StrategyValidationFlow(Flow[ValidationState]):
 
             if self.state.returns_df is not None and len(self.state.returns_df.columns) >= 2:
                 # Drop the portfolio column; use per-symbol OOS returns as variants
-                symbol_cols = [
-                    c for c in self.state.returns_df.columns if c != "portfolio"
-                ]
+                symbol_cols = [c for c in self.state.returns_df.columns if c != "portfolio"]
                 if len(symbol_cols) >= 2:
-                    pbo_matrix = self.state.returns_df[symbol_cols].dropna(how="all").fillna(0.0).values
+                    pbo_matrix = (
+                        self.state.returns_df[symbol_cols].dropna(how="all").fillna(0.0).values
+                    )
                     if pbo_matrix.shape[0] >= 20 and pbo_matrix.shape[1] >= 2:
                         pbo_result = probability_of_backtest_overfitting(pbo_matrix)
                         self.state.pbo_result = pbo_result
                         logger.info(
-                            f"[Validation] PBO={pbo_result.pbo:.3f} "
-                            f"overfit={pbo_result.is_overfit}"
+                            f"[Validation] PBO={pbo_result.pbo:.3f} overfit={pbo_result.is_overfit}"
                         )
         except Exception as _pbo_err:
             logger.warning(f"[Validation] PBO computation failed: {_pbo_err}")
 
         return {
             "status": "ok",
-            "dsr_genuine": (
-                self.state.dsr_result.is_genuine if self.state.dsr_result else None
-            ),
-            "pbo": (
-                self.state.pbo_result.pbo if self.state.pbo_result else None
-            ),
+            "dsr_genuine": (self.state.dsr_result.is_genuine if self.state.dsr_result else None),
+            "pbo": (self.state.pbo_result.pbo if self.state.pbo_result else None),
         }
 
     # =========================================================================
@@ -323,7 +320,7 @@ class StrategyValidationFlow(Flow[ValidationState]):
     # =========================================================================
 
     @router(run_overfitting_checks)
-    def route_on_fitness(self, checks_result: Dict) -> ValidationVerdict:
+    def route_on_fitness(self, checks_result: dict) -> ValidationVerdict:
         """Determine verdict from walk-forward and overfitting check results."""
         if self.state.verdict == "insufficient_data":
             return "insufficient_data"
@@ -365,16 +362,14 @@ class StrategyValidationFlow(Flow[ValidationState]):
     # =========================================================================
 
     @listen("passed")
-    def log_validation_passed(self) -> Dict[str, Any]:
+    def log_validation_passed(self) -> dict[str, Any]:
         """Strategy passed all validation checks."""
-        logger.info(
-            f"[Validation] PASSED — {self.state.detail}"
-        )
+        logger.info(f"[Validation] PASSED — {self.state.detail}")
         self._save_validation_lesson(verdict="passed")
         return {"verdict": "passed", "detail": self.state.detail}
 
     @listen("degraded")
-    def trigger_retraining_alert(self) -> Dict[str, Any]:
+    def trigger_retraining_alert(self) -> dict[str, Any]:
         """
         Strategy is degrading: IS/OOS Sharpe divergence is too high.
 
@@ -383,14 +378,13 @@ class StrategyValidationFlow(Flow[ValidationState]):
         2. Save degradation flag to KnowledgeStore so monitors can surface it
         """
         logger.warning(
-            f"[Validation] DEGRADED — {self.state.detail} — "
-            "trigger retraining / parameter review"
+            f"[Validation] DEGRADED — {self.state.detail} — trigger retraining / parameter review"
         )
         self._save_validation_lesson(verdict="degraded")
         return {"verdict": "degraded", "detail": self.state.detail}
 
     @listen("overfit")
-    def quarantine_strategy(self) -> Dict[str, Any]:
+    def quarantine_strategy(self) -> dict[str, Any]:
         """
         Strategy appears overfit: quarantine flag written to KnowledgeStore.
 
@@ -416,11 +410,9 @@ class StrategyValidationFlow(Flow[ValidationState]):
         }
 
     @listen("insufficient_data")
-    def log_insufficient_data(self) -> Dict[str, Any]:
+    def log_insufficient_data(self) -> dict[str, Any]:
         """Not enough data to run validation — skip and log."""
-        logger.warning(
-            f"[Validation] INSUFFICIENT DATA — {self.state.detail}"
-        )
+        logger.warning(f"[Validation] INSUFFICIENT DATA — {self.state.detail}")
         return {"verdict": "insufficient_data", "detail": self.state.detail}
 
     # =========================================================================
@@ -436,12 +428,10 @@ class StrategyValidationFlow(Flow[ValidationState]):
             wf = self.state.wf_result or {}
             dsr_str = (
                 f"DSR={self.state.dsr_result.dsr:.3f} genuine={self.state.dsr_result.is_genuine}"
-                if self.state.dsr_result else ""
+                if self.state.dsr_result
+                else ""
             )
-            pbo_str = (
-                f"PBO={self.state.pbo_result.pbo:.3f}"
-                if self.state.pbo_result else ""
-            )
+            pbo_str = f"PBO={self.state.pbo_result.pbo:.3f}" if self.state.pbo_result else ""
             lesson_text = (
                 f"[{verdict.upper()}] {date.today().isoformat()} | "
                 f"symbols={self.state.symbols} | "
@@ -451,12 +441,14 @@ class StrategyValidationFlow(Flow[ValidationState]):
                 f"{dsr_str} {pbo_str} | "
                 f"detail={self.state.detail}"
             )
-            store.save_lesson({
-                "lesson_text": lesson_text,
-                "applies_to": self.state.symbols,
-                "confidence": 0.9,
-                "created_by": "StrategyValidationFlow",
-            })
+            store.save_lesson(
+                {
+                    "lesson_text": lesson_text,
+                    "applies_to": self.state.symbols,
+                    "confidence": 0.9,
+                    "created_by": "StrategyValidationFlow",
+                }
+            )
         except Exception as _ks_err:
             logger.debug(f"[Validation] Could not persist lesson: {_ks_err}")
 

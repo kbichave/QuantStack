@@ -9,19 +9,17 @@ Tests verify:
 - ATR scaling correctness
 """
 
-import pytest
-import pandas as pd
 import numpy as np
-
+import pandas as pd
+import pytest
+from quantcore.config.timeframes import Timeframe
 from quantcore.labeling.event_labeler import (
     EventLabeler,
     LabelConfig,
-    TradeOutcome,
     MultiTimeframeLabelBuilder,
 )
-from quantcore.config.timeframes import Timeframe
-from tests.conftest import make_ohlcv_df, add_atr_column
 
+from tests.conftest import add_atr_column, make_ohlcv_df
 
 # =============================================================================
 # Fixtures
@@ -133,9 +131,9 @@ class TestLongTradeLabeling:
         if len(valid_labels) > 0:
             # In a pure downtrend, longs should mostly lose
             loss_count = (valid_labels == 0).sum()
-            assert (
-                loss_count >= len(valid_labels) * 0.8
-            ), "Downtrend should produce mostly LOSS labels for longs"
+            assert loss_count >= len(valid_labels) * 0.8, (
+                "Downtrend should produce mostly LOSS labels for longs"
+            )
 
     def test_flat_market_timeout(self, labeler, flat_df):
         """
@@ -152,9 +150,9 @@ class TestLongTradeLabeling:
             timeout_count = (exit_types == "TIMEOUT").sum()
             # With very flat prices, most should timeout
             if len(exit_types) > 0:
-                assert (
-                    timeout_count >= len(exit_types) * 0.5
-                ), "Flat market should produce TIMEOUT exits"
+                assert timeout_count >= len(exit_types) * 0.5, (
+                    "Flat market should produce TIMEOUT exits"
+                )
 
     def test_bars_to_exit_populated(self, labeler, uptrend_df):
         """
@@ -167,9 +165,9 @@ class TestLongTradeLabeling:
         bars_to_exit = result["label_long_bars_to_exit"].dropna()
         if len(bars_to_exit) > 0:
             assert (bars_to_exit >= 1).all(), "Bars to exit must be >= 1"
-            assert (
-                bars_to_exit <= labeler.config.max_hold_bars
-            ).all(), "Bars to exit must be <= max_hold_bars"
+            assert (bars_to_exit <= labeler.config.max_hold_bars).all(), (
+                "Bars to exit must be <= max_hold_bars"
+            )
 
 
 # =============================================================================
@@ -208,9 +206,9 @@ class TestShortTradeLabeling:
         valid_labels = result["label_short"].dropna()
         if len(valid_labels) > 0:
             loss_count = (valid_labels == 0).sum()
-            assert (
-                loss_count >= len(valid_labels) * 0.8
-            ), "Uptrend should produce mostly LOSS labels for shorts"
+            assert loss_count >= len(valid_labels) * 0.8, (
+                "Uptrend should produce mostly LOSS labels for shorts"
+            )
 
 
 # =============================================================================
@@ -233,9 +231,7 @@ class TestNoLookahead:
         # Labels should be NaN for the last max_hold_bars
         # because there's no future to evaluate
         last_bars = result["label_long"].iloc[-labeler.config.max_hold_bars :]
-        assert (
-            last_bars.isna().all()
-        ), "Last max_hold_bars should have NaN labels (no future data)"
+        assert last_bars.isna().all(), "Last max_hold_bars should have NaN labels (no future data)"
 
     def test_entry_at_close_not_future_price(self, labeler, v_reversal_df):
         """
@@ -283,9 +279,7 @@ class TestPnLCalculation:
 
         wins = result[result["label_long"] == 1]
         if len(wins) > 0:
-            assert (
-                wins["label_long_pnl_pct"] > 0
-            ).all(), "WIN labels should have positive P&L"
+            assert (wins["label_long_pnl_pct"] > 0).all(), "WIN labels should have positive P&L"
 
     def test_loss_has_negative_pnl(self, labeler, downtrend_df):
         """
@@ -297,9 +291,7 @@ class TestPnLCalculation:
         sl_losses = losses[losses["label_long_exit_type"] == "SL"]
 
         if len(sl_losses) > 0:
-            assert (
-                sl_losses["label_long_pnl_pct"] < 0
-            ).all(), "SL exits should have negative P&L"
+            assert (sl_losses["label_long_pnl_pct"] < 0).all(), "SL exits should have negative P&L"
 
 
 # =============================================================================

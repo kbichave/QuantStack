@@ -3,18 +3,18 @@ Core backtesting engine for WTI trading strategies.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
 from quantcore.utils.formatting import (
-    print_info,
-    print_success,
     print_error,
+    print_info,
     print_money,
     print_section,
+    print_success,
 )
 from quantcore.validation.input_validation import DataFrameValidator
 
@@ -50,8 +50,8 @@ class BacktestResult:
     max_drawdown: float = 0.0
     total_return: float = 0.0
     profit_factor: float = 0.0
-    trades: List[Dict] = field(default_factory=list)
-    equity_curve: List[float] = field(default_factory=list)
+    trades: list[dict] = field(default_factory=list)
+    equity_curve: list[float] = field(default_factory=list)
 
 
 class BacktestEngine:
@@ -61,11 +61,11 @@ class BacktestEngine:
     Runs backtests on signal DataFrames against price data.
     """
 
-    def __init__(self, config: Optional[BacktestConfig] = None):
+    def __init__(self, config: BacktestConfig | None = None):
         """Initialize with configuration."""
         self.config = config or BacktestConfig()
-        self.trades: List[Dict] = []
-        self.equity_curve: List[float] = []
+        self.trades: list[dict] = []
+        self.equity_curve: list[float] = []
 
     def run(self, signals: pd.DataFrame, price_data: pd.DataFrame) -> BacktestResult:
         """
@@ -109,7 +109,7 @@ class BacktestEngine:
 
         for i in range(1, len(common_idx)):
             idx = common_idx[i]
-            prev_idx = common_idx[i - 1]
+            common_idx[i - 1]
 
             current_price = prices.loc[idx, "close"]
             signal = signals.loc[idx].get("signal", 0)
@@ -139,9 +139,7 @@ class BacktestEngine:
                     should_exit = True
 
                 if should_exit:
-                    exit_price = current_price * (
-                        1 - self.config.slippage_pct * position
-                    )
+                    exit_price = current_price * (1 - self.config.slippage_pct * position)
                     if position == 1:
                         pnl = (exit_price - entry_price) * position_shares
                     else:
@@ -174,9 +172,7 @@ class BacktestEngine:
 
         return self._calculate_result(trades, equity_curve)
 
-    def _calculate_result(
-        self, trades: List[Dict], equity_curve: List[float]
-    ) -> BacktestResult:
+    def _calculate_result(self, trades: list[dict], equity_curve: list[float]) -> BacktestResult:
         """Calculate result metrics."""
         if not trades:
             return BacktestResult(equity_curve=equity_curve)
@@ -189,7 +185,11 @@ class BacktestEngine:
         # Returns and Sharpe — annualized using the configured trading periods
         if len(equity) > 1:
             returns = np.diff(equity) / (equity[:-1] + 1e-8)
-            sharpe = np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(self.config.trading_periods_per_year)
+            sharpe = (
+                np.mean(returns)
+                / (np.std(returns) + 1e-8)
+                * np.sqrt(self.config.trading_periods_per_year)
+            )
         else:
             sharpe = 0
 
@@ -199,9 +199,7 @@ class BacktestEngine:
         max_dd = np.max(drawdown) * 100 if len(drawdown) > 0 else 0
 
         # Total return
-        total_return = (
-            (equity[-1] - equity[0]) / equity[0] * 100 if len(equity) > 0 else 0
-        )
+        total_return = (equity[-1] - equity[0]) / equity[0] * 100 if len(equity) > 0 else 0
 
         # Profit factor
         gross_profit = sum(t["pnl"] for t in trades if t["pnl"] > 0)
@@ -223,10 +221,10 @@ class BacktestEngine:
 def calculate_metrics(
     final_capital: float,
     initial_capital: float,
-    trades: List[Dict],
-    equity_curve: List[float],
+    trades: list[dict],
+    equity_curve: list[float],
     trading_periods_per_year: int = 252,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Calculate standard metrics from backtest results.
 
     Args:
@@ -270,9 +268,9 @@ def run_backtest_with_params(
     exit_zscore: float,
     position_size: int,
     spread_cost: float,
-    stop_loss_zscore: Optional[float],
+    stop_loss_zscore: float | None,
     return_trades_list: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run backtest with specific parameters."""
     results = {
         "initial_capital": initial_capital,
@@ -319,9 +317,7 @@ def run_backtest_with_params(
         elif position == 1:
             # Stop loss
             if stop_loss_zscore and zscore < -stop_loss_zscore:
-                pnl = (
-                    spread - entry_price
-                ) * position_size - spread_cost * position_size
+                pnl = (spread - entry_price) * position_size - spread_cost * position_size
                 capital += pnl
                 trades.append(
                     {
@@ -335,9 +331,7 @@ def run_backtest_with_params(
                 position = 0
             # Take profit
             elif zscore > exit_zscore:
-                pnl = (
-                    spread - entry_price
-                ) * position_size - spread_cost * position_size
+                pnl = (spread - entry_price) * position_size - spread_cost * position_size
                 capital += pnl
                 trades.append(
                     {
@@ -353,9 +347,7 @@ def run_backtest_with_params(
         elif position == -1:
             # Stop loss
             if stop_loss_zscore and zscore > stop_loss_zscore:
-                pnl = (
-                    entry_price - spread
-                ) * position_size - spread_cost * position_size
+                pnl = (entry_price - spread) * position_size - spread_cost * position_size
                 capital += pnl
                 trades.append(
                     {
@@ -369,9 +361,7 @@ def run_backtest_with_params(
                 position = 0
             # Take profit
             elif zscore < -exit_zscore:
-                pnl = (
-                    entry_price - spread
-                ) * position_size - spread_cost * position_size
+                pnl = (entry_price - spread) * position_size - spread_cost * position_size
                 capital += pnl
                 trades.append(
                     {
@@ -407,9 +397,7 @@ def run_backtest_with_params(
     equity_curve = np.array(equity_curve)
     if len(equity_curve) > 1:
         returns = np.diff(equity_curve) / (equity_curve[:-1] + 1e-8)
-        results["sharpe_ratio"] = (
-            np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(252)
-        )
+        results["sharpe_ratio"] = np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(252)
 
         peak = np.maximum.accumulate(equity_curve)
         drawdown = (peak - equity_curve) / (peak + 1e-8)
@@ -421,9 +409,7 @@ def run_backtest_with_params(
     results["total_return_pct"] = (capital - initial_capital) / initial_capital * 100
     results["total_trades"] = len(trades)
     results["profitable_trades"] = sum(1 for t in trades if t["pnl"] > 0)
-    results["win_rate"] = (
-        results["profitable_trades"] / max(1, results["total_trades"]) * 100
-    )
+    results["win_rate"] = results["profitable_trades"] / max(1, results["total_trades"]) * 100
 
     # Return trades list and equity curve if requested (for plotting)
     if return_trades_list:
@@ -434,11 +420,11 @@ def run_backtest_with_params(
 
 
 def run_backtest(
-    all_data: Dict[str, pd.DataFrame],
+    all_data: dict[str, pd.DataFrame],
     spread_df: pd.DataFrame,
     initial_capital: float = 100000,
-    params: Optional[Dict[str, float]] = None,
-) -> Dict[str, float]:
+    params: dict[str, float] | None = None,
+) -> dict[str, float]:
     """Run backtest with optimized parameters and calculate profit."""
     print_section("Final Backtest with Optimized Parameters")
 
@@ -481,17 +467,13 @@ def run_backtest(
         STOP_LOSS_ZSCORE = None
 
     print_info(f"Running backtest on {len(backtest_data)} bars...")
-    print_info(
-        f"  Period: {backtest_data.index[0].date()} to {backtest_data.index[-1].date()}"
-    )
-    print_info(f"  Parameters:")
+    print_info(f"  Period: {backtest_data.index[0].date()} to {backtest_data.index[-1].date()}")
+    print_info("  Parameters:")
     print_info(f"    Entry Z-score: ±{ENTRY_ZSCORE}")
     print_info(f"    Exit Z-score: ±{EXIT_ZSCORE}")
     print_info(f"    Position size: {POSITION_SIZE} barrels")
     print_info(f"    Spread cost: ${SPREAD_COST}/barrel")
-    print_info(
-        f"    Stop loss Z-score: {STOP_LOSS_ZSCORE if STOP_LOSS_ZSCORE else 'None'}"
-    )
+    print_info(f"    Stop loss Z-score: {STOP_LOSS_ZSCORE if STOP_LOSS_ZSCORE else 'None'}")
 
     # Simple spread mean reversion strategy
     capital = initial_capital
@@ -520,9 +502,7 @@ def run_backtest(
         # Exit signals
         elif position == 1:
             if STOP_LOSS_ZSCORE and zscore < -STOP_LOSS_ZSCORE:
-                pnl = (
-                    spread - entry_price
-                ) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
+                pnl = (spread - entry_price) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
                 capital += pnl
                 trades.append(
                     {
@@ -534,20 +514,14 @@ def run_backtest(
                 )
                 position = 0
             elif zscore > EXIT_ZSCORE:
-                pnl = (
-                    spread - entry_price
-                ) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
+                pnl = (spread - entry_price) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
                 capital += pnl
-                trades.append(
-                    {"pnl": pnl, "type": "LONG", "entry": entry_price, "exit": spread}
-                )
+                trades.append({"pnl": pnl, "type": "LONG", "entry": entry_price, "exit": spread})
                 position = 0
 
         elif position == -1:
             if STOP_LOSS_ZSCORE and zscore > STOP_LOSS_ZSCORE:
-                pnl = (
-                    entry_price - spread
-                ) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
+                pnl = (entry_price - spread) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
                 capital += pnl
                 trades.append(
                     {
@@ -559,13 +533,9 @@ def run_backtest(
                 )
                 position = 0
             elif zscore < -EXIT_ZSCORE:
-                pnl = (
-                    entry_price - spread
-                ) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
+                pnl = (entry_price - spread) * POSITION_SIZE - SPREAD_COST * POSITION_SIZE
                 capital += pnl
-                trades.append(
-                    {"pnl": pnl, "type": "SHORT", "entry": entry_price, "exit": spread}
-                )
+                trades.append({"pnl": pnl, "type": "SHORT", "entry": entry_price, "exit": spread})
                 position = 0
 
         # Mark to market
@@ -613,12 +583,10 @@ def run_backtest(
     # Trade stats
     results["total_trades"] = len(trades)
     results["profitable_trades"] = sum(1 for t in trades if t["pnl"] > 0)
-    results["win_rate"] = (
-        results["profitable_trades"] / max(1, results["total_trades"]) * 100
-    )
+    results["win_rate"] = results["profitable_trades"] / max(1, results["total_trades"]) * 100
 
     # Print results
-    print_success(f"Backtest complete!")
+    print_success("Backtest complete!")
     print()
 
     is_profit = results["total_return"] > 0
@@ -626,7 +594,7 @@ def run_backtest(
     print_money("Final Capital", results["final_capital"], is_profit)
     print()
 
-    print(f"📊 Performance Metrics:")
+    print("📊 Performance Metrics:")
     print(f"    Return: {results['total_return_pct']:.2f}%")
     print(f"    Sharpe Ratio: {results['sharpe_ratio']:.2f}")
     print(f"    Max Drawdown: {results['max_drawdown']:.2f}%")

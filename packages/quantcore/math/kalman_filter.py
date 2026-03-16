@@ -4,9 +4,9 @@ Kalman Filter for State-Space Models.
 Linear Gaussian state estimation and smoothing.
 """
 
-import numpy as np
-from typing import Tuple, List
 from dataclasses import dataclass
+
+import numpy as np
 
 
 @dataclass
@@ -55,7 +55,7 @@ class KalmanFilter:
         self.x0 = x0 if x0 is not None else np.zeros(self.n)
         self.P0 = P0 if P0 is not None else np.eye(self.n) * 10
 
-    def predict(self, x: np.ndarray, P: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def predict(self, x: np.ndarray, P: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Prediction step."""
         x_pred = self.F @ x
         P_pred = self.F @ P @ self.F.T + self.Q
@@ -78,7 +78,7 @@ class KalmanFilter:
 
         return KalmanState(x=x, P=P, innovation=innovation, log_likelihood=log_lik)
 
-    def filter(self, observations: np.ndarray) -> List[KalmanState]:
+    def filter(self, observations: np.ndarray) -> list[KalmanState]:
         """Run Kalman filter on observations."""
         T = len(observations)
         states = []
@@ -102,7 +102,7 @@ class KalmanFilter:
 
         return states
 
-    def smooth(self, observations: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def smooth(self, observations: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """RTS smoother (backward pass after forward filtering)."""
         filtered = self.filter(observations)
         T = len(observations)

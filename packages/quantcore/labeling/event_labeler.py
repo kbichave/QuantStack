@@ -7,14 +7,14 @@ Labels each bar based on the outcome of a hypothetical mean-reversion trade:
 - Outcome: 1 if TP hit before SL within horizon, 0 otherwise
 """
 
-from enum import Enum
 from dataclasses import dataclass
-from typing import Optional, Tuple
-import pandas as pd
+from enum import Enum
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.config.timeframes import Timeframe, TIMEFRAME_PARAMS
+from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
 
 
 class TradeOutcome(Enum):
@@ -52,7 +52,7 @@ class EventLabeler:
     TP or SL is hit first within the holding period.
     """
 
-    def __init__(self, config: Optional[LabelConfig] = None):
+    def __init__(self, config: LabelConfig | None = None):
         """
         Initialize the labeler.
 
@@ -109,15 +109,9 @@ class EventLabeler:
             )
 
             result.iloc[entry_idx, result.columns.get_loc("label_long")] = outcome.value
-            result.iloc[
-                entry_idx, result.columns.get_loc("label_long_bars_to_exit")
-            ] = bars_held
-            result.iloc[entry_idx, result.columns.get_loc("label_long_exit_type")] = (
-                exit_type
-            )
-            result.iloc[entry_idx, result.columns.get_loc("label_long_pnl_pct")] = (
-                pnl_pct
-            )
+            result.iloc[entry_idx, result.columns.get_loc("label_long_bars_to_exit")] = bars_held
+            result.iloc[entry_idx, result.columns.get_loc("label_long_exit_type")] = exit_type
+            result.iloc[entry_idx, result.columns.get_loc("label_long_pnl_pct")] = pnl_pct
 
         return result
 
@@ -167,18 +161,10 @@ class EventLabeler:
                 sl_price,
             )
 
-            result.iloc[entry_idx, result.columns.get_loc("label_short")] = (
-                outcome.value
-            )
-            result.iloc[
-                entry_idx, result.columns.get_loc("label_short_bars_to_exit")
-            ] = bars_held
-            result.iloc[entry_idx, result.columns.get_loc("label_short_exit_type")] = (
-                exit_type
-            )
-            result.iloc[entry_idx, result.columns.get_loc("label_short_pnl_pct")] = (
-                pnl_pct
-            )
+            result.iloc[entry_idx, result.columns.get_loc("label_short")] = outcome.value
+            result.iloc[entry_idx, result.columns.get_loc("label_short_bars_to_exit")] = bars_held
+            result.iloc[entry_idx, result.columns.get_loc("label_short_exit_type")] = exit_type
+            result.iloc[entry_idx, result.columns.get_loc("label_short_pnl_pct")] = pnl_pct
 
         return result
 
@@ -207,14 +193,14 @@ class EventLabeler:
         entry_price: float,
         tp_price: float,
         sl_price: float,
-    ) -> Tuple[TradeOutcome, int, str, float]:
+    ) -> tuple[TradeOutcome, int, str, float]:
         """
         Evaluate outcome of a long trade.
 
         Returns:
             Tuple of (outcome, bars_held, exit_type, pnl_pct)
         """
-        for i, (idx, bar) in enumerate(future_bars.iterrows()):
+        for i, (_idx, bar) in enumerate(future_bars.iterrows()):
             bars_held = i + 1
 
             # Check if SL hit (using low)
@@ -241,14 +227,14 @@ class EventLabeler:
         entry_price: float,
         tp_price: float,
         sl_price: float,
-    ) -> Tuple[TradeOutcome, int, str, float]:
+    ) -> tuple[TradeOutcome, int, str, float]:
         """
         Evaluate outcome of a short trade.
 
         Returns:
             Tuple of (outcome, bars_held, exit_type, pnl_pct)
         """
-        for i, (idx, bar) in enumerate(future_bars.iterrows()):
+        for i, (_idx, bar) in enumerate(future_bars.iterrows()):
             bars_held = i + 1
 
             # Check if SL hit (using high)
@@ -325,12 +311,8 @@ class EventLabeler:
         if pnl_col in df.columns:
             pnl = df[pnl_col].dropna()
             stats["avg_pnl_pct"] = float(pnl.mean())
-            stats["avg_win_pnl"] = (
-                float(pnl[labels == 1].mean()) if (labels == 1).any() else 0.0
-            )
-            stats["avg_loss_pnl"] = (
-                float(pnl[labels == 0].mean()) if (labels == 0).any() else 0.0
-            )
+            stats["avg_win_pnl"] = float(pnl[labels == 1].mean()) if (labels == 1).any() else 0.0
+            stats["avg_loss_pnl"] = float(pnl[labels == 0].mean()) if (labels == 0).any() else 0.0
 
         return stats
 
@@ -342,9 +324,7 @@ class MultiTimeframeLabelBuilder:
 
     def __init__(self):
         """Initialize multi-TF label builder."""
-        self.labelers = {
-            tf: EventLabeler(LabelConfig.from_timeframe(tf)) for tf in Timeframe
-        }
+        self.labelers = {tf: EventLabeler(LabelConfig.from_timeframe(tf)) for tf in Timeframe}
 
     def label_all_timeframes(
         self,

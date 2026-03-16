@@ -9,11 +9,10 @@ Comprehensive model for trading costs:
 - Total cost analysis
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional, Tuple
-from dataclasses import dataclass
-from scipy.optimize import minimize
 from loguru import logger
 
 
@@ -53,7 +52,7 @@ class TransactionCostModel:
     - Almgren & Chriss (2001): Optimal execution with impact
     """
 
-    def __init__(self, params: Optional[CostModelParams] = None):
+    def __init__(self, params: CostModelParams | None = None):
         """
         Initialize cost model.
 
@@ -96,17 +95,12 @@ class TransactionCostModel:
         # Impact ~ lambda * sqrt(Q/V) * sigma * P
         # Where Q = order size, V = daily volume, sigma = volatility
         impact_bps = (
-            self.params.impact_coefficient
-            * np.sqrt(participation_rate)
-            * volatility
-            * 10000
+            self.params.impact_coefficient * np.sqrt(participation_rate) * volatility * 10000
         )
         impact_cost = trade_value * impact_bps / 10000
 
         # 3. Slippage (volatility-based random component)
-        slippage_bps = (
-            self.params.slippage_vol_mult * volatility * 10000 * np.random.randn()
-        )
+        slippage_bps = self.params.slippage_vol_mult * volatility * 10000 * np.random.randn()
         slippage_bps = max(0, slippage_bps)  # Slippage is always a cost
         slippage = trade_value * slippage_bps / 10000
 
@@ -132,7 +126,7 @@ class TransactionCostModel:
         volume_col: str = "volume",
         trade_size_col: str = "trade_size",
         price_change_col: str = "price_change",
-    ) -> Dict:
+    ) -> dict:
         """
         Fit market impact model from historical trade data.
 
@@ -204,7 +198,7 @@ class TransactionCostModel:
         arrival_price: float,
         execution_prices: pd.Series,
         execution_sizes: pd.Series,
-    ) -> Dict:
+    ) -> dict:
         """
         Compute Implementation Shortfall (IS).
 
@@ -266,9 +260,7 @@ class TransactionCostModel:
             DataFrame with cost estimates per trade
         """
         # Align all series
-        common_idx = signals.index.intersection(prices.index).intersection(
-            volumes.index
-        )
+        common_idx = signals.index.intersection(prices.index).intersection(volumes.index)
         signals = signals.loc[common_idx]
         prices = prices.loc[common_idx]
         volumes = volumes.loc[common_idx]
@@ -336,10 +328,10 @@ Trade Summary:
   Average cost per trade: {avg_cost:.1f} bps
 
 Cost Breakdown (average per trade):
-  Spread:     {cost_df['spread_bps'].mean():.1f} bps ({cost_df['spread_bps'].mean() / avg_cost * 100:.0f}%)
-  Impact:     {cost_df['impact_bps'].mean():.1f} bps ({cost_df['impact_bps'].mean() / avg_cost * 100:.0f}%)
-  Slippage:   {cost_df['slippage_bps'].mean():.1f} bps ({cost_df['slippage_bps'].mean() / avg_cost * 100:.0f}%)
-  Commission: {cost_df['commission_bps'].mean():.1f} bps ({cost_df['commission_bps'].mean() / avg_cost * 100:.0f}%)
+  Spread:     {cost_df["spread_bps"].mean():.1f} bps ({cost_df["spread_bps"].mean() / avg_cost * 100:.0f}%)
+  Impact:     {cost_df["impact_bps"].mean():.1f} bps ({cost_df["impact_bps"].mean() / avg_cost * 100:.0f}%)
+  Slippage:   {cost_df["slippage_bps"].mean():.1f} bps ({cost_df["slippage_bps"].mean() / avg_cost * 100:.0f}%)
+  Commission: {cost_df["commission_bps"].mean():.1f} bps ({cost_df["commission_bps"].mean() / avg_cost * 100:.0f}%)
 
 Annualized Cost Drag:
   Assuming 252 trading days: {total_cost / len(cost_df) * 252:.0f} bps/year

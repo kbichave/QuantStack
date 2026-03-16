@@ -16,29 +16,21 @@ Example
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import (
-    TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
-    List,
     Literal,
     NamedTuple,
-    Optional,
     Protocol,
-    Sequence,
-    Tuple,
     TypeAlias,
     TypedDict,
     TypeVar,
-    Union,
 )
 
 import numpy as np
 import pandas as pd
-from numpy.typing import ArrayLike, NDArray
-
+from numpy.typing import NDArray
 
 # =============================================================================
 # Generic Type Variables
@@ -116,7 +108,7 @@ Volume: TypeAlias = pd.Series
 
 # Timestamp types
 Timestamp: TypeAlias = pd.Timestamp | datetime | str
-DateRange: TypeAlias = Tuple[Timestamp, Timestamp]
+DateRange: TypeAlias = tuple[Timestamp, Timestamp]
 
 
 # =============================================================================
@@ -139,9 +131,7 @@ OrderType: TypeAlias = Literal["market", "limit", "stop", "stop_limit"]
 AssetClass: TypeAlias = Literal["equity", "futures", "options", "fx", "crypto"]
 
 # Timeframe literals
-TimeframeLiteral: TypeAlias = Literal[
-    "1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"
-]
+TimeframeLiteral: TypeAlias = Literal["1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1M"]
 
 
 # =============================================================================
@@ -152,10 +142,10 @@ TimeframeLiteral: TypeAlias = Literal[
 FeatureMatrix: TypeAlias = pd.DataFrame
 
 # Feature names
-FeatureNames: TypeAlias = List[str] | Tuple[str, ...]
+FeatureNames: TypeAlias = list[str] | tuple[str, ...]
 
 # Feature importance dictionary
-FeatureImportance: TypeAlias = Dict[str, float]
+FeatureImportance: TypeAlias = dict[str, float]
 
 
 # =============================================================================
@@ -169,10 +159,10 @@ Prediction: TypeAlias = pd.Series | NDArray[np.floating[Any]]
 Probability: TypeAlias = pd.Series | NDArray[np.floating[Any]]
 
 # Model parameters dictionary
-ModelParams: TypeAlias = Dict[str, Any]
+ModelParams: TypeAlias = dict[str, Any]
 
 # Hyperparameters
-Hyperparameters: TypeAlias = Dict[str, int | float | str | bool | None]
+Hyperparameters: TypeAlias = dict[str, int | float | str | bool | None]
 
 
 # =============================================================================
@@ -210,7 +200,7 @@ class BacktestMetrics(TypedDict):
 
 
 # Trade list
-Trades: TypeAlias = List[TradeRecord]
+Trades: TypeAlias = list[TradeRecord]
 
 # Equity curve (cumulative returns or portfolio value)
 EquityCurve: TypeAlias = pd.Series
@@ -237,12 +227,10 @@ CorrelationMatrix: TypeAlias = pd.DataFrame
 # =============================================================================
 
 # Generic configuration dictionary
-Config: TypeAlias = Dict[str, Any]
+Config: TypeAlias = dict[str, Any]
 
 # Strategy parameters
-StrategyParams: TypeAlias = Dict[
-    str, int | float | str | bool | List[Any] | Dict[str, Any]
-]
+StrategyParams: TypeAlias = dict[str, int | float | str | bool | list[Any] | dict[str, Any]]
 
 
 # =============================================================================
@@ -253,7 +241,7 @@ StrategyParams: TypeAlias = Dict[
 ProgressCallback: TypeAlias = Callable[[int, int, str], None]
 
 # Event callback
-EventCallback: TypeAlias = Callable[[Dict[str, Any]], None]
+EventCallback: TypeAlias = Callable[[dict[str, Any]], None]
 
 # Trade callback
 TradeCallback: TypeAlias = Callable[[TradeRecord], None]
@@ -275,7 +263,7 @@ class SupportsPredict(Protocol):
 class SupportsFit(Protocol):
     """Protocol for objects that support fitting/training."""
 
-    def fit(self, X: FeatureMatrix, y: Signal) -> "SupportsFit":
+    def fit(self, X: FeatureMatrix, y: Signal) -> SupportsFit:
         """Fit the model to data."""
         ...
 
@@ -358,7 +346,7 @@ class OptimizationResult(NamedTuple):
 
     best_params: Hyperparameters
     best_score: float
-    all_results: List[Dict[str, Any]]
+    all_results: list[dict[str, Any]]
 
 
 # =============================================================================

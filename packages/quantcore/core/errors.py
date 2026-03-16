@@ -11,7 +11,7 @@ Usage:
         raise DataError("No data available", symbol="AAPL", date="2024-01-01")
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class QuantCoreError(Exception):
@@ -26,7 +26,7 @@ class QuantCoreError(Exception):
     def __init__(
         self,
         message: str,
-        error_code: Optional[str] = None,
+        error_code: str | None = None,
         **context: Any,
     ):
         """
@@ -39,7 +39,7 @@ class QuantCoreError(Exception):
         """
         self.message = message
         self.error_code = error_code or self.__class__.error_code
-        self.context: Dict[str, Any] = context
+        self.context: dict[str, Any] = context
 
         # Build full message with context
         full_message = f"[{self.error_code}] {message}"
@@ -49,7 +49,7 @@ class QuantCoreError(Exception):
 
         super().__init__(full_message)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert exception to dictionary for logging/serialization."""
         return {
             "error_type": self.__class__.__name__,

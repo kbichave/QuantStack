@@ -4,12 +4,11 @@ Daily trend filter for intermediate trend direction.
 Determines if the daily trend supports mean-reversion trades.
 """
 
-from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
-import pandas as pd
+from enum import Enum
+
 import numpy as np
-from loguru import logger
+import pandas as pd
 
 
 class TrendDirection(Enum):
@@ -203,10 +202,7 @@ class DailyTrendFilter:
                 count += 1
             elif direction == TrendDirection.DOWN and slope < 0:
                 count += 1
-            elif (
-                direction == TrendDirection.NEUTRAL
-                and abs(slope) < self.SLOPE_THRESHOLD
-            ):
+            elif direction == TrendDirection.NEUTRAL and abs(slope) < self.SLOPE_THRESHOLD:
                 count += 1
             else:
                 break

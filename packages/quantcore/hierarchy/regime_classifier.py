@@ -4,12 +4,11 @@ Weekly regime classifier for macro market context.
 Classifies market into BULL, BEAR, or SIDEWAYS based on trend and momentum indicators.
 """
 
-from enum import Enum
 from dataclasses import dataclass
-from typing import Optional
-import pandas as pd
+from enum import Enum
+
 import numpy as np
-from loguru import logger
+import pandas as pd
 
 
 class RegimeType(Enum):
@@ -29,7 +28,7 @@ class RegimeContext:
     ema_alignment: int  # 1: bullish, -1: bearish, 0: neutral
     momentum_score: float  # Aggregate momentum
     volatility_regime: int  # -1: low, 0: normal, 1: high
-    rrg_quadrant: Optional[str] = None
+    rrg_quadrant: str | None = None
     bars_in_regime: int = 0
 
     def allows_long(self) -> bool:
@@ -81,7 +80,7 @@ class WeeklyRegimeClassifier:
             )
 
         # Get recent data
-        recent = df.iloc[-lookback:]
+        df.iloc[-lookback:]
         current = df.iloc[-1]
 
         # Collect signals
@@ -177,7 +176,7 @@ class WeeklyRegimeClassifier:
             return float(row["trend_structure"])
         return 0.0
 
-    def _get_rrg_signal(self, row: pd.Series) -> tuple[Optional[float], Optional[str]]:
+    def _get_rrg_signal(self, row: pd.Series) -> tuple[float | None, str | None]:
         """Get RRG-based signal."""
         quadrant = None
         signal = None

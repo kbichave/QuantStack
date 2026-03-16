@@ -9,15 +9,16 @@ for options trading. SAC is chosen for its:
 - Stability (less hyperparameter sensitive than PPO)
 """
 
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Type, Union, Tuple
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from loguru import logger
-from datetime import datetime
 
 try:
-    import torch
+    import torch  # noqa: F401
 
     TORCH_AVAILABLE = True
 except ImportError:
@@ -25,22 +26,20 @@ except ImportError:
     logger.warning("PyTorch not available")
 
 try:
-    from stable_baselines3 import SAC, PPO, TD3
+    from stable_baselines3 import PPO, SAC, TD3
     from stable_baselines3.common.callbacks import (
         BaseCallback,
-        EvalCallback,
         CheckpointCallback,
+        EvalCallback,
     )
     from stable_baselines3.common.evaluation import evaluate_policy
-    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
     from stable_baselines3.common.monitor import Monitor
+    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
     SB3_AVAILABLE = True
 except ImportError:
     SB3_AVAILABLE = False
-    logger.warning(
-        "Stable Baselines3 not available. Install with: pip install stable-baselines3"
-    )
+    logger.warning("Stable Baselines3 not available. Install with: pip install stable-baselines3")
 
 from quantcore.rl.options.gym_env import OptionsTradingEnv, create_trading_env
 
@@ -52,10 +51,10 @@ class TradingMetricsCallback(BaseCallback):
 
     def __init__(self, verbose: int = 0):
         super().__init__(verbose)
-        self.episode_rewards: List[float] = []
-        self.episode_lengths: List[int] = []
-        self.episode_pnls: List[float] = []
-        self.episode_trades: List[int] = []
+        self.episode_rewards: list[float] = []
+        self.episode_lengths: list[int] = []
+        self.episode_pnls: list[float] = []
+        self.episode_trades: list[int] = []
 
     def _on_step(self) -> bool:
         # Check for episode completion
@@ -70,7 +69,7 @@ class TradingMetricsCallback(BaseCallback):
 
         return True
 
-    def get_metrics(self) -> Dict[str, float]:
+    def get_metrics(self) -> dict[str, float]:
         """Get aggregated metrics."""
         if not self.episode_pnls:
             return {}
@@ -124,7 +123,7 @@ class SACOptionsAgent:
     def __init__(
         self,
         algorithm: str = "SAC",
-        hyperparams: Optional[Dict[str, Any]] = None,
+        hyperparams: dict[str, Any] | None = None,
         device: str = "auto",
         verbose: int = 1,
     ):
@@ -147,11 +146,11 @@ class SACOptionsAgent:
         self.device = device
         self.verbose = verbose
 
-        self.model: Optional[Any] = None
-        self.env: Optional[Any] = None
-        self.vec_env: Optional[VecNormalize] = None
+        self.model: Any | None = None
+        self.env: Any | None = None
+        self.vec_env: VecNormalize | None = None
 
-        self._training_metrics: Dict = {}
+        self._training_metrics: dict = {}
 
     def _create_model(self, env: OptionsTradingEnv) -> Any:
         """Create SB3 model based on algorithm choice."""
@@ -171,7 +170,7 @@ class SACOptionsAgent:
         )
 
         # Select algorithm
-        algo_class: Type[Union[SAC, PPO, TD3]]
+        algo_class: type[SAC | PPO | TD3]
         if self.algorithm == "SAC":
             algo_class = SAC
         elif self.algorithm == "PPO":
@@ -192,7 +191,7 @@ class SACOptionsAgent:
 
         return model
 
-    def _get_algo_params(self, algo_class: Type) -> Dict:
+    def _get_algo_params(self, algo_class: type) -> dict:
         """Get algorithm-specific parameters."""
         params = {}
 
@@ -239,11 +238,11 @@ class SACOptionsAgent:
         features: pd.DataFrame,
         total_timesteps: int = 100_000,
         initial_equity: float = 100_000,
-        eval_data: Optional[pd.DataFrame] = None,
-        eval_features: Optional[pd.DataFrame] = None,
-        save_path: Optional[Path] = None,
+        eval_data: pd.DataFrame | None = None,
+        eval_features: pd.DataFrame | None = None,
+        save_path: Path | None = None,
         save_freq: int = 10_000,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Train the SAC agent.
 
@@ -260,9 +259,7 @@ class SACOptionsAgent:
         Returns:
             Training metrics dictionary
         """
-        logger.info(
-            f"Training {self.algorithm} agent for {total_timesteps:,} timesteps"
-        )
+        logger.info(f"Training {self.algorithm} agent for {total_timesteps:,} timesteps")
 
         # Create environment
         self.env = create_trading_env(
@@ -388,7 +385,7 @@ class SACOptionsAgent:
         features: pd.DataFrame,
         n_episodes: int = 10,
         deterministic: bool = True,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Evaluate agent performance.
 
@@ -425,7 +422,7 @@ class SACOptionsAgent:
             "n_episodes": n_episodes,
         }
 
-    def save(self, path: Union[str, Path]) -> None:
+    def save(self, path: str | Path) -> None:
         """
         Save model and normalization stats.
 
@@ -462,7 +459,7 @@ class SACOptionsAgent:
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2, default=str)
 
-    def load(self, path: Union[str, Path]) -> None:
+    def load(self, path: str | Path) -> None:
         """
         Load model and normalization stats.
 
@@ -476,7 +473,7 @@ class SACOptionsAgent:
         if metadata_path.exists():
             import json
 
-            with open(metadata_path, "r") as f:
+            with open(metadata_path) as f:
                 metadata = json.load(f)
             self.algorithm = metadata.get("algorithm", self.algorithm)
             self.hyperparams = metadata.get("hyperparams", self.hyperparams)
@@ -485,7 +482,7 @@ class SACOptionsAgent:
         # Load model
         model_path = path / f"{self.algorithm.lower()}_model"
 
-        algo_class: Type[Union[SAC, PPO, TD3]]
+        algo_class: type[SAC | PPO | TD3]
         if self.algorithm == "SAC":
             algo_class = SAC
         elif self.algorithm == "PPO":
@@ -506,7 +503,7 @@ class SACOptionsAgent:
             logger.info(f"Normalization stats available at {norm_path}")
 
     @property
-    def training_metrics(self) -> Dict[str, Any]:
+    def training_metrics(self) -> dict[str, Any]:
         """Get training metrics."""
         return self._training_metrics
 
@@ -514,13 +511,13 @@ class SACOptionsAgent:
 def train_sac_agent(
     train_data: pd.DataFrame,
     train_features: pd.DataFrame,
-    val_data: Optional[pd.DataFrame] = None,
-    val_features: Optional[pd.DataFrame] = None,
+    val_data: pd.DataFrame | None = None,
+    val_features: pd.DataFrame | None = None,
     total_timesteps: int = 100_000,
     algorithm: str = "SAC",
-    save_path: Optional[Path] = None,
+    save_path: Path | None = None,
     **kwargs,
-) -> Tuple[SACOptionsAgent, Dict[str, Any]]:
+) -> tuple[SACOptionsAgent, dict[str, Any]]:
     """
     Convenience function to train SAC/PPO/TD3 agent.
 

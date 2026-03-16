@@ -49,10 +49,9 @@ Each JSON file contains:
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from loguru import logger
-
 
 # =============================================================================
 # PROMPT LOADER
@@ -76,7 +75,7 @@ class PromptLoader:
         managers = loader.load_all_pod_managers()
     """
 
-    def __init__(self, prompts_dir: Optional[Path] = None):
+    def __init__(self, prompts_dir: Path | None = None):
         """
         Initialize the prompt loader.
 
@@ -88,18 +87,18 @@ class PromptLoader:
         self.prompts_dir = prompts_dir
 
         # Cache loaded configs
-        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._cache: dict[str, dict[str, Any]] = {}
 
         logger.debug(f"PromptLoader initialized with dir: {self.prompts_dir}")
 
-    def _find_json_file(self, name: str) -> Optional[Path]:
+    def _find_json_file(self, name: str) -> Path | None:
         """Find JSON file by agent name."""
         # Search in all subdirectories
         for json_path in self.prompts_dir.rglob(f"{name}.json"):
             return json_path
         return None
 
-    def load_agent(self, name: str) -> Dict[str, Any]:
+    def load_agent(self, name: str) -> dict[str, Any]:
         """
         Load agent configuration by name.
 
@@ -126,7 +125,7 @@ class PromptLoader:
         logger.debug(f"Loaded agent config: {name}")
         return config
 
-    def load_all_ics(self) -> Dict[str, Dict[str, Any]]:
+    def load_all_ics(self) -> dict[str, dict[str, Any]]:
         """Load all IC agent configurations."""
         ics = {}
         ics_dir = self.prompts_dir / "ics"
@@ -145,7 +144,7 @@ class PromptLoader:
         logger.info(f"Loaded {len(ics)} IC configs")
         return ics
 
-    def load_all_pod_managers(self) -> Dict[str, Dict[str, Any]]:
+    def load_all_pod_managers(self) -> dict[str, dict[str, Any]]:
         """Load all pod manager configurations."""
         managers = {}
         managers_dir = self.prompts_dir / "pod_managers"
@@ -164,15 +163,15 @@ class PromptLoader:
         logger.info(f"Loaded {len(managers)} pod manager configs")
         return managers
 
-    def load_assistant(self) -> Dict[str, Any]:
+    def load_assistant(self) -> dict[str, Any]:
         """Load trading assistant configuration."""
         return self.load_agent("trading_assistant")
 
-    def load_supertrader(self) -> Dict[str, Any]:
+    def load_supertrader(self) -> dict[str, Any]:
         """Load super trader configuration."""
         return self.load_agent("super_trader")
 
-    def get_agent_config(self, name: str) -> Dict[str, Any]:
+    def get_agent_config(self, name: str) -> dict[str, Any]:
         """
         Get CrewAI-compatible agent configuration dict.
 
@@ -193,7 +192,7 @@ class PromptLoader:
             "backstory": config.get("backstory", ""),
         }
 
-    def get_agent_settings(self, name: str) -> Dict[str, Any]:
+    def get_agent_settings(self, name: str) -> dict[str, Any]:
         """
         Get agent settings (llm, reasoning, verbose, etc.).
 
@@ -206,7 +205,7 @@ class PromptLoader:
         config = self.load_agent(name)
         return config.get("settings", {})
 
-    def get_agent_tools(self, name: str) -> List[str]:
+    def get_agent_tools(self, name: str) -> list[str]:
         """
         Get list of tool names for an agent.
 
@@ -219,7 +218,7 @@ class PromptLoader:
         config = self.load_agent(name)
         return config.get("tools", [])
 
-    def list_all_agents(self) -> Dict[str, List[str]]:
+    def list_all_agents(self) -> dict[str, list[str]]:
         """
         List all available agents by category.
 
@@ -264,7 +263,7 @@ class PromptLoader:
 # SINGLETON LOADER
 # =============================================================================
 
-_loader: Optional[PromptLoader] = None
+_loader: PromptLoader | None = None
 
 
 def get_prompt_loader() -> PromptLoader:
@@ -275,17 +274,17 @@ def get_prompt_loader() -> PromptLoader:
     return _loader
 
 
-def load_agent_config(name: str) -> Dict[str, Any]:
+def load_agent_config(name: str) -> dict[str, Any]:
     """Convenience function to load agent config."""
     return get_prompt_loader().load_agent(name)
 
 
-def load_all_ics() -> Dict[str, Dict[str, Any]]:
+def load_all_ics() -> dict[str, dict[str, Any]]:
     """Convenience function to load all IC configs."""
     return get_prompt_loader().load_all_ics()
 
 
-def load_all_pod_managers() -> Dict[str, Dict[str, Any]]:
+def load_all_pod_managers() -> dict[str, dict[str, Any]]:
     """Convenience function to load all pod manager configs."""
     return get_prompt_loader().load_all_pod_managers()
 

@@ -5,10 +5,9 @@ Critical for hourly MR strategies where spread widening destroys edge.
 """
 
 from dataclasses import dataclass
-from typing import Optional, Dict
-import pandas as pd
+
 import numpy as np
-from loguru import logger
+import pandas as pd
 
 
 @dataclass
@@ -61,9 +60,9 @@ class SpreadEstimator:
 
         # Alpha
         sqrt_2 = np.sqrt(2)
-        sqrt_8_pi = np.sqrt(8 / np.pi)
+        np.sqrt(8 / np.pi)
 
-        k = sqrt_2 - 1
+        sqrt_2 - 1
 
         alpha_term = (np.sqrt(beta) * (sqrt_2 - 1)) / (3 - 2 * sqrt_2)
         alpha_term = alpha_term - np.sqrt(gamma / (3 - 2 * sqrt_2))
@@ -117,7 +116,9 @@ class SpreadEstimator:
 
         # Widen spread when volume is low
         volume_adjustment = np.where(
-            volume_ratio < 1, 1 + (1 - volume_ratio) * 0.5, 1  # Up to 50% wider
+            volume_ratio < 1,
+            1 + (1 - volume_ratio) * 0.5,
+            1,  # Up to 50% wider
         )
 
         return base_spread * volume_adjustment
@@ -178,9 +179,7 @@ class LiquidityAnalyzer:
         # Spread estimates (ensemble)
         cs_spread = self.spread_estimator.corwin_schultz_spread(high, low, window)
         roll_spread = self.spread_estimator.roll_spread(close, window)
-        vol_spread = self.spread_estimator.volume_adjusted_spread(
-            high, low, volume, window
-        )
+        vol_spread = self.spread_estimator.volume_adjusted_spread(high, low, volume, window)
 
         # Ensemble spread (median of methods)
         result["estimated_spread_bps"] = pd.concat(
@@ -193,12 +192,8 @@ class LiquidityAnalyzer:
 
         # Volume imbalance (OBV-based intraday)
         price_change = close.diff()
-        signed_volume = np.where(
-            price_change > 0, volume, np.where(price_change < 0, -volume, 0)
-        )
-        result["volume_imbalance"] = (
-            pd.Series(signed_volume, index=df.index).rolling(5).sum()
-        )
+        signed_volume = np.where(price_change > 0, volume, np.where(price_change < 0, -volume, 0))
+        result["volume_imbalance"] = pd.Series(signed_volume, index=df.index).rolling(5).sum()
         result["volume_imbalance_norm"] = result["volume_imbalance"] / avg_volume
 
         # Volatility of volatility

@@ -3,11 +3,9 @@ Risk controls including exposure limits and drawdown protection.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Literal
+from datetime import datetime
 from enum import Enum
-import pandas as pd
-import numpy as np
+
 from loguru import logger
 
 from quantcore.config.settings import get_settings
@@ -33,8 +31,8 @@ class RiskState:
     daily_pnl: float
     open_trades: int
     open_exposure_pct: float
-    regime: Optional[str] = None
-    messages: List[str] = field(default_factory=list)
+    regime: str | None = None
+    messages: list[str] = field(default_factory=list)
 
     def can_trade(self) -> bool:
         """Check if trading is allowed."""
@@ -84,8 +82,8 @@ class ExposureManager:
         self.max_daily_trades = max_daily_trades
 
         # State tracking
-        self._open_positions: Dict[str, float] = {}  # symbol -> exposure
-        self._daily_trades: Dict[str, int] = {}  # date -> count
+        self._open_positions: dict[str, float] = {}  # symbol -> exposure
+        self._daily_trades: dict[str, int] = {}  # date -> count
 
     def can_open_position(
         self,
@@ -138,9 +136,7 @@ class ExposureManager:
 
     def register_open(self, symbol: str, exposure_pct: float) -> None:
         """Register an opened position."""
-        self._open_positions[symbol] = (
-            self._open_positions.get(symbol, 0) + exposure_pct
-        )
+        self._open_positions[symbol] = self._open_positions.get(symbol, 0) + exposure_pct
 
         today = datetime.now().strftime("%Y-%m-%d")
         self._daily_trades[today] = self._daily_trades.get(today, 0) + 1
@@ -197,12 +193,12 @@ class DrawdownProtection:
         self._peak_equity: float = 0.0
         self._day_start_equity: float = 0.0
         self._halted: bool = False
-        self._halt_time: Optional[datetime] = None
+        self._halt_time: datetime | None = None
 
     def update(
         self,
         equity: float,
-        timestamp: Optional[datetime] = None,
+        timestamp: datetime | None = None,
     ) -> RiskStatus:
         """
         Update drawdown state and get risk status.
@@ -286,8 +282,8 @@ class RiskController:
 
     def __init__(
         self,
-        exposure_manager: Optional[ExposureManager] = None,
-        drawdown_protection: Optional[DrawdownProtection] = None,
+        exposure_manager: ExposureManager | None = None,
+        drawdown_protection: DrawdownProtection | None = None,
     ):
         """
         Initialize risk controller.
@@ -306,7 +302,7 @@ class RiskController:
             hard_stop_pct=settings.hard_stop_drawdown_pct,
         )
 
-        self._current_regime: Optional[RegimeType] = None
+        self._current_regime: RegimeType | None = None
 
     def update_regime(self, regime: RegimeType) -> None:
         """Update current market regime."""
@@ -315,7 +311,7 @@ class RiskController:
     def get_risk_state(
         self,
         equity: float,
-        timestamp: Optional[datetime] = None,
+        timestamp: datetime | None = None,
     ) -> RiskState:
         """
         Get comprehensive risk state.
@@ -371,7 +367,7 @@ class RiskController:
         exposure_pct: float,
         equity: float,
         direction: str = "LONG",
-        timestamp: Optional[datetime] = None,
+        timestamp: datetime | None = None,
     ) -> tuple[bool, str, float]:
         """
         Check if a trade is allowed.

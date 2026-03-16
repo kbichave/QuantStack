@@ -4,27 +4,26 @@ Execution RL Agent.
 DQN-based agent for optimal order execution.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Any
+
 import numpy as np
 from loguru import logger
 
 from quantcore.rl.base import (
+    MLP,
+    TORCH_AVAILABLE,
+    Action,
+    DuelingNetwork,
+    Experience,
     RLAgent,
     State,
-    Action,
-    Experience,
-    ReplayBuffer,
-    MLP,
-    DuelingNetwork,
     soft_update,
-    TORCH_AVAILABLE,
 )
 
 if TORCH_AVAILABLE:
     import torch
-    import torch.nn as nn
-    import torch.optim as optim
     import torch.nn.functional as F
+    import torch.optim as optim
 
 
 class ExecutionRLAgent(RLAgent):
@@ -48,7 +47,7 @@ class ExecutionRLAgent(RLAgent):
         self,
         state_dim: int = 8,
         action_dim: int = 5,
-        hidden_dims: List[int] = [256, 256],
+        hidden_dims: list[int] = None,
         learning_rate: float = 1e-4,
         gamma: float = 0.99,
         epsilon_start: float = 1.0,
@@ -78,6 +77,8 @@ class ExecutionRLAgent(RLAgent):
             dueling: Use Dueling architecture
             device: Device to use
         """
+        if hidden_dims is None:
+            hidden_dims = [256, 256]
         super().__init__(state_dim, action_dim, learning_rate, gamma, device)
 
         self.epsilon = epsilon_start
@@ -182,7 +183,7 @@ class ExecutionRLAgent(RLAgent):
         else:
             return 1  # Small limit
 
-    def update(self, experiences: List[Experience]) -> Dict[str, float]:
+    def update(self, experiences: list[Experience]) -> dict[str, float]:
         """
         Update agent from experiences.
 
@@ -196,23 +197,19 @@ class ExecutionRLAgent(RLAgent):
             return {"loss": 0.0}
 
         # Prepare batch
-        states = torch.FloatTensor(
-            np.array([e.state.features for e in experiences])
-        ).to(self.device)
-
-        actions = (
-            torch.LongTensor([e.action.value for e in experiences])
-            .unsqueeze(-1)
-            .to(self.device)
-        )
-
-        rewards = torch.FloatTensor([e.reward.value for e in experiences]).to(
+        states = torch.FloatTensor(np.array([e.state.features for e in experiences])).to(
             self.device
         )
 
-        next_states = torch.FloatTensor(
-            np.array([e.next_state.features for e in experiences])
-        ).to(self.device)
+        actions = (
+            torch.LongTensor([e.action.value for e in experiences]).unsqueeze(-1).to(self.device)
+        )
+
+        rewards = torch.FloatTensor([e.reward.value for e in experiences]).to(self.device)
+
+        next_states = torch.FloatTensor(np.array([e.next_state.features for e in experiences])).to(
+            self.device
+        )
 
         dones = torch.FloatTensor([float(e.done) for e in experiences]).to(self.device)
 
@@ -224,9 +221,7 @@ class ExecutionRLAgent(RLAgent):
             if self.double_dqn:
                 # Double DQN: use online network for action selection
                 next_actions = self.q_network(next_states).argmax(dim=-1, keepdim=True)
-                next_q = (
-                    self.target_network(next_states).gather(1, next_actions).squeeze(-1)
-                )
+                next_q = self.target_network(next_states).gather(1, next_actions).squeeze(-1)
             else:
                 next_q = self.target_network(next_states).max(dim=-1)[0]
 
@@ -286,7 +281,7 @@ class ExecutionRLAgent(RLAgent):
         self.step_count = checkpoint.get("step_count", 0)
         logger.info(f"Agent loaded from {path}")
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get agent configuration."""
         config = super().get_config()
         config.update(

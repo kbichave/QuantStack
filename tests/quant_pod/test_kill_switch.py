@@ -13,7 +13,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from quant_pod.execution.kill_switch import KillSwitch
 
 
@@ -55,6 +54,7 @@ class TestTrigger:
 
     def test_trigger_sets_triggered_at(self, ks):
         from datetime import datetime
+
         ks.trigger("timing test")
         assert ks.status().triggered_at is not None
         assert isinstance(ks.status().triggered_at, datetime)

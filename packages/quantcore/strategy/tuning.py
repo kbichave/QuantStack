@@ -9,8 +9,7 @@ Provides:
 - Cross-validation utilities
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -84,12 +83,12 @@ class DataSplit:
 
     def __post_init__(self):
         """Verify no data leakage."""
-        assert (
-            self.train_end <= self.val_start
-        ), f"Data leakage: train_end ({self.train_end}) > val_start ({self.val_start})"
-        assert (
-            self.val_end <= self.test_start
-        ), f"Data leakage: val_end ({self.val_end}) > test_start ({self.test_start})"
+        assert self.train_end <= self.val_start, (
+            f"Data leakage: train_end ({self.train_end}) > val_start ({self.val_start})"
+        )
+        assert self.val_end <= self.test_start, (
+            f"Data leakage: val_end ({self.val_end}) > test_start ({self.test_start})"
+        )
 
     @property
     def train_size(self) -> int:
@@ -144,7 +143,7 @@ def create_temporal_split(
 def split_dataframe(
     df: pd.DataFrame,
     split: DataSplit,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Split DataFrame according to DataSplit.
 
@@ -190,7 +189,7 @@ class WalkForwardValidator:
         self.test_size = test_size
         self.gap = gap
 
-    def split(self, n_samples: int) -> List[Tuple[np.ndarray, np.ndarray]]:
+    def split(self, n_samples: int) -> list[tuple[np.ndarray, np.ndarray]]:
         """
         Generate train/test indices for walk-forward validation.
 
@@ -250,26 +249,18 @@ def log_split_info(
     logger.info("=" * 60)
     logger.info(f"Total samples: {len(df)}")
     logger.info("")
-    logger.info(
-        f"TRAIN: {split.train_size} samples ({split.train_size/len(df)*100:.1f}%)"
-    )
+    logger.info(f"TRAIN: {split.train_size} samples ({split.train_size / len(df) * 100:.1f}%)")
     logger.info(f"  Indices: [{split.train_start}, {split.train_end})")
     if hasattr(df.index[0], "strftime"):
-        logger.info(
-            f"  Dates: {df.index[split.train_start]} to {df.index[split.train_end-1]}"
-        )
+        logger.info(f"  Dates: {df.index[split.train_start]} to {df.index[split.train_end - 1]}")
     logger.info("")
-    logger.info(
-        f"VALIDATION: {split.val_size} samples ({split.val_size/len(df)*100:.1f}%)"
-    )
+    logger.info(f"VALIDATION: {split.val_size} samples ({split.val_size / len(df) * 100:.1f}%)")
     logger.info(f"  Indices: [{split.val_start}, {split.val_end})")
     if hasattr(df.index[0], "strftime"):
-        logger.info(
-            f"  Dates: {df.index[split.val_start]} to {df.index[split.val_end-1]}"
-        )
+        logger.info(f"  Dates: {df.index[split.val_start]} to {df.index[split.val_end - 1]}")
     logger.info("")
     logger.info(
-        f"TEST (HOLDOUT): {split.test_size} samples ({split.test_size/len(df)*100:.1f}%)"
+        f"TEST (HOLDOUT): {split.test_size} samples ({split.test_size / len(df) * 100:.1f}%)"
     )
     logger.info(f"  Indices: [{split.test_start}, {split.test_end})")
     if hasattr(df.index[0], "strftime"):

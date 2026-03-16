@@ -6,15 +6,15 @@ enabling analysis of MR trade performance by wave phase.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Any
-import pandas as pd
+from typing import Any
+
 import numpy as np
+import pandas as pd
 from loguru import logger
 
-from quantcore.labeling.event_labeler import EventLabeler, LabelConfig
-from quantcore.features.waves import WaveFeatures, WaveRole
-from quantcore.hierarchy.wave_context import WaveContextAnalyzer
 from quantcore.config.timeframes import Timeframe
+from quantcore.features.waves import WaveFeatures, WaveRole
+from quantcore.labeling.event_labeler import EventLabeler, LabelConfig
 
 
 @dataclass
@@ -45,7 +45,7 @@ class WaveEventLabel:
     entered_in_corr_up: bool
     entered_in_late_impulse: bool
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "outcome": self.outcome,
@@ -76,7 +76,7 @@ class WaveEventLabeler:
     def __init__(
         self,
         timeframe: Timeframe = Timeframe.H1,
-        config: Optional[LabelConfig] = None,
+        config: LabelConfig | None = None,
     ):
         """
         Initialize wave event labeler.
@@ -86,15 +86,13 @@ class WaveEventLabeler:
             config: Label configuration (uses timeframe defaults if None)
         """
         self.timeframe = timeframe
-        self.event_labeler = EventLabeler(
-            config or LabelConfig.from_timeframe(timeframe)
-        )
+        self.event_labeler = EventLabeler(config or LabelConfig.from_timeframe(timeframe))
         self.wave_features = WaveFeatures(timeframe)
 
     def label_with_wave_context(
         self,
         df: pd.DataFrame,
-        df_h4: Optional[pd.DataFrame] = None,
+        df_h4: pd.DataFrame | None = None,
         atr_column: str = "atr",
     ) -> pd.DataFrame:
         """
@@ -121,7 +119,7 @@ class WaveEventLabeler:
     def _add_wave_context(
         self,
         df: pd.DataFrame,
-        df_h4: Optional[pd.DataFrame],
+        df_h4: pd.DataFrame | None,
     ) -> pd.DataFrame:
         """Add wave context columns from 4H data."""
         result = df.copy()
@@ -165,13 +163,13 @@ class WaveEventLabeler:
             result[f"entry_{col}"] = h4_reindexed[col]
 
         # Compute derived flags
-        result["entry_in_corr_down"] = (
-            result["entry_wave_role"] == WaveRole.CORR_DOWN.value
-        ) | (result["entry_prob_corr_down"] > 0.6)
+        result["entry_in_corr_down"] = (result["entry_wave_role"] == WaveRole.CORR_DOWN.value) | (
+            result["entry_prob_corr_down"] > 0.6
+        )
 
-        result["entry_in_corr_up"] = (
-            result["entry_wave_role"] == WaveRole.CORR_UP.value
-        ) | (result["entry_prob_corr_up"] > 0.6)
+        result["entry_in_corr_up"] = (result["entry_wave_role"] == WaveRole.CORR_UP.value) | (
+            result["entry_prob_corr_up"] > 0.6
+        )
 
         result["entry_in_late_impulse"] = (
             result["entry_wave_role"].isin(
@@ -188,7 +186,7 @@ class WaveEventLabeler:
         self,
         df: pd.DataFrame,
         direction: str = "long",
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """
         Get trade statistics stratified by wave context.
 
@@ -213,26 +211,22 @@ class WaveEventLabeler:
         stats = {}
 
         # Overall stats
-        stats["all"] = self._calc_stats(
-            labeled, label_col, f"label_{direction}_pnl_pct"
-        )
+        stats["all"] = self._calc_stats(labeled, label_col, f"label_{direction}_pnl_pct")
 
         # By corrective down
-        corr_down = labeled[labeled["entry_in_corr_down"] == True]
+        corr_down = labeled[labeled["entry_in_corr_down"]]
         if len(corr_down) > 0:
             stats["corr_down"] = self._calc_stats(
                 corr_down, label_col, f"label_{direction}_pnl_pct"
             )
 
         # By corrective up
-        corr_up = labeled[labeled["entry_in_corr_up"] == True]
+        corr_up = labeled[labeled["entry_in_corr_up"]]
         if len(corr_up) > 0:
-            stats["corr_up"] = self._calc_stats(
-                corr_up, label_col, f"label_{direction}_pnl_pct"
-            )
+            stats["corr_up"] = self._calc_stats(corr_up, label_col, f"label_{direction}_pnl_pct")
 
         # By late impulse
-        late_impulse = labeled[labeled["entry_in_late_impulse"] == True]
+        late_impulse = labeled[labeled["entry_in_late_impulse"]]
         if len(late_impulse) > 0:
             stats["late_impulse"] = self._calc_stats(
                 late_impulse, label_col, f"label_{direction}_pnl_pct"
@@ -261,7 +255,7 @@ class WaveEventLabeler:
         df: pd.DataFrame,
         label_col: str,
         pnl_col: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Calculate statistics for a subset."""
         labels = df[label_col]
         pnl = df[pnl_col] if pnl_col in df.columns else pd.Series(dtype=float)
@@ -313,9 +307,7 @@ class WavePerformanceAnalyzer:
         role_groups = []
 
         for role in WaveRole:
-            role_trades = trades_df[
-                trades_df.get("entry_wave_role", "none") == role.value
-            ]
+            role_trades = trades_df[trades_df.get("entry_wave_role", "none") == role.value]
 
             if len(role_trades) < 5:
                 continue
@@ -360,10 +352,10 @@ class WavePerformanceAnalyzer:
 
     def get_wave_filter_recommendations(
         self,
-        stats: Dict[str, Dict[str, Any]],
+        stats: dict[str, dict[str, Any]],
         min_trades: int = 20,
         min_win_rate_diff: float = 0.05,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Get recommendations for wave-based filtering.
 
@@ -386,11 +378,11 @@ class WavePerformanceAnalyzer:
             corr_wr = stats["corr_down"]["win_rate"]
             if corr_wr > base_wr + min_win_rate_diff:
                 recommendations.append(
-                    f"✓ LONG trades in corrective_down show +{(corr_wr - base_wr)*100:.1f}% win rate vs baseline"
+                    f"✓ LONG trades in corrective_down show +{(corr_wr - base_wr) * 100:.1f}% win rate vs baseline"
                 )
             elif corr_wr < base_wr - min_win_rate_diff:
                 recommendations.append(
-                    f"✗ LONG trades in corrective_down underperform by {(base_wr - corr_wr)*100:.1f}%"
+                    f"✗ LONG trades in corrective_down underperform by {(base_wr - corr_wr) * 100:.1f}%"
                 )
 
         # Check late impulse performance
@@ -398,7 +390,7 @@ class WavePerformanceAnalyzer:
             late_wr = stats["late_impulse"]["win_rate"]
             if late_wr < base_wr - min_win_rate_diff:
                 recommendations.append(
-                    f"⚠ Consider filtering out late_impulse entries (-{(base_wr - late_wr)*100:.1f}% win rate)"
+                    f"⚠ Consider filtering out late_impulse entries (-{(base_wr - late_wr) * 100:.1f}% win rate)"
                 )
 
         # Check wave 2/4 performance (ideal for MR)
@@ -408,12 +400,10 @@ class WavePerformanceAnalyzer:
                 stage_wr = stats[key]["win_rate"]
                 if stage_wr > base_wr + min_win_rate_diff:
                     recommendations.append(
-                        f"✓ Wave {stage} entries show +{(stage_wr - base_wr)*100:.1f}% win rate"
+                        f"✓ Wave {stage} entries show +{(stage_wr - base_wr) * 100:.1f}% win rate"
                     )
 
         if not recommendations:
-            recommendations.append(
-                "No significant wave-based filtering recommendations"
-            )
+            recommendations.append("No significant wave-based filtering recommendations")
 
         return recommendations

@@ -27,12 +27,12 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional
 
 from loguru import logger
 
 try:
     import ib_insync as ib
+
     _IB_AVAILABLE = True
 except ImportError:
     _IB_AVAILABLE = False
@@ -41,25 +41,23 @@ except ImportError:
 class IBKRConnectionManager:
     """Singleton gateway lifecycle manager."""
 
-    _instance: Optional["IBKRConnectionManager"] = None
+    _instance: IBKRConnectionManager | None = None
     _class_lock = threading.Lock()
 
     def __init__(
         self,
-        host:      str = "127.0.0.1",
-        port:      int = 4001,
+        host: str = "127.0.0.1",
+        port: int = 4001,
         client_id: int = 1,
-        timeout:   int = 30,
+        timeout: int = 30,
     ) -> None:
         if not _IB_AVAILABLE:
-            raise ImportError(
-                "ib_insync is required. Run: uv pip install -e '.[ibkr]'"
-            )
-        self._host      = host
-        self._port      = port
+            raise ImportError("ib_insync is required. Run: uv pip install -e '.[ibkr]'")
+        self._host = host
+        self._port = port
         self._client_id = client_id
-        self._timeout   = timeout
-        self._ib: Optional["ib.IB"] = None
+        self._timeout = timeout
+        self._ib: ib.IB | None = None
         self._lock = threading.Lock()
 
     # ── Singleton factory ─────────────────────────────────────────────────────
@@ -67,18 +65,20 @@ class IBKRConnectionManager:
     @classmethod
     def get_instance(
         cls,
-        host:      str = "127.0.0.1",
-        port:      int = 4001,
+        host: str = "127.0.0.1",
+        port: int = 4001,
         client_id: int = 1,
-        timeout:   int = 30,
-    ) -> "IBKRConnectionManager":
+        timeout: int = 30,
+    ) -> IBKRConnectionManager:
         """Return the singleton, creating it on first call."""
         if cls._instance is None:
             with cls._class_lock:
                 if cls._instance is None:
                     cls._instance = cls(
-                        host=host, port=port,
-                        client_id=client_id, timeout=timeout,
+                        host=host,
+                        port=port,
+                        client_id=client_id,
+                        timeout=timeout,
                     )
         return cls._instance
 
@@ -100,10 +100,10 @@ class IBKRConnectionManager:
             for attempt in range(1, retries + 1):
                 try:
                     self._ib.connect(
-                        host     = self._host,
-                        port     = self._port,
-                        clientId = self._client_id,
-                        timeout  = self._timeout,
+                        host=self._host,
+                        port=self._port,
+                        clientId=self._client_id,
+                        timeout=self._timeout,
                     )
                     logger.info(
                         f"[IBKR] Connected to {self._host}:{self._port} "
@@ -111,15 +111,12 @@ class IBKRConnectionManager:
                     )
                     return
                 except Exception as exc:
-                    logger.warning(
-                        f"[IBKR] Connection attempt {attempt}/{retries} failed: {exc}"
-                    )
+                    logger.warning(f"[IBKR] Connection attempt {attempt}/{retries} failed: {exc}")
                     if attempt < retries:
                         time.sleep(backoff_s)
 
             raise BrokerConnectionError(
-                f"IB Gateway not reachable at {self._host}:{self._port} "
-                f"after {retries} attempts"
+                f"IB Gateway not reachable at {self._host}:{self._port} after {retries} attempts"
             )
 
     def disconnect(self) -> None:
@@ -134,7 +131,7 @@ class IBKRConnectionManager:
             return bool(self._ib and self._ib.isConnected())
 
     @property
-    def ib(self) -> "ib.IB":
+    def ib(self) -> ib.IB:
         """Return the connected IB instance.  Auto-reconnects if needed."""
         with self._lock:
             if self._ib is None or not self._ib.isConnected():

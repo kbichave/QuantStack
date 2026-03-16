@@ -20,7 +20,7 @@ import asyncio
 import sys
 import time
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastmcp import FastMCP
 from loguru import logger
@@ -28,18 +28,17 @@ from loguru import logger
 from quant_pod.context import TradingContext, create_trading_context
 from quant_pod.execution.broker_factory import get_broker_mode
 
-
 # =============================================================================
 # Server State
 # =============================================================================
 
-_ctx: Optional[TradingContext] = None
+_ctx: TradingContext | None = None
 
 # ---------------------------------------------------------------------------
 # IC Output Cache — keyed "{symbol}::{ic_name}", 30-minute TTL.
 # Populated by run_analysis after every full crew run, and by run_ic/run_pod.
 # ---------------------------------------------------------------------------
-_ic_output_cache: Dict[str, Any] = {}
+_ic_output_cache: dict[str, Any] = {}
 _IC_CACHE_TTL_SECS = 1800  # 30 minutes
 
 
@@ -51,7 +50,7 @@ def _ic_cache_set(symbol: str, ic_name: str, output: str) -> None:
     }
 
 
-def _ic_cache_get(symbol: str, ic_name: str) -> Optional[str]:
+def _ic_cache_get(symbol: str, ic_name: str) -> str | None:
     """Retrieve cached IC output, returning None if absent or expired."""
     entry = _ic_output_cache.get(f"{symbol}::{ic_name}")
     if not entry:
@@ -68,6 +67,7 @@ def _populate_ic_cache_from_result(symbol: str, result: Any) -> None:
         if not hasattr(result, "tasks_output") or not result.tasks_output:
             return
         from quant_pod.crews.trading_crew import IC_AGENT_ORDER
+
         for i, ic_name in enumerate(IC_AGENT_ORDER):
             if i >= len(result.tasks_output):
                 break
@@ -131,6 +131,7 @@ def _serialize(obj: Any) -> Any:
         return obj.model_dump(mode="json")
     if hasattr(obj, "__dataclass_fields__"):
         from dataclasses import asdict
+
         return asdict(obj)
     return obj
 
@@ -143,9 +144,9 @@ def _serialize(obj: Any) -> Any:
 @mcp.tool()
 async def run_analysis(
     symbol: str,
-    regime: Optional[Dict[str, Any]] = None,
+    regime: dict[str, Any] | None = None,
     include_historical_context: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run TradingCrew analysis for a symbol and return a DailyBrief.
 
@@ -245,7 +246,7 @@ async def run_analysis(
 
 
 @mcp.tool()
-async def get_portfolio_state() -> Dict[str, Any]:
+async def get_portfolio_state() -> dict[str, Any]:
     """
     Return the current portfolio state: positions, cash, equity, and P&L.
 
@@ -277,7 +278,7 @@ async def get_portfolio_state() -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def get_regime(symbol: str) -> Dict[str, Any]:
+async def get_regime(symbol: str) -> dict[str, Any]:
     """
     Detect the current market regime for a symbol.
 
@@ -311,9 +312,9 @@ async def get_regime(symbol: str) -> Dict[str, Any]:
 
 @mcp.tool()
 async def get_recent_decisions(
-    symbol: Optional[str] = None,
+    symbol: str | None = None,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Query recent audit trail entries.
 
@@ -355,7 +356,7 @@ async def get_recent_decisions(
 
 
 @mcp.tool()
-async def get_system_status() -> Dict[str, Any]:
+async def get_system_status() -> dict[str, Any]:
     """
     Return system health: kill switch state, risk halt, broker mode, session ID.
 
@@ -387,15 +388,15 @@ async def get_system_status() -> Dict[str, Any]:
 @mcp.tool()
 async def register_strategy(
     name: str,
-    parameters: Dict[str, Any],
-    entry_rules: List[Dict[str, Any]],
-    exit_rules: List[Dict[str, Any]],
+    parameters: dict[str, Any],
+    entry_rules: list[dict[str, Any]],
+    exit_rules: list[dict[str, Any]],
     description: str = "",
     asset_class: str = "equities",
-    regime_affinity: Optional[Dict[str, float]] = None,
-    risk_params: Optional[Dict[str, Any]] = None,
+    regime_affinity: dict[str, float] | None = None,
+    risk_params: dict[str, Any] | None = None,
     source: str = "manual",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Register a new strategy in the persistent catalog.
 
@@ -449,9 +450,9 @@ async def register_strategy(
 
 @mcp.tool()
 async def list_strategies(
-    status: Optional[str] = None,
-    asset_class: Optional[str] = None,
-) -> Dict[str, Any]:
+    status: str | None = None,
+    asset_class: str | None = None,
+) -> dict[str, Any]:
     """
     List strategies from the registry, optionally filtered.
 
@@ -482,8 +483,12 @@ async def list_strategies(
 
         strategies = [
             {
-                "strategy_id": r[0], "name": r[1], "description": r[2],
-                "asset_class": r[3], "status": r[4], "source": r[5],
+                "strategy_id": r[0],
+                "name": r[1],
+                "description": r[2],
+                "asset_class": r[3],
+                "status": r[4],
+                "source": r[5],
                 "created_at": str(r[6]) if r[6] else None,
                 "updated_at": str(r[7]) if r[7] else None,
             }
@@ -497,9 +502,9 @@ async def list_strategies(
 
 @mcp.tool()
 async def get_strategy(
-    strategy_id: Optional[str] = None,
-    name: Optional[str] = None,
-) -> Dict[str, Any]:
+    strategy_id: str | None = None,
+    name: str | None = None,
+) -> dict[str, Any]:
     """
     Get full strategy details by ID or name.
 
@@ -519,9 +524,7 @@ async def get_strategy(
                 "SELECT * FROM strategies WHERE strategy_id = ?", [strategy_id]
             ).fetchone()
         elif name:
-            row = ctx.db.execute(
-                "SELECT * FROM strategies WHERE name = ?", [name]
-            ).fetchone()
+            row = ctx.db.execute("SELECT * FROM strategies WHERE name = ?", [name]).fetchone()
         else:
             return {"success": False, "error": "Provide strategy_id or name"}
 
@@ -529,17 +532,34 @@ async def get_strategy(
             return {"success": False, "error": "Strategy not found"}
 
         cols = [
-            "strategy_id", "name", "description", "asset_class",
-            "regime_affinity", "parameters", "entry_rules", "exit_rules",
-            "risk_params", "backtest_summary", "walkforward_summary",
-            "status", "source", "created_at", "updated_at", "created_by",
+            "strategy_id",
+            "name",
+            "description",
+            "asset_class",
+            "regime_affinity",
+            "parameters",
+            "entry_rules",
+            "exit_rules",
+            "risk_params",
+            "backtest_summary",
+            "walkforward_summary",
+            "status",
+            "source",
+            "created_at",
+            "updated_at",
+            "created_by",
         ]
         record = {}
         for i, col in enumerate(cols):
             val = row[i]
             if isinstance(val, str) and col in (
-                "regime_affinity", "parameters", "entry_rules", "exit_rules",
-                "risk_params", "backtest_summary", "walkforward_summary",
+                "regime_affinity",
+                "parameters",
+                "entry_rules",
+                "exit_rules",
+                "risk_params",
+                "backtest_summary",
+                "walkforward_summary",
             ):
                 try:
                     val = _json.loads(val)
@@ -558,16 +578,16 @@ async def get_strategy(
 @mcp.tool()
 async def update_strategy(
     strategy_id: str,
-    status: Optional[str] = None,
-    description: Optional[str] = None,
-    parameters: Optional[Dict[str, Any]] = None,
-    entry_rules: Optional[List[Dict[str, Any]]] = None,
-    exit_rules: Optional[List[Dict[str, Any]]] = None,
-    risk_params: Optional[Dict[str, Any]] = None,
-    regime_affinity: Optional[Dict[str, float]] = None,
-    backtest_summary: Optional[Dict[str, Any]] = None,
-    walkforward_summary: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    status: str | None = None,
+    description: str | None = None,
+    parameters: dict[str, Any] | None = None,
+    entry_rules: list[dict[str, Any]] | None = None,
+    exit_rules: list[dict[str, Any]] | None = None,
+    risk_params: dict[str, Any] | None = None,
+    regime_affinity: dict[str, float] | None = None,
+    backtest_summary: dict[str, Any] | None = None,
+    walkforward_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Update fields of an existing strategy.
 
@@ -595,12 +615,16 @@ async def update_strategy(
         sets = []
         params = []
         field_map = {
-            "status": status, "description": description,
+            "status": status,
+            "description": description,
         }
         json_fields = {
-            "parameters": parameters, "entry_rules": entry_rules,
-            "exit_rules": exit_rules, "risk_params": risk_params,
-            "regime_affinity": regime_affinity, "backtest_summary": backtest_summary,
+            "parameters": parameters,
+            "entry_rules": entry_rules,
+            "exit_rules": exit_rules,
+            "risk_params": risk_params,
+            "regime_affinity": regime_affinity,
+            "backtest_summary": backtest_summary,
             "walkforward_summary": walkforward_summary,
         }
 
@@ -639,11 +663,11 @@ async def update_strategy(
 
 
 def _generate_signals_from_rules(
-    price_data: "pd.DataFrame",
-    entry_rules: List[Dict[str, Any]],
-    exit_rules: List[Dict[str, Any]],
-    parameters: Dict[str, Any],
-) -> "pd.DataFrame":
+    price_data: "pd.DataFrame",  # noqa: F821
+    entry_rules: list[dict[str, Any]],
+    exit_rules: list[dict[str, Any]],
+    parameters: dict[str, Any],
+) -> "pd.DataFrame":  # noqa: F821
     """
     Generate a signals DataFrame from strategy rules + price data.
 
@@ -657,10 +681,9 @@ def _generate_signals_from_rules(
     Returns DataFrame with 'signal' (0/1) and 'signal_direction' (LONG/SHORT/NONE).
     """
     import pandas as pd
-    import numpy as np
 
     df = price_data.copy()
-    n = len(df)
+    len(df)
 
     # Pre-compute common indicators based on parameters
     close = df["close"]
@@ -689,11 +712,14 @@ def _generate_signals_from_rules(
     # ATR
     atr_period = int(parameters.get("atr_period", 14))
     prev_close = close.shift(1)
-    tr = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
     df["atr"] = tr.ewm(span=atr_period, adjust=False).mean()
 
     # Bollinger Bands
@@ -749,10 +775,10 @@ def _generate_signals_from_rules(
 
 
 def _evaluate_rule(
-    df: "pd.DataFrame",
-    rule: Dict[str, Any],
-    parameters: Dict[str, Any],
-) -> "pd.Series":
+    df: "pd.DataFrame",  # noqa: F821
+    rule: dict[str, Any],
+    parameters: dict[str, Any],
+) -> "pd.Series":  # noqa: F821
     """Evaluate a single rule dict against the indicator DataFrame."""
     import pandas as pd
 
@@ -808,9 +834,9 @@ def _evaluate_rule(
 
 def _fetch_price_data(
     symbol: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-) -> "pd.DataFrame":
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> "pd.DataFrame":  # noqa: F821
     """Fetch OHLCV price data from QuantCore DataStore or provider."""
     try:
         from quantcore.data.storage import DataStore
@@ -848,13 +874,13 @@ def _fetch_price_data(
 async def run_backtest(
     strategy_id: str,
     symbol: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     initial_capital: float = 100_000.0,
     position_size_pct: float = 0.10,
     commission: float = 1.0,
     slippage_pct: float = 0.001,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Backtest a registered strategy against historical price data.
 
@@ -936,8 +962,12 @@ async def run_backtest(
             "profit_factor": round(result.profit_factor, 4),
             "calmar_ratio": round(calmar, 4),
             "avg_trade_pnl": round(avg_pnl, 2),
-            "start_date": str(price_data.index[0].date()) if hasattr(price_data.index[0], "date") else str(price_data.index[0]),
-            "end_date": str(price_data.index[-1].date()) if hasattr(price_data.index[-1], "date") else str(price_data.index[-1]),
+            "start_date": str(price_data.index[0].date())
+            if hasattr(price_data.index[0], "date")
+            else str(price_data.index[0]),
+            "end_date": str(price_data.index[-1].date())
+            if hasattr(price_data.index[-1], "date")
+            else str(price_data.index[-1]),
             "bars_tested": len(price_data),
         }
 
@@ -965,7 +995,7 @@ async def run_walkforward(
     expanding: bool = True,
     initial_capital: float = 100_000.0,
     position_size_pct: float = 0.10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Walk-forward validation of a registered strategy.
 
@@ -988,6 +1018,7 @@ async def run_walkforward(
         WalkForwardResult dict with per-fold and aggregate metrics.
     """
     import json as _json
+
     import numpy as np
 
     ctx = _require_ctx()
@@ -1045,8 +1076,12 @@ async def run_walkforward(
             test_data = price_data.iloc[test_start:test_end]
 
             # Generate signals for each period
-            train_signals = _generate_signals_from_rules(train_data, entry_rules, exit_rules, parameters)
-            test_signals = _generate_signals_from_rules(test_data, entry_rules, exit_rules, parameters)
+            train_signals = _generate_signals_from_rules(
+                train_data, entry_rules, exit_rules, parameters
+            )
+            test_signals = _generate_signals_from_rules(
+                test_data, entry_rules, exit_rules, parameters
+            )
 
             # Run backtests
             engine_is = BacktestEngine(config=config)
@@ -1055,18 +1090,20 @@ async def run_walkforward(
             engine_oos = BacktestEngine(config=config)
             result_oos = engine_oos.run(test_signals, test_data)
 
-            fold_results.append({
-                "fold": i + 1,
-                "train_bars": len(train_data),
-                "test_bars": len(test_data),
-                "is_sharpe": round(result_is.sharpe_ratio, 4),
-                "is_return_pct": round(result_is.total_return, 2),
-                "is_trades": result_is.total_trades,
-                "oos_sharpe": round(result_oos.sharpe_ratio, 4),
-                "oos_return_pct": round(result_oos.total_return, 2),
-                "oos_trades": result_oos.total_trades,
-                "oos_max_dd": round(result_oos.max_drawdown, 2),
-            })
+            fold_results.append(
+                {
+                    "fold": i + 1,
+                    "train_bars": len(train_data),
+                    "test_bars": len(test_data),
+                    "is_sharpe": round(result_is.sharpe_ratio, 4),
+                    "is_return_pct": round(result_is.total_return, 2),
+                    "is_trades": result_is.total_trades,
+                    "oos_sharpe": round(result_oos.sharpe_ratio, 4),
+                    "oos_return_pct": round(result_oos.total_return, 2),
+                    "oos_trades": result_oos.total_trades,
+                    "oos_max_dd": round(result_oos.max_drawdown, 2),
+                }
+            )
 
         # 4. Aggregate
         is_sharpes = [f["is_sharpe"] for f in fold_results]
@@ -1110,9 +1147,7 @@ async def run_walkforward(
 # =============================================================================
 
 
-def _calc_quantity_from_size(
-    position_size: str, equity: float, current_price: float
-) -> int:
+def _calc_quantity_from_size(position_size: str, equity: float, current_price: float) -> int:
     """Convert a position_size label ('full', 'half', 'quarter') to shares."""
     fractions = {"full": 0.10, "half": 0.05, "quarter": 0.025}
     frac = fractions.get(position_size, 0.025)
@@ -1127,13 +1162,13 @@ async def execute_trade(
     action: str,
     reasoning: str,
     confidence: float,
-    quantity: Optional[int] = None,
+    quantity: int | None = None,
     position_size: str = "quarter",
     order_type: str = "market",
-    limit_price: Optional[float] = None,
-    strategy_id: Optional[str] = None,
+    limit_price: float | None = None,
+    strategy_id: str | None = None,
     paper_mode: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Execute a trade through the risk gate and broker.
 
@@ -1213,20 +1248,22 @@ async def execute_trade(
             # Log the rejection
             from quant_pod.audit.models import DecisionEvent
 
-            ctx.audit.record(DecisionEvent(
-                event_id=str(_uuid.uuid4()),
-                session_id=ctx.session_id,
-                event_type="risk_rejection",
-                agent_name="ClaudeCode",
-                agent_role="strategic_brain",
-                symbol=symbol,
-                action=action,
-                confidence=confidence,
-                output_summary=f"REJECTED: {'; '.join(violations)}",
-                risk_approved=False,
-                risk_violations=violations,
-                portfolio_snapshot=_serialize(snapshot) or {},
-            ))
+            ctx.audit.record(
+                DecisionEvent(
+                    event_id=str(_uuid.uuid4()),
+                    session_id=ctx.session_id,
+                    event_type="risk_rejection",
+                    agent_name="ClaudeCode",
+                    agent_role="strategic_brain",
+                    symbol=symbol,
+                    action=action,
+                    confidence=confidence,
+                    output_summary=f"REJECTED: {'; '.join(violations)}",
+                    risk_approved=False,
+                    risk_violations=violations,
+                    portfolio_snapshot=_serialize(snapshot) or {},
+                )
+            )
 
             return {
                 "success": False,
@@ -1257,31 +1294,33 @@ async def execute_trade(
         # 7. Log to audit trail
         from quant_pod.audit.models import DecisionEvent
 
-        ctx.audit.record(DecisionEvent(
-            event_id=str(_uuid.uuid4()),
-            session_id=ctx.session_id,
-            event_type="execution",
-            agent_name="ClaudeCode",
-            agent_role="strategic_brain",
-            symbol=symbol,
-            action=action,
-            confidence=confidence,
-            output_summary=(
-                f"{'FILLED' if not fill.rejected else 'REJECTED'}: "
-                f"{action.upper()} {fill.filled_quantity} {symbol} "
-                f"@ ${fill.fill_price:.4f} | reasoning: {reasoning[:200]}"
-            ),
-            output_structured={
-                "order_id": fill.order_id,
-                "fill_price": fill.fill_price,
-                "filled_quantity": fill.filled_quantity,
-                "slippage_bps": fill.slippage_bps,
-                "strategy_id": strategy_id,
-                "paper_mode": paper_mode,
-            },
-            risk_approved=True,
-            portfolio_snapshot=_serialize(snapshot) or {},
-        ))
+        ctx.audit.record(
+            DecisionEvent(
+                event_id=str(_uuid.uuid4()),
+                session_id=ctx.session_id,
+                event_type="execution",
+                agent_name="ClaudeCode",
+                agent_role="strategic_brain",
+                symbol=symbol,
+                action=action,
+                confidence=confidence,
+                output_summary=(
+                    f"{'FILLED' if not fill.rejected else 'REJECTED'}: "
+                    f"{action.upper()} {fill.filled_quantity} {symbol} "
+                    f"@ ${fill.fill_price:.4f} | reasoning: {reasoning[:200]}"
+                ),
+                output_structured={
+                    "order_id": fill.order_id,
+                    "fill_price": fill.fill_price,
+                    "filled_quantity": fill.filled_quantity,
+                    "slippage_bps": fill.slippage_bps,
+                    "strategy_id": strategy_id,
+                    "paper_mode": paper_mode,
+                },
+                risk_approved=True,
+                portfolio_snapshot=_serialize(snapshot) or {},
+            )
+        )
 
         return {
             "success": not fill.rejected,
@@ -1308,8 +1347,8 @@ async def execute_trade(
 async def close_position(
     symbol: str,
     reasoning: str,
-    quantity: Optional[int] = None,
-) -> Dict[str, Any]:
+    quantity: int | None = None,
+) -> dict[str, Any]:
     """
     Close an open position (all or partial).
 
@@ -1348,7 +1387,7 @@ async def close_position(
 
 
 @mcp.tool()
-async def cancel_order(order_id: str) -> Dict[str, Any]:
+async def cancel_order(order_id: str) -> dict[str, Any]:
     """
     Cancel an open order by ID.
 
@@ -1373,9 +1412,9 @@ async def cancel_order(order_id: str) -> Dict[str, Any]:
 
 @mcp.tool()
 async def get_fills(
-    symbol: Optional[str] = None,
+    symbol: str | None = None,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get recent trade fills.
 
@@ -1400,7 +1439,7 @@ async def get_fills(
 
 
 @mcp.tool()
-async def get_risk_metrics() -> Dict[str, Any]:
+async def get_risk_metrics() -> dict[str, Any]:
     """
     Get current risk exposure, drawdown, and limits headroom.
 
@@ -1443,10 +1482,10 @@ async def get_risk_metrics() -> Dict[str, Any]:
 
 @mcp.tool()
 async def get_audit_trail(
-    session_id: Optional[str] = None,
-    symbol: Optional[str] = None,
+    session_id: str | None = None,
+    symbol: str | None = None,
     limit: int = 50,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Query the decision audit trail.
 
@@ -1498,10 +1537,10 @@ async def get_audit_trail(
 
 @mcp.tool()
 async def decode_strategy(
-    signals: List[Dict[str, Any]],
+    signals: list[dict[str, Any]],
     source_name: str = "unknown",
-    strategy_name: Optional[str] = None,
-) -> Dict[str, Any]:
+    strategy_name: str | None = None,
+) -> dict[str, Any]:
     """
     Reverse-engineer a trading strategy from historical trade signals.
 
@@ -1552,11 +1591,11 @@ async def decode_strategy(
 @mcp.tool()
 async def decode_from_trades(
     source: str = "closed_trades",
-    symbol: Optional[str] = None,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    symbol: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     source_name: str = "self",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Decode strategy patterns from the system's own trade history.
 
@@ -1580,7 +1619,10 @@ async def decode_from_trades(
         elif source == "fills":
             query = "SELECT symbol, side, fill_price, fill_price, filled_at, filled_at FROM fills WHERE rejected = FALSE"
         else:
-            return {"success": False, "error": f"Unknown source: {source}. Use 'closed_trades' or 'fills'."}
+            return {
+                "success": False,
+                "error": f"Unknown source: {source}. Use 'closed_trades' or 'fills'.",
+            }
 
         conditions = []
         params = []
@@ -1612,14 +1654,16 @@ async def decode_from_trades(
         # Convert to signal format
         signals = []
         for r in rows:
-            signals.append({
-                "symbol": r[0],
-                "direction": "long" if r[1] == "long" else "short",
-                "entry_price": r[2],
-                "exit_price": r[3],
-                "entry_time": str(r[4]),
-                "exit_time": str(r[5]),
-            })
+            signals.append(
+                {
+                    "symbol": r[0],
+                    "direction": "long" if r[1] == "long" else "short",
+                    "entry_price": r[2],
+                    "exit_price": r[3],
+                    "entry_time": str(r[4]),
+                    "exit_time": str(r[5]),
+                }
+            )
 
         return await decode_strategy.fn(
             signals=signals,
@@ -1636,7 +1680,7 @@ async def decode_from_trades(
 
 
 @mcp.tool()
-async def get_regime_strategies(regime: str) -> Dict[str, Any]:
+async def get_regime_strategies(regime: str) -> dict[str, Any]:
     """
     Get strategy allocations for a given regime from the matrix.
 
@@ -1663,7 +1707,12 @@ async def get_regime_strategies(regime: str) -> Dict[str, Any]:
             }
             for r in rows
         ]
-        return {"success": True, "regime": regime, "allocations": allocations, "total": len(allocations)}
+        return {
+            "success": True,
+            "regime": regime,
+            "allocations": allocations,
+            "total": len(allocations),
+        }
     except Exception as e:
         logger.error(f"[quantpod_mcp] get_regime_strategies failed: {e}")
         return {"success": False, "error": str(e)}
@@ -1672,8 +1721,8 @@ async def get_regime_strategies(regime: str) -> Dict[str, Any]:
 @mcp.tool()
 async def set_regime_allocation(
     regime: str,
-    allocations: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    allocations: list[dict[str, Any]],
+) -> dict[str, Any]:
     """
     Set or update strategy allocations for a regime.
 
@@ -1706,7 +1755,7 @@ async def set_regime_allocation(
                 continue
 
             # Upsert: try update, then insert
-            updated = ctx.db.execute(
+            ctx.db.execute(
                 "UPDATE regime_strategy_matrix "
                 "SET allocation_pct = ?, confidence = ?, last_updated = CURRENT_TIMESTAMP "
                 "WHERE regime = ? AND strategy_id = ?",
@@ -1726,7 +1775,9 @@ async def set_regime_allocation(
                     [regime, strategy_id, allocation_pct, confidence],
                 )
 
-        logger.info(f"[quantpod_mcp] Updated regime matrix for '{regime}': {len(allocations)} strategies")
+        logger.info(
+            f"[quantpod_mcp] Updated regime matrix for '{regime}': {len(allocations)} strategies"
+        )
         return await get_regime_strategies.fn(regime)
     except Exception as e:
         logger.error(f"[quantpod_mcp] set_regime_allocation failed: {e}")
@@ -1735,8 +1786,8 @@ async def set_regime_allocation(
 
 @mcp.tool()
 async def run_multi_analysis(
-    symbols: List[str],
-) -> Dict[str, Any]:
+    symbols: list[str],
+) -> dict[str, Any]:
     """
     Run TradingCrew analysis for multiple symbols.
 
@@ -1765,8 +1816,8 @@ async def run_multi_analysis(
 
 @mcp.tool()
 async def resolve_portfolio_conflicts(
-    proposed_trades: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    proposed_trades: list[dict[str, Any]],
+) -> dict[str, Any]:
     """
     Resolve signal conflicts across multiple strategies for the same symbols.
 
@@ -1797,7 +1848,7 @@ async def resolve_portfolio_conflicts(
 
 
 @mcp.tool()
-async def get_rl_status() -> Dict[str, Any]:
+async def get_rl_status() -> dict[str, Any]:
     """
     Get RL model status: which models are enabled, shadow vs live, config.
 
@@ -1813,7 +1864,10 @@ async def get_rl_status() -> Dict[str, Any]:
             "config_version": cfg.config_version,
             "shadow_mode_enabled": cfg.shadow_mode_enabled,
             "agents": {
-                "execution_rl": {"enabled": cfg.enable_execution_rl, "shadow": cfg.execution_shadow},
+                "execution_rl": {
+                    "enabled": cfg.enable_execution_rl,
+                    "shadow": cfg.execution_shadow,
+                },
                 "sizing_rl": {"enabled": cfg.enable_sizing_rl, "shadow": cfg.sizing_shadow},
                 "meta_rl": {"enabled": cfg.enable_meta_rl, "shadow": cfg.meta_shadow},
                 "spread_rl": {"enabled": cfg.enable_spread_rl},
@@ -1831,7 +1885,7 @@ async def get_rl_recommendation(
     signal_confidence: float = 0.5,
     regime: str = "normal",
     current_drawdown: float = 0.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Get RL-recommended position size adjustment for a trade.
 
@@ -1869,6 +1923,7 @@ async def get_rl_recommendation(
         )
 
         import json as _json
+
         try:
             result = _json.loads(result_str) if isinstance(result_str, str) else result_str
         except (ValueError, TypeError):
@@ -1890,7 +1945,7 @@ async def get_rl_recommendation(
 async def promote_strategy(
     strategy_id: str,
     evidence: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Promote a strategy to "live" status after validation.
 
@@ -1907,7 +1962,6 @@ async def promote_strategy(
     Returns:
         Success with updated record, or rejection with failed criteria.
     """
-    import json as _json
 
     ctx = _require_ctx()
     try:
@@ -1920,9 +1974,7 @@ async def promote_strategy(
 
         # Check current status
         if strat.get("status") != "forward_testing":
-            failures.append(
-                f"Status is '{strat.get('status')}', expected 'forward_testing'"
-            )
+            failures.append(f"Status is '{strat.get('status')}', expected 'forward_testing'")
 
         # Check backtest exists with positive Sharpe
         bt = strat.get("backtest_summary") or {}
@@ -1968,7 +2020,7 @@ async def promote_strategy(
 async def retire_strategy(
     strategy_id: str,
     reason: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Retire a strategy and remove it from the regime-strategy matrix.
 
@@ -2013,7 +2065,7 @@ async def retire_strategy(
 async def get_strategy_performance(
     strategy_id: str,
     lookback_days: int = 30,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Compute live performance metrics for a strategy over a lookback period.
 
@@ -2028,7 +2080,6 @@ async def get_strategy_performance(
     Returns:
         Dict with live metrics, backtest comparison, and degradation flag.
     """
-    import json as _json
 
     ctx = _require_ctx()
     try:
@@ -2041,7 +2092,8 @@ async def get_strategy_performance(
         bt = strat.get("backtest_summary") or {}
 
         # Query closed trades in lookback period
-        from datetime import datetime as _dt, timedelta as _td
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
 
         cutoff = _dt.now() - _td(days=lookback_days)
         rows = ctx.db.execute(
@@ -2073,10 +2125,12 @@ async def get_strategy_performance(
 
         # Simple Sharpe approximation
         import numpy as np
+
         pnl_arr = np.array(pnls)
         live_sharpe = (
             float(np.mean(pnl_arr) / (np.std(pnl_arr) + 1e-10) * np.sqrt(252))
-            if len(pnl_arr) > 1 else 0.0
+            if len(pnl_arr) > 1
+            else 0.0
         )
 
         # Compare to backtest
@@ -2105,7 +2159,7 @@ async def get_strategy_performance(
 
 
 @mcp.tool()
-async def validate_strategy(strategy_id: str) -> Dict[str, Any]:
+async def validate_strategy(strategy_id: str) -> dict[str, Any]:
     """
     Re-validate a strategy by comparing current backtest to registered summary.
 
@@ -2179,7 +2233,7 @@ async def validate_strategy(strategy_id: str) -> Dict[str, Any]:
 @mcp.tool()
 async def update_regime_matrix_from_performance(
     lookback_days: int = 60,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Propose updated regime-strategy allocations based on actual trade performance.
 
@@ -2196,7 +2250,8 @@ async def update_regime_matrix_from_performance(
     ctx = _require_ctx()
     try:
         # Get all closed trades in the lookback period
-        from datetime import datetime as _dt, timedelta as _td
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
 
         cutoff = _dt.now() - _td(days=lookback_days)
         rows = ctx.db.execute(
@@ -2255,7 +2310,7 @@ async def update_regime_matrix_from_performance(
 # =============================================================================
 
 # Human-readable descriptions for each IC (used by list_ics and IDEs)
-_IC_DESCRIPTIONS: Dict[str, str] = {
+_IC_DESCRIPTIONS: dict[str, str] = {
     "data_ingestion_ic": "Fetch OHLCV market data; assess data quality and coverage",
     "market_snapshot_ic": "Current price, volume, key indicator snapshot",
     "regime_detector_ic": "Market regime classification (trend + volatility)",
@@ -2276,13 +2331,19 @@ _VALID_IC_NAMES = list(_IC_DESCRIPTIONS.keys())
 
 # Valid pod names for input validation
 _VALID_POD_NAMES = [
-    "data_pod_manager", "market_monitor_pod_manager", "technicals_pod_manager",
-    "quant_pod_manager", "risk_pod_manager", "alpha_signals_pod_manager",
+    "data_pod_manager",
+    "market_monitor_pod_manager",
+    "technicals_pod_manager",
+    "quant_pod_manager",
+    "risk_pod_manager",
+    "alpha_signals_pod_manager",
 ]
 
+
 # Standard crew inputs for minimal runs (symbol is injected at call time)
-def _minimal_crew_inputs(symbol: str, regime: Dict[str, Any]) -> Dict[str, Any]:
+def _minimal_crew_inputs(symbol: str, regime: dict[str, Any]) -> dict[str, Any]:
     from datetime import date
+
     return {
         "symbol": symbol,
         "current_date": date.today(),
@@ -2301,10 +2362,11 @@ def _minimal_crew_inputs(symbol: str, regime: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def _detect_regime_for_symbol(symbol: str) -> Dict[str, Any]:
+async def _detect_regime_for_symbol(symbol: str) -> dict[str, Any]:
     """Lightweight regime detection for use in IC/pod runners."""
     try:
         from quant_pod.agents.regime_detector import RegimeDetectorAgent
+
         detector = RegimeDetectorAgent(symbols=[symbol])
         result = await asyncio.get_event_loop().run_in_executor(
             None, detector.detect_regime, symbol
@@ -2321,7 +2383,7 @@ async def _detect_regime_for_symbol(symbol: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def list_ics() -> Dict[str, Any]:
+async def list_ics() -> dict[str, Any]:
     """
     Return the catalog of all available IC agents and pod managers.
 
@@ -2333,11 +2395,13 @@ async def list_ics() -> Dict[str, Any]:
     """
     try:
         from quant_pod.crews.registry import (
-            IC_REGISTRY, POD_MANAGER_REGISTRY, POD_DEPENDENCIES,
+            IC_REGISTRY,
+            POD_DEPENDENCIES,
+            POD_MANAGER_REGISTRY,
         )
 
         # Build IC → pod reverse map
-        pod_of_ic: Dict[str, str] = {"data_ingestion_ic": "data_pod_manager"}
+        pod_of_ic: dict[str, str] = {"data_ingestion_ic": "data_pod_manager"}
         for pod, ics in POD_DEPENDENCIES.items():
             for ic in ics:
                 if ic not in pod_of_ic:
@@ -2374,8 +2438,8 @@ async def list_ics() -> Dict[str, Any]:
 async def run_ic(
     ic_name: str,
     symbol: str,
-    params: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Run a single IC agent in isolation and return its raw output.
 
@@ -2404,8 +2468,8 @@ async def run_ic(
     try:
         regime = await _detect_regime_for_symbol(symbol)
 
-        from quant_pod.crews.trading_crew import TradingCrew
         from quant_pod.crewai_compat import Crew, Process
+        from quant_pod.crews.trading_crew import TradingCrew
 
         tc = TradingCrew()
         ic_factories = tc._ic_agent_factories()
@@ -2477,8 +2541,8 @@ async def run_ic(
 async def run_pod(
     pod_name: str,
     symbol: str,
-    ic_outputs: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
+    ic_outputs: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """
     Run a single pod manager with its constituent ICs.
 
@@ -2503,14 +2567,13 @@ async def run_pod(
     start = time.monotonic()
 
     try:
+        from quant_pod.crewai_compat import Crew, Process
         from quant_pod.crews.registry import POD_DEPENDENCIES
         from quant_pod.crews.trading_crew import TradingCrew
-        from quant_pod.crewai_compat import Crew, Process
-        from datetime import date
 
         regime = await _detect_regime_for_symbol(symbol)
         constituent_ics = POD_DEPENDENCIES.get(pod_name, [])
-        collected: Dict[str, str] = dict(ic_outputs or {})
+        collected: dict[str, str] = dict(ic_outputs or {})
 
         tc = TradingCrew()
         ic_factories = tc._ic_agent_factories()
@@ -2532,8 +2595,9 @@ async def run_pod(
             agents.append(pod_factories[pod_name]())
             tasks.append(pod_task_factories[pod_name]())
 
-            pod_crew = Crew(agents=agents, tasks=tasks,
-                            process=Process.sequential, verbose=False, cache=True)
+            pod_crew = Crew(
+                agents=agents, tasks=tasks, process=Process.sequential, verbose=False, cache=True
+            )
             inputs = _minimal_crew_inputs(symbol, regime)
 
             result = await asyncio.get_event_loop().run_in_executor(
@@ -2560,13 +2624,13 @@ async def run_pod(
         else:
             # Use pre-computed IC outputs — only invoke the pod manager
             combined_context = "\n\n".join(
-                f"## {ic_nm} Output:\n{out}"
-                for ic_nm, out in collected.items()
+                f"## {ic_nm} Output:\n{out}" for ic_nm, out in collected.items()
             )
             agents = [pod_factories[pod_name]()]
             tasks = [pod_task_factories[pod_name]()]
-            pod_crew = Crew(agents=agents, tasks=tasks,
-                            process=Process.sequential, verbose=False, cache=True)
+            pod_crew = Crew(
+                agents=agents, tasks=tasks, process=Process.sequential, verbose=False, cache=True
+            )
 
             override_inputs = _minimal_crew_inputs(symbol, regime)
             override_inputs["historical_context"] = combined_context
@@ -2608,9 +2672,9 @@ async def run_pod(
 
 @mcp.tool()
 async def run_crew_subset(
-    ic_names: List[str],
+    ic_names: list[str],
     symbol: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run a custom subset of ICs through their pod managers to the assistant.
 
@@ -2638,16 +2702,17 @@ async def run_crew_subset(
     start = time.monotonic()
 
     try:
+        from quant_pod.crewai_compat import Crew, Process
+        from quant_pod.crews.assembler import PodSelection
         from quant_pod.crews.registry import POD_DEPENDENCIES
         from quant_pod.crews.trading_crew import TradingCrew
-        from quant_pod.crews.assembler import PodSelection
-        from quant_pod.crewai_compat import Crew, Process
 
         regime = await _detect_regime_for_symbol(symbol)
 
         # Auto-select pod managers for requested ICs
         activated_pods = [
-            pod for pod, pod_ics in POD_DEPENDENCIES.items()
+            pod
+            for pod, pod_ics in POD_DEPENDENCIES.items()
             if any(ic in ic_names for ic in pod_ics)
         ]
 
@@ -2724,7 +2789,7 @@ async def run_crew_subset(
 async def get_last_ic_output(
     symbol: str,
     ic_name: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Retrieve the cached raw output from the last IC run for a symbol.
 
@@ -2765,7 +2830,7 @@ async def get_last_ic_output(
 
 
 @mcp.tool()
-async def get_fill_quality(order_id: str) -> Dict[str, Any]:
+async def get_fill_quality(order_id: str) -> dict[str, Any]:
     """
     Assess execution quality for a completed fill.
 
@@ -2799,10 +2864,11 @@ async def get_fill_quality(order_id: str) -> Dict[str, Any]:
         oid, symbol, side, fill_price, filled_qty, recorded_slippage, commission, filled_at = row
 
         # Attempt VWAP comparison via QuantCore data store
-        vwap: Optional[float] = None
-        fill_vs_vwap_bps: Optional[float] = None
+        vwap: float | None = None
+        fill_vs_vwap_bps: float | None = None
         try:
             from quantcore.data.storage import DataStore
+
             store = DataStore()
             df = store.load(symbol)
             if df is not None and not df.empty and "vwap" in df.columns:
@@ -2816,13 +2882,10 @@ async def get_fill_quality(order_id: str) -> Dict[str, Any]:
             pass
 
         direction_label = "above" if (fill_vs_vwap_bps or 0) > 0 else "below"
-        quality_note = (
-            f"Recorded slippage: {(recorded_slippage or 0):.1f} bps. "
-            + (
-                f"Fill was {abs(fill_vs_vwap_bps):.1f} bps {direction_label} VWAP."
-                if fill_vs_vwap_bps is not None
-                else "VWAP data unavailable for comparison."
-            )
+        quality_note = f"Recorded slippage: {(recorded_slippage or 0):.1f} bps. " + (
+            f"Fill was {abs(fill_vs_vwap_bps):.1f} bps {direction_label} VWAP."
+            if fill_vs_vwap_bps is not None
+            else "VWAP data unavailable for comparison."
         )
 
         return {
@@ -2846,7 +2909,7 @@ async def get_fill_quality(order_id: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-async def get_position_monitor(symbol: str) -> Dict[str, Any]:
+async def get_position_monitor(symbol: str) -> dict[str, Any]:
     """
     Comprehensive position status for an open position.
 
@@ -2881,8 +2944,8 @@ async def get_position_monitor(symbol: str) -> Dict[str, Any]:
             pnl_pct = round((current_price - avg_cost) / avg_cost * 100, 2)
 
         # Time held
-        days_held: Optional[int] = None
-        entry_time: Optional[str] = None
+        days_held: int | None = None
+        entry_time: str | None = None
         try:
             row = ctx.db.execute(
                 "SELECT opened_at FROM positions WHERE symbol = ?",
@@ -2890,6 +2953,7 @@ async def get_position_monitor(symbol: str) -> Dict[str, Any]:
             ).fetchone()
             if row and row[0]:
                 from datetime import datetime as _dt
+
                 opened_at = row[0]
                 if isinstance(opened_at, str):
                     opened_at = _dt.fromisoformat(opened_at)
@@ -2903,10 +2967,9 @@ async def get_position_monitor(symbol: str) -> Dict[str, Any]:
         atr: float = 0.0
         try:
             from quant_pod.agents.regime_detector import RegimeDetectorAgent
+
             detector = RegimeDetectorAgent(symbols=[symbol])
-            r = await asyncio.get_event_loop().run_in_executor(
-                None, detector.detect_regime, symbol
-            )
+            r = await asyncio.get_event_loop().run_in_executor(None, detector.detect_regime, symbol)
             current_regime = r.get("trend_regime", "unknown")
             atr = float(r.get("atr", 0))
         except Exception:
@@ -2914,7 +2977,7 @@ async def get_position_monitor(symbol: str) -> Dict[str, Any]:
 
         # ATR-based stop proximity
         near_stop = False
-        atr_stop_distance_pct: Optional[float] = None
+        atr_stop_distance_pct: float | None = None
         if atr > 0 and avg_cost > 0 and current_price > 0:
             atr_stop_distance_pct = round(atr / avg_cost * 100, 2)
             # Flag if within 30% of a 2-ATR stop

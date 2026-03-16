@@ -45,15 +45,13 @@ Usage:
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from threading import RLock
-from typing import Dict, List, Literal, Optional
+from typing import Literal
 
 import duckdb
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -71,12 +69,12 @@ class TradeSignal:
 
     symbol: str
     action: Literal["BUY", "SELL", "HOLD"]
-    confidence: float                  # 0.0–1.0
-    position_size_pct: float           # fraction of equity (0.0–1.0)
-    stop_loss: Optional[float] = None  # absolute price
-    take_profit: Optional[float] = None
-    generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    expires_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    confidence: float  # 0.0–1.0
+    position_size_pct: float  # fraction of equity (0.0–1.0)
+    stop_loss: float | None = None  # absolute price
+    take_profit: float | None = None
+    generated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    expires_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     session_id: str = ""
 
     @classmethod
@@ -86,13 +84,13 @@ class TradeSignal:
         action: Literal["BUY", "SELL", "HOLD"],
         confidence: float,
         position_size_pct: float,
-        stop_loss: Optional[float] = None,
-        take_profit: Optional[float] = None,
+        stop_loss: float | None = None,
+        take_profit: float | None = None,
         expires_in_seconds: int = 900,  # 15 min default TTL
         session_id: str = "",
-    ) -> "TradeSignal":
+    ) -> TradeSignal:
         """Convenience constructor with TTL expressed in seconds."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return cls(
             symbol=symbol,
             action=action,
@@ -108,12 +106,12 @@ class TradeSignal:
     @property
     def is_expired(self) -> bool:
         """True if this signal has passed its expiry time."""
-        return datetime.now(timezone.utc) >= self.expires_at
+        return datetime.now(UTC) >= self.expires_at
 
     @property
     def age_seconds(self) -> float:
         """Seconds since this signal was generated."""
-        return (datetime.now(timezone.utc) - self.generated_at).total_seconds()
+        return (datetime.now(UTC) - self.generated_at).total_seconds()
 
 
 # ---------------------------------------------------------------------------
@@ -132,11 +130,11 @@ class SignalCache:
 
     def __init__(
         self,
-        conn: Optional[duckdb.DuckDBPyConnection] = None,
+        conn: duckdb.DuckDBPyConnection | None = None,
         default_ttl_seconds: int = 900,
     ):
         self._lock = RLock()
-        self._signals: Dict[str, TradeSignal] = {}
+        self._signals: dict[str, TradeSignal] = {}
         self._default_ttl = default_ttl_seconds
         self._conn = conn
         # Recover signals from DB on startup (in case of crash restart)
@@ -158,13 +156,13 @@ class SignalCache:
             if self._conn is not None:
                 self._persist(signal)
 
-        ttl = max(0.0, (signal.expires_at - datetime.now(timezone.utc)).total_seconds())
+        ttl = max(0.0, (signal.expires_at - datetime.now(UTC)).total_seconds())
         logger.debug(
             f"[SignalCache] {signal.symbol} updated: {signal.action} "
             f"conf={signal.confidence:.0%} expires_in={ttl:.0f}s"
         )
 
-    def update_batch(self, signals: List[TradeSignal]) -> None:
+    def update_batch(self, signals: list[TradeSignal]) -> None:
         """Store multiple signals atomically (single lock acquisition)."""
         with self._lock:
             for signal in signals:
@@ -177,7 +175,7 @@ class SignalCache:
     # Read path (tick executor ← cache) — must be nanosecond-fast
     # -----------------------------------------------------------------------
 
-    def get(self, symbol: str) -> Optional[TradeSignal]:
+    def get(self, symbol: str) -> TradeSignal | None:
         """
         Return the signal for a symbol, or None if absent or expired.
 
@@ -191,20 +189,16 @@ class SignalCache:
             return None
         return signal
 
-    def get_all_valid(self) -> Dict[str, TradeSignal]:
+    def get_all_valid(self) -> dict[str, TradeSignal]:
         """Return all non-expired signals, keyed by symbol."""
         with self._lock:
-            return {
-                sym: sig
-                for sym, sig in self._signals.items()
-                if not sig.is_expired
-            }
+            return {sym: sig for sym, sig in self._signals.items() if not sig.is_expired}
 
     def is_stale(self, symbol: str) -> bool:
         """True if no valid (non-expired) signal exists for this symbol."""
         return self.get(symbol) is None
 
-    def staleness_seconds(self, symbol: str) -> Optional[float]:
+    def staleness_seconds(self, symbol: str) -> float | None:
         """
         Seconds since the signal was generated, or None if no signal exists.
 
@@ -324,5 +318,5 @@ class SignalCache:
 def _ensure_tz(dt: datetime) -> datetime:
     """Attach UTC timezone if the datetime is naive (DuckDB strips tz info)."""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt

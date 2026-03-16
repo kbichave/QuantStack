@@ -6,13 +6,17 @@
 
 ## Current Regime
 
-(populated after first get_regime or run_analysis call)
+| Symbol | Trend | Vol | ADX | ATR Pct | Confidence | As Of |
+|--------|-------|-----|-----|---------|------------|-------|
+| SPY | trending_down | high | 32.8 | 81% | High | 2026-03-13 |
+
+Key levels (SPY): SMA200=$658.60 (support), SMA50=$686.38 (resistance), close=$662.29
 
 ## Transition Log
 
 | Date | Symbol | From | To | Confidence | Impact on Active Strategies |
 |------|--------|------|----|------------|----------------------------|
-(empty)
+| 2026-03-13 | SPY | unknown | trending_down / high_vol | High (ADX 32.8, -DI 36.3 >> +DI 9.3) | No active strategies yet |
 
 ## Regime Duration Stats
 

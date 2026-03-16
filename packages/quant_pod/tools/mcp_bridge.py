@@ -263,6 +263,20 @@ class LoadMarketDataInput(BaseModel):
     end_date: str | None = Field(None, description="End date (YYYY-MM-DD)")
 
 
+class EmptyInput(BaseModel):
+    """Input schema for tools that take no parameters."""
+
+    pass
+
+
+class MarketRegimeSnapshotInput(BaseModel):
+    """Input for get_market_regime_snapshot tool."""
+
+    end_date: str | None = Field(
+        None, description="End date filter (YYYY-MM-DD) for historical simulation"
+    )
+
+
 class SymbolInput(BaseModel):
     """Input for symbol-based tools."""
 
@@ -841,6 +855,7 @@ class ListStoredSymbolsTool(BaseTool):
     description: str = (
         "List all symbols stored in the local database with their available timeframes."
     )
+    args_schema: type[BaseModel] = EmptyInput
 
     def _run(self) -> str:
         async def _exec():
@@ -928,6 +943,7 @@ class ListAvailableIndicatorsTool(BaseTool):
 
     name: str = "list_available_indicators"
     description: str = "List all available technical indicators with their descriptions."
+    args_schema: type[BaseModel] = EmptyInput
 
     def _run(self) -> str:
         async def _exec():
@@ -1570,6 +1586,7 @@ class GetMarketRegimeSnapshotTool(BaseTool):
     description: str = (
         "Get current market regime classification (trending, ranging, volatile) with confidence."
     )
+    args_schema: type[BaseModel] = MarketRegimeSnapshotInput
 
     def _run(self, end_date: str | None = None) -> str:
         async def _exec():

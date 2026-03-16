@@ -38,6 +38,9 @@ env/
 data/
 !packages/*/data/
 !packages/*/data/**
+# Nested data dirs inside prompts (IC pod subdirectory named "data")
+!packages/*/prompts/**/data/
+!packages/*/prompts/**/data/**
 *.duckdb
 *.db
 *.parquet

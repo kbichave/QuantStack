@@ -123,12 +123,12 @@ class TestPromptLoader:
 
     def test_prompts_directory_exists(self):
         """Test that prompts directory exists."""
-        prompts_dir = Path(__file__).parent.parent / "src/quant_pod/prompts"
+        prompts_dir = Path(__file__).parent.parent.parent / "packages/quant_pod/prompts"
         assert prompts_dir.exists()
 
     def test_ic_json_files_exist(self):
         """Test that IC JSON config files exist."""
-        prompts_dir = Path(__file__).parent.parent / "src/quant_pod/prompts"
+        prompts_dir = Path(__file__).parent.parent.parent / "packages/quant_pod/prompts"
         ics_dir = prompts_dir / "ics"
 
         # Check some IC files exist
@@ -138,7 +138,7 @@ class TestPromptLoader:
 
     def test_pod_manager_json_files_exist(self):
         """Test that pod manager JSON config files exist."""
-        prompts_dir = Path(__file__).parent.parent / "src/quant_pod/prompts"
+        prompts_dir = Path(__file__).parent.parent.parent / "packages/quant_pod/prompts"
         pm_dir = prompts_dir / "pod_managers"
 
         assert (pm_dir / "data_pod_manager.json").exists()
@@ -146,12 +146,12 @@ class TestPromptLoader:
 
     def test_assistant_json_exists(self):
         """Test that assistant JSON config exists."""
-        prompts_dir = Path(__file__).parent.parent / "src/quant_pod/prompts"
+        prompts_dir = Path(__file__).parent.parent.parent / "packages/quant_pod/prompts"
         assert (prompts_dir / "assistant/trading_assistant.json").exists()
 
     def test_supertrader_json_exists(self):
         """Test that supertrader JSON config exists."""
-        prompts_dir = Path(__file__).parent.parent / "src/quant_pod/prompts"
+        prompts_dir = Path(__file__).parent.parent.parent / "packages/quant_pod/prompts"
         assert (prompts_dir / "supertrader/super_trader.json").exists()
 
     def test_load_agent_config(self):

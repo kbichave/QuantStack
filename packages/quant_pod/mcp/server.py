@@ -909,36 +909,58 @@ def _fetch_price_data(
     symbol: str,
     start_date: str | None = None,
     end_date: str | None = None,
-) -> "pd.DataFrame":  # noqa: F821
-    """Fetch OHLCV price data from QuantCore DataStore or provider."""
+) -> "pd.DataFrame | None":  # noqa: F821
+    """Fetch OHLCV price data using the configured provider registry.
+
+    Resolution order:
+      1. Local DuckDB cache (fastest, no network)
+      2. Provider registry (DATA_PROVIDER_PRIORITY from .env)
+
+    Returns None if all sources fail.
+    """
+    import pandas as pd
+    from quantcore.config.settings import get_settings
+    from quantcore.config.timeframes import Timeframe
+    from quantcore.data.base import AssetClass
+    from quantcore.data.registry import DataProviderRegistry
+
+    def _apply_date_filter(df: pd.DataFrame) -> pd.DataFrame:
+        if start_date:
+            df = df[df.index >= start_date]
+        if end_date:
+            df = df[df.index <= end_date]
+        return df
+
+    # 1. Local DuckDB cache
     try:
         from quantcore.data.storage import DataStore
 
-        store = DataStore()
-        df = store.load(symbol)
-        if df is not None and not df.empty:
-            if start_date:
-                df = df[df.index >= start_date]
-            if end_date:
-                df = df[df.index <= end_date]
-            return df
-    except Exception:
-        pass
+        with DataStore() as store:
+            df = store.load(symbol)
+            if df is not None and not df.empty:
+                return _apply_date_filter(df)
+    except Exception as exc:
+        logger.debug(f"DuckDB cache miss for {symbol}: {exc}")
 
-    # Fallback: try fetching from provider
+    # 2. Provider registry — respects DATA_PROVIDER_PRIORITY
     try:
-        from quantcore.data.providers import get_data_provider
+        from datetime import datetime, timedelta
 
-        provider = get_data_provider()
-        df = provider.fetch_ohlcv(symbol, interval="daily")
+        settings = get_settings()
+        registry = DataProviderRegistry.from_settings(settings)
+
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d") if end_date else datetime.now()
+        start_dt = (
+            datetime.strptime(start_date, "%Y-%m-%d")
+            if start_date
+            else end_dt - timedelta(days=365 * 6)
+        )
+
+        df = registry.fetch_ohlcv(symbol, AssetClass.EQUITY, Timeframe.D1, start_dt, end_dt)
         if df is not None and not df.empty:
-            if start_date:
-                df = df[df.index >= start_date]
-            if end_date:
-                df = df[df.index <= end_date]
             return df
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(f"Provider registry fetch failed for {symbol}: {exc}")
 
     return None
 

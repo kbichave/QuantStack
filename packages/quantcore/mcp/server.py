@@ -47,6 +47,7 @@ class ServerContext:
     settings: Settings
     data_store: Any = None
     feature_factory: Any = None
+    data_registry: Any = None
 
 
 @asynccontextmanager
@@ -82,6 +83,11 @@ async def lifespan(server: FastMCP):
         include_waves=True,
         include_technical_indicators=True,
     )
+
+    # Provider registry — initialized once, used by fetch_market_data
+    from quantcore.data.registry import DataProviderRegistry
+
+    ctx.data_registry = DataProviderRegistry.from_settings(settings)
 
     server.context = ctx
     logger.info("QuantCore MCP Server initialized")
@@ -184,33 +190,44 @@ async def fetch_market_data(
     outputsize: str = "compact",
 ) -> dict[str, Any]:
     """
-    Fetch OHLCV market data from Alpha Vantage API.
+    Fetch OHLCV market data using the configured provider chain.
+
+    Uses DATA_PROVIDER_PRIORITY (default: alpaca,polygon,alpha_vantage) with
+    automatic fallback. Stores fetched data in DuckDB for future load_market_data calls.
 
     Args:
         symbol: Stock/ETF symbol (e.g., "SPY", "AAPL", "QQQ")
         timeframe: Data frequency - "daily", "1h", "4h", "weekly"
-        outputsize: "compact" (100 bars) or "full" (20+ years)
+        outputsize: "compact" (~6 months) or "full" (5+ years)
 
     Returns:
         Dictionary with OHLCV data and metadata
     """
-    from quantcore.data.fetcher import AlphaVantageClient
+    from datetime import datetime, timedelta
 
-    client = AlphaVantageClient()
+    from quantcore.data.base import AssetClass
+
+    ctx: ServerContext = mcp.context
+    registry = ctx.data_registry
     tf = _parse_timeframe(timeframe)
 
+    # Convert outputsize to date range — providers like Alpaca require
+    # explicit start/end rather than Alpha Vantage's compact/full enum
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=365 * 6 if outputsize == "full" else 180)
+
     try:
-        if tf == Timeframe.D1:
-            df = client.fetch_daily(symbol, outputsize=outputsize)
-        elif tf == Timeframe.W1:
-            df = client.fetch_weekly(symbol)
-        else:
-            # Intraday
-            interval = "60min" if tf == Timeframe.H1 else "60min"
-            df = client.fetch_intraday(symbol, interval=interval, outputsize=outputsize)
+        df = registry.fetch_ohlcv(symbol, AssetClass.EQUITY, tf, start_date, end_date)
 
         if df.empty:
             return {"error": f"No data returned for {symbol}", "symbol": symbol}
+
+        # Persist to local DuckDB so load_market_data works without re-fetching
+        if ctx.data_store:
+            try:
+                ctx.data_store.save(symbol, tf, df)
+            except Exception as store_exc:
+                logger.warning(f"Data fetched but failed to persist locally: {store_exc}")
 
         return {
             "symbol": symbol,

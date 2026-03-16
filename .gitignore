@@ -34,9 +34,10 @@ env/
 *.swo
 *~
 
-# Data
-!src/quantcore/data/
+# Data — ignore top-level data dirs but not source-code data modules
 data/
+!packages/*/data/
+!packages/*/data/**
 *.duckdb
 *.db
 *.parquet
@@ -49,9 +50,10 @@ logs/
 # Reports
 reports/
 
-# Models
-!src/quantcore/models/
+# Models — ignore top-level models dirs but not source-code model modules
 models/
+!packages/*/models/
+!packages/*/models/**
 *.pkl
 *.joblib
 
@@ -107,3 +109,6 @@ docs/alphavantage_api.md
 
 # Paper trading state (local only)
 paper_trading/*.json
+
+# Scratch prompts (generated per session, never committed)
+tmp/

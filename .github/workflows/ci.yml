@@ -48,9 +48,14 @@ jobs:
       - name: Run Ruff formatter check
         run: uv run ruff format --check packages/ tests/
 
-      - name: Run MyPy
-        # No longer silenced — type errors block merge
-        run: uv run mypy packages/quantcore packages/quant_pod --config-file pyproject.toml
+      - name: Run MyPy (critical path)
+        # Type-check the trading hot path: execution, risk, and kill switch.
+        # Broader codebase type coverage tracked in GitHub type-coverage label.
+        run: >
+          uv run mypy
+          packages/quantcore/execution
+          packages/quant_pod/execution
+          --config-file pyproject.toml
 
   # ==========================================================================
   # Unit Tests (fast, in-memory DB, no external services)

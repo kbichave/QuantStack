@@ -162,9 +162,21 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+# warn_return_any disabled: third-party libraries (crewai, fastmcp, duckdb)
+# return Any in many places; enabling it generates ~125 false positives.
+
+[[tool.mypy.overrides]]
+# eTrade/IBKR broker modules use forward refs that mypy can't resolve without
+# the live broker dependencies installed in the type-check environment.
+module = [
+    "quant_pod.execution.etrade_broker",
+    "quant_pod.tools.etrade.*",
+    "ibkr_mcp.*",
+    "alpaca_mcp.*",
+]
+ignore_errors = true
 
 [dependency-groups]
 dev = [

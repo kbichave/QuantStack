@@ -422,11 +422,17 @@ risk_compile_task:
 
 assistant_synthesis_task:
   description: >
-    Synthesize all Pod Manager outputs into a 1-page market conditions brief.
-    
+    Synthesize all Pod Manager outputs into a structured JSON DailyBrief.
+
     Symbol: {symbol}
     Date: {current_date}
-    
+
+    Active Strategies (from strategy registry — frame your synthesis around these):
+    {strategy_context}
+
+    Recent Session Notes (IC biases, handoff alerts):
+    {session_notes}
+
     Pod Manager Outputs (provided via context):
     - Data Pod: data quality status
     - Market Monitor Pod: regime and snapshot
@@ -434,47 +440,47 @@ assistant_synthesis_task:
     - Quant Pod: statistical and options findings
     - Alpha Signals Pod: news sentiment, options flow, fundamentals, statarb confluence
     - Risk Pod: constraints and events
-    
+
     Your job:
     1. Review all pod summaries
     2. Identify key themes and consensus
     3. Resolve or flag conflicting signals
-    4. Produce a clear 1-page brief for SuperTrader
-    
-    The brief should be actionable intelligence, not raw data.
-    Include conviction level and key decision factors.
-  expected_output: >
-    ═══════════════════════════════════════════════════════════════
-    MARKET CONDITIONS BRIEF - {symbol}
-    Date: {current_date}
-    ═══════════════════════════════════════════════════════════════
-    
-    REGIME: [trending/ranging] | [high/normal/low vol] | Confidence: [X%]
-    
-    TECHNICAL PICTURE:
-    - Trend: [description]
-    - Momentum: [description]
-    - Key Levels: Support [X], Resistance [Y]
-    
-    QUANTITATIVE SIGNALS:
-    - [Stat/options signals from quant pod]
+    4. Check which active strategies (from strategy_context) fit the current regime
+    5. Output a single valid JSON object — no prose, no markdown
 
-    ALPHA SIGNALS:
-    - alpha_score: [score] | Confluence: [aligned/mixed/conflicting]
-    - [Top signal name and key finding]
-    
-    RISK ENVIRONMENT:
-    - VaR: [daily]
-    - Events: [upcoming catalysts]
-    - Constraints: [any limits]
-    
-    SYNTHESIS:
-    - Consensus View: [bullish/bearish/neutral]
-    - Conviction: [high/medium/low]
-    - Key Factors: [1-2 sentence summary]
-    - Conflicts/Concerns: [any issues to note]
-    
-    ═══════════════════════════════════════════════════════════════
+    OUTPUT MUST BE VALID JSON ONLY. Start with {{ and end with }}.
+  expected_output: >
+    A single valid JSON object with this exact structure:
+    {
+      "date": "YYYY-MM-DD",
+      "market_overview": "2-3 sentence summary of market conditions",
+      "market_bias": "bullish|bearish|neutral",
+      "market_conviction": 0.0,
+      "risk_environment": "low|normal|elevated|high",
+      "symbol_briefs": [
+        {
+          "symbol": "{symbol}",
+          "market_summary": "1-2 sentence symbol-specific summary",
+          "consensus_bias": "strong_bullish|bullish|neutral|bearish|strong_bearish",
+          "consensus_conviction": 0.0,
+          "pod_agreement": "unanimous|strong|moderate|mixed|conflicting",
+          "critical_levels": [
+            {"price": 0.0, "level_type": "support|resistance|pivot", "strength": "strong|moderate|weak", "notes": ""}
+          ],
+          "key_observations": ["observation 1", "observation 2"],
+          "risk_factors": ["risk 1", "risk 2"],
+          "actionable_insights": ["insight 1"],
+          "contributing_pods": ["technicals", "quant", "risk"],
+          "analysis_quality": "high|medium|low"
+        }
+      ],
+      "top_opportunities": ["{symbol}"],
+      "key_risks": ["risk 1", "risk 2"],
+      "strategic_notes": "Which active strategies fit current regime. Flag any regime mismatches.",
+      "pods_reporting": 6,
+      "total_analyses": 1,
+      "overall_confidence": 0.0
+    }
   agent: trading_assistant
   context:
     - data_pod_compile_task

@@ -80,11 +80,24 @@ and improve your own configuration over time.
 `quant_pod_manager`, `risk_pod_manager`, `alpha_signals_pod_manager`
 
 **Layer 3 — Trading Assistant (1 agent):**
-Synthesizes all pod outputs → `DailyBrief` (Pydantic model)
+Synthesizes all pod outputs → structured JSON `DailyBrief` (Pydantic model).
+**Output contract:** assistant must produce valid JSON matching `DailyBrief` schema.
+Prose output = parse failure → falls through to `{raw_output: ...}` in the MCP response.
+
+**Post-run validation:**
+`ICOutputValidator` (`packages/quant_pod/guardrails/ic_output_validator.py`) checks
+each IC output for required fields after every crew run. Failures are non-blocking
+but logged — they feed directly into `/tune` session evidence via the logs.
 
 **Layer 4 — SuperTrader (REPLACED BY YOU):**
 The crew runs with `stop_at_assistant=True`. The `DailyBrief` is returned
 to you via the `run_analysis` MCP tool. You make the decision.
+
+**Context injected into every crew run (from `.claude/memory/`):**
+- `{strategy_context}` — active strategies from `strategy_registry.md` (2000 chars)
+- `{session_notes}` — recent handoff notes from `session_handoffs.md` (1000 chars)
+The assistant uses these to frame `strategic_notes` in terms of strategies you are
+currently tracking, so you don't have to re-read memory after every `run_analysis`.
 
 ---
 

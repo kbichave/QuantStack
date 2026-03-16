@@ -68,12 +68,18 @@ def _ic_cache_get(symbol: str, ic_name: str) -> str | None:
 
 
 def _populate_ic_cache_from_result(symbol: str, result: Any) -> None:
-    """Extract and cache per-IC outputs from a full crew result (best-effort)."""
+    """Extract and cache per-IC outputs from a full crew result (best-effort).
+
+    Also runs ICOutputValidator on each IC output so /tune sessions have
+    concrete evidence of which ICs are producing malformed output.
+    """
     try:
         if not hasattr(result, "tasks_output") or not result.tasks_output:
             return
         from quant_pod.crews.trading_crew import IC_AGENT_ORDER
+        from quant_pod.guardrails.ic_output_validator import validate_all_ic_outputs
 
+        ic_outputs: dict[str, str] = {}
         for i, ic_name in enumerate(IC_AGENT_ORDER):
             if i >= len(result.tasks_output):
                 break
@@ -81,6 +87,13 @@ def _populate_ic_cache_from_result(symbol: str, result: Any) -> None:
             raw = task_out.raw if hasattr(task_out, "raw") else str(task_out)
             if raw:
                 _ic_cache_set(symbol, ic_name, raw)
+                ic_outputs[ic_name] = raw
+
+        # Validate all IC outputs — logs warnings for any that fail.
+        # Results are not used to block execution; they feed /tune sessions.
+        if ic_outputs:
+            validate_all_ic_outputs(ic_outputs)
+
     except Exception as exc:
         logger.debug(f"[quantpod_mcp] IC cache population failed (non-critical): {exc}")
 
@@ -197,6 +210,32 @@ def _serialize(obj: Any) -> Any:
     return obj
 
 
+def _read_memory_file(filename: str, max_chars: int = 2000) -> str:
+    """Read a .claude/memory/*.md file and return its content (truncated).
+
+    Injects cross-session context into crew runs so ICs and the assistant
+    are aware of active strategies and recent session findings without each
+    agent having to query the DB independently.
+
+    Fails silently — a missing or unreadable file returns an empty string
+    so crew runs are never blocked by memory file issues.
+    """
+    from pathlib import Path
+
+    candidates = [
+        Path(__file__).parents[4] / ".claude" / "memory" / filename,
+        Path.home() / ".claude" / "memory" / filename,
+    ]
+    for path in candidates:
+        if path.exists():
+            try:
+                content = path.read_text(encoding="utf-8")
+                return content[:max_chars] if len(content) > max_chars else content
+            except OSError:
+                pass
+    return ""
+
+
 # =============================================================================
 # TOOL 1: run_analysis
 # =============================================================================
@@ -255,6 +294,14 @@ async def run_analysis(
         if include_historical_context:
             historical_context = ctx.blackboard.read_as_context(symbol=symbol, limit=10)
 
+        # 3b. Inject cross-session context from .claude/memory files.
+        #     strategy_context tells the crew which strategies are active and
+        #     what regimes they target — so the assistant can frame its synthesis
+        #     in terms of the strategies Claude Code is actually considering.
+        #     session_notes carries recent handoff findings (IC biases, alerts).
+        strategy_context = _read_memory_file("strategy_registry.md", max_chars=2000)
+        session_notes = _read_memory_file("session_handoffs.md", max_chars=1000)
+
         # 4. Run crew in stop-at-assistant mode (sync call in thread pool)
         from quant_pod.crews.trading_crew import run_analysis_only
 
@@ -265,6 +312,8 @@ async def run_analysis(
                 regime=regime,
                 portfolio=portfolio,
                 historical_context=historical_context,
+                strategy_context=strategy_context,
+                session_notes=session_notes,
             ),
         )
 
@@ -744,28 +793,28 @@ def _generate_signals_from_rules(
     """
     Generate a signals DataFrame from strategy rules + price data.
 
-    This is a vectorized signal generator that interprets rule dicts into
-    indicator computations and condition checks.  Supports common patterns:
-      - SMA crossovers
-      - RSI overbought/oversold
-      - Breakout (close > N-bar high)
-      - Mean reversion (z-score)
+    Supports:
+      - Indicators: SMA, RSI, ATR, BBands, Z-score, breakout, ADX, CCI,
+        Stochastic, price_vs_sma200, regime classification
+      - Rule hierarchy: prerequisite (AND gate), confirmation (N-of-M),
+        plain (OR, backward-compatible)
+      - Exit management: time stops, ATR-based stop-loss/take-profit via
+        forward simulation that maintains position state
 
     Returns DataFrame with 'signal' (0/1) and 'signal_direction' (LONG/SHORT/NONE).
     """
+    import numpy as np
     import pandas as pd
 
     df = price_data.copy()
-    len(df)
 
-    # Pre-compute common indicators based on parameters
     close = df["close"]
     high = df["high"]
     low = df["low"]
 
-    # SMA
+    # ── SMA (configurable periods) ──────────────────────────────────────
     for key, val in parameters.items():
-        if key.startswith("sma_") and key != "sma_fast" and key != "sma_slow":
+        if key.startswith("sma_") and key not in ("sma_fast", "sma_slow"):
             period = int(val)
             df[f"sma_{period}"] = close.rolling(period).mean()
 
@@ -774,7 +823,10 @@ def _generate_signals_from_rules(
     df["sma_fast"] = close.rolling(int(sma_fast_p)).mean()
     df["sma_slow"] = close.rolling(int(sma_slow_p)).mean()
 
-    # RSI
+    # SMA 200 (always computed for price_vs_sma200 support)
+    df["sma_200"] = close.rolling(200).mean()
+
+    # ── RSI ──────────────────────────────────────────────────────────────
     rsi_period = int(parameters.get("rsi_period", 14))
     delta = close.diff()
     gain = delta.where(delta > 0, 0.0).rolling(rsi_period).mean()
@@ -782,7 +834,7 @@ def _generate_signals_from_rules(
     rs = gain / (loss + 1e-10)
     df["rsi"] = 100 - (100 / (1 + rs))
 
-    # ATR
+    # ── ATR ──────────────────────────────────────────────────────────────
     atr_period = int(parameters.get("atr_period", 14))
     prev_close = close.shift(1)
     tr = pd.concat(
@@ -795,7 +847,52 @@ def _generate_signals_from_rules(
     ).max(axis=1)
     df["atr"] = tr.ewm(span=atr_period, adjust=False).mean()
 
-    # Bollinger Bands
+    # ── ADX (with +DI / -DI) ────────────────────────────────────────────
+    adx_period = int(parameters.get("adx_period", 14))
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+    atr_for_adx = tr.ewm(span=adx_period, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(span=adx_period, adjust=False).mean() / (atr_for_adx + 1e-10))
+    minus_di = 100 * (minus_dm.ewm(span=adx_period, adjust=False).mean() / (atr_for_adx + 1e-10))
+    dx = 100 * ((plus_di - minus_di).abs() / (plus_di + minus_di + 1e-10))
+    df["adx"] = dx.ewm(span=adx_period, adjust=False).mean()
+    df["plus_di"] = plus_di
+    df["minus_di"] = minus_di
+
+    # ── Stochastic K/D ──────────────────────────────────────────────────
+    stoch_period = int(parameters.get("stoch_period", 14))
+    stoch_smooth = int(parameters.get("stoch_smooth", 3))
+    lowest_low = low.rolling(stoch_period).min()
+    highest_high = high.rolling(stoch_period).max()
+    df["stoch_k"] = 100 * ((close - lowest_low) / (highest_high - lowest_low + 1e-10))
+    df["stoch_d"] = df["stoch_k"].rolling(stoch_smooth).mean()
+
+    # ── CCI ──────────────────────────────────────────────────────────────
+    cci_period = int(parameters.get("cci_period", 20))
+    typical_price = (high + low + close) / 3
+    cci_ma = typical_price.rolling(cci_period).mean()
+    cci_md = typical_price.rolling(cci_period).apply(
+        lambda x: np.abs(x - x.mean()).mean(), raw=True
+    )
+    df["cci"] = (typical_price - cci_ma) / (0.015 * cci_md + 1e-10)
+
+    # ── Price vs SMA200 (signed percentage distance) ─────────────────────
+    df["price_vs_sma200"] = ((close - df["sma_200"]) / (df["sma_200"] + 1e-10)) * 100
+
+    # ── Regime (derived from ADX + DI direction) ─────────────────────────
+    df["regime"] = "ranging"
+    df.loc[(df["adx"] >= 25) & (df["plus_di"] > df["minus_di"]), "regime"] = "trending_up"
+    df.loc[(df["adx"] >= 25) & (df["minus_di"] > df["plus_di"]), "regime"] = "trending_down"
+
+    # ── ATR percentile (rolling 252-day rank) ────────────────────────────
+    df["atr_percentile"] = df["atr"].rolling(252).apply(
+        lambda x: pd.Series(x).rank(pct=True).iloc[-1] * 100 if len(x) == 252 else 50,
+        raw=False,
+    )
+
+    # ── Bollinger Bands ──────────────────────────────────────────────────
     bb_period = int(parameters.get("bb_period", 20))
     bb_std = float(parameters.get("bb_std", 2.0))
     bb_ma = close.rolling(bb_period).mean()
@@ -804,23 +901,43 @@ def _generate_signals_from_rules(
     df["bb_lower"] = bb_ma - bb_std * bb_sd
     df["bb_pct"] = (close - df["bb_lower"]) / (df["bb_upper"] - df["bb_lower"] + 1e-10)
 
-    # Breakout levels
+    # ── Breakout levels ──────────────────────────────────────────────────
     lookback = int(parameters.get("breakout_period", 20))
     df["high_n"] = high.rolling(lookback).max()
     df["low_n"] = low.rolling(lookback).min()
 
-    # Z-score of close relative to SMA
+    # ── Z-score of close relative to SMA ─────────────────────────────────
     zscore_period = int(parameters.get("zscore_period", 20))
     zscore_ma = close.rolling(zscore_period).mean()
     zscore_sd = close.rolling(zscore_period).std()
     df["zscore"] = (close - zscore_ma) / (zscore_sd + 1e-10)
 
-    # Evaluate rules
+    # ── Evaluate entry rules with prerequisite/confirmation hierarchy ────
+    prerequisite_rules = [r for r in entry_rules if r.get("type") == "prerequisite"]
+    confirmation_rules = [r for r in entry_rules if r.get("type") == "confirmation"]
+    plain_rules = [r for r in entry_rules if r.get("type") not in ("prerequisite", "confirmation")]
+
+    # Prerequisites: ALL must be True (AND gate)
+    prereq_pass = pd.Series(True, index=df.index)
+    for rule in prerequisite_rules:
+        cond = _evaluate_rule(df, rule, parameters)
+        prereq_pass = prereq_pass & cond
+
+    # Confirmations: N-of-M must be True
+    min_confirmations = int(parameters.get("min_confirmations_required", 1))
+    if confirmation_rules:
+        confirmation_count = pd.Series(0, index=df.index, dtype=int)
+        for rule in confirmation_rules:
+            cond = _evaluate_rule(df, rule, parameters)
+            confirmation_count = confirmation_count + cond.astype(int)
+        confirm_pass = confirmation_count >= min_confirmations
+    else:
+        confirm_pass = pd.Series(True, index=df.index)
+
+    # Plain rules: OR logic (backward-compatible with existing strategies)
     entry_long = pd.Series(False, index=df.index)
     entry_short = pd.Series(False, index=df.index)
-    exit_signal = pd.Series(False, index=df.index)
-
-    for rule in entry_rules:
+    for rule in plain_rules:
         cond = _evaluate_rule(df, rule, parameters)
         direction = rule.get("direction", "long").lower()
         if direction == "long":
@@ -828,11 +945,34 @@ def _generate_signals_from_rules(
         elif direction == "short":
             entry_short = entry_short | cond
 
+    # Combine: structured entries (prerequisite AND confirmation) OR'd with plain
+    if prerequisite_rules or confirmation_rules:
+        structured_long = prereq_pass & confirm_pass
+        entry_long = entry_long | structured_long
+
+    # ── Parse exit rules for simulation ──────────────────────────────────
+    time_stop_days: int | None = None
+    tp_atr_mult: float | None = None
+    sl_atr_mult: float | None = None
     for rule in exit_rules:
+        rule_type = rule.get("type", "")
+        if rule_type == "time_stop":
+            time_stop_days = int(rule.get("days", 5))
+        elif rule_type == "take_profit":
+            tp_atr_mult = float(rule.get("atr_multiple", 2.5))
+        elif rule_type == "stop_loss":
+            sl_atr_mult = float(rule.get("atr_multiple", 1.5))
+
+    # Evaluate non-structural exit rules (indicator-based exits)
+    exit_signal = pd.Series(False, index=df.index)
+    structural_exit_types = {"time_stop", "take_profit", "stop_loss", "event_blackout"}
+    for rule in exit_rules:
+        if rule.get("type") in structural_exit_types:
+            continue
         cond = _evaluate_rule(df, rule, parameters)
         exit_signal = exit_signal | cond
 
-    # Build signal / direction columns
+    # ── Build initial signal DataFrame ───────────────────────────────────
     signals = pd.DataFrame(index=df.index)
     signals["signal"] = 0
     signals["signal_direction"] = "NONE"
@@ -844,6 +984,66 @@ def _generate_signals_from_rules(
     signals.loc[exit_signal, "signal"] = 0
     signals.loc[exit_signal, "signal_direction"] = "NONE"
 
+    # ── Forward simulation for position-aware exits ──────────────────────
+    # The BacktestEngine exits whenever signal=0, so we must maintain
+    # signal=1 while in position and only set signal=0 on the exit bar.
+    needs_simulation = (
+        time_stop_days is not None or tp_atr_mult is not None or sl_atr_mult is not None
+    )
+    if needs_simulation:
+        sig_vals = signals["signal"].values.copy()
+        dir_vals = signals["signal_direction"].values.copy()
+        closes = df["close"].values
+        highs = df["high"].values
+        lows = df["low"].values
+        atrs = df["atr"].values
+
+        in_position = False
+        entry_bar = 0
+        entry_price = 0.0
+        entry_atr = 0.0
+
+        for i in range(len(df)):
+            if not in_position:
+                if sig_vals[i] == 1:
+                    in_position = True
+                    entry_bar = i
+                    entry_price = closes[i]
+                    entry_atr = atrs[i] if not np.isnan(atrs[i]) else 0.0
+            else:
+                bars_held = i - entry_bar
+                should_exit = False
+
+                # Time stop
+                if time_stop_days and bars_held >= time_stop_days:
+                    should_exit = True
+
+                # Take profit (high breaches TP level for longs)
+                if tp_atr_mult and entry_atr > 0 and not should_exit:
+                    tp_level = entry_price + tp_atr_mult * entry_atr
+                    if highs[i] >= tp_level:
+                        should_exit = True
+
+                # Stop loss (low breaches SL level for longs)
+                if sl_atr_mult and entry_atr > 0 and not should_exit:
+                    sl_level = entry_price - sl_atr_mult * entry_atr
+                    if lows[i] <= sl_level:
+                        should_exit = True
+
+                if should_exit:
+                    sig_vals[i] = 0
+                    dir_vals[i] = "NONE"
+                    in_position = False
+                else:
+                    # Maintain position — keep signal=1 so engine stays in trade
+                    sig_vals[i] = 1
+                    dir_vals[i] = "LONG"
+                    # Suppress any new entry signals while in position
+                    # (engine ignores them anyway when position != 0)
+
+        signals["signal"] = sig_vals
+        signals["signal_direction"] = dir_vals
+
     return signals
 
 
@@ -852,20 +1052,38 @@ def _evaluate_rule(
     rule: dict[str, Any],
     parameters: dict[str, Any],
 ) -> "pd.Series":  # noqa: F821
-    """Evaluate a single rule dict against the indicator DataFrame."""
+    """Evaluate a single rule dict against the indicator DataFrame.
+
+    Supports:
+      - Any pre-computed column name as indicator
+      - Special indicators: sma_crossover, breakout, regime
+      - Conditions: above, below, crosses_above, crosses_below, between,
+        within_pct (absolute value <=), not_in / in (for string columns)
+    """
     import pandas as pd
 
     indicator = rule.get("indicator", "")
     condition = rule.get("condition", "")
     value = rule.get("value")
 
-    # Resolve indicator column
+    # ── Special: regime (string column) ──────────────────────────────────
+    if indicator == "regime":
+        if "regime" not in df.columns:
+            return pd.Series(False, index=df.index)
+        if condition == "not_in" and isinstance(value, list):
+            return ~df["regime"].isin(value)
+        elif condition == "in" and isinstance(value, list):
+            return df["regime"].isin(value)
+        elif condition == "equals":
+            return df["regime"] == value
+        return pd.Series(False, index=df.index)
+
+    # ── Resolve indicator column ─────────────────────────────────────────
     if indicator in df.columns:
         series = df[indicator]
     elif indicator == "close":
         series = df["close"]
     elif indicator == "sma_crossover":
-        # Special: fast > slow
         if condition == "crosses_above":
             prev_fast = df["sma_fast"].shift(1)
             prev_slow = df["sma_slow"].shift(1)
@@ -884,14 +1102,18 @@ def _evaluate_rule(
     else:
         return pd.Series(False, index=df.index)
 
-    # Evaluate condition
+    # ── Evaluate condition ───────────────────────────────────────────────
     if value is None:
         return pd.Series(False, index=df.index)
 
+    # within_pct: absolute value of series is within threshold
+    if condition == "within_pct":
+        return series.abs() <= float(value)
+
     value = float(value)
-    if condition == "above" or condition == "greater_than":
+    if condition in ("above", "greater_than"):
         return series > value
-    elif condition == "below" or condition == "less_than":
+    elif condition in ("below", "less_than"):
         return series < value
     elif condition == "crosses_above":
         return (series.shift(1) <= value) & (series > value)

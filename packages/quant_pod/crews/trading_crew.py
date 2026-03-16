@@ -109,6 +109,11 @@ from quant_pod.tools.alphavantage_tools import (
     fetch_news_sentiment_tool,
     fetch_upcoming_earnings_tool,
 )
+from quant_pod.tools.memory_tools import (
+    get_recent_memory_tool,
+    search_memory_tool,
+    store_memory_tool,
+)
 from quant_pod.tools.options_flow_tools import OptionsFlowTool, PutCallRatioTool
 
 # =============================================================================
@@ -156,9 +161,13 @@ TOOL_REGISTRY = {
     "fetch_news_sentiment": fetch_news_sentiment_tool,
     "fetch_upcoming_earnings": fetch_upcoming_earnings_tool,
     "fetch_company_overview": fetch_company_overview_tool,
-    # Options flow — UOA detection (singletons; re-used safely across agents)
-    "options_flow_analysis": lambda: OptionsFlowTool,
-    "put_call_ratio": lambda: PutCallRatioTool,
+    # Options flow — UOA detection
+    "options_flow_analysis": lambda: OptionsFlowTool(),
+    "put_call_ratio": lambda: PutCallRatioTool(),
+    # Memory (Mem0 — cross-session observations and regime context)
+    "search_memory": search_memory_tool,
+    "store_memory": store_memory_tool,
+    "get_recent_memory": get_recent_memory_tool,
 }
 
 # Agent ordering for deterministic roster construction
@@ -820,6 +829,8 @@ def run_analysis_only(
     regime: dict[str, Any] | None = None,
     portfolio: dict | None = None,
     historical_context: str = "",
+    strategy_context: str = "",
+    session_notes: str = "",
     current_date: date | None = None,
     task_envelope: Any | None = None,
 ) -> Any:
@@ -828,6 +839,12 @@ def run_analysis_only(
 
     Identical to run_trading_analysis but stops after the Trading Assistant's
     synthesis, returning a DailyBrief instead of a TradeDecision.
+
+    Args:
+        strategy_context: Active strategies from .claude/memory/strategy_registry.md
+                          injected so the crew knows what strategies are live.
+        session_notes: Recent session handoff notes from session_handoffs.md
+                       injected so the crew has cross-session awareness.
     """
     crew = TradingCrew()
     inputs = {
@@ -836,6 +853,8 @@ def run_analysis_only(
         "regime": regime or {"trend": "unknown", "volatility": "normal", "confidence": 0.5},
         "portfolio": portfolio or {},
         "historical_context": historical_context,
+        "strategy_context": strategy_context,
+        "session_notes": session_notes,
     }
     return crew.crew(task_envelope=task_envelope, stop_at_assistant=True).kickoff(inputs=inputs)
 

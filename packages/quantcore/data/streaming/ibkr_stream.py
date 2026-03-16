@@ -33,6 +33,7 @@ from quantcore.data.streaming.base import BarEvent, StreamingAdapter
 
 try:
     import ib_insync as ib
+
     _IB_AVAILABLE = True
 except ImportError:
     _IB_AVAILABLE = False
@@ -41,8 +42,7 @@ except ImportError:
 def _require_ibkr() -> None:
     if not _IB_AVAILABLE:
         raise ImportError(
-            "ib_insync is required for IBKRStreamingAdapter. "
-            "Run: uv pip install -e '.[ibkr]'"
+            "ib_insync is required for IBKRStreamingAdapter. Run: uv pip install -e '.[ibkr]'"
         )
 
 
@@ -104,8 +104,8 @@ class _BarBuffer:
             symbol="",  # set by caller
             timestamp=close_time,
             open=float(self._bars[0].open),
-            high=max(float(b.high)  for b in self._bars),
-            low=min(float(b.low)    for b in self._bars),
+            high=max(float(b.high) for b in self._bars),
+            low=min(float(b.low) for b in self._bars),
             close=float(self._bars[-1].close),
             volume=sum(float(b.volume) for b in self._bars),
             vwap=None,  # IB 5s bars do not include VWAP
@@ -138,13 +138,13 @@ class IBKRStreamingAdapter(StreamingAdapter):
     ) -> None:
         super().__init__(**kwargs)
         _require_ibkr()
-        self._host      = host
-        self._port      = port
+        self._host = host
+        self._port = port
         self._client_id = client_id
         self._ib: ib.IB | None = None
         self._contracts: dict[str, ib.Contract] = {}
-        self._tickers: dict[str, object] = {}    # symbol → ib Ticker
-        self._buffers:  dict[str, _BarBuffer]    = defaultdict(_BarBuffer)
+        self._tickers: dict[str, object] = {}  # symbol → ib Ticker
+        self._buffers: dict[str, _BarBuffer] = defaultdict(_BarBuffer)
 
     # ── StreamingAdapter identity ─────────────────────────────────────────────
 
@@ -168,8 +168,7 @@ class IBKRStreamingAdapter(StreamingAdapter):
         # Register disconnect handler
         self._ib.disconnectedEvent += self._on_disconnect
         logger.info(
-            f"[IBKR] Streaming connected to {self._host}:{self._port} "
-            f"(clientId={self._client_id})"
+            f"[IBKR] Streaming connected to {self._host}:{self._port} (clientId={self._client_id})"
         )
 
     async def _disconnect(self) -> None:

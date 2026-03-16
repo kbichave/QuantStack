@@ -101,10 +101,7 @@ class AlpacaWebSocketBus(MarketDataBus):
         self._running = True
         reconnect_wait = self._RECONNECT_BASE_SECONDS
 
-        logger.info(
-            f"[AlpacaWS] Starting stream: feed={self._feed} "
-            f"symbols={self.symbols}"
-        )
+        logger.info(f"[AlpacaWS] Starting stream: feed={self._feed} symbols={self.symbols}")
 
         while self._running:
             try:
@@ -114,8 +111,7 @@ class AlpacaWebSocketBus(MarketDataBus):
                 if not self._running:
                     break
                 logger.warning(
-                    f"[AlpacaWS] Disconnected: {e} — "
-                    f"reconnecting in {reconnect_wait:.0f}s"
+                    f"[AlpacaWS] Disconnected: {e} — reconnecting in {reconnect_wait:.0f}s"
                 )
                 await asyncio.sleep(reconnect_wait)
                 reconnect_wait = min(reconnect_wait * 2, self._RECONNECT_MAX_SECONDS)
@@ -139,16 +135,22 @@ class AlpacaWebSocketBus(MarketDataBus):
             ping_timeout=10,
         ) as ws:
             # Auth
-            await ws.send(json.dumps({"action": "auth", "key": self._api_key, "secret": self._api_secret}))
+            await ws.send(
+                json.dumps({"action": "auth", "key": self._api_key, "secret": self._api_secret})
+            )
             auth_resp = json.loads(await ws.recv())
             self._check_auth(auth_resp)
 
             # Subscribe to trades and quotes for all symbols
-            await ws.send(json.dumps({
-                "action": "subscribe",
-                "trades": self.symbols,
-                "quotes": self.symbols,
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "action": "subscribe",
+                        "trades": self.symbols,
+                        "quotes": self.symbols,
+                    }
+                )
+            )
 
             logger.info(f"[AlpacaWS] Subscribed to {self.symbols}")
 
@@ -172,7 +174,7 @@ class AlpacaWebSocketBus(MarketDataBus):
 
     def _check_auth(self, response: list) -> None:
         """Raise if authentication failed."""
-        for msg in (response if isinstance(response, list) else [response]):
+        for msg in response if isinstance(response, list) else [response]:
             if msg.get("T") == "error":
                 raise ConnectionError(f"Alpaca auth error: {msg.get('msg')}")
             if msg.get("T") == "success" and msg.get("msg") == "authenticated":

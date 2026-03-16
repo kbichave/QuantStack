@@ -186,9 +186,7 @@ class DataPreprocessor:
         invalid_hl = result["high"] < result["low"]
         if invalid_hl.sum() > 0:
             logger.warning(f"Fixing {invalid_hl.sum()} rows with high < low")
-            result.loc[invalid_hl, ["high", "low"]] = result.loc[
-                invalid_hl, ["low", "high"]
-            ].values
+            result.loc[invalid_hl, ["high", "low"]] = result.loc[invalid_hl, ["low", "high"]].values
 
         # Ensure high >= max(open, close)
         max_oc = result[["open", "close"]].max(axis=1)
@@ -303,11 +301,13 @@ class DataPreprocessor:
         gap_ends = df.index[1:][gaps.values[1:]]
         gap_periods = (gap_ends - gap_starts) / expected_delta
 
-        return pd.DataFrame({
-            "start": gap_starts,
-            "end": gap_ends,
-            "gap_periods": gap_periods.astype(int),
-        })
+        return pd.DataFrame(
+            {
+                "start": gap_starts,
+                "end": gap_ends,
+                "gap_periods": gap_periods.astype(int),
+            }
+        )
 
     def get_data_quality_report(
         self,
@@ -360,4 +360,3 @@ class DataPreprocessor:
         }
 
         return report
-

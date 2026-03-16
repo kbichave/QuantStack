@@ -16,6 +16,7 @@ from loguru import logger
 
 class Sector(Enum):
     """GICS sector classifications."""
+
     TECHNOLOGY = "Technology"
     HEALTHCARE = "Healthcare"
     FINANCIALS = "Financials"
@@ -33,6 +34,7 @@ class Sector(Enum):
 @dataclass
 class UniverseSymbol:
     """Symbol with metadata."""
+
     symbol: str
     name: str
     sector: Sector
@@ -67,34 +69,30 @@ INITIAL_LIQUID_UNIVERSE: dict[str, UniverseSymbol] = {
     "XLI": UniverseSymbol("XLI", "Industrial Select Sector SPDR", Sector.ETF, is_etf=True),
     "XLP": UniverseSymbol("XLP", "Consumer Staples Select Sector SPDR", Sector.ETF, is_etf=True),
     "XLV": UniverseSymbol("XLV", "Health Care Select Sector SPDR", Sector.ETF, is_etf=True),
-    "XLY": UniverseSymbol("XLY", "Consumer Discretionary Select Sector SPDR", Sector.ETF, is_etf=True),
+    "XLY": UniverseSymbol(
+        "XLY", "Consumer Discretionary Select Sector SPDR", Sector.ETF, is_etf=True
+    ),
     "XME": UniverseSymbol("XME", "SPDR S&P Metals & Mining ETF", Sector.ETF, is_etf=True),
-
     # ===== Individual Stocks (16) =====
     # Technology
     "AAPL": UniverseSymbol("AAPL", "Apple Inc", Sector.TECHNOLOGY),
     "AMD": UniverseSymbol("AMD", "Advanced Micro Devices", Sector.TECHNOLOGY),
     "MSFT": UniverseSymbol("MSFT", "Microsoft Corp", Sector.TECHNOLOGY),
     "NVDA": UniverseSymbol("NVDA", "NVIDIA Corp", Sector.TECHNOLOGY),
-
     # Communication Services
     "GOOGL": UniverseSymbol("GOOGL", "Alphabet Inc Class A", Sector.COMMUNICATION),
     "META": UniverseSymbol("META", "Meta Platforms Inc", Sector.COMMUNICATION),
     "NFLX": UniverseSymbol("NFLX", "Netflix Inc", Sector.COMMUNICATION),
-
     # Consumer Discretionary
     "AMZN": UniverseSymbol("AMZN", "Amazon.com Inc", Sector.CONSUMER_DISCRETIONARY),
     "NKE": UniverseSymbol("NKE", "Nike Inc", Sector.CONSUMER_DISCRETIONARY),
     "TSLA": UniverseSymbol("TSLA", "Tesla Inc", Sector.CONSUMER_DISCRETIONARY),
     "BABA": UniverseSymbol("BABA", "Alibaba Group Holding", Sector.CONSUMER_DISCRETIONARY),
-
     # Financials
     "BAC": UniverseSymbol("BAC", "Bank of America", Sector.FINANCIALS),
-
     # Industrials
     "AAL": UniverseSymbol("AAL", "American Airlines Group", Sector.INDUSTRIALS),
     "BA": UniverseSymbol("BA", "Boeing Co", Sector.INDUSTRIALS),
-
     # Energy
     "XOM": UniverseSymbol("XOM", "Exxon Mobil", Sector.ENERGY),
 }
@@ -113,8 +111,8 @@ class UniverseManager:
 
     # Liquidity thresholds (from plan)
     MIN_AVG_OPTION_VOLUME = 10000  # contracts/day
-    MAX_MEDIAN_SPREAD_PCT = 0.05   # 5% of mid
-    MIN_AVG_OI = 1000              # open interest for 20-45 DTE
+    MAX_MEDIAN_SPREAD_PCT = 0.05  # 5% of mid
+    MIN_AVG_OI = 1000  # open interest for 20-45 DTE
 
     def __init__(
         self,
@@ -137,19 +135,28 @@ class UniverseManager:
     @property
     def etf_symbols(self) -> list[str]:
         """Get ETF symbols only."""
-        return [s for s in self._active_symbols
-                if self._universe.get(s, UniverseSymbol(s, s, Sector.ETF)).is_etf]
+        return [
+            s
+            for s in self._active_symbols
+            if self._universe.get(s, UniverseSymbol(s, s, Sector.ETF)).is_etf
+        ]
 
     @property
     def equity_symbols(self) -> list[str]:
         """Get equity (non-ETF) symbols only."""
-        return [s for s in self._active_symbols
-                if not self._universe.get(s, UniverseSymbol(s, s, Sector.ETF)).is_etf]
+        return [
+            s
+            for s in self._active_symbols
+            if not self._universe.get(s, UniverseSymbol(s, s, Sector.ETF)).is_etf
+        ]
 
     def get_symbols_by_sector(self, sector: Sector) -> list[str]:
         """Get symbols for a specific sector."""
-        return [s for s in self._active_symbols
-                if self._universe.get(s) and self._universe[s].sector == sector]
+        return [
+            s
+            for s in self._active_symbols
+            if self._universe.get(s) and self._universe[s].sector == sector
+        ]
 
     def get_symbol_info(self, symbol: str) -> UniverseSymbol | None:
         """Get symbol metadata."""
@@ -265,8 +272,7 @@ class UniverseManager:
 
             # Filter to target DTE range
             dte_filtered = options_df[
-                (options_df["dte"] >= min_dte) &
-                (options_df["dte"] <= max_dte)
+                (options_df["dte"] >= min_dte) & (options_df["dte"] <= max_dte)
             ]
         else:
             dte_filtered = options_df
@@ -292,7 +298,11 @@ class UniverseManager:
             else:
                 spread_pct = None
 
-            avg_oi = symbol_data["open_interest"].mean() if "open_interest" in symbol_data.columns else None
+            avg_oi = (
+                symbol_data["open_interest"].mean()
+                if "open_interest" in symbol_data.columns
+                else None
+            )
 
             # Update and check gate
             if symbol in self._universe:
@@ -311,16 +321,18 @@ class UniverseManager:
         data = []
         for symbol in sorted(self._universe.keys()):
             info = self._universe[symbol]
-            data.append({
-                "symbol": symbol,
-                "name": info.name,
-                "sector": info.sector.value,
-                "is_etf": info.is_etf,
-                "active": symbol in self._active_symbols,
-                "avg_option_volume": info.avg_option_volume,
-                "median_spread_pct": info.median_spread_pct,
-                "avg_oi": info.avg_oi,
-            })
+            data.append(
+                {
+                    "symbol": symbol,
+                    "name": info.name,
+                    "sector": info.sector.value,
+                    "is_etf": info.is_etf,
+                    "active": symbol in self._active_symbols,
+                    "avg_option_volume": info.avg_option_volume,
+                    "median_spread_pct": info.median_spread_pct,
+                    "avg_oi": info.avg_oi,
+                }
+            )
 
         return pd.DataFrame(data)
 
@@ -335,4 +347,3 @@ class UniverseManager:
     def __iter__(self):
         """Iterate over active symbols."""
         return iter(sorted(self._active_symbols))
-

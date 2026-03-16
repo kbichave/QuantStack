@@ -60,10 +60,29 @@ _POLYGON_WS_URL = "wss://socket.polygon.io/stocks"
 
 # Polygon exchange ID → human-readable code (partial map for logging)
 _EXCHANGE_MAP: dict[int, str] = {
-    1: "A", 2: "B", 4: "C", 7: "D", 8: "E", 10: "F",
-    11: "G", 12: "H", 13: "I", 14: "J", 15: "K", 16: "L",
-    17: "M", 18: "N", 20: "P", 21: "Q", 22: "S", 23: "T",
-    24: "V", 25: "W", 26: "X", 27: "Y", 28: "Z",
+    1: "A",
+    2: "B",
+    4: "C",
+    7: "D",
+    8: "E",
+    10: "F",
+    11: "G",
+    12: "H",
+    13: "I",
+    14: "J",
+    15: "K",
+    16: "L",
+    17: "M",
+    18: "N",
+    20: "P",
+    21: "Q",
+    22: "S",
+    23: "T",
+    24: "V",
+    25: "W",
+    26: "X",
+    27: "Y",
+    28: "Z",
 }
 
 
@@ -89,17 +108,17 @@ class PolygonTickAdapter(TickStreamingAdapter):
     ) -> None:
         super().__init__(**kwargs)
         import os
+
         self._api_key = api_key or os.getenv("POLYGON_API_KEY", "")
         if not self._api_key:
             raise ValueError(
-                "POLYGON_API_KEY is required for PolygonTickAdapter. "
-                "Add it to your .env file."
+                "POLYGON_API_KEY is required for PolygonTickAdapter. Add it to your .env file."
             )
         self._subscribe_quotes = subscribe_quotes
         self._subscribe_trades = subscribe_trades
-        self._ws:      aiohttp.ClientWebSocketResponse | None = None
-        self._session: aiohttp.ClientSession | None            = None
-        self._recv_task: asyncio.Task | None                   = None
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
+        self._session: aiohttp.ClientSession | None = None
+        self._recv_task: asyncio.Task | None = None
 
         # last quote per symbol — used for Lee-Ready tick-rule classification
         self._last_quote: dict[str, QuoteTick] = {}
@@ -128,9 +147,7 @@ class PolygonTickAdapter(TickStreamingAdapter):
             raise ConnectionError(f"[Polygon Tick] Auth failed: {auth_msg}")
 
         # Start receive loop
-        self._recv_task = asyncio.create_task(
-            self._recv_loop(), name="polygon_tick_recv"
-        )
+        self._recv_task = asyncio.create_task(self._recv_loop(), name="polygon_tick_recv")
         logger.info("[Polygon Tick] Authenticated")
 
     async def _disconnect(self) -> None:
@@ -154,9 +171,7 @@ class PolygonTickAdapter(TickStreamingAdapter):
         if self._subscribe_quotes:
             params_parts += [f"Q.{s}" for s in symbols]
         if params_parts:
-            await self._ws.send_json(
-                {"action": "subscribe", "params": ",".join(params_parts)}
-            )
+            await self._ws.send_json({"action": "subscribe", "params": ",".join(params_parts)})
         logger.info(f"[Polygon Tick] Subscribed to ticks: {symbols}")
 
     async def _unsubscribe_symbols(self, symbols: list[str]) -> None:
@@ -166,9 +181,7 @@ class PolygonTickAdapter(TickStreamingAdapter):
         if self._subscribe_quotes:
             params_parts += [f"Q.{s}" for s in symbols]
         if params_parts:
-            await self._ws.send_json(
-                {"action": "unsubscribe", "params": ",".join(params_parts)}
-            )
+            await self._ws.send_json({"action": "unsubscribe", "params": ",".join(params_parts)})
         logger.info(f"[Polygon Tick] Unsubscribed from ticks: {symbols}")
 
     # ── Receive loop ──────────────────────────────────────────────────────────
@@ -204,49 +217,49 @@ class PolygonTickAdapter(TickStreamingAdapter):
 
     async def _process_trade(self, m: dict) -> None:
         symbol = m.get("sym", "")
-        ts_ms  = m.get("t", 0)
-        ts_ns  = ts_ms * 1_000_000  # ms → ns
+        ts_ms = m.get("t", 0)
+        ts_ns = ts_ms * 1_000_000  # ms → ns
 
         price = float(m.get("p", 0))
-        size  = float(m.get("s", 0))
-        exch  = _EXCHANGE_MAP.get(m.get("x"), str(m.get("x", "")))
+        size = float(m.get("s", 0))
+        exch = _EXCHANGE_MAP.get(m.get("x"), str(m.get("x", "")))
 
         # Lee-Ready tick rule for aggressor side
         side = self._classify_side(symbol, price)
 
         tick = TradeTick(
-            symbol       = symbol,
-            timestamp_ns = ts_ns,
-            price        = price,
-            size         = size,
-            side         = side,
-            exchange     = exch,
-            trade_id     = str(m["i"]) if "i" in m else None,
-            conditions   = m.get("c"),
+            symbol=symbol,
+            timestamp_ns=ts_ns,
+            price=price,
+            size=size,
+            side=side,
+            exchange=exch,
+            trade_id=str(m["i"]) if "i" in m else None,
+            conditions=m.get("c"),
         )
         await self._emit_trade(tick)
 
     async def _process_quote(self, m: dict) -> None:
         symbol = m.get("sym", "")
-        ts_ms  = m.get("t", 0)
-        ts_ns  = ts_ms * 1_000_000
+        ts_ms = m.get("t", 0)
+        ts_ns = ts_ms * 1_000_000
 
-        bid   = float(m.get("bp", 0))
-        ask   = float(m.get("ap", 0))
+        bid = float(m.get("bp", 0))
+        ask = float(m.get("ap", 0))
         bsize = float(m.get("bs", 0)) * 100  # Polygon reports in round lots
         asize = float(m.get("as", 0)) * 100
         bexch = _EXCHANGE_MAP.get(m.get("bx"), None)
         aexch = _EXCHANGE_MAP.get(m.get("ax"), None)
 
         tick = QuoteTick(
-            symbol       = symbol,
-            timestamp_ns = ts_ns,
-            bid          = bid,
-            ask          = ask,
-            bid_size     = bsize,
-            ask_size     = asize,
-            bid_exchange = bexch,
-            ask_exchange = aexch,
+            symbol=symbol,
+            timestamp_ns=ts_ns,
+            bid=bid,
+            ask=ask,
+            bid_size=bsize,
+            ask_size=asize,
+            bid_exchange=bexch,
+            ask_exchange=aexch,
         )
         self._last_quote[symbol] = tick
         await self._emit_quote(tick)

@@ -125,10 +125,7 @@ class RestPollingBus(MarketDataBus):
     async def run(self, tick_queue: asyncio.Queue) -> None:
         self._running = True
         loop = asyncio.get_event_loop()
-        logger.info(
-            f"[RestPollingBus] Started: {self.symbols} "
-            f"@ {self._interval:.0f}s interval"
-        )
+        logger.info(f"[RestPollingBus] Started: {self.symbols} @ {self._interval:.0f}s interval")
 
         while self._running:
             for symbol in self.symbols:
@@ -156,14 +153,10 @@ class RestPollingBus(MarketDataBus):
                     try:
                         tick_queue.put_nowait(tick)
                     except asyncio.QueueFull:
-                        logger.warning(
-                            f"[RestPollingBus] Tick queue full — dropping {symbol}"
-                        )
+                        logger.warning(f"[RestPollingBus] Tick queue full — dropping {symbol}")
 
                 except Exception as e:
-                    logger.warning(
-                        f"[RestPollingBus] Failed to fetch {symbol}: {e}"
-                    )
+                    logger.warning(f"[RestPollingBus] Failed to fetch {symbol}: {e}")
                     await asyncio.sleep(self._error_sleep)
 
             await asyncio.sleep(self._interval)

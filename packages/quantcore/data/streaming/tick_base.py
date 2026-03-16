@@ -42,7 +42,7 @@ from quantcore.data.streaming.tick_models import L2Update, QuoteTick, TradeTick
 
 TradeCallback = Callable[[TradeTick], Awaitable[None]]
 QuoteCallback = Callable[[QuoteTick], Awaitable[None]]
-L2Callback    = Callable[[L2Update],  Awaitable[None]]
+L2Callback = Callable[[L2Update], Awaitable[None]]
 
 
 # ---------------------------------------------------------------------------
@@ -71,16 +71,16 @@ class TickStreamingAdapter(ABC):
     ) -> None:
         self._trade_callbacks: list[TradeCallback] = []
         self._quote_callbacks: list[QuoteCallback] = []
-        self._l2_callbacks:    list[L2Callback]    = []
+        self._l2_callbacks: list[L2Callback] = []
 
-        self._subscribed:  set[str] = set()
-        self._connected    = False
-        self._shutdown     = False
+        self._subscribed: set[str] = set()
+        self._connected = False
+        self._shutdown = False
 
-        self._reconnect_delay     = reconnect_delay_s
+        self._reconnect_delay = reconnect_delay_s
         self._max_reconnect_delay = max_reconnect_delay_s
         self._max_reconnect_attempts = max_reconnect_attempts
-        self._reconnect_count     = 0
+        self._reconnect_count = 0
 
     # ── Identity ──────────────────────────────────────────────────────────────
 
@@ -165,14 +165,14 @@ class TickStreamingAdapter(ABC):
     # ── Reconnect logic ───────────────────────────────────────────────────────
 
     async def _connect_with_retry(self) -> None:
-        delay   = self._reconnect_delay
+        delay = self._reconnect_delay
         attempt = 0
 
         while not self._shutdown:
             try:
                 await self._connect()
-                self._connected        = True
-                self._reconnect_count  = 0
+                self._connected = True
+                self._reconnect_count = 0
                 return
             except Exception as exc:
                 attempt += 1
@@ -191,9 +191,7 @@ class TickStreamingAdapter(ABC):
     async def _handle_disconnect(self) -> None:
         self._connected = False
         if not self._shutdown:
-            logger.warning(
-                f"[{self.provider}] Unexpected tick disconnect. Reconnecting…"
-            )
+            logger.warning(f"[{self.provider}] Unexpected tick disconnect. Reconnecting…")
             await self._connect_with_retry()
             if self._subscribed:
                 await self._subscribe_symbols(list(self._subscribed))

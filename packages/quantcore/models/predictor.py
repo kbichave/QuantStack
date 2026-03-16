@@ -139,10 +139,7 @@ class Predictor:
 
         result = {}
         for idx, row in X.iterrows():
-            result[idx] = {
-                feat: float(row.get(feat, 0))
-                for feat in top_features
-            }
+            result[idx] = {feat: float(row.get(feat, 0)) for feat in top_features}
 
         return result
 
@@ -230,4 +227,3 @@ class MultiTimeframePredictor:
                 results[tf] = 0.5
 
         return results
-

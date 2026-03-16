@@ -62,14 +62,10 @@ class DataValidator:
             return False, f"high ({bar.high}) < low ({bar.low})"
 
         if bar.close < bar.low or bar.close > bar.high:
-            return False, (
-                f"close ({bar.close}) outside [low={bar.low}, high={bar.high}]"
-            )
+            return False, (f"close ({bar.close}) outside [low={bar.low}, high={bar.high}]")
 
         if bar.open < bar.low or bar.open > bar.high:
-            return False, (
-                f"open ({bar.open}) outside [low={bar.low}, high={bar.high}]"
-            )
+            return False, (f"open ({bar.open}) outside [low={bar.low}, high={bar.high}]")
 
         # Non-negative prices
         if bar.open <= 0 or bar.close <= 0 or bar.high <= 0 or bar.low <= 0:
@@ -96,10 +92,7 @@ class DataValidator:
             if ok:
                 valid.append(bar)
             else:
-                logger.warning(
-                    f"[VALIDATOR] Dropped {bar.symbol} bar @ "
-                    f"{bar.timestamp}: {reason}"
-                )
+                logger.warning(f"[VALIDATOR] Dropped {bar.symbol} bar @ {bar.timestamp}: {reason}")
 
         dropped = len(bars) - len(valid)
         if dropped > 0:
@@ -180,8 +173,7 @@ class DataValidator:
             "latest_bar_time": latest.timestamp,
             "hours_old": round(hours_old, 1),
             "message": (
-                f"{symbol}: latest bar {hours_old:.1f}h old "
-                f"({'FRESH' if is_fresh else 'STALE'})"
+                f"{symbol}: latest bar {hours_old:.1f}h old ({'FRESH' if is_fresh else 'STALE'})"
             ),
         }
 
@@ -227,9 +219,7 @@ class DataValidator:
             present = set(symbol_bars.keys())
             missing_symbols = [s for s in expected_symbols if s not in present]
             if missing_symbols:
-                logger.warning(
-                    f"[VALIDATOR] Missing symbols in batch: {missing_symbols}"
-                )
+                logger.warning(f"[VALIDATOR] Missing symbols in batch: {missing_symbols}")
 
         return {
             "valid_symbols": valid_symbols,

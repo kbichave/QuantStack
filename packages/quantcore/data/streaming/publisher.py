@@ -71,9 +71,7 @@ class BarPublisher:
             )
             return self._queues[subscriber_id]
 
-        q: asyncio.Queue[BarEvent | None] = asyncio.Queue(
-            maxsize=self._max_depth
-        )
+        q: asyncio.Queue[BarEvent | None] = asyncio.Queue(maxsize=self._max_depth)
         self._queues[subscriber_id] = q
         logger.debug(f"[Publisher] Subscriber '{subscriber_id}' registered")
         return q

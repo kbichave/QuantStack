@@ -98,7 +98,9 @@ class _BarCache:
     def _cache_key(self, symbol: str, interval: str, start: date, end: date, limit: int) -> str:
         return f"{symbol}|{interval}|{start}|{end}|{limit}"
 
-    def get(self, symbol: str, interval: str, start: date, end: date, limit: int) -> list[Bar] | None:
+    def get(
+        self, symbol: str, interval: str, start: date, end: date, limit: int
+    ) -> list[Bar] | None:
         """Return cached bars if present and not expired, else None."""
         key = self._cache_key(symbol, interval, start, end, limit)
         with self._lock:
@@ -118,7 +120,9 @@ class _BarCache:
         except Exception:
             return None
 
-    def set(self, symbol: str, interval: str, start: date, end: date, limit: int, bars: list[Bar]) -> None:
+    def set(
+        self, symbol: str, interval: str, start: date, end: date, limit: int, bars: list[Bar]
+    ) -> None:
         """Store bars in the cache."""
         key = self._cache_key(symbol, interval, start, end, limit)
         ttl = self._TTL_SECONDS.get(interval, self._DEFAULT_TTL)
@@ -172,9 +176,7 @@ class PolygonProvider(DataProvider):
     def __init__(self, api_key: str | None = None):
         self._api_key = api_key or os.getenv("POLYGON_API_KEY")
         if not self._api_key:
-            raise ValueError(
-                "POLYGON_API_KEY not set. Get a key at https://polygon.io"
-            )
+            raise ValueError("POLYGON_API_KEY not set. Get a key at https://polygon.io")
         self._session = requests.Session()
         self._session.headers.update({"Authorization": f"Bearer {self._api_key}"})
         self._validator = DataValidator()
@@ -253,7 +255,9 @@ class PolygonProvider(DataProvider):
 
         # Validate before returning
         valid_bars = self._validator.validate_bars(bars)
-        logger.debug(f"[POLYGON] {symbol} {interval}: {len(valid_bars)}/{len(bars)} bars valid (API fetch)")
+        logger.debug(
+            f"[POLYGON] {symbol} {interval}: {len(valid_bars)}/{len(bars)} bars valid (API fetch)"
+        )
 
         # Store in cache for subsequent calls within TTL
         if valid_bars:
@@ -276,11 +280,7 @@ class PolygonProvider(DataProvider):
             last_trade = ticker.get("lastTrade") or {}
             last_quote = ticker.get("lastQuote") or {}
 
-            price = (
-                last_trade.get("p")
-                or day.get("c")
-                or 0.0
-            )
+            price = last_trade.get("p") or day.get("c") or 0.0
             return Quote(
                 symbol=symbol,
                 price=float(price),
@@ -341,7 +341,7 @@ class PolygonProvider(DataProvider):
             try:
                 resp = self._session.get(url, params=params, timeout=15)
                 if resp.status_code == 429:
-                    wait = 2 ** attempt
+                    wait = 2**attempt
                     logger.warning(f"[POLYGON] Rate limited — waiting {wait}s")
                     time.sleep(wait)
                     continue
@@ -401,7 +401,7 @@ class PolygonStreamClient:
         symbols: list[str],
         api_key: str | None = None,
         subscription: str = "AM",  # AM=minute bars, A=second bars, T=trades, Q=quotes
-        on_bar_callback=None,      # Optional[Callable[[Bar], None]]
+        on_bar_callback=None,  # Optional[Callable[[Bar], None]]
         cache: _BarCache | None = None,
     ):
         """
@@ -437,6 +437,7 @@ class PolygonStreamClient:
     def start(self) -> None:
         """Start streaming in a background daemon thread."""
         import threading
+
         self._stop_event = threading.Event()
         self._thread = threading.Thread(
             target=self._run_event_loop,
@@ -477,6 +478,7 @@ class PolygonStreamClient:
     def _run_event_loop(self) -> None:
         """Entry point for the background thread — owns an asyncio event loop."""
         import asyncio
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -487,6 +489,7 @@ class PolygonStreamClient:
     async def _stream_with_reconnect(self) -> None:
         """Connect, stream, and reconnect on failure until stop() is called."""
         import asyncio
+
         delay = self._reconnect_delay
 
         while not (self._stop_event and self._stop_event.is_set()):
@@ -496,8 +499,7 @@ class PolygonStreamClient:
             except Exception as exc:
                 self._connected = False
                 logger.warning(
-                    f"[POLYGON_WS] Stream disconnected: {exc}. "
-                    f"Reconnecting in {delay}s..."
+                    f"[POLYGON_WS] Stream disconnected: {exc}. Reconnecting in {delay}s..."
                 )
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._max_reconnect_delay)
@@ -508,8 +510,7 @@ class PolygonStreamClient:
             import websockets
         except ImportError:
             raise ImportError(
-                "websockets is required for Polygon streaming. "
-                "Install with: pip install websockets"
+                "websockets is required for Polygon streaming. Install with: pip install websockets"
             ) from None
 
         async with websockets.connect(
@@ -545,9 +546,7 @@ class PolygonStreamClient:
         for msg in messages:
             if msg.get("status") == expected_status:
                 return
-        raise ConnectionError(
-            f"[POLYGON_WS] Expected status '{expected_status}', got: {messages}"
-        )
+        raise ConnectionError(f"[POLYGON_WS] Expected status '{expected_status}', got: {messages}")
 
     # -------------------------------------------------------------------------
     # Message handling
@@ -620,7 +619,10 @@ class PolygonStreamClient:
             bar = Bar(
                 symbol=symbol,
                 timestamp=ts,
-                open=price, high=price, low=price, close=price,
+                open=price,
+                high=price,
+                low=price,
+                close=price,
                 volume=size,
                 interval="tick",
             )

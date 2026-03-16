@@ -86,13 +86,9 @@ class DataProviderRegistry:
         """
         with self._lock:
             bucket = self._adapters.get(asset_class, [])
-            idx = next(
-                (i for i, a in enumerate(bucket) if a.provider == provider), None
-            )
+            idx = next((i for i, a in enumerate(bucket) if a.provider == provider), None)
             if idx is None:
-                raise KeyError(
-                    f"{provider.value} is not registered for {asset_class.value}"
-                )
+                raise KeyError(f"{provider.value} is not registered for {asset_class.value}")
             if idx != 0:
                 bucket.insert(0, bucket.pop(idx))
             self._adapters[asset_class] = bucket
@@ -193,9 +189,7 @@ class DataProviderRegistry:
 
         # Parse priority order from settings
         priority_order: list[str] = [
-            p.strip().lower()
-            for p in settings.data_provider_priority.split(",")
-            if p.strip()
+            p.strip().lower() for p in settings.data_provider_priority.split(",") if p.strip()
         ]
 
         # Register from lowest priority to highest so that the final
@@ -205,9 +199,7 @@ class DataProviderRegistry:
             try:
                 _register_provider(registry, provider_name, settings)
             except Exception as exc:
-                logger.warning(
-                    f"[Registry] Skipping provider '{provider_name}': {exc}"
-                )
+                logger.warning(f"[Registry] Skipping provider '{provider_name}': {exc}")
 
         registered = {
             ac.value: [a.provider.value for a in adapters]
@@ -239,6 +231,7 @@ def _register_provider(
         if not settings.alpaca.api_key:
             raise ValueError("ALPACA_API_KEY is not set")
         from quantcore.data.adapters.alpaca import AlpacaAdapter
+
         registry.register(
             AlpacaAdapter(
                 api_key=settings.alpaca.api_key,
@@ -252,6 +245,7 @@ def _register_provider(
         if not settings.polygon.api_key:
             raise ValueError("POLYGON_API_KEY is not set")
         from quantcore.data.adapters.polygon_adapter import PolygonAdapter
+
         registry.register(
             PolygonAdapter(api_key=settings.polygon.api_key),
             priority=0,
@@ -261,6 +255,7 @@ def _register_provider(
         if not settings.alpha_vantage_api_key or settings.alpha_vantage_api_key == "demo":
             raise ValueError("ALPHA_VANTAGE_API_KEY is not set or is the demo key")
         from quantcore.data.adapters.alphavantage import AlphaVantageAdapter
+
         registry.register(
             AlphaVantageAdapter(api_key=settings.alpha_vantage_api_key),
             priority=0,
@@ -273,8 +268,7 @@ def _register_provider(
             from quantcore.data.adapters.ibkr import IBKRDataAdapter
         except ImportError as exc:
             raise ImportError(
-                "ib_insync is required for IBKR. "
-                "Run: uv pip install -e '.[ibkr]'"
+                "ib_insync is required for IBKR. Run: uv pip install -e '.[ibkr]'"
             ) from exc
         registry.register(IBKRDataAdapter(settings=settings.ibkr), priority=0)
 

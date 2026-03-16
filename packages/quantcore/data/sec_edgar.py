@@ -48,67 +48,308 @@ from loguru import logger
 #  download on first use; the full list has 86k entries)
 # ---------------------------------------------------------------------------
 
-_LM_NEGATIVE = frozenset({
-    "abandoned", "abdicated", "aberrant", "abrupt", "absence", "abuse",
-    "adverse", "adversely", "adversity", "allegations", "alleged",
-    "bankruptcy", "breach", "burden", "casualty", "charges", "claim",
-    "claims", "complaint", "complaints", "concern", "concerns", "conflict",
-    "contingency", "contraction", "controversy", "costly", "curtail",
-    "damage", "damages", "decline", "declined", "declining", "default",
-    "defaulted", "defect", "deficit", "delay", "delayed", "delisted",
-    "delinquent", "deteriorate", "deterioration", "difficulty", "diminish",
-    "discontinued", "dispute", "disruption", "distress", "divestiture",
-    "downgrade", "downturn", "eliminate", "eliminated", "enforcement",
-    "error", "fail", "failed", "failing", "failure", "falling", "fault",
-    "fines", "forced", "fraud", "fraudulent", "freeze", "harm", "harmful",
-    "impair", "impaired", "impairment", "inability", "inadequate",
-    "incomplete", "infringement", "injunction", "insolvency", "insufficient",
-    "investigation", "judgment", "judgments", "lawsuit", "layoffs",
-    "liability", "liabilities", "limitation", "liquidation", "litigation",
-    "loss", "losses", "lower", "manipulate", "material", "misconduct",
-    "misrepresentation", "negative", "negligence", "non-compliance",
-    "obsolete", "penalty", "penalties", "problem", "problems", "prohibit",
-    "recall", "reduce", "reduction", "regulatory", "reject", "rejection",
-    "remediation", "restructure", "restructuring", "restatement", "risk",
-    "risks", "risky", "shortage", "significantly", "slowdown", "subject",
-    "substantial", "terminated", "threat", "threatened", "uncertainty",
-    "unfavorable", "unreliable", "unstable", "violation", "volatile",
-    "volatility", "warning", "weakness", "writedown", "writeoff",
-})
+_LM_NEGATIVE = frozenset(
+    {
+        "abandoned",
+        "abdicated",
+        "aberrant",
+        "abrupt",
+        "absence",
+        "abuse",
+        "adverse",
+        "adversely",
+        "adversity",
+        "allegations",
+        "alleged",
+        "bankruptcy",
+        "breach",
+        "burden",
+        "casualty",
+        "charges",
+        "claim",
+        "claims",
+        "complaint",
+        "complaints",
+        "concern",
+        "concerns",
+        "conflict",
+        "contingency",
+        "contraction",
+        "controversy",
+        "costly",
+        "curtail",
+        "damage",
+        "damages",
+        "decline",
+        "declined",
+        "declining",
+        "default",
+        "defaulted",
+        "defect",
+        "deficit",
+        "delay",
+        "delayed",
+        "delisted",
+        "delinquent",
+        "deteriorate",
+        "deterioration",
+        "difficulty",
+        "diminish",
+        "discontinued",
+        "dispute",
+        "disruption",
+        "distress",
+        "divestiture",
+        "downgrade",
+        "downturn",
+        "eliminate",
+        "eliminated",
+        "enforcement",
+        "error",
+        "fail",
+        "failed",
+        "failing",
+        "failure",
+        "falling",
+        "fault",
+        "fines",
+        "forced",
+        "fraud",
+        "fraudulent",
+        "freeze",
+        "harm",
+        "harmful",
+        "impair",
+        "impaired",
+        "impairment",
+        "inability",
+        "inadequate",
+        "incomplete",
+        "infringement",
+        "injunction",
+        "insolvency",
+        "insufficient",
+        "investigation",
+        "judgment",
+        "judgments",
+        "lawsuit",
+        "layoffs",
+        "liability",
+        "liabilities",
+        "limitation",
+        "liquidation",
+        "litigation",
+        "loss",
+        "losses",
+        "lower",
+        "manipulate",
+        "material",
+        "misconduct",
+        "misrepresentation",
+        "negative",
+        "negligence",
+        "non-compliance",
+        "obsolete",
+        "penalty",
+        "penalties",
+        "problem",
+        "problems",
+        "prohibit",
+        "recall",
+        "reduce",
+        "reduction",
+        "regulatory",
+        "reject",
+        "rejection",
+        "remediation",
+        "restructure",
+        "restructuring",
+        "restatement",
+        "risk",
+        "risks",
+        "risky",
+        "shortage",
+        "significantly",
+        "slowdown",
+        "subject",
+        "substantial",
+        "terminated",
+        "threat",
+        "threatened",
+        "uncertainty",
+        "unfavorable",
+        "unreliable",
+        "unstable",
+        "violation",
+        "volatile",
+        "volatility",
+        "warning",
+        "weakness",
+        "writedown",
+        "writeoff",
+    }
+)
 
-_LM_POSITIVE = frozenset({
-    "ability", "above", "accomplish", "achievement", "advantage",
-    "advantageous", "affirm", "ahead", "alliance", "approve", "award",
-    "balance", "beat", "benefit", "benefited", "benefiting", "best",
-    "better", "breakthrough", "capabilities", "capable", "cash", "clear",
-    "collaborate", "competitiveness", "confident", "consistent",
-    "continue", "core", "create", "created", "creating", "customer",
-    "demonstrate", "disciplined", "diversified", "dividend", "dominant",
-    "effective", "efficiency", "efficient", "enhance", "enhanced",
-    "excellent", "exceed", "exceeds", "exceptional", "expand", "expanded",
-    "expanding", "expansion", "favorable", "flexibility", "focus",
-    "gain", "generate", "grew", "grow", "growing", "growth", "high",
-    "higher", "improve", "improved", "improvement", "increasing", "innovative",
-    "integration", "launch", "leader", "leadership", "leading", "leverage",
-    "margin", "milestone", "momentum", "new", "notable", "optimize",
-    "outperform", "outperforming", "outstanding", "overachieve", "positive",
-    "profitable", "profitably", "profitability", "progress", "progressive",
-    "quality", "recover", "recovery", "renewed", "revenue", "revenues",
-    "rising", "robust", "significant", "solid", "stabilize", "stable",
-    "strategic", "streamline", "strengthen", "strengthened", "strong",
-    "strongly", "succeed", "success", "successful", "successfully",
-    "superior", "sustainable", "synergy", "transition", "unique", "upgrade",
-    "value", "well",
-})
+_LM_POSITIVE = frozenset(
+    {
+        "ability",
+        "above",
+        "accomplish",
+        "achievement",
+        "advantage",
+        "advantageous",
+        "affirm",
+        "ahead",
+        "alliance",
+        "approve",
+        "award",
+        "balance",
+        "beat",
+        "benefit",
+        "benefited",
+        "benefiting",
+        "best",
+        "better",
+        "breakthrough",
+        "capabilities",
+        "capable",
+        "cash",
+        "clear",
+        "collaborate",
+        "competitiveness",
+        "confident",
+        "consistent",
+        "continue",
+        "core",
+        "create",
+        "created",
+        "creating",
+        "customer",
+        "demonstrate",
+        "disciplined",
+        "diversified",
+        "dividend",
+        "dominant",
+        "effective",
+        "efficiency",
+        "efficient",
+        "enhance",
+        "enhanced",
+        "excellent",
+        "exceed",
+        "exceeds",
+        "exceptional",
+        "expand",
+        "expanded",
+        "expanding",
+        "expansion",
+        "favorable",
+        "flexibility",
+        "focus",
+        "gain",
+        "generate",
+        "grew",
+        "grow",
+        "growing",
+        "growth",
+        "high",
+        "higher",
+        "improve",
+        "improved",
+        "improvement",
+        "increasing",
+        "innovative",
+        "integration",
+        "launch",
+        "leader",
+        "leadership",
+        "leading",
+        "leverage",
+        "margin",
+        "milestone",
+        "momentum",
+        "new",
+        "notable",
+        "optimize",
+        "outperform",
+        "outperforming",
+        "outstanding",
+        "overachieve",
+        "positive",
+        "profitable",
+        "profitably",
+        "profitability",
+        "progress",
+        "progressive",
+        "quality",
+        "recover",
+        "recovery",
+        "renewed",
+        "revenue",
+        "revenues",
+        "rising",
+        "robust",
+        "significant",
+        "solid",
+        "stabilize",
+        "stable",
+        "strategic",
+        "streamline",
+        "strengthen",
+        "strengthened",
+        "strong",
+        "strongly",
+        "succeed",
+        "success",
+        "successful",
+        "successfully",
+        "superior",
+        "sustainable",
+        "synergy",
+        "transition",
+        "unique",
+        "upgrade",
+        "value",
+        "well",
+    }
+)
 
-_LM_UNCERTAINTY = frozenset({
-    "approximate", "approximately", "believe", "contingent", "could",
-    "depends", "doubt", "estimate", "estimated", "fluctuate", "if",
-    "indefinite", "likely", "may", "might", "no assurance", "ordinarily",
-    "possibly", "potential", "roughly", "should", "sometimes", "speculative",
-    "typically", "uncertain", "uncertainty", "unknown", "unusual",
-    "usually", "variation", "varies", "would",
-})
+_LM_UNCERTAINTY = frozenset(
+    {
+        "approximate",
+        "approximately",
+        "believe",
+        "contingent",
+        "could",
+        "depends",
+        "doubt",
+        "estimate",
+        "estimated",
+        "fluctuate",
+        "if",
+        "indefinite",
+        "likely",
+        "may",
+        "might",
+        "no assurance",
+        "ordinarily",
+        "possibly",
+        "potential",
+        "roughly",
+        "should",
+        "sometimes",
+        "speculative",
+        "typically",
+        "uncertain",
+        "uncertainty",
+        "unknown",
+        "unusual",
+        "usually",
+        "variation",
+        "varies",
+        "would",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +363,11 @@ class FilingMetadata:
 
     cik: str
     accession_number: str
-    form_type: str          # 10-K, 10-Q, 8-K, etc.
+    form_type: str  # 10-K, 10-Q, 8-K, etc.
     filed_date: date
     period_of_report: date | None
     company_name: str
-    document_url: str       # URL to fetch the full filing text
+    document_url: str  # URL to fetch the full filing text
 
 
 @dataclass
@@ -198,11 +439,13 @@ class SECEdgarClient:
             user_agent: Required by SEC EDGAR. Should include name + email.
         """
         self._session = requests.Session()
-        self._session.headers.update({
-            "User-Agent": user_agent,
-            "Accept-Encoding": "gzip, deflate",
-            "Host": "data.sec.gov",
-        })
+        self._session.headers.update(
+            {
+                "User-Agent": user_agent,
+                "Accept-Encoding": "gzip, deflate",
+                "Host": "data.sec.gov",
+            }
+        )
         self._last_request_time = 0.0
         self._ticker_cik_map: dict[str, str] | None = None
 
@@ -297,9 +540,7 @@ class SECEdgarClient:
             acc_dashed = accessions[i]
             doc = primary_docs[i] if i < len(primary_docs) else ""
             doc_url = (
-                f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc}/{doc}"
-                if doc
-                else ""
+                f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc}/{doc}" if doc else ""
             )
 
             try:
@@ -312,15 +553,17 @@ class SECEdgarClient:
             except ValueError:
                 period = None
 
-            results.append(FilingMetadata(
-                cik=cik,
-                accession_number=acc_dashed,
-                form_type=form,
-                filed_date=filed,
-                period_of_report=period,
-                company_name=entity_name,
-                document_url=doc_url,
-            ))
+            results.append(
+                FilingMetadata(
+                    cik=cik,
+                    accession_number=acc_dashed,
+                    form_type=form,
+                    filed_date=filed,
+                    period_of_report=period,
+                    company_name=entity_name,
+                    document_url=doc_url,
+                )
+            )
 
         logger.debug(f"[EDGAR] Found {len(results)} {form_types} filings for {ticker}")
         return results
@@ -444,8 +687,8 @@ class EdgarSignal:
     """Aggregated filing sentiment signal for one ticker."""
 
     ticker: str
-    signal: float                        # Normalised signal in [-1, 1] × 100
-    latest_form_type: str                # 10-K or 10-Q
+    signal: float  # Normalised signal in [-1, 1] × 100
+    latest_form_type: str  # 10-K or 10-Q
     latest_filed_date: date
     n_filings_scored: int
     sentiment_scores: list[FilingSentiment] = field(default_factory=list)
@@ -548,9 +791,11 @@ class EdgarSignalBuilder:
             )
 
         # Weight recent filings more heavily (exponential decay)
-        weights = [0.7 ** i for i in range(len(scored))]
+        weights = [0.7**i for i in range(len(scored))]
         total_weight = sum(weights)
-        weighted_signal = sum(s.signal * w for s, w in zip(scored, weights, strict=False)) / total_weight
+        weighted_signal = (
+            sum(s.signal * w for s, w in zip(scored, weights, strict=False)) / total_weight
+        )
 
         return EdgarSignal(
             ticker=ticker,
@@ -592,10 +837,13 @@ def get_filing_sentiment(
     client = SECEdgarClient(user_agent=user_agent)
     builder = EdgarSignalBuilder(client=client)
     signals = builder.build([ticker], form_types=form_types, n_filings=n_filings)
-    return signals.get(ticker, EdgarSignal(
-        ticker=ticker,
-        signal=0.0,
-        latest_form_type="NONE",
-        latest_filed_date=date.today(),
-        n_filings_scored=0,
-    ))
+    return signals.get(
+        ticker,
+        EdgarSignal(
+            ticker=ticker,
+            signal=0.0,
+            latest_form_type="NONE",
+            latest_filed_date=date.today(),
+            n_filings_scored=0,
+        ),
+    )

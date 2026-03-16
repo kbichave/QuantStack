@@ -123,9 +123,7 @@ class EconomicFetcher:
         self.base_url = "https://www.alphavantage.co/query"
         self.rate_limit_delay = 12.0  # Alpha Vantage free tier: 5 calls/min
 
-    def fetch_indicator(
-        self, indicator: EconomicIndicator
-    ) -> pd.DataFrame | None:
+    def fetch_indicator(self, indicator: EconomicIndicator) -> pd.DataFrame | None:
         """Fetch a single economic indicator.
 
         Args:
@@ -157,15 +155,11 @@ class EconomicFetcher:
 
             # Check for API errors
             if "Error Message" in data:
-                logger.error(
-                    "API error for {}: {}", indicator.name, data["Error Message"]
-                )
+                logger.error("API error for {}: {}", indicator.name, data["Error Message"])
                 return None
 
             if "Note" in data:
-                logger.warning(
-                    "API rate limit warning for {}: {}", indicator.name, data["Note"]
-                )
+                logger.warning("API rate limit warning for {}: {}", indicator.name, data["Note"])
                 return None
 
             # Parse response based on structure
@@ -191,9 +185,7 @@ class EconomicFetcher:
             logger.error("Unexpected error for {}: {}", indicator.name, e)
             return None
 
-    def _parse_response(
-        self, data: dict, indicator: EconomicIndicator
-    ) -> pd.DataFrame | None:
+    def _parse_response(self, data: dict, indicator: EconomicIndicator) -> pd.DataFrame | None:
         """Parse API response into DataFrame.
 
         Args:
@@ -227,9 +219,7 @@ class EconomicFetcher:
             df["indicator"] = indicator.name
             df["frequency"] = indicator.frequency
 
-            return df[["date", "value", "indicator", "frequency"]].sort_values(
-                "date"
-            )
+            return df[["date", "value", "indicator", "frequency"]].sort_values("date")
 
         # Some indicators might have different structure
         # Try to handle time series format
@@ -260,9 +250,7 @@ class EconomicFetcher:
             df["indicator"] = indicator.name
             df["frequency"] = indicator.frequency
 
-            return df[["date", "value", "indicator", "frequency"]].sort_values(
-                "date"
-            )
+            return df[["date", "value", "indicator", "frequency"]].sort_values("date")
 
         logger.warning("Unknown response format for {}", indicator.name)
         return None
@@ -289,14 +277,10 @@ class EconomicFetcher:
 
             # Rate limiting
             if i < len(indicators) - 1:
-                logger.debug(
-                    "Waiting {:.1f}s for rate limit", self.rate_limit_delay
-                )
+                logger.debug("Waiting {:.1f}s for rate limit", self.rate_limit_delay)
                 time.sleep(self.rate_limit_delay)
 
-        logger.info(
-            "Fetched {} of {} indicators", len(results), len(indicators)
-        )
+        logger.info("Fetched {} of {} indicators", len(results), len(indicators))
         return results
 
     def update_indicators(
@@ -333,18 +317,14 @@ class EconomicFetcher:
                 old_df = existing_data[indicator.name]
                 # Combine and deduplicate
                 combined = pd.concat([old_df, new_df], ignore_index=True)
-                combined = combined.drop_duplicates(
-                    subset=["date"], keep="last"
-                )
+                combined = combined.drop_duplicates(subset=["date"], keep="last")
                 results[indicator.name] = combined.sort_values("date")
             else:
                 results[indicator.name] = new_df
 
             # Rate limiting
             if i < len(indicators) - 1:
-                logger.debug(
-                    "Waiting {:.1f}s for rate limit", self.rate_limit_delay
-                )
+                logger.debug("Waiting {:.1f}s for rate limit", self.rate_limit_delay)
                 time.sleep(self.rate_limit_delay)
 
         return results

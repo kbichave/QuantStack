@@ -31,11 +31,11 @@ from quantcore.data.resampler import TimeframeResampler
 
 # AlphaVantage interval strings for intraday endpoints
 _AV_INTRADAY_INTERVALS = {
-    Timeframe.M1:  "1min",
-    Timeframe.M5:  "5min",
+    Timeframe.M1: "1min",
+    Timeframe.M5: "5min",
     Timeframe.M15: "15min",
     Timeframe.M30: "30min",
-    Timeframe.H1:  "60min",
+    Timeframe.H1: "60min",
 }
 
 _SUPPORTED_TIMEFRAMES = {*_AV_INTRADAY_INTERVALS, Timeframe.H4, Timeframe.D1, Timeframe.W1}

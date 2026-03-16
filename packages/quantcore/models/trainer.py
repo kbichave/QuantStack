@@ -29,6 +29,7 @@ from sklearn.preprocessing import StandardScaler
 @dataclass
 class TrainingConfig:
     """Configuration for model training."""
+
     model_type: Literal["lightgbm", "xgboost", "catboost"] = "lightgbm"
 
     # Train/test split
@@ -103,6 +104,7 @@ class TrainingConfig:
 @dataclass
 class TrainingResult:
     """Result of model training."""
+
     model: Any
     feature_names: list[str]
     feature_importance: dict[str, float]
@@ -176,9 +178,7 @@ class ModelTrainer:
             X_clean = pd.DataFrame(X_scaled, columns=feature_names, index=X_clean.index)
 
         # Split data
-        X_train, X_test, y_train, y_test = self._time_series_split(
-            X_clean, y_clean
-        )
+        X_train, X_test, y_train, y_test = self._time_series_split(X_clean, y_clean)
 
         logger.info(f"Train: {len(X_train)}, Test: {len(X_test)}")
         logger.info(f"Train class balance: {y_train.mean():.3f}")
@@ -205,8 +205,10 @@ class ModelTrainer:
         if feature_to_group is not None:
             group_importance = self.compute_group_importances(importance, feature_to_group)
             logger.info("Feature group importances:")
-            for group, imp in sorted(group_importance.items(), key=lambda x: x[1], reverse=True)[:5]:
-                logger.info(f"  {group}: {imp*100:.2f}%")
+            for group, imp in sorted(group_importance.items(), key=lambda x: x[1], reverse=True)[
+                :5
+            ]:
+                logger.info(f"  {group}: {imp * 100:.2f}%")
 
         logger.info(f"Test AUC: {metrics['auc']:.4f}")
         logger.info(f"CV AUC: {np.mean(cv_scores):.4f} (+/- {np.std(cv_scores):.4f})")
@@ -278,7 +280,8 @@ class ModelTrainer:
         model = lgb.LGBMClassifier(**params)
 
         model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             eval_set=[(X_val, y_val)],
             callbacks=[
                 lgb.early_stopping(self.config.early_stopping_rounds, verbose=False),
@@ -307,7 +310,8 @@ class ModelTrainer:
         model = xgb.XGBClassifier(**params)
 
         model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             eval_set=[(X_val, y_val)],
             verbose=False,
         )
@@ -324,7 +328,9 @@ class ModelTrainer:
         tscv = TimeSeriesSplit(n_splits=self.config.n_splits)
 
         scores = cross_val_score(
-            model, X, y,
+            model,
+            X,
+            y,
             cv=tscv,
             scoring="roc_auc",
         )
@@ -367,11 +373,13 @@ class ModelTrainer:
         if total > 0:
             importance = importance / total
 
-        return dict(sorted(
-            zip(feature_names, importance, strict=False),
-            key=lambda x: x[1],
-            reverse=True,
-        ))
+        return dict(
+            sorted(
+                zip(feature_names, importance, strict=False),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+        )
 
     @staticmethod
     def compute_group_importances(
@@ -403,11 +411,13 @@ class ModelTrainer:
         if total > 0:
             group_importance = {k: v / total for k, v in group_importance.items()}
 
-        return dict(sorted(
-            group_importance.items(),
-            key=lambda x: x[1],
-            reverse=True,
-        ))
+        return dict(
+            sorted(
+                group_importance.items(),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+        )
 
     def save_model(
         self,
@@ -441,4 +451,3 @@ class ModelTrainer:
 
         logger.info(f"Model loaded from {path}")
         return result
-

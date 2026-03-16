@@ -17,6 +17,7 @@ from loguru import logger
 @dataclass
 class EarningsEvent:
     """Single earnings event."""
+
     symbol: str
     report_date: date
     fiscal_date_ending: str | None = None
@@ -77,29 +78,32 @@ class EarningsManager:
             return
 
         # Parse dates
-        if 'report_date' in df.columns:
+        if "report_date" in df.columns:
             df = df.copy()
-            df['report_date'] = pd.to_datetime(df['report_date']).dt.date
-        elif 'reportDate' in df.columns:
+            df["report_date"] = pd.to_datetime(df["report_date"]).dt.date
+        elif "reportDate" in df.columns:
             df = df.copy()
-            df['report_date'] = pd.to_datetime(df['reportDate']).dt.date
+            df["report_date"] = pd.to_datetime(df["reportDate"]).dt.date
         else:
             logger.error("No report_date column found in earnings data")
             return
 
         # Group by symbol
-        for symbol in df['symbol'].unique():
-            symbol_data = df[df['symbol'] == symbol].sort_values('report_date')
+        for symbol in df["symbol"].unique():
+            symbol_data = df[df["symbol"] == symbol].sort_values("report_date")
             events = []
 
             for _, row in symbol_data.iterrows():
-                events.append(EarningsEvent(
-                    symbol=symbol,
-                    report_date=row['report_date'],
-                    fiscal_date_ending=row.get('fiscal_date_ending') or row.get('fiscalDateEnding'),
-                    estimate=row.get('estimate'),
-                    name=row.get('name'),
-                ))
+                events.append(
+                    EarningsEvent(
+                        symbol=symbol,
+                        report_date=row["report_date"],
+                        fiscal_date_ending=row.get("fiscal_date_ending")
+                        or row.get("fiscalDateEnding"),
+                        estimate=row.get("estimate"),
+                        name=row.get("name"),
+                    )
+                )
 
             self._earnings_cache[symbol] = events
 
@@ -203,8 +207,7 @@ class EarningsManager:
             List of symbols in blackout
         """
         return [
-            symbol for symbol in symbols
-            if self.is_in_blackout(symbol, blackout_days, as_of_date)
+            symbol for symbol in symbols if self.is_in_blackout(symbol, blackout_days, as_of_date)
         ]
 
     def get_earnings_summary(
@@ -230,12 +233,14 @@ class EarningsManager:
             event = self.get_next_earnings(symbol, as_of_date)
             days = self.get_days_to_earnings(symbol, as_of_date)
 
-            data.append({
-                'symbol': symbol,
-                'days_to_earnings': days,
-                'report_date': event.report_date if event else None,
-                'in_blackout': self.is_in_blackout(symbol, as_of_date=as_of_date),
-            })
+            data.append(
+                {
+                    "symbol": symbol,
+                    "days_to_earnings": days,
+                    "report_date": event.report_date if event else None,
+                    "in_blackout": self.is_in_blackout(symbol, as_of_date=as_of_date),
+                }
+            )
 
         return pd.DataFrame(data)
 
@@ -303,4 +308,3 @@ def load_earnings_from_store(data_store) -> EarningsManager:
         manager.load_from_dataframe(df)
 
     return manager
-

@@ -18,6 +18,7 @@ from quantcore.models.trainer import TrainingResult
 @dataclass
 class EnsembleConfig:
     """Configuration for hierarchical ensemble."""
+
     # Timeframe weights for ensemble
     timeframe_weights: dict[Timeframe, float] = None
 
@@ -184,7 +185,7 @@ class HierarchicalEnsemble:
             # Pad predictions if needed
             if len(preds) < base_len:
                 padded = np.full(base_len, 0.5)
-                padded[:len(preds)] = preds
+                padded[: len(preds)] = preds
                 preds = padded
 
             weighted_sum += weight * preds
@@ -215,7 +216,7 @@ class HierarchicalEnsemble:
         for preds in tf_predictions.values():
             if len(preds) < base_len:
                 padded = np.full(base_len, 0.5)
-                padded[:len(preds)] = preds
+                padded[: len(preds)] = preds
                 preds = padded
             all_preds.append(preds)
 
@@ -235,7 +236,7 @@ class HierarchicalEnsemble:
         for _tf, preds in tf_predictions.items():
             if len(preds) < base_len:
                 padded = np.full(base_len, 0.5)
-                padded[:len(preds)] = preds
+                padded[: len(preds)] = preds
                 preds = padded
 
             # Clip to avoid log(0)
@@ -303,4 +304,3 @@ class HierarchicalEnsemble:
                     }
 
         return summary
-

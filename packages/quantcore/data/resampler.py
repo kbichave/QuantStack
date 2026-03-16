@@ -7,7 +7,6 @@ Provides:
 - Cross-timeframe feature alignment
 """
 
-
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -30,15 +29,15 @@ class TimeframeResampler:
     # "1D" / "W-FRI" for daily/weekly; "Xh" for hours; "Xmin" for minutes; "Xs" for seconds.
     # Note: "1M" in pandas means 1 Month — use "1min" for 1-minute bars.
     RESAMPLE_RULES = {
-        Timeframe.W1:  "W-FRI",   # Week ending Friday
-        Timeframe.D1:  "1D",
-        Timeframe.H4:  "4h",
-        Timeframe.H1:  "1h",
+        Timeframe.W1: "W-FRI",  # Week ending Friday
+        Timeframe.D1: "1D",
+        Timeframe.H4: "4h",
+        Timeframe.H1: "1h",
         Timeframe.M30: "30min",
         Timeframe.M15: "15min",
-        Timeframe.M5:  "5min",
-        Timeframe.M1:  "1min",
-        Timeframe.S5:  "5s",
+        Timeframe.M5: "5min",
+        Timeframe.M1: "1min",
+        Timeframe.S5: "5s",
     }
 
     def __init__(
@@ -80,13 +79,15 @@ class TimeframeResampler:
         rule = self.RESAMPLE_RULES[target_tf]
 
         # Resample with proper OHLCV aggregation
-        resampled = df.resample(rule).agg({
-            "open": "first",
-            "high": "max",
-            "low": "min",
-            "close": "last",
-            "volume": "sum",
-        })
+        resampled = df.resample(rule).agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "volume": "sum",
+            }
+        )
 
         # Drop rows where all values are NaN (no data in that period)
         resampled = resampled.dropna(how="all")
@@ -319,7 +320,7 @@ class TimeframeResampler:
             range_position = np.where(
                 partial_range > 0,
                 (current_close - expanding_low) / partial_range,
-                0.5  # If range is 0, position is middle
+                0.5,  # If range is 0, position is middle
             )
 
             # Progress through period (0 to 1)
@@ -330,15 +331,18 @@ class TimeframeResampler:
             distance_from_open = (current_close - period_open) / period_open
 
             # Build features for this period
-            period_features = pd.DataFrame({
-                f"{prefix}_open": period_open,
-                f"{prefix}_high": expanding_high.values,
-                f"{prefix}_low": expanding_low.values,
-                f"{prefix}_range": partial_range.values,
-                f"{prefix}_range_position": range_position,
-                f"{prefix}_progress": progress,
-                f"{prefix}_distance_from_open": distance_from_open.values,
-            }, index=period_group.index)
+            period_features = pd.DataFrame(
+                {
+                    f"{prefix}_open": period_open,
+                    f"{prefix}_high": expanding_high.values,
+                    f"{prefix}_low": expanding_low.values,
+                    f"{prefix}_range": partial_range.values,
+                    f"{prefix}_range_position": range_position,
+                    f"{prefix}_progress": progress,
+                    f"{prefix}_distance_from_open": distance_from_open.values,
+                },
+                index=period_group.index,
+            )
 
             results.append(period_features)
 
@@ -404,7 +408,6 @@ class TimeframeResampler:
 
         # Concat all at once to avoid DataFrame fragmentation
         return pd.concat(dfs_to_concat, axis=1)
-
 
     def build_multi_timeframe_intraday(
         self,

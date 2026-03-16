@@ -76,38 +76,38 @@ from quantcore.data.streaming.live_store import LiveBarStore
 class IncrementalFeatures:
     """Feature vector produced after each bar update."""
 
-    symbol:            str
-    timestamp:         datetime
-    timeframe:         Timeframe
-    close:             float
+    symbol: str
+    timestamp: datetime
+    timeframe: Timeframe
+    close: float
 
     # Trend
-    ema_fast:          float
-    ema_slow:          float
-    ema_cross:         float   # ema_fast − ema_slow; >0 = bullish
+    ema_fast: float
+    ema_slow: float
+    ema_cross: float  # ema_fast − ema_slow; >0 = bullish
 
     # Momentum
-    rsi:               float   # [0, 100]
-    roc:               float   # rate-of-change over roc_period bars
+    rsi: float  # [0, 100]
+    roc: float  # rate-of-change over roc_period bars
 
     # Volatility
-    atr:               float
-    atr_pct:           float   # atr / close
-    bb_upper:          float
-    bb_lower:          float
-    bb_pct_b:          float   # (close − lower) / (upper − lower)
+    atr: float
+    atr_pct: float  # atr / close
+    bb_upper: float
+    bb_lower: float
+    bb_pct_b: float  # (close − lower) / (upper − lower)
 
     # Volume
-    volume_ratio:      float   # bar_vol / ema(vol)
+    volume_ratio: float  # bar_vol / ema(vol)
 
     # Distance metrics
-    price_to_ema:      float   # (close − ema_fast) / atr; signed distance in ATR units
+    price_to_ema: float  # (close − ema_fast) / atr; signed distance in ATR units
 
     # VWAP (optional — only when bar carries vwap)
-    vwap_deviation:    float | None
+    vwap_deviation: float | None
 
     # Warmup flag: False until the engine has seen enough bars to initialize
-    is_warm:           bool
+    is_warm: bool
 
 
 FeaturesCallback = Callable[[IncrementalFeatures], Awaitable[None]]
@@ -123,25 +123,25 @@ class _SymbolState:
     """Recursive state for one symbol.  All fields are scalars after warmup."""
 
     # EMA state (k = 2 / (period + 1))
-    ema_fast:      float
-    ema_slow:      float
-    ema_vol:       float   # EMA of volume for volume_ratio
+    ema_fast: float
+    ema_slow: float
+    ema_vol: float  # EMA of volume for volume_ratio
 
     # RSI state — Wilder's SMMA (alpha = 1 / rsi_period)
-    avg_gain:      float
-    avg_loss:      float
-    prev_close:    float
+    avg_gain: float
+    avg_loss: float
+    prev_close: float
 
     # ATR state — Wilder's SMMA (alpha = 1 / atr_period)
-    atr:           float
-    prev_high:     float
-    prev_low:      float
+    atr: float
+    prev_high: float
+    prev_low: float
 
     # Rolling windows for Bollinger Bands and ROC (tiny fixed-size deques)
-    close_window:  deque   # last bb_period closes
-    vol_window:    deque   # last vol_ma_period volumes
+    close_window: deque  # last bb_period closes
+    vol_window: deque  # last vol_ma_period volumes
 
-    is_warm:       bool = False
+    is_warm: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +166,8 @@ class IncrementalFeatureEngine:
         timeframe: Timeframe = Timeframe.M1,
         warmup_multiplier: int = 3,
     ) -> None:
-        self._store     = live_store
-        self._tf        = timeframe
+        self._store = live_store
+        self._tf = timeframe
         self._params: TimeframeParams = TIMEFRAME_PARAMS[timeframe]
         self._warmup_bars = (
             max(
@@ -211,9 +211,7 @@ class IncrementalFeatureEngine:
                 return_exceptions=True,
             )
 
-    async def run_from_queue(
-        self, queue: asyncio.Queue[BarEvent | None]
-    ) -> None:
+    async def run_from_queue(self, queue: asyncio.Queue[BarEvent | None]) -> None:
         """Consume bars from a ``BarPublisher`` queue until None (shutdown).
 
         Typical wiring::
@@ -262,9 +260,7 @@ class IncrementalFeatureEngine:
         self._last[sym] = features
         return features
 
-    def _initialize_state(
-        self, symbol: str, bar: BarEvent
-    ) -> _SymbolState | None:
+    def _initialize_state(self, symbol: str, bar: BarEvent) -> _SymbolState | None:
         """Batch-initialize recursive state from the LiveBarStore window.
 
         Returns the new state if the window is deep enough, else None.
@@ -279,15 +275,15 @@ class IncrementalFeatureEngine:
             )
             return None
 
-        closes  = np.array([b.close  for b in window], dtype=float)
-        highs   = np.array([b.high   for b in window], dtype=float)
-        lows    = np.array([b.low    for b in window], dtype=float)
+        closes = np.array([b.close for b in window], dtype=float)
+        highs = np.array([b.high for b in window], dtype=float)
+        lows = np.array([b.low for b in window], dtype=float)
         volumes = np.array([b.volume for b in window], dtype=float)
 
         # ── EMA batch seed (pandas ewm is exact)
         ema_fast_s = _batch_ema(closes, p.ema_fast)
         ema_slow_s = _batch_ema(closes, p.ema_slow)
-        ema_vol_s  = _batch_ema(volumes, p.volume_ma_period)
+        ema_vol_s = _batch_ema(volumes, p.volume_ma_period)
 
         # ── RSI seed (Wilder's SMMA from batch)
         avg_gain, avg_loss = _batch_rsi_seed(closes, p.rsi_period)
@@ -296,28 +292,26 @@ class IncrementalFeatureEngine:
         atr_seed = _batch_atr_seed(highs, lows, closes, p.atr_period)
 
         # ── BB window: last bb_period closes
-        close_window: deque = deque(
-            closes[-p.bb_period:].tolist(), maxlen=p.bb_period
-        )
+        close_window: deque = deque(closes[-p.bb_period :].tolist(), maxlen=p.bb_period)
 
         # ── Volume window: last vol_ma_period volumes
         vol_window: deque = deque(
-            volumes[-p.volume_ma_period:].tolist(), maxlen=p.volume_ma_period
+            volumes[-p.volume_ma_period :].tolist(), maxlen=p.volume_ma_period
         )
 
         state = _SymbolState(
-            ema_fast     = ema_fast_s,
-            ema_slow     = ema_slow_s,
-            ema_vol      = ema_vol_s,
-            avg_gain     = avg_gain,
-            avg_loss     = avg_loss,
-            prev_close   = closes[-1],
-            atr          = atr_seed,
-            prev_high    = highs[-1],
-            prev_low     = lows[-1],
-            close_window = close_window,
-            vol_window   = vol_window,
-            is_warm      = True,
+            ema_fast=ema_fast_s,
+            ema_slow=ema_slow_s,
+            ema_vol=ema_vol_s,
+            avg_gain=avg_gain,
+            avg_loss=avg_loss,
+            prev_close=closes[-1],
+            atr=atr_seed,
+            prev_high=highs[-1],
+            prev_low=lows[-1],
+            close_window=close_window,
+            vol_window=vol_window,
+            is_warm=True,
         )
         self._states[symbol] = state
         logger.info(
@@ -329,24 +323,24 @@ class IncrementalFeatureEngine:
     def _apply_bar(self, state: _SymbolState, bar: BarEvent) -> None:
         """Apply one new bar to the recursive state in O(1)."""
         p = self._params
-        close  = bar.close
-        high   = bar.high
-        low    = bar.low
+        close = bar.close
+        high = bar.high
+        low = bar.low
         volume = bar.volume
 
         # ── EMA update: k = 2/(period+1)
         k_fast = 2.0 / (p.ema_fast + 1)
         k_slow = 2.0 / (p.ema_slow + 1)
-        k_vol  = 2.0 / (p.volume_ma_period + 1)
-        state.ema_fast = close  * k_fast + state.ema_fast * (1.0 - k_fast)
-        state.ema_slow = close  * k_slow + state.ema_slow * (1.0 - k_slow)
-        state.ema_vol  = volume * k_vol  + state.ema_vol  * (1.0 - k_vol)
+        k_vol = 2.0 / (p.volume_ma_period + 1)
+        state.ema_fast = close * k_fast + state.ema_fast * (1.0 - k_fast)
+        state.ema_slow = close * k_slow + state.ema_slow * (1.0 - k_slow)
+        state.ema_vol = volume * k_vol + state.ema_vol * (1.0 - k_vol)
 
         # ── RSI update (Wilder's SMMA: alpha = 1/period)
         alpha_rsi = 1.0 / p.rsi_period
-        change    = close - state.prev_close
-        gain      = max(change, 0.0)
-        loss      = max(-change, 0.0)
+        change = close - state.prev_close
+        gain = max(change, 0.0)
+        loss = max(-change, 0.0)
         state.avg_gain = alpha_rsi * gain + (1.0 - alpha_rsi) * state.avg_gain
         state.avg_loss = alpha_rsi * loss + (1.0 - alpha_rsi) * state.avg_loss
         state.prev_close = close
@@ -354,20 +348,18 @@ class IncrementalFeatureEngine:
         # ── ATR update (Wilder's SMMA)
         alpha_atr = 1.0 / p.atr_period
         tr = max(high - low, abs(high - state.prev_close), abs(low - state.prev_close))
-        state.atr      = alpha_atr * tr    + (1.0 - alpha_atr) * state.atr
+        state.atr = alpha_atr * tr + (1.0 - alpha_atr) * state.atr
         state.prev_high = high
-        state.prev_low  = low
+        state.prev_low = low
 
         # ── Rolling windows (O(1) append — deque handles eviction)
         state.close_window.append(close)
         state.vol_window.append(volume)
 
-    def _build_features(
-        self, bar: BarEvent, state: _SymbolState
-    ) -> IncrementalFeatures:
+    def _build_features(self, bar: BarEvent, state: _SymbolState) -> IncrementalFeatures:
         """Compute derived features from current state."""
         p = self._params
-        close  = bar.close
+        close = bar.close
         volume = bar.volume
 
         # EMA cross
@@ -377,11 +369,11 @@ class IncrementalFeatureEngine:
         if state.avg_loss == 0.0:
             rsi = 100.0
         else:
-            rs  = state.avg_gain / state.avg_loss
+            rs = state.avg_gain / state.avg_loss
             rsi = 100.0 - 100.0 / (1.0 + rs)
 
         # ATR-derived
-        atr     = state.atr
+        atr = state.atr
         atr_pct = atr / close if close != 0.0 else 0.0
         price_to_ema = (close - state.ema_fast) / atr if atr != 0.0 else 0.0
 
@@ -411,24 +403,24 @@ class IncrementalFeatureEngine:
             vwap_dev = (close - bar.vwap) / atr
 
         return IncrementalFeatures(
-            symbol          = bar.symbol,
-            timestamp       = bar.timestamp,
-            timeframe       = self._tf,
-            close           = close,
-            ema_fast        = state.ema_fast,
-            ema_slow        = state.ema_slow,
-            ema_cross       = ema_cross,
-            rsi             = rsi,
-            roc             = roc,
-            atr             = atr,
-            atr_pct         = atr_pct,
-            bb_upper        = bb_upper,
-            bb_lower        = bb_lower,
-            bb_pct_b        = bb_pct_b,
-            volume_ratio    = volume_ratio,
-            price_to_ema    = price_to_ema,
-            vwap_deviation  = vwap_dev,
-            is_warm         = state.is_warm,
+            symbol=bar.symbol,
+            timestamp=bar.timestamp,
+            timeframe=self._tf,
+            close=close,
+            ema_fast=state.ema_fast,
+            ema_slow=state.ema_slow,
+            ema_cross=ema_cross,
+            rsi=rsi,
+            roc=roc,
+            atr=atr,
+            atr_pct=atr_pct,
+            bb_upper=bb_upper,
+            bb_lower=bb_lower,
+            bb_pct_b=bb_pct_b,
+            volume_ratio=volume_ratio,
+            price_to_ema=price_to_ema,
+            vwap_deviation=vwap_dev,
+            is_warm=state.is_warm,
         )
 
 
@@ -460,8 +452,8 @@ def _batch_rsi_seed(closes: np.ndarray, period: int) -> tuple[float, float]:
         return 0.0, 0.0
 
     changes = np.diff(closes)
-    gains   = np.maximum(changes, 0.0)
-    losses  = np.maximum(-changes, 0.0)
+    gains = np.maximum(changes, 0.0)
+    losses = np.maximum(-changes, 0.0)
 
     # Seed with simple average of first `period` changes
     avg_gain = float(np.mean(gains[:period]))
@@ -493,7 +485,7 @@ def _batch_atr_seed(
             highs[1:] - lows[1:],
             np.maximum(
                 np.abs(highs[1:] - closes[:-1]),
-                np.abs(lows[1:]  - closes[:-1]),
+                np.abs(lows[1:] - closes[:-1]),
             ),
         )
         return float(np.mean(tr_arr)) if len(tr_arr) else 0.0
@@ -502,7 +494,7 @@ def _batch_atr_seed(
         highs[1:] - lows[1:],
         np.maximum(
             np.abs(highs[1:] - closes[:-1]),
-            np.abs(lows[1:]  - closes[:-1]),
+            np.abs(lows[1:] - closes[:-1]),
         ),
     )
 

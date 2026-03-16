@@ -47,10 +47,10 @@ from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
 from quantcore.data.streaming.base import BarEvent
 
-_DEFAULT_WINDOW      = 500   # bars kept per symbol in memory
-_DEFAULT_BATCH_SIZE  = 50    # bars batched per DuckDB write cycle
-_FLUSH_INTERVAL_S    = 10.0  # max seconds between flushes when queue is sparse
-_WRITE_QUEUE_DEPTH   = 5_000 # oldest-drop when this limit is hit
+_DEFAULT_WINDOW = 500  # bars kept per symbol in memory
+_DEFAULT_BATCH_SIZE = 50  # bars batched per DuckDB write cycle
+_FLUSH_INTERVAL_S = 10.0  # max seconds between flushes when queue is sparse
+_WRITE_QUEUE_DEPTH = 5_000  # oldest-drop when this limit is hit
 
 
 class LiveBarStore:
@@ -68,8 +68,8 @@ class LiveBarStore:
         window: int = _DEFAULT_WINDOW,
         batch_size: int = _DEFAULT_BATCH_SIZE,
     ) -> None:
-        self._store      = store
-        self._window     = window
+        self._store = store
+        self._window = window
         self._batch_size = batch_size
 
         # in-memory ring buffers: symbol → deque of BarEvents
@@ -81,7 +81,7 @@ class LiveBarStore:
 
         # asyncio write queue — shared only within one event loop
         self._write_queue: asyncio.Queue | None = None
-        self._writer_task: asyncio.Task | None   = None
+        self._writer_task: asyncio.Task | None = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -92,9 +92,7 @@ class LiveBarStore:
         are published.
         """
         self._write_queue = asyncio.Queue(maxsize=_WRITE_QUEUE_DEPTH)
-        self._writer_task = asyncio.create_task(
-            self._writer_loop(), name="live_store_writer"
-        )
+        self._writer_task = asyncio.create_task(self._writer_loop(), name="live_store_writer")
         logger.info("[LiveBarStore] Writer task started")
 
     async def stop(self) -> None:
@@ -185,19 +183,17 @@ class LiveBarStore:
         """
         bars = self.get_window(symbol, n)
         if not bars:
-            return pd.DataFrame(
-                columns=["open", "high", "low", "close", "volume"]
-            )
+            return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
         records = [
             {
-                "timestamp":   b.timestamp,
-                "open":        b.open,
-                "high":        b.high,
-                "low":         b.low,
-                "close":       b.close,
-                "volume":      b.volume,
-                "vwap":        b.vwap,
+                "timestamp": b.timestamp,
+                "open": b.open,
+                "high": b.high,
+                "low": b.low,
+                "close": b.close,
+                "volume": b.volume,
+                "vwap": b.vwap,
                 "trade_count": b.trade_count,
             }
             for b in bars
@@ -292,13 +288,13 @@ class LiveBarStore:
             try:
                 records = [
                     {
-                        "timestamp":   b.timestamp,
-                        "open":        b.open,
-                        "high":        b.high,
-                        "low":         b.low,
-                        "close":       b.close,
-                        "volume":      b.volume,
-                        "vwap":        b.vwap,
+                        "timestamp": b.timestamp,
+                        "open": b.open,
+                        "high": b.high,
+                        "low": b.low,
+                        "close": b.close,
+                        "volume": b.volume,
+                        "vwap": b.vwap,
                         "trade_count": b.trade_count,
                     }
                     for b in sym_bars
@@ -307,13 +303,10 @@ class LiveBarStore:
                 df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
                 df = df.set_index("timestamp")
                 self._store.save_ohlcv_1m(df, symbol)
-                logger.debug(
-                    f"[LiveBarStore] Persisted {len(sym_bars)} bars for {symbol}"
-                )
+                logger.debug(f"[LiveBarStore] Persisted {len(sym_bars)} bars for {symbol}")
             except Exception as exc:
                 logger.warning(
-                    f"[LiveBarStore] Failed to persist {len(sym_bars)} bars for "
-                    f"{symbol}: {exc}"
+                    f"[LiveBarStore] Failed to persist {len(sym_bars)} bars for {symbol}: {exc}"
                 )
 
     # ── DB seed ───────────────────────────────────────────────────────────────
@@ -325,15 +318,13 @@ class LiveBarStore:
         A 30-day look-back is generous enough to always find ``self._window``
         trading bars (390 bars/day × ~20 trading days = 7800 >> 500).
         """
-        end   = datetime.now(UTC)
+        end = datetime.now(UTC)
         start = end - timedelta(days=30)
 
         try:
             df = self._store.load_ohlcv_1m(symbol, start_date=start, end_date=end)
         except Exception as exc:
-            logger.warning(
-                f"[LiveBarStore] Could not seed '{symbol}' from DuckDB: {exc}"
-            )
+            logger.warning(f"[LiveBarStore] Could not seed '{symbol}' from DuckDB: {exc}")
             return
 
         if df.empty:
@@ -346,22 +337,24 @@ class LiveBarStore:
         if symbol not in self._buffers:
             self._buffers[symbol] = deque(maxlen=self._window)
 
-        has_vwap        = "vwap"        in df.columns
+        has_vwap = "vwap" in df.columns
         has_trade_count = "trade_count" in df.columns
 
         for ts, row in df.iterrows():
             bar = BarEvent(
-                symbol      = symbol,
-                timestamp   = ts,
-                open        = float(row["open"]),
-                high        = float(row["high"]),
-                low         = float(row["low"]),
-                close       = float(row["close"]),
-                volume      = float(row["volume"]),
-                vwap        = float(row["vwap"])        if has_vwap        and pd.notna(row["vwap"])        else None,
-                trade_count = int(row["trade_count"])   if has_trade_count and pd.notna(row["trade_count"]) else None,
-                timeframe   = Timeframe.M1,
-                provider    = "",   # historical origin; provider not tracked at row level
+                symbol=symbol,
+                timestamp=ts,
+                open=float(row["open"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                close=float(row["close"]),
+                volume=float(row["volume"]),
+                vwap=float(row["vwap"]) if has_vwap and pd.notna(row["vwap"]) else None,
+                trade_count=int(row["trade_count"])
+                if has_trade_count and pd.notna(row["trade_count"])
+                else None,
+                timeframe=Timeframe.M1,
+                provider="",  # historical origin; provider not tracked at row level
             )
             self._buffers[symbol].append(bar)
 

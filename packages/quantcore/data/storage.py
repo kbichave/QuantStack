@@ -267,16 +267,16 @@ class DataStore:
 
         records = [
             {
-                "symbol":       t.symbol,
+                "symbol": t.symbol,
                 "timestamp_ns": t.timestamp_ns,
-                "price":        t.price,
-                "size":         t.size,
-                "bid":          None,
-                "ask":          None,
-                "bid_size":     None,
-                "ask_size":     None,
-                "side":         t.side,
-                "exchange":     t.exchange,
+                "price": t.price,
+                "size": t.size,
+                "bid": None,
+                "ask": None,
+                "bid_size": None,
+                "ask_size": None,
+                "side": t.side,
+                "exchange": t.exchange,
             }
             for t in ticks
         ]
@@ -312,16 +312,16 @@ class DataStore:
 
         records = [
             {
-                "symbol":       q.symbol,
+                "symbol": q.symbol,
                 "timestamp_ns": q.timestamp_ns,
-                "price":        q.mid,
-                "size":         q.bid_size + q.ask_size,
-                "bid":          q.bid,
-                "ask":          q.ask,
-                "bid_size":     q.bid_size,
-                "ask_size":     q.ask_size,
-                "side":         "quote",
-                "exchange":     None,
+                "price": q.mid,
+                "size": q.bid_size + q.ask_size,
+                "bid": q.bid,
+                "ask": q.ask,
+                "bid_size": q.bid_size,
+                "ask_size": q.ask_size,
+                "side": "quote",
+                "exchange": None,
             }
             for q in quotes
         ]
@@ -521,10 +521,13 @@ class DataStore:
 
         if replace:
             # Delete existing data for this symbol/timeframe
-            self.conn.execute("""
+            self.conn.execute(
+                """
                 DELETE FROM ohlcv
                 WHERE symbol = ? AND timeframe = ?
-            """, [symbol, timeframe.value])
+            """,
+                [symbol, timeframe.value],
+            )
 
         # Insert data (with conflict resolution)
         self.conn.execute("""
@@ -611,7 +614,8 @@ class DataStore:
 
     def _update_metadata(self, symbol: str, timeframe: Timeframe) -> None:
         """Update metadata for a symbol/timeframe combination."""
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR REPLACE INTO data_metadata
             (symbol, timeframe, first_timestamp, last_timestamp, row_count, updated_at)
             SELECT
@@ -624,7 +628,9 @@ class DataStore:
             FROM ohlcv
             WHERE symbol = ? AND timeframe = ?
             GROUP BY symbol, timeframe
-        """, [symbol, timeframe.value])
+        """,
+            [symbol, timeframe.value],
+        )
 
     def get_metadata(
         self,
@@ -672,11 +678,14 @@ class DataStore:
         Returns:
             Tuple of (first_date, last_date) or (None, None) if no data
         """
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT MIN(timestamp), MAX(timestamp)
             FROM ohlcv
             WHERE symbol = ? AND timeframe = ?
-        """, [symbol, timeframe.value]).fetchone()
+        """,
+            [symbol, timeframe.value],
+        ).fetchone()
 
         if result and result[0]:
             return (result[0], result[1])
@@ -743,15 +752,15 @@ class DataStore:
 
             # Bars per trading day by timeframe (US equity session = 390 min / 6.5 h)
             _bars_per_day = {
-                Timeframe.W1:  5 / 7,      # 1 bar per 5 trading days
-                Timeframe.D1:  5 / 7,      # 1 bar per trading day
-                Timeframe.H4:  5 / 7 * 2,  # ~2 bars per trading day
-                Timeframe.H1:  5 / 7 * 6.5,
+                Timeframe.W1: 5 / 7,  # 1 bar per 5 trading days
+                Timeframe.D1: 5 / 7,  # 1 bar per trading day
+                Timeframe.H4: 5 / 7 * 2,  # ~2 bars per trading day
+                Timeframe.H1: 5 / 7 * 6.5,
                 Timeframe.M30: 5 / 7 * 13,
                 Timeframe.M15: 5 / 7 * 26,
-                Timeframe.M5:  5 / 7 * 78,
-                Timeframe.M1:  5 / 7 * 390,
-                Timeframe.S5:  5 / 7 * 390 * 12,  # 12 × 5s bars per minute
+                Timeframe.M5: 5 / 7 * 78,
+                Timeframe.M1: 5 / 7 * 390,
+                Timeframe.S5: 5 / 7 * 390 * 12,  # 12 × 5s bars per minute
             }
             expected_bars = max(1, int(days * _bars_per_day.get(timeframe, 5 / 7)))
 
@@ -772,13 +781,19 @@ class DataStore:
         Returns:
             Number of rows deleted
         """
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             DELETE FROM ohlcv WHERE symbol = ?
-        """, [symbol])
+        """,
+            [symbol],
+        )
 
-        self.conn.execute("""
+        self.conn.execute(
+            """
             DELETE FROM data_metadata WHERE symbol = ?
-        """, [symbol])
+        """,
+            [symbol],
+        )
 
         deleted = result.rowcount
         logger.info(f"Deleted {deleted} rows for {symbol}")
@@ -844,16 +859,34 @@ class DataStore:
 
         if replace:
             # Delete existing data for this symbol/date
-            self.conn.execute("""
+            self.conn.execute(
+                """
                 DELETE FROM options_chains
                 WHERE underlying = ? AND data_date = ?
-            """, [symbol, data_date.date() if hasattr(data_date, 'date') else data_date])
+            """,
+                [symbol, data_date.date() if hasattr(data_date, "date") else data_date],
+            )
 
         # Select only columns that exist in the table
         valid_columns = [
-            "contract_id", "underlying", "data_date", "expiry", "strike",
-            "option_type", "bid", "ask", "mid", "last", "volume",
-            "open_interest", "iv", "delta", "gamma", "theta", "vega", "rho"
+            "contract_id",
+            "underlying",
+            "data_date",
+            "expiry",
+            "strike",
+            "option_type",
+            "bid",
+            "ask",
+            "mid",
+            "last",
+            "volume",
+            "open_interest",
+            "iv",
+            "delta",
+            "gamma",
+            "theta",
+            "vega",
+            "rho",
         ]
 
         available_columns = [c for c in valid_columns if c in data.columns]
@@ -862,8 +895,8 @@ class DataStore:
         # Insert data
         self.conn.execute(f"""
             INSERT OR REPLACE INTO options_chains
-            ({', '.join(available_columns)})
-            SELECT {', '.join(available_columns)}
+            ({", ".join(available_columns)})
+            SELECT {", ".join(available_columns)}
             FROM insert_data
         """)
 
@@ -900,19 +933,21 @@ class DataStore:
 
         if data_date:
             query += " AND data_date = ?"
-            params.append(data_date.date() if hasattr(data_date, 'date') else data_date)
+            params.append(data_date.date() if hasattr(data_date, "date") else data_date)
         else:
             # Get most recent date
-            query += " AND data_date = (SELECT MAX(data_date) FROM options_chains WHERE underlying = ?)"
+            query += (
+                " AND data_date = (SELECT MAX(data_date) FROM options_chains WHERE underlying = ?)"
+            )
             params.append(symbol)
 
         if expiry_min:
             query += " AND expiry >= ?"
-            params.append(expiry_min.date() if hasattr(expiry_min, 'date') else expiry_min)
+            params.append(expiry_min.date() if hasattr(expiry_min, "date") else expiry_min)
 
         if expiry_max:
             query += " AND expiry <= ?"
-            params.append(expiry_max.date() if hasattr(expiry_max, 'date') else expiry_max)
+            params.append(expiry_max.date() if hasattr(expiry_max, "date") else expiry_max)
 
         if option_type:
             query += " AND LOWER(option_type) = ?"
@@ -964,8 +999,13 @@ class DataStore:
 
         # Select valid columns
         valid_columns = [
-            "symbol", "report_date", "fiscal_date_ending", "estimate",
-            "reported_eps", "surprise", "surprise_pct"
+            "symbol",
+            "report_date",
+            "fiscal_date_ending",
+            "estimate",
+            "reported_eps",
+            "surprise",
+            "surprise_pct",
         ]
 
         available_columns = [c for c in valid_columns if c in data.columns]
@@ -973,8 +1013,8 @@ class DataStore:
 
         self.conn.execute(f"""
             INSERT OR REPLACE INTO earnings_calendar
-            ({', '.join(available_columns)})
-            SELECT {', '.join(available_columns)}
+            ({", ".join(available_columns)})
+            SELECT {", ".join(available_columns)}
             FROM insert_data
         """)
 
@@ -1007,11 +1047,11 @@ class DataStore:
 
         if start_date:
             query += " AND report_date >= ?"
-            params.append(start_date.date() if hasattr(start_date, 'date') else start_date)
+            params.append(start_date.date() if hasattr(start_date, "date") else start_date)
 
         if end_date:
             query += " AND report_date <= ?"
-            params.append(end_date.date() if hasattr(end_date, 'date') else end_date)
+            params.append(end_date.date() if hasattr(end_date, "date") else end_date)
 
         query += " ORDER BY report_date"
 
@@ -1040,11 +1080,14 @@ class DataStore:
         if as_of_date is None:
             as_of_date = datetime.now()
 
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT MIN(report_date) as next_earnings
             FROM earnings_calendar
             WHERE symbol = ? AND report_date >= ?
-        """, [symbol, as_of_date.date()]).fetchone()
+        """,
+            [symbol, as_of_date.date()],
+        ).fetchone()
 
         if result and result[0]:
             next_date = pd.to_datetime(result[0])
@@ -1065,23 +1108,26 @@ class DataStore:
         if not data or "Symbol" not in data:
             return
 
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR REPLACE INTO company_overview
             (symbol, name, sector, industry, market_cap, dividend_yield,
              ex_dividend_date, fifty_two_week_high, fifty_two_week_low, beta, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, [
-            data.get("Symbol"),
-            data.get("Name"),
-            data.get("Sector"),
-            data.get("Industry"),
-            data.get("MarketCapitalization"),
-            data.get("DividendYield"),
-            data.get("ExDividendDate"),
-            data.get("52WeekHigh"),
-            data.get("52WeekLow"),
-            data.get("Beta"),
-        ])
+        """,
+            [
+                data.get("Symbol"),
+                data.get("Name"),
+                data.get("Sector"),
+                data.get("Industry"),
+                data.get("MarketCapitalization"),
+                data.get("DividendYield"),
+                data.get("ExDividendDate"),
+                data.get("52WeekHigh"),
+                data.get("52WeekLow"),
+                data.get("Beta"),
+            ],
+        )
 
         logger.debug(f"Saved company overview for {data.get('Symbol')}")
 
@@ -1098,9 +1144,12 @@ class DataStore:
         Returns:
             Dictionary with company data or None
         """
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT * FROM company_overview WHERE symbol = ?
-        """, [symbol]).fetchdf()
+        """,
+            [symbol],
+        ).fetchdf()
 
         if result.empty:
             return None
@@ -1156,9 +1205,17 @@ class DataStore:
 
         # Valid columns for the table
         valid_columns = [
-            "time_published", "title", "summary", "source", "url", "ticker",
-            "overall_sentiment_score", "overall_sentiment_label",
-            "ticker_sentiment_score", "ticker_sentiment_label", "relevance_score"
+            "time_published",
+            "title",
+            "summary",
+            "source",
+            "url",
+            "ticker",
+            "overall_sentiment_score",
+            "overall_sentiment_label",
+            "ticker_sentiment_score",
+            "ticker_sentiment_label",
+            "relevance_score",
         ]
 
         available_columns = [c for c in valid_columns if c in data.columns]
@@ -1167,8 +1224,8 @@ class DataStore:
         # Handle duplicates by using INSERT OR IGNORE
         self.conn.execute(f"""
             INSERT OR IGNORE INTO news_sentiment
-            ({', '.join(available_columns)})
-            SELECT {', '.join(available_columns)}
+            ({", ".join(available_columns)})
+            SELECT {", ".join(available_columns)}
             FROM insert_data
         """)
 
@@ -1311,4 +1368,3 @@ class DataStore:
         deleted = result.rowcount
         logger.info(f"Deleted {deleted} news sentiment records")
         return deleted
-

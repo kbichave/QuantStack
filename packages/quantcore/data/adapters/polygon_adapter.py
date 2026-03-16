@@ -39,14 +39,14 @@ from quantcore.data.provider_enum import DataProvider
 # Map Timeframe → (interval_string_for_PolygonProvider.get_bars_df)
 # PolygonProvider._INTERVAL_MAP already covers all these intervals.
 _TF_TO_INTERVAL: dict[Timeframe, str] = {
-    Timeframe.M1:  "1m",
-    Timeframe.M5:  "5m",
+    Timeframe.M1: "1m",
+    Timeframe.M5: "5m",
     Timeframe.M15: "15m",
     Timeframe.M30: "30m",
-    Timeframe.H1:  "1h",
-    Timeframe.H4:  "4h",
-    Timeframe.D1:  "1d",
-    Timeframe.W1:  "1w",
+    Timeframe.H1: "1h",
+    Timeframe.H4: "4h",
+    Timeframe.D1: "1d",
+    Timeframe.W1: "1w",
 }
 
 # S5 (5-second) requires a custom request to /v2/aggs with timespan="second".
@@ -67,6 +67,7 @@ class PolygonAdapter(AssetClassAdapter):
 
     def __init__(self, api_key: str | None = None) -> None:
         from quantcore.data.polygon import PolygonProvider
+
         self._provider = PolygonProvider(api_key=api_key)
 
     # ── AssetClassAdapter interface ───────────────────────────────────────────
@@ -122,7 +123,7 @@ class PolygonAdapter(AssetClassAdapter):
     ) -> pd.DataFrame:
         # Convert datetime bounds to date for PolygonProvider.get_bars_df()
         start: date | None = start_date.date() if start_date else None
-        end:   date | None = end_date.date()   if end_date   else None
+        end: date | None = end_date.date() if end_date else None
 
         if timeframe == Timeframe.S5:
             return self._fetch_5s(symbol, start, end)
@@ -184,11 +185,11 @@ class PolygonAdapter(AssetClassAdapter):
         rows = [
             {
                 "timestamp": b.timestamp,
-                "open":      float(b.open),
-                "high":      float(b.high),
-                "low":       float(b.low),
-                "close":     float(b.close),
-                "volume":    float(b.volume),
+                "open": float(b.open),
+                "high": float(b.high),
+                "low": float(b.low),
+                "close": float(b.close),
+                "volume": float(b.volume),
             }
             for b in bars
         ]

@@ -12,6 +12,7 @@ from loguru import logger
 
 try:
     import shap
+
     SHAP_AVAILABLE = True
 except ImportError:
     SHAP_AVAILABLE = False
@@ -98,10 +99,13 @@ class SHAPExplainer:
         if not SHAP_AVAILABLE or self._explainer is None:
             # Fall back to model's feature importance
             if hasattr(self.model, "feature_importances_"):
-                return dict(zip(
-                    self.feature_names,
-                    self.model.feature_importances_, strict=False,
-                ))
+                return dict(
+                    zip(
+                        self.feature_names,
+                        self.model.feature_importances_,
+                        strict=False,
+                    )
+                )
             return {}
 
         # Scale if needed
@@ -125,11 +129,13 @@ class SHAPExplainer:
         if total > 0:
             importance = importance / total
 
-        return dict(sorted(
-            zip(self.feature_names, importance, strict=False),
-            key=lambda x: x[1],
-            reverse=True,
-        ))
+        return dict(
+            sorted(
+                zip(self.feature_names, importance, strict=False),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+        )
 
     def explain_prediction(
         self,
@@ -156,7 +162,7 @@ class SHAPExplainer:
             X_scaled = X.values
 
         # Get SHAP values for this prediction
-        shap_values = self._explainer.shap_values(X_scaled[idx:idx+1])
+        shap_values = self._explainer.shap_values(X_scaled[idx : idx + 1])
 
         if isinstance(shap_values, list):
             shap_values = shap_values[1]
@@ -191,12 +197,14 @@ class SHAPExplainer:
 
         result = []
         for feat, contrib in sorted_contrib:
-            result.append({
-                "feature": feat,
-                "contribution": contrib,
-                "direction": "positive" if contrib > 0 else "negative",
-                "value": float(X.iloc[idx].get(feat, 0)),
-            })
+            result.append(
+                {
+                    "feature": feat,
+                    "contribution": contrib,
+                    "direction": "positive" if contrib > 0 else "negative",
+                    "value": float(X.iloc[idx].get(feat, 0)),
+                }
+            )
 
         return result
 
@@ -278,4 +286,3 @@ class SHAPExplainer:
         except Exception as e:
             logger.warning(f"Could not compute interactions: {e}")
             return None
-

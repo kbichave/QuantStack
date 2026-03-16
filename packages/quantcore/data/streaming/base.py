@@ -60,17 +60,17 @@ class BarEvent:
     Timestamp is the bar *close* time (i.e. a 09:31 bar covers 09:30–09:31).
     """
 
-    symbol:      str
-    timestamp:   datetime           # UTC bar close time
-    open:        float
-    high:        float
-    low:         float
-    close:       float
-    volume:      float
-    vwap:        float | None = None
-    trade_count: int | None  = None
-    timeframe:   Timeframe       = Timeframe.M1
-    provider:    str             = ""
+    symbol: str
+    timestamp: datetime  # UTC bar close time
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    vwap: float | None = None
+    trade_count: int | None = None
+    timeframe: Timeframe = Timeframe.M1
+    provider: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +223,7 @@ class StreamingAdapter(ABC):
                 attempt += 1
                 self._reconnect_count += 1
                 from loguru import logger
+
                 logger.warning(
                     f"[{self.provider.value}] Connection attempt {attempt} failed: {exc}. "
                     f"Retrying in {delay:.1f}s"
@@ -240,10 +241,8 @@ class StreamingAdapter(ABC):
         self._connected = False
         if not self._shutdown:
             from loguru import logger
-            logger.warning(
-                f"[{self.provider.value}] Unexpected disconnect. "
-                "Attempting reconnect…"
-            )
+
+            logger.warning(f"[{self.provider.value}] Unexpected disconnect. Attempting reconnect…")
             await self._connect_with_retry()
             # Re-subscribe to all previously subscribed symbols
             if self._subscribed and self._timeframe:

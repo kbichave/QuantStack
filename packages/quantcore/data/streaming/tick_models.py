@@ -49,14 +49,14 @@ class TradeTick:
         conditions:   Trade condition codes e.g. ["@", "I"] (optional).
     """
 
-    symbol:       str
+    symbol: str
     timestamp_ns: int
-    price:        float
-    size:         float
-    side:         str = "unknown"   # "buy" | "sell" | "unknown"
-    exchange:     str | None = None
-    trade_id:     str | None = None
-    conditions:   list | None = None
+    price: float
+    size: float
+    side: str = "unknown"  # "buy" | "sell" | "unknown"
+    exchange: str | None = None
+    trade_id: str | None = None
+    conditions: list | None = None
 
     @property
     def timestamp_s(self) -> float:
@@ -84,12 +84,12 @@ class QuoteTick:
         ask_exchange: Exchange posting the best ask (optional).
     """
 
-    symbol:       str
+    symbol: str
     timestamp_ns: int
-    bid:          float
-    ask:          float
-    bid_size:     float
-    ask_size:     float
+    bid: float
+    ask: float
+    bid_size: float
+    ask_size: float
     bid_exchange: str | None = None
     ask_exchange: str | None = None
 
@@ -131,11 +131,11 @@ class L2Update:
         level_count:  Number of levels in this snapshot message batch (optional).
     """
 
-    symbol:       str
+    symbol: str
     timestamp_ns: int
-    side:         str   # "bid" | "ask"
-    price:        float
-    size:         float
-    action:       str = "modify"   # "add" | "modify" | "delete"
-    is_snapshot:  bool = False
-    level_count:  int | None = None
+    side: str  # "bid" | "ask"
+    price: float
+    size: float
+    action: str = "modify"  # "add" | "modify" | "delete"
+    is_snapshot: bool = False
+    level_count: int | None = None

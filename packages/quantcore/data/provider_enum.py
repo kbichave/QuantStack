@@ -18,6 +18,6 @@ class DataProvider(str, Enum):
     """
 
     ALPHA_VANTAGE = "alpha_vantage"
-    ALPACA        = "alpaca"
-    POLYGON       = "polygon"
-    IBKR          = "ibkr"
+    ALPACA = "alpaca"
+    POLYGON = "polygon"
+    IBKR = "ibkr"

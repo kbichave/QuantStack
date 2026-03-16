@@ -36,6 +36,7 @@ class SyntheticMarketConfig:
         volume_noise: Volume noise factor (0-1)
         seed: Random seed for reproducibility
     """
+
     start: datetime = field(default_factory=lambda: datetime(2023, 1, 3, 9, 0))
     periods: int = 2000
     freq: str = "1h"
@@ -108,8 +109,7 @@ def generate_synthetic_ohlcv(
         config = SyntheticMarketConfig()
 
     logger.debug(
-        f"Generating {config.periods} synthetic bars at {config.freq} "
-        f"(seed={config.seed})"
+        f"Generating {config.periods} synthetic bars at {config.freq} (seed={config.seed})"
     )
 
     # Set random seed for reproducibility
@@ -143,7 +143,7 @@ def generate_synthetic_ohlcv(
         trend_return = regime * config.trend_strength
 
         # 2. Mean reversion component (pulls toward trend)
-        price_deviation = (closes[i-1] - config.base_price) / config.base_price
+        price_deviation = (closes[i - 1] - config.base_price) / config.base_price
         mr_return = -config.mean_reversion_strength * price_deviation * 0.01
 
         # 3. Random noise component
@@ -153,11 +153,11 @@ def generate_synthetic_ohlcv(
         total_return = trend_return + mr_return + noise_return
 
         # Apply return to get close price
-        closes[i] = closes[i-1] * (1 + total_return)
+        closes[i] = closes[i - 1] * (1 + total_return)
 
         # Open is previous close (with small gap occasionally)
         gap = rng.normal(0, bar_vol * 0.1) if rng.random() < 0.1 else 0
-        opens[i] = closes[i-1] * (1 + gap)
+        opens[i] = closes[i - 1] * (1 + gap)
 
     # Generate high/low with realistic intrabar movement
     for i in range(n):
@@ -198,13 +198,16 @@ def generate_synthetic_ohlcv(
     )
 
     # Build DataFrame
-    df = pd.DataFrame({
-        "open": opens,
-        "high": highs,
-        "low": lows,
-        "close": closes,
-        "volume": volumes,
-    }, index=index)
+    df = pd.DataFrame(
+        {
+            "open": opens,
+            "high": highs,
+            "low": lows,
+            "close": closes,
+            "volume": volumes,
+        },
+        index=index,
+    )
 
     logger.info(
         f"Generated {len(df)} synthetic bars: "
@@ -314,4 +317,3 @@ def validate_synthetic_ohlcv(df: pd.DataFrame) -> tuple[bool, list[str]]:
 
     is_valid = len(errors) == 0
     return is_valid, errors
-

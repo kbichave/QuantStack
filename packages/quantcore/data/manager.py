@@ -36,7 +36,7 @@ class UnifiedDataManager:
         db_path: str | None = None,
     ):
         self.registry = registry or DataProviderRegistry()
-        self.storage  = DataStore(db_path)
+        self.storage = DataStore(db_path)
 
     # ── Backward-compat shim ──────────────────────────────────────────────────
 
@@ -160,4 +160,3 @@ class UnifiedDataManager:
                 results.append((symbol, asset_class, False))
 
         return results
-

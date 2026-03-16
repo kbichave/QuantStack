@@ -24,9 +24,7 @@ class EconomicStorage:
             db_path: Path to DuckDB file. If None, uses settings.
         """
         self.settings = get_settings()
-        self.db_path = db_path or (
-            self.settings.data_dir / "economic_indicators.duckdb"
-        )
+        self.db_path = db_path or (self.settings.data_dir / "economic_indicators.duckdb")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Create database and schema
@@ -201,9 +199,7 @@ class EconomicStorage:
             df = conn.execute(query, params).df()
 
             if df.empty:
-                logger.warning(
-                    "No data found for indicator {} in date range", indicator
-                )
+                logger.warning("No data found for indicator {} in date range", indicator)
 
             return df
 
@@ -300,12 +296,8 @@ class EconomicStorage:
             indicator: Indicator name
         """
         with duckdb.connect(str(self.db_path)) as conn:
-            conn.execute(
-                "DELETE FROM economic_indicators WHERE indicator = ?", [indicator]
-            )
-            conn.execute(
-                "DELETE FROM indicator_metadata WHERE indicator = ?", [indicator]
-            )
+            conn.execute("DELETE FROM economic_indicators WHERE indicator = ?", [indicator])
+            conn.execute("DELETE FROM indicator_metadata WHERE indicator = ?", [indicator])
 
             logger.info("Deleted indicator {}", indicator)
 

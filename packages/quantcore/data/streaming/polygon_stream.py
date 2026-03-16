@@ -58,11 +58,11 @@ class PolygonStreamingAdapter(StreamingAdapter):
     def __init__(self, api_key: str | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         import os
+
         self._api_key = api_key or os.getenv("POLYGON_API_KEY", "")
         if not self._api_key:
             raise ValueError(
-                "POLYGON_API_KEY is required for PolygonStreamingAdapter. "
-                "Add it to your .env file."
+                "POLYGON_API_KEY is required for PolygonStreamingAdapter. Add it to your .env file."
             )
         self._ws: aiohttp.ClientWebSocketResponse | None = None
         self._session: aiohttp.ClientSession | None = None
@@ -95,15 +95,11 @@ class PolygonStreamingAdapter(StreamingAdapter):
         auth_msg = await self._ws.receive_json()
         # Response: [{"ev": "status", "status": "auth_success", ...}]
         if not any(m.get("status") == "auth_success" for m in auth_msg):
-            raise ConnectionError(
-                f"[Polygon] Authentication failed: {auth_msg}"
-            )
+            raise ConnectionError(f"[Polygon] Authentication failed: {auth_msg}")
         self._authenticated = True
 
         # Start receive loop
-        self._recv_task = asyncio.create_task(
-            self._recv_loop(), name="polygon_stream"
-        )
+        self._recv_task = asyncio.create_task(self._recv_loop(), name="polygon_stream")
         logger.info("[Polygon] Streaming connection authenticated")
 
     async def _disconnect(self) -> None:

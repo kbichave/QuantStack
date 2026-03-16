@@ -162,10 +162,7 @@ class DataProvider(ABC):
         limit: int = 252,
     ) -> dict[str, pd.DataFrame]:
         """Fetch bars for multiple symbols. Returns {symbol: DataFrame}."""
-        return {
-            sym: self.get_bars_df(sym, interval, limit)
-            for sym in symbols
-        }
+        return {sym: self.get_bars_df(sym, interval, limit) for sym in symbols}
 
 
 # =============================================================================
@@ -194,9 +191,11 @@ def get_provider() -> DataProvider:
 
     if pref == "polygon" or (not pref and os.getenv("POLYGON_API_KEY")):
         from quantcore.data.polygon import PolygonProvider
+
         _active_provider = PolygonProvider()
     elif pref == "alphavantage" or (not pref and os.getenv("ALPHA_VANTAGE_API_KEY")):
         from quantcore.data.alphavantage import AlphaVantageProvider
+
         _active_provider = AlphaVantageProvider()
     else:
         raise RuntimeError(

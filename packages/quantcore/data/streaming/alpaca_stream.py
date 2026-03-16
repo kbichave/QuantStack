@@ -28,6 +28,7 @@ from quantcore.data.streaming.base import BarEvent, StreamingAdapter
 try:
     from alpaca.data.live import StockDataStream
     from alpaca.data.models.bars import Bar as AlpacaBar
+
     _ALPACA_AVAILABLE = True
 except ImportError:
     _ALPACA_AVAILABLE = False
@@ -56,9 +57,10 @@ class AlpacaStreamingAdapter(StreamingAdapter):
                 "Run: uv pip install -e '.[alpaca]'"
             )
         import os
-        self._api_key    = api_key    or os.getenv("ALPACA_API_KEY", "")
+
+        self._api_key = api_key or os.getenv("ALPACA_API_KEY", "")
         self._secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY", "")
-        self._paper      = paper
+        self._paper = paper
         self._stream: StockDataStream | None = None
         self._stream_task: asyncio.Task | None = None
 
@@ -107,9 +109,7 @@ class AlpacaStreamingAdapter(StreamingAdapter):
 
         # Start the stream task if not already running
         if self._stream_task is None or self._stream_task.done():
-            self._stream_task = asyncio.create_task(
-                self._run_stream(), name="alpaca_stream"
-            )
+            self._stream_task = asyncio.create_task(self._run_stream(), name="alpaca_stream")
         logger.info(f"[Alpaca] Subscribed to bars: {symbols}")
 
     async def _unsubscribe_symbols(self, symbols: list[str]) -> None:

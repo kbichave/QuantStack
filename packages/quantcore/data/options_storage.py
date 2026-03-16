@@ -167,11 +167,14 @@ class OptionsDataStore:
             realized_vol_60d: 60-day realized volatility
             source: Data source ('options_chain' or 'realized_vol')
         """
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR REPLACE INTO iv_history
             (symbol, date, atm_iv, realized_vol_20d, realized_vol_60d, source)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, [symbol, date, atm_iv, realized_vol_20d, realized_vol_60d, source])
+        """,
+            [symbol, date, atm_iv, realized_vol_20d, realized_vol_60d, source],
+        )
 
     def save_iv_history_bulk(
         self,
@@ -206,8 +209,8 @@ class OptionsDataStore:
 
         self.conn.execute(f"""
             INSERT OR REPLACE INTO iv_history
-            ({', '.join(available_cols)})
-            SELECT {', '.join(available_cols)}
+            ({", ".join(available_cols)})
+            SELECT {", ".join(available_cols)}
             FROM insert_data
         """)
 
@@ -349,16 +352,33 @@ class OptionsDataStore:
         }
 
         # Save to cache
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR REPLACE INTO iv_statistics
             (symbol, lookback_days, iv_min, iv_max, iv_mean, iv_median, iv_std,
              iv_percentile_25, iv_percentile_75, last_iv, last_iv_rank, last_iv_percentile,
              calculated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, [symbol, lookback_days, iv_min, iv_max, iv_mean, iv_median, iv_std,
-              iv_p25, iv_p75, last_iv, iv_rank, iv_percentile])
+        """,
+            [
+                symbol,
+                lookback_days,
+                iv_min,
+                iv_max,
+                iv_mean,
+                iv_median,
+                iv_std,
+                iv_p25,
+                iv_p75,
+                last_iv,
+                iv_rank,
+                iv_percentile,
+            ],
+        )
 
-        logger.debug(f"Updated IV stats for {symbol}: rank={iv_rank:.1f}, percentile={iv_percentile:.1f}")
+        logger.debug(
+            f"Updated IV stats for {symbol}: rank={iv_rank:.1f}, percentile={iv_percentile:.1f}"
+        )
         return stats
 
     def get_iv_statistics(
@@ -374,9 +394,12 @@ class OptionsDataStore:
         Returns:
             Dictionary of IV statistics or None
         """
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT * FROM iv_statistics WHERE symbol = ?
-        """, [symbol]).fetchdf()
+        """,
+            [symbol],
+        ).fetchdf()
 
         if result.empty:
             return None
@@ -425,8 +448,14 @@ class OptionsDataStore:
 
         # Select valid columns
         valid_cols = [
-            "symbol", "report_date", "fiscal_date_ending", "estimate",
-            "reported_eps", "surprise", "surprise_pct", "is_historical"
+            "symbol",
+            "report_date",
+            "fiscal_date_ending",
+            "estimate",
+            "reported_eps",
+            "surprise",
+            "surprise_pct",
+            "is_historical",
         ]
         available_cols = [c for c in valid_cols if c in data.columns]
 
@@ -438,8 +467,8 @@ class OptionsDataStore:
 
         self.conn.execute(f"""
             INSERT OR REPLACE INTO earnings_calendar
-            ({', '.join(available_cols)})
-            SELECT {', '.join(available_cols)}
+            ({", ".join(available_cols)})
+            SELECT {", ".join(available_cols)}
             FROM insert_data
         """)
 
@@ -513,11 +542,14 @@ class OptionsDataStore:
         if as_of_date is None:
             as_of_date = datetime.now().date()
 
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT MIN(report_date) as next_earnings
             FROM earnings_calendar
             WHERE symbol = ? AND report_date >= ?
-        """, [symbol, as_of_date]).fetchone()
+        """,
+            [symbol, as_of_date],
+        ).fetchone()
 
         if result and result[0]:
             next_date = pd.to_datetime(result[0]).date()
@@ -543,11 +575,14 @@ class OptionsDataStore:
         if as_of_date is None:
             as_of_date = datetime.now().date()
 
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT MAX(report_date) as last_earnings
             FROM earnings_calendar
             WHERE symbol = ? AND report_date < ?
-        """, [symbol, as_of_date]).fetchone()
+        """,
+            [symbol, as_of_date],
+        ).fetchone()
 
         if result and result[0]:
             last_date = pd.to_datetime(result[0]).date()
@@ -573,13 +608,16 @@ class OptionsDataStore:
         if as_of_date is None:
             as_of_date = datetime.now().date()
 
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT report_date, estimate, reported_eps, surprise, surprise_pct
             FROM earnings_calendar
             WHERE symbol = ? AND report_date < ? AND reported_eps IS NOT NULL
             ORDER BY report_date DESC
             LIMIT 1
-        """, [symbol, as_of_date]).fetchdf()
+        """,
+            [symbol, as_of_date],
+        ).fetchdf()
 
         if result.empty:
             return None
@@ -603,34 +641,37 @@ class OptionsDataStore:
         if not data or "Symbol" not in data:
             return
 
-        self.conn.execute("""
+        self.conn.execute(
+            """
             INSERT OR REPLACE INTO company_fundamentals
             (symbol, name, sector, industry, market_cap, pe_ratio, forward_pe,
              peg_ratio, price_to_book, dividend_yield, ex_dividend_date, beta,
              fifty_two_week_high, fifty_two_week_low, eps, revenue_ttm,
              profit_margin, shares_outstanding, analyst_target_price, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        """, [
-            data.get("Symbol"),
-            data.get("Name"),
-            data.get("Sector"),
-            data.get("Industry"),
-            data.get("MarketCapitalization"),
-            data.get("PERatio"),
-            data.get("ForwardPE"),
-            data.get("PEGRatio"),
-            data.get("PriceToBookRatio"),
-            data.get("DividendYield"),
-            data.get("ExDividendDate"),
-            data.get("Beta"),
-            data.get("52WeekHigh"),
-            data.get("52WeekLow"),
-            data.get("EPS"),
-            data.get("RevenueTTM"),
-            data.get("ProfitMargin"),
-            data.get("SharesOutstanding"),
-            data.get("AnalystTargetPrice"),
-        ])
+        """,
+            [
+                data.get("Symbol"),
+                data.get("Name"),
+                data.get("Sector"),
+                data.get("Industry"),
+                data.get("MarketCapitalization"),
+                data.get("PERatio"),
+                data.get("ForwardPE"),
+                data.get("PEGRatio"),
+                data.get("PriceToBookRatio"),
+                data.get("DividendYield"),
+                data.get("ExDividendDate"),
+                data.get("Beta"),
+                data.get("52WeekHigh"),
+                data.get("52WeekLow"),
+                data.get("EPS"),
+                data.get("RevenueTTM"),
+                data.get("ProfitMargin"),
+                data.get("SharesOutstanding"),
+                data.get("AnalystTargetPrice"),
+            ],
+        )
 
         logger.debug(f"Saved fundamentals for {data.get('Symbol')}")
 
@@ -647,9 +688,12 @@ class OptionsDataStore:
         Returns:
             Dict with fundamentals or None
         """
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT * FROM company_fundamentals WHERE symbol = ?
-        """, [symbol]).fetchdf()
+        """,
+            [symbol],
+        ).fetchdf()
 
         if result.empty:
             return None
@@ -687,9 +731,12 @@ class OptionsDataStore:
         min_records: int = 100,
     ) -> bool:
         """Check if we have sufficient IV history for a symbol."""
-        result = self.conn.execute("""
+        result = self.conn.execute(
+            """
             SELECT COUNT(*) as cnt FROM iv_history WHERE symbol = ?
-        """, [symbol]).fetchone()
+        """,
+            [symbol],
+        ).fetchone()
 
         return result[0] >= min_records if result else False
 
@@ -729,4 +776,3 @@ def get_options_store() -> OptionsDataStore:
     if _options_store is None:
         _options_store = OptionsDataStore()
     return _options_store
-

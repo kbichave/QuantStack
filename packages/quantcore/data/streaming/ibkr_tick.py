@@ -39,6 +39,7 @@ from quantcore.data.streaming.tick_models import L2Update, QuoteTick, TradeTick
 
 try:
     import ib_insync as ib
+
     _IB_AVAILABLE = True
 except ImportError:
     _IB_AVAILABLE = False
@@ -47,8 +48,7 @@ except ImportError:
 def _require_ibkr() -> None:
     if not _IB_AVAILABLE:
         raise ImportError(
-            "ib_insync is required for IBKRTickAdapter. "
-            "Run: uv pip install -e '.[ibkr]'"
+            "ib_insync is required for IBKRTickAdapter. Run: uv pip install -e '.[ibkr]'"
         )
 
 
@@ -73,9 +73,9 @@ class IBKRTickAdapter(TickStreamingAdapter):
     ) -> None:
         super().__init__(**kwargs)
         _require_ibkr()
-        self._host       = host
-        self._port       = port
-        self._client_id  = client_id
+        self._host = host
+        self._port = port
+        self._client_id = client_id
         self._depth_rows = depth_rows
 
         self._ib: ib.IB | None = None
@@ -109,8 +109,7 @@ class IBKRTickAdapter(TickStreamingAdapter):
         )
         self._ib.disconnectedEvent += self._on_disconnect
         logger.info(
-            f"[IBKR Tick] Connected to {self._host}:{self._port} "
-            f"(clientId={self._client_id})"
+            f"[IBKR Tick] Connected to {self._host}:{self._port} (clientId={self._client_id})"
         )
 
     async def _disconnect(self) -> None:
@@ -185,13 +184,13 @@ class IBKRTickAdapter(TickStreamingAdapter):
             ts_ns = int(ts.timestamp() * 1_000_000_000)
 
             trade = TradeTick(
-                symbol       = symbol,
-                timestamp_ns = ts_ns,
-                price        = float(tick_data.price),
-                size         = float(tick_data.size),
-                side         = self._classify_side(symbol, float(tick_data.price)),
-                exchange     = None,
-                trade_id     = None,
+                symbol=symbol,
+                timestamp_ns=ts_ns,
+                price=float(tick_data.price),
+                size=float(tick_data.size),
+                side=self._classify_side(symbol, float(tick_data.price)),
+                exchange=None,
+                trade_id=None,
             )
             asyncio.run_coroutine_threadsafe(self._emit_trade(trade), loop)
 
@@ -210,13 +209,13 @@ class IBKRTickAdapter(TickStreamingAdapter):
         for row, entry in enumerate(ticker.domBids):
             self._depth_bids[symbol][row] = (entry.price, entry.size)
             update = L2Update(
-                symbol       = symbol,
-                timestamp_ns = ts_ns,
-                side         = "bid",
-                price        = float(entry.price),
-                size         = float(entry.size),
-                action       = "modify",
-                is_snapshot  = False,
+                symbol=symbol,
+                timestamp_ns=ts_ns,
+                side="bid",
+                price=float(entry.price),
+                size=float(entry.size),
+                action="modify",
+                is_snapshot=False,
             )
             asyncio.run_coroutine_threadsafe(self._emit_l2(update), loop)
 
@@ -224,13 +223,13 @@ class IBKRTickAdapter(TickStreamingAdapter):
         for row, entry in enumerate(ticker.domAsks):
             self._depth_asks[symbol][row] = (entry.price, entry.size)
             update = L2Update(
-                symbol       = symbol,
-                timestamp_ns = ts_ns,
-                side         = "ask",
-                price        = float(entry.price),
-                size         = float(entry.size),
-                action       = "modify",
-                is_snapshot  = False,
+                symbol=symbol,
+                timestamp_ns=ts_ns,
+                side="ask",
+                price=float(entry.price),
+                size=float(entry.size),
+                action="modify",
+                is_snapshot=False,
             )
             asyncio.run_coroutine_threadsafe(self._emit_l2(update), loop)
 
@@ -255,12 +254,12 @@ class IBKRTickAdapter(TickStreamingAdapter):
         ask_price, ask_size = best_ask_row[1]
 
         quote = QuoteTick(
-            symbol       = symbol,
-            timestamp_ns = ts_ns,
-            bid          = bid_price,
-            ask          = ask_price,
-            bid_size     = bid_size,
-            ask_size     = ask_size,
+            symbol=symbol,
+            timestamp_ns=ts_ns,
+            bid=bid_price,
+            ask=ask_price,
+            bid_size=bid_size,
+            ask_size=ask_size,
         )
         asyncio.run_coroutine_threadsafe(self._emit_quote(quote), loop)
 
@@ -299,4 +298,5 @@ class IBKRTickAdapter(TickStreamingAdapter):
 def _now_ns() -> int:
     """Current UTC time in nanoseconds."""
     import time
+
     return int(time.time_ns())

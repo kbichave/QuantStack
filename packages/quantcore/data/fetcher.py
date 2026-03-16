@@ -37,11 +37,13 @@ def get_ca_bundle():
     # Try certifi as fallback
     try:
         import certifi
+
         return certifi.where()
     except ImportError:
         # Returning True tells requests to use the system's default CA bundle
         # (i.e. standard SSL verification — NOT disabled).
         return True
+
 
 CA_BUNDLE = get_ca_bundle()
 
@@ -89,12 +91,7 @@ class AlphaVantageClient:
                 self._call_count = 0
                 self._minute_start = time.time()
 
-    def _make_request(
-        self,
-        function: str,
-        symbol: str,
-        **kwargs
-    ) -> dict:
+    def _make_request(self, function: str, symbol: str, **kwargs) -> dict:
         """
         Make an API request with retry logic.
 
@@ -108,12 +105,7 @@ class AlphaVantageClient:
         """
         self._wait_for_rate_limit()
 
-        params = {
-            "function": function,
-            "symbol": symbol,
-            "apikey": self.api_key,
-            **kwargs
-        }
+        params = {"function": function, "symbol": symbol, "apikey": self.api_key, **kwargs}
 
         max_retries = 3
         for attempt in range(max_retries):
@@ -137,7 +129,7 @@ class AlphaVantageClient:
 
             except requests.exceptions.RequestException as e:
                 if attempt < max_retries - 1:
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logger.warning(f"Request failed, retrying in {wait_time}s: {e}")
                     time.sleep(wait_time)
                 else:
@@ -189,7 +181,7 @@ class AlphaVantageClient:
             adjusted="true",
             extended_hours="true",
             outputsize=outputsize,
-            **{"month": month} if month else {}
+            **{"month": month} if month else {},
         )
 
         time_series_key = f"Time Series ({interval})"
@@ -202,13 +194,15 @@ class AlphaVantageClient:
         df = df.sort_index()
 
         # Rename columns
-        df = df.rename(columns={
-            "1. open": "open",
-            "2. high": "high",
-            "3. low": "low",
-            "4. close": "close",
-            "5. volume": "volume",
-        })
+        df = df.rename(
+            columns={
+                "1. open": "open",
+                "2. high": "high",
+                "3. low": "low",
+                "4. close": "close",
+                "5. volume": "volume",
+            }
+        )
 
         # Convert to numeric
         for col in ["open", "high", "low", "close", "volume"]:
@@ -254,13 +248,15 @@ class AlphaVantageClient:
         df = df.sort_index()
 
         # Rename columns
-        df = df.rename(columns={
-            "1. open": "open",
-            "2. high": "high",
-            "3. low": "low",
-            "4. close": "close",
-            "5. volume": "volume",
-        })
+        df = df.rename(
+            columns={
+                "1. open": "open",
+                "2. high": "high",
+                "3. low": "low",
+                "4. close": "close",
+                "5. volume": "volume",
+            }
+        )
 
         # Convert to numeric
         for col in ["open", "high", "low", "close", "volume"]:
@@ -301,16 +297,18 @@ class AlphaVantageClient:
         df = df.sort_index()
 
         # Rename columns (adjusted close)
-        df = df.rename(columns={
-            "1. open": "open",
-            "2. high": "high",
-            "3. low": "low",
-            "4. close": "close",
-            "5. adjusted close": "adj_close",
-            "6. volume": "volume",
-            "7. dividend amount": "dividend",
-            "8. split coefficient": "split_coef",
-        })
+        df = df.rename(
+            columns={
+                "1. open": "open",
+                "2. high": "high",
+                "3. low": "low",
+                "4. close": "close",
+                "5. adjusted close": "adj_close",
+                "6. volume": "volume",
+                "7. dividend amount": "dividend",
+                "8. split coefficient": "split_coef",
+            }
+        )
 
         # Use adjusted close as close
         if "adj_close" in df.columns:
@@ -357,15 +355,17 @@ class AlphaVantageClient:
         df = df.sort_index()
 
         # Rename columns
-        df = df.rename(columns={
-            "1. open": "open",
-            "2. high": "high",
-            "3. low": "low",
-            "4. close": "close",
-            "5. adjusted close": "adj_close",
-            "6. volume": "volume",
-            "7. dividend amount": "dividend",
-        })
+        df = df.rename(
+            columns={
+                "1. open": "open",
+                "2. high": "high",
+                "3. low": "low",
+                "4. close": "close",
+                "5. adjusted close": "adj_close",
+                "6. volume": "volume",
+                "7. dividend amount": "dividend",
+            }
+        )
 
         # Use adjusted close
         if "adj_close" in df.columns:
@@ -420,7 +420,9 @@ class AlphaVantageClient:
             for month in range(start_month, end_month + 1):
                 month_str = f"{year}-{month:02d}"
                 try:
-                    df = self.fetch_intraday_by_month(symbol, interval, month_str, outputsize="full")
+                    df = self.fetch_intraday_by_month(
+                        symbol, interval, month_str, outputsize="full"
+                    )
                     if not df.empty:
                         all_data.append(df)
                         logger.debug(f"Fetched {len(df)} rows from {month_str}")
@@ -701,8 +703,12 @@ class AlphaVantageClient:
                 for ticker_data in item.get("ticker_sentiment", []):
                     if ticker_data.get("ticker") in tickers:
                         article["ticker"] = ticker_data.get("ticker")
-                        article["ticker_sentiment_score"] = float(ticker_data.get("ticker_sentiment_score", 0))
-                        article["ticker_sentiment_label"] = ticker_data.get("ticker_sentiment_label", "")
+                        article["ticker_sentiment_score"] = float(
+                            ticker_data.get("ticker_sentiment_score", 0)
+                        )
+                        article["ticker_sentiment_label"] = ticker_data.get(
+                            "ticker_sentiment_label", ""
+                        )
                         article["relevance_score"] = float(ticker_data.get("relevance_score", 0))
                         break
 
@@ -822,7 +828,9 @@ class AlphaVantageClient:
 
         # Parse timestamps
         if "time_published" in df.columns:
-            df["time_published"] = pd.to_datetime(df["time_published"], format="%Y%m%dT%H%M%S", errors="coerce")
+            df["time_published"] = pd.to_datetime(
+                df["time_published"], format="%Y%m%dT%H%M%S", errors="coerce"
+            )
 
             # Drop rows with invalid timestamps
             df = df.dropna(subset=["time_published"])
@@ -870,8 +878,12 @@ class AlphaVantageClient:
                 ticker = ticker_data.get("ticker", "")
                 if ticker in ticker_list:
                     article["ticker"] = ticker
-                    article["ticker_sentiment_score"] = float(ticker_data.get("ticker_sentiment_score", 0) or 0)
-                    article["ticker_sentiment_label"] = ticker_data.get("ticker_sentiment_label", "")
+                    article["ticker_sentiment_score"] = float(
+                        ticker_data.get("ticker_sentiment_score", 0) or 0
+                    )
+                    article["ticker_sentiment_label"] = ticker_data.get(
+                        "ticker_sentiment_label", ""
+                    )
                     article["relevance_score"] = float(ticker_data.get("relevance_score", 0) or 0)
                     break
 
@@ -966,8 +978,20 @@ class AlphaVantageClient:
             df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
 
             # Convert numeric columns
-            numeric_cols = ["strike", "bid", "ask", "last", "volume", "open_interest",
-                          "iv", "delta", "gamma", "theta", "vega", "rho"]
+            numeric_cols = [
+                "strike",
+                "bid",
+                "ask",
+                "last",
+                "volume",
+                "open_interest",
+                "iv",
+                "delta",
+                "gamma",
+                "theta",
+                "vega",
+                "rho",
+            ]
             for col in numeric_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -1063,8 +1087,20 @@ class AlphaVantageClient:
             df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
 
             # Convert numeric columns
-            numeric_cols = ["strike", "bid", "ask", "last", "volume", "open_interest",
-                          "iv", "delta", "gamma", "theta", "vega", "rho"]
+            numeric_cols = [
+                "strike",
+                "bid",
+                "ask",
+                "last",
+                "volume",
+                "open_interest",
+                "iv",
+                "delta",
+                "gamma",
+                "theta",
+                "vega",
+                "rho",
+            ]
             for col in numeric_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -1136,6 +1172,7 @@ class AlphaVantageClient:
 
             # Parse CSV response
             from io import StringIO
+
             df = pd.read_csv(StringIO(response.text))
 
             if df.empty:
@@ -1217,18 +1254,45 @@ class AlphaVantageClient:
 
             # Convert numeric fields
             numeric_fields = [
-                "MarketCapitalization", "EBITDA", "PERatio", "PEGRatio",
-                "BookValue", "DividendPerShare", "DividendYield", "EPS",
-                "RevenuePerShareTTM", "ProfitMargin", "OperatingMarginTTM",
-                "ReturnOnAssetsTTM", "ReturnOnEquityTTM", "RevenueTTM",
-                "GrossProfitTTM", "DilutedEPSTTM", "QuarterlyEarningsGrowthYOY",
-                "QuarterlyRevenueGrowthYOY", "AnalystTargetPrice", "TrailingPE",
-                "ForwardPE", "PriceToSalesRatioTTM", "PriceToBookRatio",
-                "EVToRevenue", "EVToEBITDA", "Beta", "52WeekHigh", "52WeekLow",
-                "50DayMovingAverage", "200DayMovingAverage", "SharesOutstanding",
-                "SharesFloat", "SharesShort", "SharesShortPriorMonth",
-                "ShortRatio", "ShortPercentOutstanding", "ShortPercentFloat",
-                "PercentInsiders", "PercentInstitutions",
+                "MarketCapitalization",
+                "EBITDA",
+                "PERatio",
+                "PEGRatio",
+                "BookValue",
+                "DividendPerShare",
+                "DividendYield",
+                "EPS",
+                "RevenuePerShareTTM",
+                "ProfitMargin",
+                "OperatingMarginTTM",
+                "ReturnOnAssetsTTM",
+                "ReturnOnEquityTTM",
+                "RevenueTTM",
+                "GrossProfitTTM",
+                "DilutedEPSTTM",
+                "QuarterlyEarningsGrowthYOY",
+                "QuarterlyRevenueGrowthYOY",
+                "AnalystTargetPrice",
+                "TrailingPE",
+                "ForwardPE",
+                "PriceToSalesRatioTTM",
+                "PriceToBookRatio",
+                "EVToRevenue",
+                "EVToEBITDA",
+                "Beta",
+                "52WeekHigh",
+                "52WeekLow",
+                "50DayMovingAverage",
+                "200DayMovingAverage",
+                "SharesOutstanding",
+                "SharesFloat",
+                "SharesShort",
+                "SharesShortPriorMonth",
+                "ShortRatio",
+                "ShortPercentOutstanding",
+                "ShortPercentFloat",
+                "PercentInsiders",
+                "PercentInstitutions",
             ]
 
             for field in numeric_fields:
@@ -1334,4 +1398,3 @@ class AlphaVantageClient:
         except Exception as e:
             logger.error(f"Failed to fetch bulk quotes: {e}")
             return pd.DataFrame()
-

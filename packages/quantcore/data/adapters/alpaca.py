@@ -34,6 +34,7 @@ from quantcore.data.resampler import TimeframeResampler
 try:
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+
     _ALPACA_AVAILABLE = True
 except ImportError:
     _ALPACA_AVAILABLE = False
@@ -41,12 +42,12 @@ except ImportError:
 
 # Timeframes that Alpaca serves natively (no resample needed)
 _ALPACA_NATIVE = {
-    Timeframe.M1:  (1,  "Minute"),
-    Timeframe.M5:  (5,  "Minute"),
+    Timeframe.M1: (1, "Minute"),
+    Timeframe.M5: (5, "Minute"),
     Timeframe.M15: (15, "Minute"),
     Timeframe.M30: (30, "Minute"),
-    Timeframe.H1:  (1,  "Hour"),
-    Timeframe.D1:  (1,  "Day"),
+    Timeframe.H1: (1, "Hour"),
+    Timeframe.D1: (1, "Day"),
 }
 
 _SUPPORTED_TIMEFRAMES = {*_ALPACA_NATIVE, Timeframe.H4, Timeframe.W1}
@@ -54,9 +55,7 @@ _SUPPORTED_TIMEFRAMES = {*_ALPACA_NATIVE, Timeframe.H4, Timeframe.W1}
 
 def _require_alpaca() -> None:
     if not _ALPACA_AVAILABLE:
-        raise ImportError(
-            "alpaca-py is not installed. Run: uv pip install -e '.[alpaca]'"
-        )
+        raise ImportError("alpaca-py is not installed. Run: uv pip install -e '.[alpaca]'")
 
 
 def _to_alpaca_tf(timeframe: Timeframe) -> TimeFrame:
@@ -74,16 +73,18 @@ def _bars_to_df(bar_set) -> pd.DataFrame:
     rows = []
     for bars in bar_set.data.values():
         for bar in bars:
-            rows.append({
-                "timestamp": bar.timestamp,
-                "open":      float(bar.open),
-                "high":      float(bar.high),
-                "low":       float(bar.low),
-                "close":     float(bar.close),
-                "volume":    float(bar.volume),
-                "vwap":      float(bar.vwap) if bar.vwap is not None else None,
-                "trade_count": int(bar.trade_count) if bar.trade_count is not None else None,
-            })
+            rows.append(
+                {
+                    "timestamp": bar.timestamp,
+                    "open": float(bar.open),
+                    "high": float(bar.high),
+                    "low": float(bar.low),
+                    "close": float(bar.close),
+                    "volume": float(bar.volume),
+                    "vwap": float(bar.vwap) if bar.vwap is not None else None,
+                    "trade_count": int(bar.trade_count) if bar.trade_count is not None else None,
+                }
+            )
 
     if not rows:
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
@@ -114,14 +115,15 @@ class AlpacaAdapter(AssetClassAdapter):
     ) -> None:
         _require_alpaca()
         import os
-        self._api_key    = api_key    or os.getenv("ALPACA_API_KEY", "")
+
+        self._api_key = api_key or os.getenv("ALPACA_API_KEY", "")
         self._secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY", "")
-        self._paper      = paper
-        self._client     = StockHistoricalDataClient(
+        self._paper = paper
+        self._client = StockHistoricalDataClient(
             api_key=self._api_key,
             secret_key=self._secret_key,
         )
-        self._resampler  = TimeframeResampler()
+        self._resampler = TimeframeResampler()
 
     # ── AssetClassAdapter interface ───────────────────────────────────────────
 

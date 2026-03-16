@@ -36,8 +36,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 import aiohttp
 from loguru import logger
@@ -56,7 +55,7 @@ class PolygonStreamingAdapter(StreamingAdapter):
         api_key: Polygon.io API key (``POLYGON_API_KEY`` env var as fallback).
     """
 
-    def __init__(self, api_key: Optional[str] = None, **kwargs) -> None:
+    def __init__(self, api_key: str | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         import os
         self._api_key = api_key or os.getenv("POLYGON_API_KEY", "")
@@ -65,9 +64,9 @@ class PolygonStreamingAdapter(StreamingAdapter):
                 "POLYGON_API_KEY is required for PolygonStreamingAdapter. "
                 "Add it to your .env file."
             )
-        self._ws: Optional[aiohttp.ClientWebSocketResponse] = None
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._recv_task: Optional[asyncio.Task] = None
+        self._ws: aiohttp.ClientWebSocketResponse | None = None
+        self._session: aiohttp.ClientSession | None = None
+        self._recv_task: asyncio.Task | None = None
         self._authenticated = False
 
     # ── StreamingAdapter identity ─────────────────────────────────────────────
@@ -77,7 +76,7 @@ class PolygonStreamingAdapter(StreamingAdapter):
         return DataProvider.POLYGON
 
     @property
-    def supported_timeframes(self) -> List[Timeframe]:
+    def supported_timeframes(self) -> list[Timeframe]:
         return [Timeframe.M1]
 
     # ── Connection lifecycle ──────────────────────────────────────────────────
@@ -123,12 +122,12 @@ class PolygonStreamingAdapter(StreamingAdapter):
         self._authenticated = False
         logger.info("[Polygon] Streaming disconnected")
 
-    async def _subscribe_symbols(self, symbols: List[str]) -> None:
+    async def _subscribe_symbols(self, symbols: list[str]) -> None:
         params = ",".join(f"AM.{s}" for s in symbols)
         await self._ws.send_json({"action": "subscribe", "params": params})
         logger.info(f"[Polygon] Subscribed to AM bars: {symbols}")
 
-    async def _unsubscribe_symbols(self, symbols: List[str]) -> None:
+    async def _unsubscribe_symbols(self, symbols: list[str]) -> None:
         params = ",".join(f"AM.{s}" for s in symbols)
         await self._ws.send_json({"action": "unsubscribe", "params": params})
         logger.info(f"[Polygon] Unsubscribed from AM bars: {symbols}")
@@ -164,7 +163,7 @@ class PolygonStreamingAdapter(StreamingAdapter):
     async def _process_am_bar(self, m: dict) -> None:
         # "e" is the end timestamp in milliseconds (bar close time)
         close_ms = m.get("e") or m.get("s", 0)
-        ts = datetime.fromtimestamp(close_ms / 1000, tz=timezone.utc)
+        ts = datetime.fromtimestamp(close_ms / 1000, tz=UTC)
 
         event = BarEvent(
             symbol=m.get("sym", ""),

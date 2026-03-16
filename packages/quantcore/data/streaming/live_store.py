@@ -38,15 +38,14 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections import deque
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Set
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
-from quantcore.data.streaming.base import BarCallback, BarEvent
+from quantcore.data.streaming.base import BarEvent
 
 _DEFAULT_WINDOW      = 500   # bars kept per symbol in memory
 _DEFAULT_BATCH_SIZE  = 50    # bars batched per DuckDB write cycle
@@ -74,15 +73,15 @@ class LiveBarStore:
         self._batch_size = batch_size
 
         # in-memory ring buffers: symbol → deque of BarEvents
-        self._buffers: Dict[str, deque[BarEvent]] = {}
+        self._buffers: dict[str, deque[BarEvent]] = {}
         # symbols whose deque has been seeded from DuckDB
-        self._seeded: Set[str] = set()
+        self._seeded: set[str] = set()
         # protects _buffers and _seeded (reads from any thread; writes from event loop)
         self._lock = threading.RLock()
 
         # asyncio write queue — shared only within one event loop
-        self._write_queue: Optional[asyncio.Queue] = None
-        self._writer_task: Optional[asyncio.Task]   = None
+        self._write_queue: asyncio.Queue | None = None
+        self._writer_task: asyncio.Task | None   = None
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -106,7 +105,7 @@ class LiveBarStore:
                 await self._write_queue.put(None)
             try:
                 await asyncio.wait_for(self._writer_task, timeout=15.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._writer_task.cancel()
                 logger.warning("[LiveBarStore] Writer task timed out on stop — cancelled")
         logger.info("[LiveBarStore] Stopped")
@@ -144,7 +143,7 @@ class LiveBarStore:
 
     # ── Read API ──────────────────────────────────────────────────────────────
 
-    def get_window(self, symbol: str, n: Optional[int] = None) -> List[BarEvent]:
+    def get_window(self, symbol: str, n: int | None = None) -> list[BarEvent]:
         """Return the last ``n`` BarEvents for ``symbol`` (thread-safe).
 
         Seeds the in-memory deque from DuckDB on first call per symbol so the
@@ -168,7 +167,7 @@ class LiveBarStore:
             bars = list(buf)
         return bars[-limit:] if limit < len(bars) else bars
 
-    def as_dataframe(self, symbol: str, n: Optional[int] = None) -> pd.DataFrame:
+    def as_dataframe(self, symbol: str, n: int | None = None) -> pd.DataFrame:
         """Return the in-memory window as an OHLCV DataFrame.
 
         The returned DataFrame matches the standard DataStore contract:
@@ -214,7 +213,7 @@ class LiveBarStore:
 
         return df
 
-    def symbols(self) -> List[str]:
+    def symbols(self) -> list[str]:
         """Return all symbols currently tracked in memory."""
         with self._lock:
             return list(self._buffers.keys())
@@ -239,7 +238,7 @@ class LiveBarStore:
                     item = await asyncio.wait_for(
                         self._write_queue.get(), timeout=_FLUSH_INTERVAL_S
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Periodic flush of whatever has accumulated
                     if batch:
                         await self._flush(batch)
@@ -285,7 +284,7 @@ class LiveBarStore:
             return
 
         # Group by symbol
-        by_symbol: Dict[str, list[BarEvent]] = {}
+        by_symbol: dict[str, list[BarEvent]] = {}
         for bar in bars:
             by_symbol.setdefault(bar.symbol, []).append(bar)
 
@@ -326,7 +325,7 @@ class LiveBarStore:
         A 30-day look-back is generous enough to always find ``self._window``
         trading bars (390 bars/day × ~20 trading days = 7800 >> 500).
         """
-        end   = datetime.now(timezone.utc)
+        end   = datetime.now(UTC)
         start = end - timedelta(days=30)
 
         try:

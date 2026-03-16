@@ -28,7 +28,6 @@ Requires: ``polygon-api-client>=1.12.0``  (``uv pip install -e ".[polygon]"``)
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import List, Optional
 
 import pandas as pd
 from loguru import logger
@@ -66,7 +65,7 @@ class PolygonAdapter(AssetClassAdapter):
         api_key: Polygon.io API key.  Falls back to ``POLYGON_API_KEY`` env var.
     """
 
-    def __init__(self, api_key: Optional[str] = None) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         from quantcore.data.polygon import PolygonProvider
         self._provider = PolygonProvider(api_key=api_key)
 
@@ -84,8 +83,8 @@ class PolygonAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         """Fetch OHLCV bars from Polygon.io.
 
@@ -109,7 +108,7 @@ class PolygonAdapter(AssetClassAdapter):
 
         return df.sort_index()
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         return []
 
     # ── Internal fetch ────────────────────────────────────────────────────────
@@ -118,12 +117,12 @@ class PolygonAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime],
-        end_date: Optional[datetime],
+        start_date: datetime | None,
+        end_date: datetime | None,
     ) -> pd.DataFrame:
         # Convert datetime bounds to date for PolygonProvider.get_bars_df()
-        start: Optional[date] = start_date.date() if start_date else None
-        end:   Optional[date] = end_date.date()   if end_date   else None
+        start: date | None = start_date.date() if start_date else None
+        end:   date | None = end_date.date()   if end_date   else None
 
         if timeframe == Timeframe.S5:
             return self._fetch_5s(symbol, start, end)
@@ -144,8 +143,8 @@ class PolygonAdapter(AssetClassAdapter):
     def _fetch_5s(
         self,
         symbol: str,
-        start: Optional[date],
-        end: Optional[date],
+        start: date | None,
+        end: date | None,
     ) -> pd.DataFrame:
         """Fetch 5-second bars via PolygonProvider.get_bars() with custom params.
 
@@ -154,7 +153,7 @@ class PolygonAdapter(AssetClassAdapter):
         """
         from quantcore.data.provider import Bar
 
-        bars: List[Bar] = self._provider.get_bars(
+        bars: list[Bar] = self._provider.get_bars(
             symbol,
             interval="5s",  # Will fall through to default ("1", "day") in _INTERVAL_MAP
             # Override: pass raw params via a patched call

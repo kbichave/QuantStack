@@ -26,11 +26,22 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
+import time
 from pathlib import Path
 from threading import Lock
 
 import duckdb
 from loguru import logger
+
+# How long (seconds) to keep retrying after detecting a stale lock.
+# A stale lock means the previous owner process is dead; the OS will release
+# the file lock shortly.  Retry window must exceed typical OS cleanup latency.
+_STALE_LOCK_RETRY_SECS = 10
+_STALE_LOCK_POLL_INTERVAL = 0.5
+
+# Pattern DuckDB embeds in its lock error: "... (PID 12345) ..."
+_LOCK_PID_RE = re.compile(r"\(PID\s+(\d+)\)")
 
 # ---------------------------------------------------------------------------
 # Connection management
@@ -38,6 +49,70 @@ from loguru import logger
 
 _conn: duckdb.DuckDBPyConnection | None = None
 _conn_lock = Lock()
+
+
+def _is_process_alive(pid: int) -> bool:
+    """Return True if a process with this PID is running on this machine."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False  # PID does not exist
+    except PermissionError:
+        return True  # PID exists but owned by another user — still alive
+
+
+def _connect_with_lock_guard(path: str) -> duckdb.DuckDBPyConnection:
+    """
+    Open a DuckDB connection, handling lock conflicts intelligently.
+
+    Two cases:
+      1. Stale lock (owning process is dead) — the OS will release the file
+         lock shortly after process exit.  Retry for up to
+         _STALE_LOCK_RETRY_SECS before giving up.
+      2. Live duplicate — another server process owns the lock.  Fail
+         immediately with an actionable error that includes the PID and
+         the exact kill command.
+    """
+    deadline = time.monotonic() + _STALE_LOCK_RETRY_SECS
+    last_exc: Exception | None = None
+
+    while True:
+        try:
+            return duckdb.connect(path)
+        except duckdb.IOException as exc:
+            last_exc = exc
+            msg = str(exc)
+            if "Conflicting lock" not in msg:
+                raise  # unrelated I/O error, don't mask it
+
+            match = _LOCK_PID_RE.search(msg)
+            if not match:
+                raise  # can't determine owner, surface the original error
+
+            owner_pid = int(match.group(1))
+
+            if _is_process_alive(owner_pid):
+                raise RuntimeError(
+                    f"QuantPod DB is locked by a running process (PID {owner_pid}).\n"
+                    f"  → Kill it:   kill {owner_pid}\n"
+                    f"  → Or check:  ps -p {owner_pid}\n"
+                    f"  DB path: {path}"
+                ) from exc
+
+            # Stale lock — process is dead.  Retry until the OS cleans up.
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"Stale lock on {path} (dead PID {owner_pid}) did not clear "
+                    f"after {_STALE_LOCK_RETRY_SECS}s. "
+                    f"Try: rm -f '{path}.wal' and restart."
+                ) from last_exc
+
+            logger.warning(
+                f"[DB] Stale lock detected (dead PID {owner_pid}), "
+                f"retrying in {_STALE_LOCK_POLL_INTERVAL}s..."
+            )
+            time.sleep(_STALE_LOCK_POLL_INTERVAL)
 
 
 def open_db(path: str = "") -> duckdb.DuckDBPyConnection:
@@ -60,7 +135,7 @@ def open_db(path: str = "") -> duckdb.DuckDBPyConnection:
 
     with _conn_lock:
         if _conn is None:
-            _conn = duckdb.connect(path)
+            _conn = _connect_with_lock_guard(path)
             logger.info(f"[DB] Opened consolidated database at {path}")
         return _conn
 

@@ -13,10 +13,10 @@ if the package is not installed.  Install the matching extra:
     uv pip install -e ".[ibkr]"
 """
 
-from quantcore.data.adapters.alphavantage import AlphaVantageAdapter
 from quantcore.data.adapters.alpaca import AlpacaAdapter
-from quantcore.data.adapters.polygon_adapter import PolygonAdapter
+from quantcore.data.adapters.alphavantage import AlphaVantageAdapter
 from quantcore.data.adapters.ibkr import IBKRDataAdapter
+from quantcore.data.adapters.polygon_adapter import PolygonAdapter
 
 __all__ = [
     "AlphaVantageAdapter",

@@ -5,15 +5,15 @@ Manages data fetching across multiple asset classes through the
 DataProviderRegistry, which supports priority-ordered provider fallback.
 """
 
-from typing import Dict, List, Optional, Tuple
 from datetime import datetime
+
 import pandas as pd
 from loguru import logger
 
+from quantcore.config.timeframes import Timeframe
 from quantcore.data.base import AssetClass, AssetClassAdapter
 from quantcore.data.registry import DataProviderRegistry
 from quantcore.data.storage import DataStore
-from quantcore.config.timeframes import Timeframe
 
 
 class UnifiedDataManager:
@@ -32,8 +32,8 @@ class UnifiedDataManager:
 
     def __init__(
         self,
-        registry: Optional[DataProviderRegistry] = None,
-        db_path: Optional[str] = None,
+        registry: DataProviderRegistry | None = None,
+        db_path: str | None = None,
     ):
         self.registry = registry or DataProviderRegistry()
         self.storage  = DataStore(db_path)
@@ -41,7 +41,7 @@ class UnifiedDataManager:
     # ── Backward-compat shim ──────────────────────────────────────────────────
 
     @property
-    def adapters(self) -> Dict[AssetClass, AssetClassAdapter]:
+    def adapters(self) -> dict[AssetClass, AssetClassAdapter]:
         """Primary adapter for each registered asset class."""
         return {
             ac: self.registry.get_primary(ac)
@@ -68,8 +68,8 @@ class UnifiedDataManager:
         symbol: str,
         asset_class: AssetClass,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         """
         Fetch OHLCV data for a symbol.
@@ -80,33 +80,33 @@ class UnifiedDataManager:
             timeframe: Data timeframe
             start_date: Optional start date filter
             end_date: Optional end date filter
-            
+
         Returns:
             DataFrame with OHLCV data
         """
         return self.registry.fetch_ohlcv(symbol, asset_class, timeframe, start_date, end_date)
-    
+
     def fetch_universe(
         self,
-        symbols: List[Tuple[str, AssetClass]],
+        symbols: list[tuple[str, AssetClass]],
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[Tuple[str, AssetClass], pd.DataFrame]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[tuple[str, AssetClass], pd.DataFrame]:
         """
         Fetch data for multiple symbols across asset classes.
-        
+
         Args:
             symbols: List of (symbol, asset_class) tuples
             timeframe: Data timeframe
             start_date: Optional start date filter
             end_date: Optional end date filter
-            
+
         Returns:
             Dictionary mapping (symbol, asset_class) to DataFrame
         """
         results = {}
-        
+
         for symbol, asset_class in symbols:
             try:
                 data = self.fetch_ohlcv(
@@ -121,13 +121,13 @@ class UnifiedDataManager:
             except Exception as e:
                 logger.error(f"Failed to fetch {symbol} ({asset_class.value}): {e}")
                 results[(symbol, asset_class)] = pd.DataFrame()
-        
+
         return results
-    
-    def get_all_symbols(self) -> Dict[AssetClass, List[str]]:
+
+    def get_all_symbols(self) -> dict[AssetClass, list[str]]:
         """
         Get all available symbols across all asset classes.
-        
+
         Returns:
             Dictionary mapping asset class to list of symbols
         """
@@ -135,17 +135,17 @@ class UnifiedDataManager:
         for asset_class, adapter in self.adapters.items():
             result[asset_class] = adapter.get_available_symbols()
         return result
-    
+
     def validate_universe(
         self,
-        symbols: List[Tuple[str, AssetClass]],
-    ) -> List[Tuple[str, AssetClass, bool]]:
+        symbols: list[tuple[str, AssetClass]],
+    ) -> list[tuple[str, AssetClass, bool]]:
         """
         Validate symbols in universe.
-        
+
         Args:
             symbols: List of (symbol, asset_class) tuples
-            
+
         Returns:
             List of (symbol, asset_class, is_valid) tuples
         """
@@ -158,6 +158,6 @@ class UnifiedDataManager:
             except Exception as e:
                 logger.warning(f"Validation failed for {symbol} ({asset_class.value}): {e}")
                 results.append((symbol, asset_class, False))
-        
+
         return results
 

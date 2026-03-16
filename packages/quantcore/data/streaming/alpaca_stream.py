@@ -17,8 +17,7 @@ called to re-create it.
 from __future__ import annotations
 
 import asyncio
-from datetime import timezone
-from typing import List, Optional
+from datetime import UTC
 
 from loguru import logger
 
@@ -45,8 +44,8 @@ class AlpacaStreamingAdapter(StreamingAdapter):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        secret_key: Optional[str] = None,
+        api_key: str | None = None,
+        secret_key: str | None = None,
         paper: bool = True,
         **kwargs,
     ) -> None:
@@ -60,8 +59,8 @@ class AlpacaStreamingAdapter(StreamingAdapter):
         self._api_key    = api_key    or os.getenv("ALPACA_API_KEY", "")
         self._secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY", "")
         self._paper      = paper
-        self._stream: Optional[StockDataStream] = None
-        self._stream_task: Optional[asyncio.Task] = None
+        self._stream: StockDataStream | None = None
+        self._stream_task: asyncio.Task | None = None
 
     # ── StreamingAdapter identity ─────────────────────────────────────────────
 
@@ -70,7 +69,7 @@ class AlpacaStreamingAdapter(StreamingAdapter):
         return DataProvider.ALPACA
 
     @property
-    def supported_timeframes(self) -> List[Timeframe]:
+    def supported_timeframes(self) -> list[Timeframe]:
         # Alpaca's real-time bar feed is 1-minute only.
         return [Timeframe.M1]
 
@@ -100,7 +99,7 @@ class AlpacaStreamingAdapter(StreamingAdapter):
         self._stream_task = None
         logger.info("[Alpaca] Streaming disconnected")
 
-    async def _subscribe_symbols(self, symbols: List[str]) -> None:
+    async def _subscribe_symbols(self, symbols: list[str]) -> None:
         if not self._stream:
             return
         for symbol in symbols:
@@ -113,7 +112,7 @@ class AlpacaStreamingAdapter(StreamingAdapter):
             )
         logger.info(f"[Alpaca] Subscribed to bars: {symbols}")
 
-    async def _unsubscribe_symbols(self, symbols: List[str]) -> None:
+    async def _unsubscribe_symbols(self, symbols: list[str]) -> None:
         if not self._stream:
             return
         for symbol in symbols:
@@ -132,11 +131,11 @@ class AlpacaStreamingAdapter(StreamingAdapter):
             logger.error(f"[Alpaca] Stream crashed: {exc}")
             await self._handle_disconnect()
 
-    async def _on_bar(self, bar: "AlpacaBar") -> None:
+    async def _on_bar(self, bar: AlpacaBar) -> None:
         """alpaca-py bar callback — normalise to BarEvent and emit."""
         ts = bar.timestamp
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
 
         event = BarEvent(
             symbol=bar.symbol,

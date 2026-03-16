@@ -6,7 +6,6 @@ Separate database from market data to keep economic indicators isolated.
 
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import duckdb
 import pandas as pd
@@ -18,7 +17,7 @@ from quantcore.config.settings import get_settings
 class EconomicStorage:
     """Storage manager for economic indicators using DuckDB."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         """Initialize economic storage.
 
         Args:
@@ -127,7 +126,7 @@ class EconomicStorage:
                 indicator_name,
             )
 
-    def store_all_indicators(self, indicators_data: Dict[str, pd.DataFrame]):
+    def store_all_indicators(self, indicators_data: dict[str, pd.DataFrame]):
         """Store multiple indicators at once.
 
         Args:
@@ -172,8 +171,8 @@ class EconomicStorage:
     def get_indicator(
         self,
         indicator: str,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         """Retrieve indicator data.
 
@@ -210,8 +209,8 @@ class EconomicStorage:
 
     def get_all_indicators(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         """Retrieve all indicators as wide-format DataFrame.
 

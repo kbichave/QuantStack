@@ -31,7 +31,6 @@ Usage
 from __future__ import annotations
 
 import asyncio
-from typing import Dict, Optional
 
 from loguru import logger
 
@@ -51,11 +50,11 @@ class BarPublisher:
 
     def __init__(self, max_queue_depth: int = _DEFAULT_QUEUE_DEPTH) -> None:
         self._max_depth = max_queue_depth
-        self._queues: Dict[str, asyncio.Queue[Optional[BarEvent]]] = {}
+        self._queues: dict[str, asyncio.Queue[BarEvent | None]] = {}
 
     # ── Subscriber management ─────────────────────────────────────────────────
 
-    def subscribe(self, subscriber_id: str) -> asyncio.Queue[Optional[BarEvent]]:
+    def subscribe(self, subscriber_id: str) -> asyncio.Queue[BarEvent | None]:
         """Register a subscriber and return its bar queue.
 
         Passing ``None`` to the queue signals shutdown (see ``shutdown()``).
@@ -72,7 +71,7 @@ class BarPublisher:
             )
             return self._queues[subscriber_id]
 
-        q: asyncio.Queue[Optional[BarEvent]] = asyncio.Queue(
+        q: asyncio.Queue[BarEvent | None] = asyncio.Queue(
             maxsize=self._max_depth
         )
         self._queues[subscriber_id] = q

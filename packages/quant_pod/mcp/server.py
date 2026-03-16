@@ -2346,7 +2346,7 @@ def _minimal_crew_inputs(symbol: str, regime: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "symbol": symbol,
-        "current_date": date.today(),
+        "current_date": str(date.today()),
         "regime": regime,
         "regime_str": (
             f"Trend: {regime.get('trend', 'unknown')}, "

@@ -24,10 +24,10 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import duckdb
 import requests
@@ -35,7 +35,6 @@ from loguru import logger
 
 from quantcore.data.provider import Bar, DataProvider, Quote, SymbolInfo
 from quantcore.data.validator import DataValidator
-
 
 # =============================================================================
 # BAR CACHE
@@ -57,7 +56,7 @@ class _BarCache:
       - minute bars (1m, 5m, 15m, 30m): 5 minutes
     """
 
-    _TTL_SECONDS: Dict[str, int] = {
+    _TTL_SECONDS: dict[str, int] = {
         "1d": 6 * 3600,
         "1w": 6 * 3600,
         "1mo": 6 * 3600,
@@ -70,13 +69,13 @@ class _BarCache:
     }
     _DEFAULT_TTL = 15 * 60  # 15 min for anything not listed
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         if db_path is None:
             db_path = os.getenv("POLYGON_CACHE_DB_PATH", "~/.quant_pod/polygon_cache.duckdb")
         self._db_path = Path(db_path).expanduser()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
-        self._conn: Optional[duckdb.DuckDBPyConnection] = None
+        self._conn: duckdb.DuckDBPyConnection | None = None
         self._init_schema()
 
     @property
@@ -99,7 +98,7 @@ class _BarCache:
     def _cache_key(self, symbol: str, interval: str, start: date, end: date, limit: int) -> str:
         return f"{symbol}|{interval}|{start}|{end}|{limit}"
 
-    def get(self, symbol: str, interval: str, start: date, end: date, limit: int) -> Optional[List[Bar]]:
+    def get(self, symbol: str, interval: str, start: date, end: date, limit: int) -> list[Bar] | None:
         """Return cached bars if present and not expired, else None."""
         key = self._cache_key(symbol, interval, start, end, limit)
         with self._lock:
@@ -119,7 +118,7 @@ class _BarCache:
         except Exception:
             return None
 
-    def set(self, symbol: str, interval: str, start: date, end: date, limit: int, bars: List[Bar]) -> None:
+    def set(self, symbol: str, interval: str, start: date, end: date, limit: int, bars: list[Bar]) -> None:
         """Store bars in the cache."""
         key = self._cache_key(symbol, interval, start, end, limit)
         ttl = self._TTL_SECONDS.get(interval, self._DEFAULT_TTL)
@@ -170,7 +169,7 @@ class PolygonProvider(DataProvider):
         "1mo": ("1", "month"),
     }
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self._api_key = api_key or os.getenv("POLYGON_API_KEY")
         if not self._api_key:
             raise ValueError(
@@ -195,9 +194,9 @@ class PolygonProvider(DataProvider):
         symbol: str,
         interval: str = "1d",
         limit: int = 252,
-        start: Optional[date] = None,
-        end: Optional[date] = None,
-    ) -> List[Bar]:
+        start: date | None = None,
+        end: date | None = None,
+    ) -> list[Bar]:
         """Fetch OHLCV bars from Polygon /v2/aggs endpoint, with local DuckDB cache."""
         multiplier, timespan = self._INTERVAL_MAP.get(interval, ("1", "day"))
         end_date = end or date.today()
@@ -334,9 +333,9 @@ class PolygonProvider(DataProvider):
     def _get(
         self,
         url: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         retries: int = 3,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """GET with retry and rate-limit handling."""
         for attempt in range(retries):
             try:
@@ -399,11 +398,11 @@ class PolygonStreamClient:
 
     def __init__(
         self,
-        symbols: List[str],
-        api_key: Optional[str] = None,
+        symbols: list[str],
+        api_key: str | None = None,
         subscription: str = "AM",  # AM=minute bars, A=second bars, T=trades, Q=quotes
         on_bar_callback=None,      # Optional[Callable[[Bar], None]]
-        cache: Optional[_BarCache] = None,
+        cache: _BarCache | None = None,
     ):
         """
         Args:
@@ -421,14 +420,14 @@ class PolygonStreamClient:
         self._sub_prefix = subscription.upper()
         self._on_bar = on_bar_callback
         self._cache = cache or _BarCache()
-        self._stop_event: Optional[Any] = None  # threading.Event, set in start()
-        self._thread: Optional[Any] = None
+        self._stop_event: Any | None = None  # threading.Event, set in start()
+        self._thread: Any | None = None
         self._connected = False
         self._reconnect_delay = 5  # seconds, doubles on repeated failures
         self._max_reconnect_delay = 60
 
         # In-memory ring buffer of latest bars per symbol (most recent 500 per symbol)
-        self._live_bars: Dict[str, List[Bar]] = {s: [] for s in self._symbols}
+        self._live_bars: dict[str, list[Bar]] = {s: [] for s in self._symbols}
         self._bars_lock = Lock()
 
     # -------------------------------------------------------------------------
@@ -460,7 +459,7 @@ class PolygonStreamClient:
     def is_connected(self) -> bool:
         return self._connected
 
-    def get_latest_bars(self, symbol: str, n: int = 60) -> List[Bar]:
+    def get_latest_bars(self, symbol: str, n: int = 60) -> list[Bar]:
         """
         Return the most recent N bars received from the live stream.
 
@@ -511,7 +510,7 @@ class PolygonStreamClient:
             raise ImportError(
                 "websockets is required for Polygon streaming. "
                 "Install with: pip install websockets"
-            )
+            ) from None
 
         async with websockets.connect(
             self._WS_URL,

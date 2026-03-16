@@ -19,12 +19,10 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
-from datetime import datetime, date
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime
 
 import pandas as pd
 from pydantic import BaseModel
-
 
 # =============================================================================
 # DATA MODELS
@@ -41,7 +39,7 @@ class Bar(BaseModel):
     low: float
     close: float
     volume: int
-    vwap: Optional[float] = None
+    vwap: float | None = None
     interval: str = "1d"
 
     @property
@@ -60,9 +58,9 @@ class Quote(BaseModel):
 
     symbol: str
     price: float
-    bid: Optional[float] = None
-    ask: Optional[float] = None
-    volume: Optional[int] = None
+    bid: float | None = None
+    ask: float | None = None
+    volume: int | None = None
     timestamp: datetime
     delayed: bool = True  # False = real-time
 
@@ -72,11 +70,11 @@ class SymbolInfo(BaseModel):
 
     symbol: str
     name: str
-    exchange: Optional[str] = None
-    sector: Optional[str] = None
-    industry: Optional[str] = None
-    market_cap: Optional[float] = None
-    avg_daily_volume: Optional[int] = None
+    exchange: str | None = None
+    sector: str | None = None
+    industry: str | None = None
+    market_cap: float | None = None
+    avg_daily_volume: int | None = None
     currency: str = "USD"
 
 
@@ -106,9 +104,9 @@ class DataProvider(ABC):
         symbol: str,
         interval: str = "1d",
         limit: int = 252,
-        start: Optional[date] = None,
-        end: Optional[date] = None,
-    ) -> List[Bar]:
+        start: date | None = None,
+        end: date | None = None,
+    ) -> list[Bar]:
         """
         Fetch OHLCV bars.
 
@@ -139,8 +137,8 @@ class DataProvider(ABC):
         symbol: str,
         interval: str = "1d",
         limit: int = 252,
-        start: Optional[date] = None,
-        end: Optional[date] = None,
+        start: date | None = None,
+        end: date | None = None,
     ) -> pd.DataFrame:
         """
         Convenience wrapper: returns bars as a DataFrame.
@@ -159,10 +157,10 @@ class DataProvider(ABC):
 
     def get_multi_bars_df(
         self,
-        symbols: List[str],
+        symbols: list[str],
         interval: str = "1d",
         limit: int = 252,
-    ) -> Dict[str, pd.DataFrame]:
+    ) -> dict[str, pd.DataFrame]:
         """Fetch bars for multiple symbols. Returns {symbol: DataFrame}."""
         return {
             sym: self.get_bars_df(sym, interval, limit)
@@ -174,7 +172,7 @@ class DataProvider(ABC):
 # PROVIDER REGISTRY
 # =============================================================================
 
-_active_provider: Optional[DataProvider] = None
+_active_provider: DataProvider | None = None
 
 
 def get_provider() -> DataProvider:

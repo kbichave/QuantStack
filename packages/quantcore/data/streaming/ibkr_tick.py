@@ -30,8 +30,7 @@ Requires: ib_insync>=0.9.86  (uv pip install -e \".[ibkr]\")
 from __future__ import annotations
 
 import asyncio
-from datetime import timezone
-from typing import Dict, List, Optional
+from datetime import UTC
 
 from loguru import logger
 
@@ -79,19 +78,19 @@ class IBKRTickAdapter(TickStreamingAdapter):
         self._client_id  = client_id
         self._depth_rows = depth_rows
 
-        self._ib: Optional["ib.IB"] = None
+        self._ib: ib.IB | None = None
 
         # symbol → ib Contract
-        self._contracts: Dict[str, "ib.Contract"] = {}
+        self._contracts: dict[str, ib.Contract] = {}
         # symbol → tick-by-tick ticker
-        self._tick_tickers: Dict[str, object] = {}
+        self._tick_tickers: dict[str, object] = {}
         # symbol → depth ticker
-        self._depth_tickers: Dict[str, object] = {}
+        self._depth_tickers: dict[str, object] = {}
 
         # In-memory depth book for deriving NBBO:
         # bid/ask price/size per symbol (top-of-book only)
-        self._depth_bids: Dict[str, Dict[int, tuple]] = {}  # symbol → {row: (price, size)}
-        self._depth_asks: Dict[str, Dict[int, tuple]] = {}
+        self._depth_bids: dict[str, dict[int, tuple]] = {}  # symbol → {row: (price, size)}
+        self._depth_asks: dict[str, dict[int, tuple]] = {}
 
     # ── Identity ──────────────────────────────────────────────────────────────
 
@@ -127,7 +126,7 @@ class IBKRTickAdapter(TickStreamingAdapter):
         self._contracts.clear()
         logger.info("[IBKR Tick] Disconnected")
 
-    async def _subscribe_symbols(self, symbols: List[str]) -> None:
+    async def _subscribe_symbols(self, symbols: list[str]) -> None:
         for symbol in symbols:
             contract = ib.Stock(symbol, "SMART", "USD")
             qualified = await self._ib.qualifyContractsAsync(contract)
@@ -157,7 +156,7 @@ class IBKRTickAdapter(TickStreamingAdapter):
 
         logger.info(f"[IBKR Tick] Subscribed to ticks: {symbols}")
 
-    async def _unsubscribe_symbols(self, symbols: List[str]) -> None:
+    async def _unsubscribe_symbols(self, symbols: list[str]) -> None:
         for symbol in symbols:
             if symbol in self._tick_tickers:
                 self._ib.cancelTickByTickData(self._tick_tickers.pop(symbol))
@@ -182,7 +181,7 @@ class IBKRTickAdapter(TickStreamingAdapter):
         for tick_data in ticker.ticks:
             ts = tick_data.time
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
             ts_ns = int(ts.timestamp() * 1_000_000_000)
 
             trade = TradeTick(

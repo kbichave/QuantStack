@@ -23,8 +23,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from datetime import UTC, datetime
 
 from loguru import logger
 
@@ -61,14 +60,14 @@ class _BarBuffer:
 
     def __init__(self) -> None:
         self._bars: list = []
-        self._minute: Optional[int] = None  # minute epoch (floor of ts to minute)
+        self._minute: int | None = None  # minute epoch (floor of ts to minute)
 
-    def add(self, bar) -> Optional[BarEvent]:
+    def add(self, bar) -> BarEvent | None:
         """Add a 5-second bar.  Returns a completed BarEvent or None."""
         # bar.time is a datetime from ib_insync
         ts: datetime = bar.time
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
+            ts = ts.replace(tzinfo=UTC)
 
         minute_floor = ts.replace(second=0, microsecond=0)
         minute_epoch = int(minute_floor.timestamp())
@@ -79,7 +78,7 @@ class _BarBuffer:
         if minute_epoch != self._minute:
             # Minute boundary crossed — emit completed bar
             completed = self._build(
-                datetime.fromtimestamp(self._minute, tz=timezone.utc)
+                datetime.fromtimestamp(self._minute, tz=UTC)
                 + __import__("datetime").timedelta(minutes=1)
             )
             # Reset accumulator with the new bar
@@ -98,7 +97,7 @@ class _BarBuffer:
 
         return None
 
-    def _build(self, close_time: datetime) -> Optional[BarEvent]:
+    def _build(self, close_time: datetime) -> BarEvent | None:
         if not self._bars:
             return None
         return BarEvent(
@@ -142,10 +141,10 @@ class IBKRStreamingAdapter(StreamingAdapter):
         self._host      = host
         self._port      = port
         self._client_id = client_id
-        self._ib: Optional["ib.IB"] = None
-        self._contracts: Dict[str, "ib.Contract"] = {}
-        self._tickers: Dict[str, object] = {}    # symbol → ib Ticker
-        self._buffers:  Dict[str, _BarBuffer]    = defaultdict(_BarBuffer)
+        self._ib: ib.IB | None = None
+        self._contracts: dict[str, ib.Contract] = {}
+        self._tickers: dict[str, object] = {}    # symbol → ib Ticker
+        self._buffers:  dict[str, _BarBuffer]    = defaultdict(_BarBuffer)
 
     # ── StreamingAdapter identity ─────────────────────────────────────────────
 
@@ -154,7 +153,7 @@ class IBKRStreamingAdapter(StreamingAdapter):
         return DataProvider.IBKR
 
     @property
-    def supported_timeframes(self) -> List[Timeframe]:
+    def supported_timeframes(self) -> list[Timeframe]:
         return [Timeframe.M1, Timeframe.S5]
 
     # ── Connection lifecycle ──────────────────────────────────────────────────
@@ -184,7 +183,7 @@ class IBKRStreamingAdapter(StreamingAdapter):
         self._contracts.clear()
         logger.info("[IBKR] Streaming disconnected")
 
-    async def _subscribe_symbols(self, symbols: List[str]) -> None:
+    async def _subscribe_symbols(self, symbols: list[str]) -> None:
         for symbol in symbols:
             contract = ib.Stock(symbol, "SMART", "USD")
             qualified = await self._ib.qualifyContractsAsync(contract)
@@ -202,7 +201,7 @@ class IBKRStreamingAdapter(StreamingAdapter):
 
         logger.info(f"[IBKR] Subscribed to real-time bars: {symbols}")
 
-    async def _unsubscribe_symbols(self, symbols: List[str]) -> None:
+    async def _unsubscribe_symbols(self, symbols: list[str]) -> None:
         for symbol in symbols:
             if symbol in self._tickers:
                 self._ib.cancelRealTimeBars(self._tickers.pop(symbol))
@@ -221,7 +220,7 @@ class IBKRStreamingAdapter(StreamingAdapter):
         if self._timeframe == Timeframe.S5:
             ts = bar.time
             if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=timezone.utc)
+                ts = ts.replace(tzinfo=UTC)
             event = BarEvent(
                 symbol=symbol,
                 timestamp=ts,

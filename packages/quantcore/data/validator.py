@@ -24,13 +24,12 @@ Usage:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Any
 
 from loguru import logger
 
 from quantcore.data.provider import Bar
-
 
 # =============================================================================
 # VALIDATOR
@@ -51,7 +50,7 @@ class DataValidator:
     # Data is "stale" if the most recent bar is this old
     STALE_THRESHOLD_HOURS = 8  # > 8h old during trading hours = stale
 
-    def validate_bar(self, bar: Bar) -> Tuple[bool, Optional[str]]:
+    def validate_bar(self, bar: Bar) -> tuple[bool, str | None]:
         """
         Validate a single bar.
 
@@ -82,7 +81,7 @@ class DataValidator:
 
         return True, None
 
-    def validate_bars(self, bars: List[Bar]) -> List[Bar]:
+    def validate_bars(self, bars: list[Bar]) -> list[Bar]:
         """
         Validate a list of bars. Returns only valid bars.
 
@@ -113,8 +112,8 @@ class DataValidator:
         return valid
 
     def validate_bars_with_plausibility(
-        self, bars: List[Bar], max_move_pct: Optional[float] = None
-    ) -> List[Bar]:
+        self, bars: list[Bar], max_move_pct: float | None = None
+    ) -> list[Bar]:
         """
         Validate bars including single-bar move plausibility check.
 
@@ -145,10 +144,10 @@ class DataValidator:
 
     def check_freshness(
         self,
-        bars: List[Bar],
+        bars: list[Bar],
         symbol: str,
-        stale_hours: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        stale_hours: float | None = None,
+    ) -> dict[str, Any]:
         """
         Check if the most recent bar is stale.
 
@@ -193,9 +192,9 @@ class DataValidator:
 
     def validate_batch(
         self,
-        symbol_bars: Dict[str, List[Bar]],
-        expected_symbols: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        symbol_bars: dict[str, list[Bar]],
+        expected_symbols: list[str] | None = None,
+    ) -> dict[str, Any]:
         """
         Validate a batch of symbol→bars mappings.
 
@@ -209,7 +208,7 @@ class DataValidator:
         valid_symbols = []
         invalid_symbols = []
         stale_symbols = []
-        bar_counts: Dict[str, Tuple[int, int]] = {}
+        bar_counts: dict[str, tuple[int, int]] = {}
 
         for symbol, bars in symbol_bars.items():
             valid = self.validate_bars(bars)
@@ -223,7 +222,7 @@ class DataValidator:
                 if not freshness["fresh"]:
                     stale_symbols.append(symbol)
 
-        missing_symbols: List[str] = []
+        missing_symbols: list[str] = []
         if expected_symbols:
             present = set(symbol_bars.keys())
             missing_symbols = [s for s in expected_symbols if s not in present]

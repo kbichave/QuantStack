@@ -49,19 +49,15 @@ Usage
 from __future__ import annotations
 
 import asyncio
-import math
-from datetime import datetime, timezone
-from typing import Awaitable, Callable, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
 
-from loguru import logger
-
-from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
+from quantcore.config.timeframes import Timeframe
 from quantcore.data.provider_enum import DataProvider
 from quantcore.data.streaming.base import BarCallback, BarEvent
 from quantcore.data.streaming.tick_models import TradeTick
 
 # Seconds per timeframe bar (used for boundary arithmetic)
-_TF_SECONDS: Dict[Timeframe, int] = {
+_TF_SECONDS: dict[Timeframe, int] = {
     Timeframe.S5:  5,
     Timeframe.M1:  60,
     Timeframe.M5:  300,
@@ -145,10 +141,10 @@ class TickAggregator:
         self._provider  = provider
 
         # symbol → in-progress accumulator
-        self._accumulators: Dict[str, _BarAccumulator] = {}
+        self._accumulators: dict[str, _BarAccumulator] = {}
 
         # bar callbacks (compatible with BarPublisher.on_bar and LiveBarStore.on_bar)
-        self._callbacks: List[BarCallback] = []
+        self._callbacks: list[BarCallback] = []
 
     # ── Callback registration ─────────────────────────────────────────────────
 
@@ -176,7 +172,7 @@ class TickAggregator:
         if bar_start > acc.bar_start_s:
             # Crossed a bar boundary — emit the completed bar
             bar_close_ts = datetime.fromtimestamp(
-                acc.bar_start_s + self._bar_s, tz=timezone.utc
+                acc.bar_start_s + self._bar_s, tz=UTC
             )
             bar = acc.to_bar_event(bar_close_ts, self._tf, self._provider)
             await self._emit(bar)
@@ -188,7 +184,7 @@ class TickAggregator:
         else:
             acc.update(tick.price, tick.size)
 
-    async def flush(self, symbol: Optional[str] = None) -> None:
+    async def flush(self, symbol: str | None = None) -> None:
         """Emit all in-progress bars (e.g. at market close).
 
         Args:
@@ -199,7 +195,7 @@ class TickAggregator:
             acc = self._accumulators.pop(sym, None)
             if acc and acc.volume > 0:
                 bar_close_ts = datetime.fromtimestamp(
-                    acc.bar_start_s + self._bar_s, tz=timezone.utc
+                    acc.bar_start_s + self._bar_s, tz=UTC
                 )
                 bar = acc.to_bar_event(bar_close_ts, self._tf, self._provider)
                 await self._emit(bar)

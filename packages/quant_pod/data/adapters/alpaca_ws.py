@@ -40,14 +40,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 from loguru import logger
 
 from quant_pod.data.market_data_bus import MarketDataBus
 from quant_pod.execution.tick_executor import Tick
-
 
 # Alpaca streaming endpoints
 _FEED_URLS = {
@@ -74,9 +72,9 @@ class AlpacaWebSocketBus(MarketDataBus):
 
     def __init__(
         self,
-        symbols: List[str],
-        api_key: Optional[str] = None,
-        api_secret: Optional[str] = None,
+        symbols: list[str],
+        api_key: str | None = None,
+        api_secret: str | None = None,
         feed: str = "iex",
     ):
         super().__init__(symbols)
@@ -133,7 +131,7 @@ class AlpacaWebSocketBus(MarketDataBus):
             raise ImportError(
                 "websockets package required for AlpacaWebSocketBus. "
                 "Install with: pip install 'websockets>=12'"
-            )
+            ) from None
 
         async with websockets.connect(
             self._url,
@@ -181,7 +179,7 @@ class AlpacaWebSocketBus(MarketDataBus):
                 return
         # No explicit error and no explicit success — assume ok (some versions omit)
 
-    def _parse_message(self, msg: dict) -> Optional[Tick]:
+    def _parse_message(self, msg: dict) -> Tick | None:
         """Convert an Alpaca message dict to a Tick, or None if not a trade."""
         msg_type = msg.get("T")
 
@@ -201,7 +199,7 @@ class AlpacaWebSocketBus(MarketDataBus):
             try:
                 ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             except (ValueError, AttributeError):
-                ts = datetime.now(timezone.utc)
+                ts = datetime.now(UTC)
 
             # Enrich with latest quote if available
             quote = self._latest_quotes.get(sym, {})

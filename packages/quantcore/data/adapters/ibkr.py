@@ -22,8 +22,7 @@ Requires: ib_insync>=0.9.86  (uv pip install -e ".[ibkr]")
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 import pandas as pd
 from loguru import logger
@@ -93,7 +92,7 @@ class IBKRDataAdapter(AssetClassAdapter):
         return DataProvider.IBKR
 
     @property
-    def asset_class(self) -> List[AssetClass]:
+    def asset_class(self) -> list[AssetClass]:
         return [
             AssetClass.EQUITY,
             AssetClass.COMMODITY_FUTURES,
@@ -101,7 +100,7 @@ class IBKRDataAdapter(AssetClassAdapter):
             AssetClass.FIXED_INCOME,
         ]
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         # IB has a massive universe; return a representative sample only.
         return ["SPY", "QQQ", "AAPL", "MSFT", "GC=F", "CL=F", "EUR/USD"]
 
@@ -111,8 +110,8 @@ class IBKRDataAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date:   Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date:   datetime | None = None,
     ) -> pd.DataFrame:
         """Fetch historical bars from IB Gateway.
 
@@ -175,7 +174,7 @@ class IBKRDataAdapter(AssetClassAdapter):
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _get_connection(self) -> "ib.IB":
+    def _get_connection(self) -> ib.IB:
         """Return live IB connection via IBKRConnectionManager."""
         if self._mgr is None:
             try:
@@ -204,7 +203,7 @@ class IBKRDataAdapter(AssetClassAdapter):
                 return _ib
         return self._mgr.ib
 
-    def _resolve_contract(self, ib_conn: "ib.IB", symbol: str) -> "ib.Contract":
+    def _resolve_contract(self, ib_conn: ib.IB, symbol: str) -> ib.Contract:
         """Qualify a US equity contract by symbol."""
         contract   = ib.Stock(symbol, "SMART", "USD")
         qualified  = ib_conn.qualifyContracts(contract)
@@ -213,17 +212,17 @@ class IBKRDataAdapter(AssetClassAdapter):
     @staticmethod
     def _duration_str(
         timeframe: Timeframe,
-        start_date: Optional[datetime],
-        end_date:   Optional[datetime],
+        start_date: datetime | None,
+        end_date:   datetime | None,
     ) -> str:
         """Convert date range to IB durationStr (e.g. "30 D", "3 M")."""
         if start_date and end_date:
             days = (end_date - start_date).days + 1
         elif start_date:
             from datetime import datetime as _dt
-            days = (_dt.now(timezone.utc) - start_date.replace(tzinfo=timezone.utc)
+            days = (_dt.now(UTC) - start_date.replace(tzinfo=UTC)
                     if start_date.tzinfo is None else
-                    _dt.now(timezone.utc) - start_date).days + 1
+                    _dt.now(UTC) - start_date).days + 1
         else:
             # Default look-back per timeframe
             defaults = {
@@ -239,22 +238,22 @@ class IBKRDataAdapter(AssetClassAdapter):
         return f"{years} Y"
 
 
-def _format_end_dt(end_date: Optional[datetime]) -> str:
+def _format_end_dt(end_date: datetime | None) -> str:
     """Format end datetime for IB endDateTime parameter ("" = now)."""
     if end_date is None:
         return ""
     if end_date.tzinfo is None:
-        end_date = end_date.replace(tzinfo=timezone.utc)
+        end_date = end_date.replace(tzinfo=UTC)
     return end_date.strftime("%Y%m%d %H:%M:%S UTC")
 
 
 def _parse_bar_date(date_val) -> datetime:
     """Parse ib_insync bar.date which is either a datetime or a date string."""
     if isinstance(date_val, datetime):
-        return date_val if date_val.tzinfo else date_val.replace(tzinfo=timezone.utc)
+        return date_val if date_val.tzinfo else date_val.replace(tzinfo=UTC)
     # String "YYYYMMDD" for daily/weekly bars
     if isinstance(date_val, str):
         if len(date_val) == 8:
-            return datetime.strptime(date_val, "%Y%m%d").replace(tzinfo=timezone.utc)
-        return datetime.fromisoformat(date_val).replace(tzinfo=timezone.utc)
-    return datetime.fromtimestamp(float(date_val), tz=timezone.utc)
+            return datetime.strptime(date_val, "%Y%m%d").replace(tzinfo=UTC)
+        return datetime.fromisoformat(date_val).replace(tzinfo=UTC)
+    return datetime.fromtimestamp(float(date_val), tz=UTC)

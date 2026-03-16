@@ -49,12 +49,11 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 from loguru import logger
 
 from quant_pod.execution.tick_executor import Tick
-
 
 # ---------------------------------------------------------------------------
 # Abstract interface
@@ -69,7 +68,7 @@ class MarketDataBus(ABC):
     the tick_queue.  A None sentinel on the queue signals clean shutdown.
     """
 
-    def __init__(self, symbols: List[str]):
+    def __init__(self, symbols: list[str]):
         self.symbols = [s.upper() for s in symbols]
         self._running = False
 
@@ -113,7 +112,7 @@ class RestPollingBus(MarketDataBus):
 
     def __init__(
         self,
-        symbols: List[str],
+        symbols: list[str],
         quote_fn: Callable[[str], dict],
         poll_interval_seconds: float = 30.0,
         error_sleep_seconds: float = 5.0,

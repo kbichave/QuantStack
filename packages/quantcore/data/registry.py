@@ -19,7 +19,6 @@ In production the registry is initialised once and then only read.
 from __future__ import annotations
 
 import threading
-from typing import Dict, List, Optional
 
 import pandas as pd
 from loguru import logger
@@ -48,7 +47,7 @@ class DataProviderRegistry:
     """
 
     def __init__(self) -> None:
-        self._adapters: Dict[AssetClass, List[AssetClassAdapter]] = {}
+        self._adapters: dict[AssetClass, list[AssetClassAdapter]] = {}
         self._lock = threading.RLock()
 
     # ── Registration ──────────────────────────────────────────────────────────
@@ -114,7 +113,7 @@ class DataProviderRegistry:
             )
         return bucket[0]
 
-    def get_all(self, asset_class: AssetClass) -> List[AssetClassAdapter]:
+    def get_all(self, asset_class: AssetClass) -> list[AssetClassAdapter]:
         """Return all adapters for the asset class in priority order."""
         return list(self._adapters.get(asset_class, []))
 
@@ -147,7 +146,7 @@ class DataProviderRegistry:
             )
             return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
-        last_exc: Optional[Exception] = None
+        last_exc: Exception | None = None
         for adapter in bucket:
             try:
                 df = adapter.fetch_ohlcv(symbol, timeframe, start_date, end_date)
@@ -177,7 +176,7 @@ class DataProviderRegistry:
     # ── Factory ───────────────────────────────────────────────────────────────
 
     @classmethod
-    def from_settings(cls, settings) -> "DataProviderRegistry":
+    def from_settings(cls, settings) -> DataProviderRegistry:
         """Build a registry from application settings.
 
         Reads provider credentials from ``settings`` and registers only
@@ -193,7 +192,7 @@ class DataProviderRegistry:
         registry = cls()
 
         # Parse priority order from settings
-        priority_order: List[str] = [
+        priority_order: list[str] = [
             p.strip().lower()
             for p in settings.data_provider_priority.split(",")
             if p.strip()
@@ -272,7 +271,6 @@ def _register_provider(
         # avoid hard dependency on ib_insync for users without IBKR.
         try:
             from quantcore.data.adapters.ibkr import IBKRDataAdapter
-            from quantcore.config.settings import IBKRSettings
         except ImportError as exc:
             raise ImportError(
                 "ib_insync is required for IBKR. "

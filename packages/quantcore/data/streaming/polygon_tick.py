@@ -49,19 +49,17 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import timezone
-from typing import Dict, List, Optional
 
 import aiohttp
 from loguru import logger
 
 from quantcore.data.streaming.tick_base import TickStreamingAdapter
-from quantcore.data.streaming.tick_models import L2Update, QuoteTick, TradeTick
+from quantcore.data.streaming.tick_models import QuoteTick, TradeTick
 
 _POLYGON_WS_URL = "wss://socket.polygon.io/stocks"
 
 # Polygon exchange ID → human-readable code (partial map for logging)
-_EXCHANGE_MAP: Dict[int, str] = {
+_EXCHANGE_MAP: dict[int, str] = {
     1: "A", 2: "B", 4: "C", 7: "D", 8: "E", 10: "F",
     11: "G", 12: "H", 13: "I", 14: "J", 15: "K", 16: "L",
     17: "M", 18: "N", 20: "P", 21: "Q", 22: "S", 23: "T",
@@ -84,7 +82,7 @@ class PolygonTickAdapter(TickStreamingAdapter):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         subscribe_quotes: bool = True,
         subscribe_trades: bool = True,
         **kwargs,
@@ -99,12 +97,12 @@ class PolygonTickAdapter(TickStreamingAdapter):
             )
         self._subscribe_quotes = subscribe_quotes
         self._subscribe_trades = subscribe_trades
-        self._ws:      Optional[aiohttp.ClientWebSocketResponse] = None
-        self._session: Optional[aiohttp.ClientSession]            = None
-        self._recv_task: Optional[asyncio.Task]                   = None
+        self._ws:      aiohttp.ClientWebSocketResponse | None = None
+        self._session: aiohttp.ClientSession | None            = None
+        self._recv_task: asyncio.Task | None                   = None
 
         # last quote per symbol — used for Lee-Ready tick-rule classification
-        self._last_quote: Dict[str, QuoteTick] = {}
+        self._last_quote: dict[str, QuoteTick] = {}
 
     # ── Identity ──────────────────────────────────────────────────────────────
 
@@ -149,7 +147,7 @@ class PolygonTickAdapter(TickStreamingAdapter):
         self._ws = self._session = None
         logger.info("[Polygon Tick] Disconnected")
 
-    async def _subscribe_symbols(self, symbols: List[str]) -> None:
+    async def _subscribe_symbols(self, symbols: list[str]) -> None:
         params_parts = []
         if self._subscribe_trades:
             params_parts += [f"T.{s}" for s in symbols]
@@ -161,7 +159,7 @@ class PolygonTickAdapter(TickStreamingAdapter):
             )
         logger.info(f"[Polygon Tick] Subscribed to ticks: {symbols}")
 
-    async def _unsubscribe_symbols(self, symbols: List[str]) -> None:
+    async def _unsubscribe_symbols(self, symbols: list[str]) -> None:
         params_parts = []
         if self._subscribe_trades:
             params_parts += [f"T.{s}" for s in symbols]

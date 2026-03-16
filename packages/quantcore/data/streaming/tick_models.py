@@ -28,8 +28,6 @@ L2Update semantics
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # Trade tick
@@ -56,9 +54,9 @@ class TradeTick:
     price:        float
     size:         float
     side:         str = "unknown"   # "buy" | "sell" | "unknown"
-    exchange:     Optional[str] = None
-    trade_id:     Optional[str] = None
-    conditions:   Optional[list] = None
+    exchange:     str | None = None
+    trade_id:     str | None = None
+    conditions:   list | None = None
 
     @property
     def timestamp_s(self) -> float:
@@ -92,8 +90,8 @@ class QuoteTick:
     ask:          float
     bid_size:     float
     ask_size:     float
-    bid_exchange: Optional[str] = None
-    ask_exchange: Optional[str] = None
+    bid_exchange: str | None = None
+    ask_exchange: str | None = None
 
     @property
     def spread(self) -> float:
@@ -140,4 +138,4 @@ class L2Update:
     size:         float
     action:       str = "modify"   # "add" | "modify" | "delete"
     is_snapshot:  bool = False
-    level_count:  Optional[int] = None
+    level_count:  int | None = None

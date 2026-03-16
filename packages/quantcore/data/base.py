@@ -30,7 +30,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -166,8 +165,8 @@ class AssetClassAdapter(ABC):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         """
         Fetch OHLCV data for symbol.
@@ -222,7 +221,7 @@ class AssetClassAdapter(ABC):
         pass
 
     @abstractmethod
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         """
         Get list of available symbols for this asset class.
 

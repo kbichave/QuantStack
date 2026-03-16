@@ -412,9 +412,11 @@ class TradingCrew:
             f"{envelope.asset_class}/{envelope.instrument_type}:{envelope.task_intent}"
         )
 
-        # Set defaults
+        # Set defaults — always stringify: CrewAI template interpolation rejects date objects
         if "current_date" not in inputs or inputs["current_date"] is None:
-            inputs["current_date"] = date.today()
+            inputs["current_date"] = str(date.today())
+        else:
+            inputs["current_date"] = str(inputs["current_date"])
 
         if "regime" not in inputs or inputs["regime"] is None:
             inputs["regime"] = {
@@ -803,7 +805,7 @@ def run_trading_analysis(
     # normalization, envelope construction, and default-setting.
     inputs = {
         "symbol": symbol,
-        "current_date": current_date or date.today(),
+        "current_date": str(current_date or date.today()),
         "regime": regime or {"trend": "unknown", "volatility": "normal", "confidence": 0.5},
         "portfolio": portfolio or {},
         "historical_context": historical_context,
@@ -830,7 +832,7 @@ def run_analysis_only(
     crew = TradingCrew()
     inputs = {
         "symbol": symbol,
-        "current_date": current_date or date.today(),
+        "current_date": str(current_date or date.today()),
         "regime": regime or {"trend": "unknown", "volatility": "normal", "confidence": 0.5},
         "portfolio": portfolio or {},
         "historical_context": historical_context,

@@ -21,16 +21,16 @@ Bar pipeline:
             → IncrementalFeatureEngine  (rolling O(1) feature updates)
 """
 
-from quantcore.data.streaming.base import StreamingAdapter, BarEvent
-from quantcore.data.streaming.publisher import BarPublisher
-from quantcore.data.streaming.live_store import LiveBarStore
+from quantcore.data.streaming.base import BarEvent, StreamingAdapter
 from quantcore.data.streaming.incremental_features import (
     IncrementalFeatureEngine,
     IncrementalFeatures,
 )
-from quantcore.data.streaming.tick_models import TradeTick, QuoteTick, L2Update
-from quantcore.data.streaming.tick_base import TickStreamingAdapter
+from quantcore.data.streaming.live_store import LiveBarStore
+from quantcore.data.streaming.publisher import BarPublisher
 from quantcore.data.streaming.tick_aggregator import TickAggregator
+from quantcore.data.streaming.tick_base import TickStreamingAdapter
+from quantcore.data.streaming.tick_models import L2Update, QuoteTick, TradeTick
 
 __all__ = [
     # Bar streaming

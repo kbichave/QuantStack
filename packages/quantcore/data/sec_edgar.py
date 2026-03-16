@@ -36,13 +36,11 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import date
+from typing import Any
 
 import requests
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Loughran-McDonald financial sentiment word lists
@@ -126,7 +124,7 @@ class FilingMetadata:
     accession_number: str
     form_type: str          # 10-K, 10-Q, 8-K, etc.
     filed_date: date
-    period_of_report: Optional[date]
+    period_of_report: date | None
     company_name: str
     document_url: str       # URL to fetch the full filing text
 
@@ -206,13 +204,13 @@ class SECEdgarClient:
             "Host": "data.sec.gov",
         })
         self._last_request_time = 0.0
-        self._ticker_cik_map: Optional[Dict[str, str]] = None
+        self._ticker_cik_map: dict[str, str] | None = None
 
     # ------------------------------------------------------------------
     # CIK lookup
     # ------------------------------------------------------------------
 
-    def get_cik(self, ticker: str) -> Optional[str]:
+    def get_cik(self, ticker: str) -> str | None:
         """
         Look up the SEC Central Index Key (CIK) for a ticker symbol.
 
@@ -223,7 +221,7 @@ class SECEdgarClient:
 
         return self._ticker_cik_map.get(ticker.upper())
 
-    def _build_ticker_cik_map(self) -> Dict[str, str]:
+    def _build_ticker_cik_map(self) -> dict[str, str]:
         """Fetch and cache the SEC's master ticker→CIK mapping."""
         try:
             resp = self._get(self._TICKER_CIK_URL)
@@ -247,9 +245,9 @@ class SECEdgarClient:
     def get_recent_filings(
         self,
         ticker: str,
-        form_types: Optional[List[str]] = None,
+        form_types: list[str] | None = None,
         n: int = 4,
-    ) -> List[FilingMetadata]:
+    ) -> list[FilingMetadata]:
         """
         Return the N most recent filings of the specified types.
 
@@ -373,7 +371,7 @@ class SECEdgarClient:
             time.sleep(self._MIN_REQUEST_INTERVAL - elapsed)
         self._last_request_time = time.time()
 
-    def _get(self, url: str, params: Optional[Dict] = None) -> Any:
+    def _get(self, url: str, params: dict | None = None) -> Any:
         self._throttle()
         resp = self._session.get(url, params=params, timeout=20)
         resp.raise_for_status()
@@ -450,7 +448,7 @@ class EdgarSignal:
     latest_form_type: str                # 10-K or 10-Q
     latest_filed_date: date
     n_filings_scored: int
-    sentiment_scores: List[FilingSentiment] = field(default_factory=list)
+    sentiment_scores: list[FilingSentiment] = field(default_factory=list)
 
     @property
     def tone(self) -> str:
@@ -475,18 +473,18 @@ class EdgarSignalBuilder:
 
     def __init__(
         self,
-        client: Optional[SECEdgarClient] = None,
-        scorer: Optional[FilingSentimentScorer] = None,
+        client: SECEdgarClient | None = None,
+        scorer: FilingSentimentScorer | None = None,
     ):
         self._client = client or SECEdgarClient()
         self._scorer = scorer or FilingSentimentScorer()
 
     def build(
         self,
-        tickers: List[str],
-        form_types: Optional[List[str]] = None,
+        tickers: list[str],
+        form_types: list[str] | None = None,
         n_filings: int = 2,
-    ) -> Dict[str, EdgarSignal]:
+    ) -> dict[str, EdgarSignal]:
         """
         Build filing-sentiment signals for a list of tickers.
 
@@ -501,7 +499,7 @@ class EdgarSignalBuilder:
         if form_types is None:
             form_types = ["10-K", "10-Q"]
 
-        signals: Dict[str, EdgarSignal] = {}
+        signals: dict[str, EdgarSignal] = {}
 
         for ticker in tickers:
             try:
@@ -519,7 +517,7 @@ class EdgarSignalBuilder:
     def _build_one(
         self,
         ticker: str,
-        form_types: List[str],
+        form_types: list[str],
         n_filings: int,
     ) -> EdgarSignal:
         filings = self._client.get_recent_filings(ticker, form_types, n=n_filings)
@@ -552,7 +550,7 @@ class EdgarSignalBuilder:
         # Weight recent filings more heavily (exponential decay)
         weights = [0.7 ** i for i in range(len(scored))]
         total_weight = sum(weights)
-        weighted_signal = sum(s.signal * w for s, w in zip(scored, weights)) / total_weight
+        weighted_signal = sum(s.signal * w for s, w in zip(scored, weights, strict=False)) / total_weight
 
         return EdgarSignal(
             ticker=ticker,
@@ -571,7 +569,7 @@ class EdgarSignalBuilder:
 
 def get_filing_sentiment(
     ticker: str,
-    form_types: Optional[List[str]] = None,
+    form_types: list[str] | None = None,
     n_filings: int = 2,
     user_agent: str = "QuantStack research@quantstack.local",
 ) -> EdgarSignal:

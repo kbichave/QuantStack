@@ -41,13 +41,12 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Awaitable, Callable, List, Optional, Set
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.provider_enum import DataProvider
-
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -68,8 +67,8 @@ class BarEvent:
     low:         float
     close:       float
     volume:      float
-    vwap:        Optional[float] = None
-    trade_count: Optional[int]  = None
+    vwap:        float | None = None
+    trade_count: int | None  = None
     timeframe:   Timeframe       = Timeframe.M1
     provider:    str             = ""
 
@@ -108,9 +107,9 @@ class StreamingAdapter(ABC):
         max_reconnect_delay_s: float = 60.0,
         max_reconnect_attempts: int = 0,
     ) -> None:
-        self._callbacks: List[BarCallback] = []
-        self._subscribed: Set[str] = set()
-        self._timeframe: Optional[Timeframe] = None
+        self._callbacks: list[BarCallback] = []
+        self._subscribed: set[str] = set()
+        self._timeframe: Timeframe | None = None
         self._connected = False
         self._reconnect_delay = reconnect_delay_s
         self._max_reconnect_delay = max_reconnect_delay_s
@@ -128,7 +127,7 @@ class StreamingAdapter(ABC):
 
     @property
     @abstractmethod
-    def supported_timeframes(self) -> List[Timeframe]:
+    def supported_timeframes(self) -> list[Timeframe]:
         """Timeframes this adapter can stream natively."""
         ...
 
@@ -145,12 +144,12 @@ class StreamingAdapter(ABC):
         ...
 
     @abstractmethod
-    async def _subscribe_symbols(self, symbols: List[str]) -> None:
+    async def _subscribe_symbols(self, symbols: list[str]) -> None:
         """Send subscription messages for ``symbols``."""
         ...
 
     @abstractmethod
-    async def _unsubscribe_symbols(self, symbols: List[str]) -> None:
+    async def _unsubscribe_symbols(self, symbols: list[str]) -> None:
         """Send unsubscription messages for ``symbols``."""
         ...
 
@@ -167,7 +166,7 @@ class StreamingAdapter(ABC):
     def remove_callback(self, callback: BarCallback) -> None:
         self._callbacks = [c for c in self._callbacks if c is not callback]
 
-    async def subscribe(self, symbols: List[str], timeframe: Timeframe) -> None:
+    async def subscribe(self, symbols: list[str], timeframe: Timeframe) -> None:
         """Subscribe to bar events for ``symbols`` at ``timeframe``.
 
         Connects if not already connected, then sends subscription requests.
@@ -190,7 +189,7 @@ class StreamingAdapter(ABC):
             await self._subscribe_symbols(new_symbols)
             self._subscribed.update(new_symbols)
 
-    async def unsubscribe(self, symbols: List[str]) -> None:
+    async def unsubscribe(self, symbols: list[str]) -> None:
         """Unsubscribe from bar events for ``symbols``."""
         to_remove = [s for s in symbols if s in self._subscribed]
         if to_remove:

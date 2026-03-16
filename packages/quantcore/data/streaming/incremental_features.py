@@ -54,11 +54,10 @@ Usage
 from __future__ import annotations
 
 import asyncio
-import math
 from collections import deque
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Awaitable, Callable, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -67,7 +66,6 @@ from loguru import logger
 from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe, TimeframeParams
 from quantcore.data.streaming.base import BarEvent
 from quantcore.data.streaming.live_store import LiveBarStore
-
 
 # ---------------------------------------------------------------------------
 # Output data model
@@ -106,7 +104,7 @@ class IncrementalFeatures:
     price_to_ema:      float   # (close − ema_fast) / atr; signed distance in ATR units
 
     # VWAP (optional — only when bar carries vwap)
-    vwap_deviation:    Optional[float]
+    vwap_deviation:    float | None
 
     # Warmup flag: False until the engine has seen enough bars to initialize
     is_warm:           bool
@@ -184,10 +182,10 @@ class IncrementalFeatureEngine:
         )
 
         # Per-symbol recursive state
-        self._states: Dict[str, _SymbolState] = {}
+        self._states: dict[str, _SymbolState] = {}
 
         # Feature callbacks (same pattern as BarPublisher)
-        self._callbacks: List[FeaturesCallback] = []
+        self._callbacks: list[FeaturesCallback] = []
 
     # ── Callback registration ─────────────────────────────────────────────────
 
@@ -214,7 +212,7 @@ class IncrementalFeatureEngine:
             )
 
     async def run_from_queue(
-        self, queue: "asyncio.Queue[Optional[BarEvent]]"
+        self, queue: asyncio.Queue[BarEvent | None]
     ) -> None:
         """Consume bars from a ``BarPublisher`` queue until None (shutdown).
 
@@ -231,7 +229,7 @@ class IncrementalFeatureEngine:
 
     # ── Read API ──────────────────────────────────────────────────────────────
 
-    def get_features(self, symbol: str) -> Optional[IncrementalFeatures]:
+    def get_features(self, symbol: str) -> IncrementalFeatures | None:
         """Return the last computed feature vector for ``symbol``, or None."""
         return self._last.get(symbol)
 
@@ -245,9 +243,9 @@ class IncrementalFeatureEngine:
     def __init_last(self) -> None:
         """Lazy init for _last dict (called only when needed)."""
         if not hasattr(self, "_last"):
-            self._last: Dict[str, IncrementalFeatures] = {}
+            self._last: dict[str, IncrementalFeatures] = {}
 
-    def _update(self, bar: BarEvent) -> Optional[IncrementalFeatures]:
+    def _update(self, bar: BarEvent) -> IncrementalFeatures | None:
         """Core update: initialize state on first bar, then recurse."""
         self.__init_last()
         sym = bar.symbol
@@ -266,7 +264,7 @@ class IncrementalFeatureEngine:
 
     def _initialize_state(
         self, symbol: str, bar: BarEvent
-    ) -> Optional[_SymbolState]:
+    ) -> _SymbolState | None:
         """Batch-initialize recursive state from the LiveBarStore window.
 
         Returns the new state if the window is deep enough, else None.
@@ -408,7 +406,7 @@ class IncrementalFeatureEngine:
             roc = 0.0
 
         # VWAP deviation (only if the bar carries a vwap value)
-        vwap_dev: Optional[float] = None
+        vwap_dev: float | None = None
         if bar.vwap is not None and atr != 0.0:
             vwap_dev = (close - bar.vwap) / atr
 
@@ -471,9 +469,9 @@ def _batch_rsi_seed(closes: np.ndarray, period: int) -> tuple[float, float]:
 
     # Wilder's SMMA over remaining changes
     alpha = 1.0 / period
-    for g, l in zip(gains[period:], losses[period:]):
+    for g, loss in zip(gains[period:], losses[period:], strict=False):
         avg_gain = alpha * g + (1.0 - alpha) * avg_gain
-        avg_loss = alpha * l + (1.0 - alpha) * avg_loss
+        avg_loss = alpha * loss + (1.0 - alpha) * avg_loss
 
     return avg_gain, avg_loss
 

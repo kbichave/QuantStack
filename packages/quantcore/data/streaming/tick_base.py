@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Awaitable, Callable, List, Optional, Set
+from collections.abc import Awaitable, Callable
 
 from loguru import logger
 
@@ -69,11 +69,11 @@ class TickStreamingAdapter(ABC):
         max_reconnect_delay_s: float = 60.0,
         max_reconnect_attempts: int = 0,
     ) -> None:
-        self._trade_callbacks: List[TradeCallback] = []
-        self._quote_callbacks: List[QuoteCallback] = []
-        self._l2_callbacks:    List[L2Callback]    = []
+        self._trade_callbacks: list[TradeCallback] = []
+        self._quote_callbacks: list[QuoteCallback] = []
+        self._l2_callbacks:    list[L2Callback]    = []
 
-        self._subscribed:  Set[str] = set()
+        self._subscribed:  set[str] = set()
         self._connected    = False
         self._shutdown     = False
 
@@ -103,12 +103,12 @@ class TickStreamingAdapter(ABC):
         ...
 
     @abstractmethod
-    async def _subscribe_symbols(self, symbols: List[str]) -> None:
+    async def _subscribe_symbols(self, symbols: list[str]) -> None:
         """Send trade + quote subscription messages for ``symbols``."""
         ...
 
     @abstractmethod
-    async def _unsubscribe_symbols(self, symbols: List[str]) -> None:
+    async def _unsubscribe_symbols(self, symbols: list[str]) -> None:
         """Send unsubscription messages for ``symbols``."""
         ...
 
@@ -136,7 +136,7 @@ class TickStreamingAdapter(ABC):
     def remove_l2_callback(self, callback: L2Callback) -> None:
         self._l2_callbacks = [c for c in self._l2_callbacks if c is not callback]
 
-    async def subscribe(self, symbols: List[str]) -> None:
+    async def subscribe(self, symbols: list[str]) -> None:
         """Subscribe to tick events for ``symbols``.
 
         Connects if not already connected, then sends subscription requests.
@@ -149,7 +149,7 @@ class TickStreamingAdapter(ABC):
             await self._subscribe_symbols(new_symbols)
             self._subscribed.update(new_symbols)
 
-    async def unsubscribe(self, symbols: List[str]) -> None:
+    async def unsubscribe(self, symbols: list[str]) -> None:
         to_remove = [s for s in symbols if s in self._subscribed]
         if to_remove:
             await self._unsubscribe_symbols(to_remove)

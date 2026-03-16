@@ -19,7 +19,6 @@ S5                → not supported (raises ValueError)
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
 
 import pandas as pd
 from loguru import logger
@@ -29,7 +28,6 @@ from quantcore.data.base import AssetClass, AssetClassAdapter
 from quantcore.data.fetcher import AlphaVantageClient
 from quantcore.data.provider_enum import DataProvider
 from quantcore.data.resampler import TimeframeResampler
-
 
 # AlphaVantage interval strings for intraday endpoints
 _AV_INTRADAY_INTERVALS = {
@@ -45,8 +43,8 @@ _SUPPORTED_TIMEFRAMES = {*_AV_INTRADAY_INTERVALS, Timeframe.H4, Timeframe.D1, Ti
 
 def _filter_by_date(
     df: pd.DataFrame,
-    start_date: Optional[datetime],
-    end_date: Optional[datetime],
+    start_date: datetime | None,
+    end_date: datetime | None,
 ) -> pd.DataFrame:
     if df.empty:
         return df
@@ -69,7 +67,7 @@ class AlphaVantageAdapter(AssetClassAdapter):
                  env var if not provided.
     """
 
-    def __init__(self, api_key: Optional[str] = None) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         self._client = AlphaVantageClient(api_key=api_key)
         self._resampler = TimeframeResampler()
 
@@ -87,8 +85,8 @@ class AlphaVantageAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         """Fetch OHLCV bars from Alpha Vantage.
 
@@ -114,7 +112,7 @@ class AlphaVantageAdapter(AssetClassAdapter):
         df = _filter_by_date(df, start_date, end_date)
         return df.sort_index()
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         # Alpha Vantage does not expose a symbol list endpoint.
         return []
 

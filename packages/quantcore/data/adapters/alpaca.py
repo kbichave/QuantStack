@@ -21,8 +21,7 @@ S5                → not supported (Alpaca minimum granularity is 1 minute)
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import List, Optional
+from datetime import UTC, datetime
 
 import pandas as pd
 from loguru import logger
@@ -34,7 +33,6 @@ from quantcore.data.resampler import TimeframeResampler
 
 try:
     from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest
     from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
     _ALPACA_AVAILABLE = True
 except ImportError:
@@ -61,7 +59,7 @@ def _require_alpaca() -> None:
         )
 
 
-def _to_alpaca_tf(timeframe: Timeframe) -> "TimeFrame":
+def _to_alpaca_tf(timeframe: Timeframe) -> TimeFrame:
     amount, unit_name = _ALPACA_NATIVE[timeframe]
     unit = getattr(TimeFrameUnit, unit_name)
     return TimeFrame(amount, unit)
@@ -110,8 +108,8 @@ class AlpacaAdapter(AssetClassAdapter):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        secret_key: Optional[str] = None,
+        api_key: str | None = None,
+        secret_key: str | None = None,
         paper: bool = True,
     ) -> None:
         _require_alpaca()
@@ -139,8 +137,8 @@ class AlpacaAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> pd.DataFrame:
         """Fetch OHLCV bars from Alpaca.
 
@@ -171,7 +169,7 @@ class AlpacaAdapter(AssetClassAdapter):
 
         return df.sort_index()
 
-    def get_available_symbols(self) -> List[str]:
+    def get_available_symbols(self) -> list[str]:
         # Alpaca supports thousands of US equities; returning the full list
         # is expensive.  Callers should query the assets endpoint directly
         # if they need a complete universe.
@@ -183,8 +181,8 @@ class AlpacaAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime],
-        end_date: Optional[datetime],
+        start_date: datetime | None,
+        end_date: datetime | None,
     ) -> pd.DataFrame:
         if timeframe == Timeframe.H4:
             df_1h = self._fetch_native(symbol, Timeframe.H1, start_date, end_date)
@@ -200,16 +198,16 @@ class AlpacaAdapter(AssetClassAdapter):
         self,
         symbol: str,
         timeframe: Timeframe,
-        start_date: Optional[datetime],
-        end_date: Optional[datetime],
+        start_date: datetime | None,
+        end_date: datetime | None,
     ) -> pd.DataFrame:
         from alpaca.data.requests import StockBarsRequest
 
         # Alpaca requires timezone-aware datetimes
-        def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+        def _as_utc(dt: datetime | None) -> datetime | None:
             if dt is None:
                 return None
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
         request = StockBarsRequest(
             symbol_or_symbols=symbol,

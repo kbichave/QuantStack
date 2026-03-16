@@ -11,13 +11,11 @@ Indicators include:
 """
 
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
 
 import pandas as pd
 import requests
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from quantcore.config.settings import get_settings
 
@@ -26,8 +24,8 @@ class EconomicIndicator(BaseModel):
     """Configuration for an economic indicator."""
 
     function: str
-    interval: Optional[str] = None  # For indicators with interval param
-    maturity: Optional[str] = None  # For TREASURY_YIELD
+    interval: str | None = None  # For indicators with interval param
+    maturity: str | None = None  # For TREASURY_YIELD
     name: str  # Friendly name for database
     frequency: str  # daily, weekly, monthly, quarterly, annual
 
@@ -114,7 +112,7 @@ class EconomicFetcher:
         ),
     ]
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         """Initialize economic fetcher.
 
         Args:
@@ -127,7 +125,7 @@ class EconomicFetcher:
 
     def fetch_indicator(
         self, indicator: EconomicIndicator
-    ) -> Optional[pd.DataFrame]:
+    ) -> pd.DataFrame | None:
         """Fetch a single economic indicator.
 
         Args:
@@ -194,8 +192,8 @@ class EconomicFetcher:
             return None
 
     def _parse_response(
-        self, data: Dict, indicator: EconomicIndicator
-    ) -> Optional[pd.DataFrame]:
+        self, data: dict, indicator: EconomicIndicator
+    ) -> pd.DataFrame | None:
         """Parse API response into DataFrame.
 
         Args:
@@ -270,8 +268,8 @@ class EconomicFetcher:
         return None
 
     def fetch_all_indicators(
-        self, indicators: Optional[List[EconomicIndicator]] = None
-    ) -> Dict[str, pd.DataFrame]:
+        self, indicators: list[EconomicIndicator] | None = None
+    ) -> dict[str, pd.DataFrame]:
         """Fetch all economic indicators.
 
         Args:
@@ -303,9 +301,9 @@ class EconomicFetcher:
 
     def update_indicators(
         self,
-        existing_data: Dict[str, pd.DataFrame],
-        indicators: Optional[List[EconomicIndicator]] = None,
-    ) -> Dict[str, pd.DataFrame]:
+        existing_data: dict[str, pd.DataFrame],
+        indicators: list[EconomicIndicator] | None = None,
+    ) -> dict[str, pd.DataFrame]:
         """Update existing indicator data with latest values.
 
         Args:

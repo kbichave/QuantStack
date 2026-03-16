@@ -17,11 +17,9 @@ from unittest.mock import MagicMock, patch
 
 import duckdb
 import pytest
-
 from quant_pod.db import (
     _connect_with_lock_guard,
     _is_process_alive,
-    open_db,
     open_db_readonly,
     reset_connection,
     reset_connection_readonly,
@@ -123,10 +121,6 @@ class TestConnectWithLockGuard:
         def always_lock(_path, **_kw):
             raise _lock_exc(dead_pid)
 
-        import time as _time
-
-        # Make monotonic always return a value past the deadline on first check
-        original_monotonic = _time.monotonic
         with (
             patch("quant_pod.db.duckdb.connect", side_effect=always_lock),
             patch("quant_pod.db._is_process_alive", return_value=False),
@@ -194,8 +188,8 @@ class TestOpenDbReadonly:
         result = ro_conn.execute("SELECT COUNT(*) FROM foo").fetchone()
         assert result is not None
 
-        # Writes must fail
-        with pytest.raises(Exception):
+        # Writes must fail — DuckDB raises an error on read-only connections
+        with pytest.raises(duckdb.Error):
             ro_conn.execute("INSERT INTO foo VALUES (1)")
 
     def test_memory_path_returns_writable_connection(self):

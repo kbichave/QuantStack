@@ -46,7 +46,6 @@ from pydantic import BaseModel
 
 from quant_pod.audit.decision_log import (
     extract_indicator_attributions,
-    get_decision_log,
     get_decision_log_readonly,
 )
 from quant_pod.audit.models import AuditQuery

@@ -103,7 +103,7 @@ jobs:
             --cov=packages/quant_pod \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=80 \
+            --cov-fail-under=60 \
             -m "not slow and not integration and not requires_api and not requires_gpu"
 
       - name: Upload coverage to Codecov

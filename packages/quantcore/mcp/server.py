@@ -469,7 +469,7 @@ async def compute_all_features(
         )
 
         # Compute features
-        result_df = factory.compute_single_timeframe(df, tf)
+        result_df = factory.compute_all_timeframes({tf: df})[tf]
 
         return {
             "symbol": symbol,
@@ -662,7 +662,7 @@ async def run_backtest(
 
         # Compute features for signal generation
         factory = MultiTimeframeFeatureFactory(include_rrg=False)
-        features_df = factory.compute_single_timeframe(df, tf)
+        features_df = factory.compute_all_timeframes({tf: df})[tf]
 
         # Generate signals based on strategy
         signals_df = _generate_strategy_signals(
@@ -979,7 +979,7 @@ async def compute_alpha_decay(
 
         # Compute features
         factory = MultiTimeframeFeatureFactory(include_rrg=False)
-        features_df = factory.compute_single_timeframe(df, tf)
+        features_df = factory.compute_all_timeframes({tf: df})[tf]
 
         # Get signal and returns
         if signal_column not in features_df.columns:
@@ -1074,7 +1074,7 @@ async def compute_information_coefficient(
 
         # Compute features
         factory = MultiTimeframeFeatureFactory(include_rrg=False)
-        features_df = factory.compute_single_timeframe(df, tf)
+        features_df = factory.compute_all_timeframes({tf: df})[tf]
 
         # Get signal
         if signal_column not in features_df.columns:
@@ -1175,7 +1175,7 @@ async def run_monte_carlo(
 
         # Compute features for spread/zscore
         factory = MultiTimeframeFeatureFactory(include_rrg=False)
-        features_df = factory.compute_single_timeframe(df, tf)
+        features_df = factory.compute_all_timeframes({tf: df})[tf]
 
         # Add spread_zscore column (use close z-score as proxy)
         if "close_zscore_20" in features_df.columns:
@@ -1741,7 +1741,7 @@ async def get_symbol_snapshot(
             include_waves=False,
             include_technical_indicators=True,
         )
-        features = factory.compute_single_timeframe(df, tf)
+        features = factory.compute_all_timeframes({tf: df})[tf]
         latest_features = features.iloc[-1]
 
         # Extract key metrics
@@ -1847,7 +1847,9 @@ async def get_market_regime_snapshot(
 
         # Compute features
         factory = MultiTimeframeFeatureFactory(include_rrg=False)
-        features = factory.compute_single_timeframe(df, _parse_timeframe("daily"))
+        features = factory.compute_all_timeframes({_parse_timeframe("daily"): df})[
+            _parse_timeframe("daily")
+        ]
 
         # Classify regime
         classifier = WeeklyRegimeClassifier()
@@ -2324,7 +2326,7 @@ async def compute_feature_matrix(
             include_gann_features=include_all,
         )
 
-        features = factory.compute_single_timeframe(df, tf)
+        features = factory.compute_all_timeframes({tf: df})[tf]
 
         # Get latest row as dict
         latest = features.iloc[-1].to_dict()

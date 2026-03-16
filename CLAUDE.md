@@ -58,7 +58,7 @@ and improve your own configuration over time.
 
 ### TradingCrew Composition (`packages/quant_pod/crews/trading_crew.py`)
 
-**Layer 1 — ICs (10 agents, GPT-4o, async):**
+**Layer 1 — ICs (10 agents, llama-3.1-8b-instant via Groq, async):**
 | IC | Pod | Role |
 |----|-----|------|
 | `data_ingestion_ic` | data | Fetch OHLCV data |
@@ -202,76 +202,60 @@ all model strings follow the `provider/model_id` format.
 4. ProviderConfigError if all fail
 ```
 
-### Always Loaded (Ollama — M3 Max 128GB)
+### Primary (Groq — Free Tier)
 
-| Model | Role | RAM | Speed |
-|-------|------|-----|-------|
-| `qwen3.5:9b` | All agents: ICs (10), Pods (5), Assistant (1), Decoder ICs (4) | ~6 GB | ~50 tok/s |
+| Model | Role | Free tier limits |
+|-------|------|-----------------|
+| `llama-3.1-8b-instant` | ICs (10), Decoder ICs (4) — fast, focused narrow tasks | 20k TPM, 14.4k RPD |
+| `llama-3.3-70b-versatile` | Pods (5), Assistant (1), Workshop — synthesis + reasoning | 6k TPM, 1k RPD |
 
-Peak crew memory: ~16 GB of 128 GB (6 GB model + 10 GB KV cache for 10 parallel ICs).
-Single model simplifies ops — no model switching overhead between layers.
-`NUM_PARALLEL=10` handles all ICs simultaneously.
-Thinking mode disabled for all CrewAI agents (`think: false` via `extra_body`).
+Rate limit note: 10 parallel IC calls use `8b-instant` to stay well within free-tier TPM.
+If rate-limited on pods, add a small delay or switch to `llama-3.1-70b-versatile` (higher limits).
 
-### On Demand (Cloud)
+### On Demand (Cloud Fallback)
 
 | Provider | Model | Role |
 |----------|-------|------|
-| AWS Bedrock | Claude Sonnet 4 | `/workshop` deep reasoning, fallback |
-| OpenAI | GPT-4o | secondary fallback |
+| Anthropic | Claude Haiku/Sonnet | Fallback if Groq is down |
+| AWS Bedrock | Claude Sonnet 4 | Secondary fallback |
 
 ### Cost per Full Crew Run
 
 | Config | Cost | Notes |
 |--------|------|-------|
-| Local Ollama (current) | $0.00 | All ICs + pods local |
-| Bedrock fallback (Haiku ICs + Sonnet pods) | ~$0.02 | If Ollama down |
-| OpenAI GPT-4o (all) | ~$0.12 | Last resort fallback |
-| Workshop session (Bedrock Sonnet) | ~$0.02 | Deep hypothesis research |
-
-### Health Check
-
-Run `scripts/check_ollama_health.py` before any session.
-Both models must be loaded in memory. Script auto-preloads if pulled but not resident.
+| Groq free tier (current) | $0.00 | 8b ICs + 70b pods — within free limits |
+| Anthropic fallback | ~$0.02–0.05 | Haiku ICs + Sonnet pods |
+| Bedrock fallback | ~$0.02 | If Anthropic also down |
 
 ### Agent tiers and model assignment
 
-| Tier | Agents | Local model | Env override |
-|------|--------|-------------|-------------|
-| `ic` | `*_ic` | `ollama/qwen3.5:9b` | `LLM_MODEL_IC` |
-| `pod` | `*_pod_manager` | `ollama/qwen3.5:9b` | `LLM_MODEL_POD` |
-| `assistant` | `trading_assistant`, `super_trader` | `ollama/qwen3.5:9b` | `LLM_MODEL_ASSISTANT` |
-| `decoder` | decoder crew agents | `ollama/qwen3.5:9b` | `LLM_MODEL_DECODER` |
-| `workshop` | (not a CrewAI agent — use `get_llm_for_role("workshop")`) | bedrock | `LLM_MODEL_WORKSHOP` |
+| Tier | Agents | Model | Env override |
+|------|--------|-------|-------------|
+| `ic` | `*_ic` | `groq/llama-3.1-8b-instant` | `LLM_MODEL_IC` |
+| `pod` | `*_pod_manager` | `groq/llama-3.3-70b-versatile` | `LLM_MODEL_POD` |
+| `assistant` | `trading_assistant`, `super_trader` | `groq/llama-3.3-70b-versatile` | `LLM_MODEL_ASSISTANT` |
+| `decoder` | decoder crew agents | `groq/llama-3.1-8b-instant` | `LLM_MODEL_DECODER` |
+| `workshop` | (not a CrewAI agent — use `get_llm_for_role("workshop")`) | `groq/llama-3.3-70b-versatile` | `LLM_MODEL_WORKSHOP` |
 
 ### Key env vars
 
 ```bash
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3.5:35b-a3b
-LLM_FALLBACK_CHAIN=bedrock,openai
+LLM_PROVIDER=groq
+GROQ_API_KEY=<your key>
+GROQ_MODEL=llama-3.3-70b-versatile   # used by _model_groq() as default; prefix NOT included
+LLM_FALLBACK_CHAIN=anthropic,bedrock
 
 # Per-tier overrides (active in .env):
-LLM_MODEL_IC=ollama/qwen3.5:9b
-LLM_MODEL_POD=ollama/qwen3.5:35b-a3b
-LLM_MODEL_ASSISTANT=ollama/qwen3.5:35b-a3b
-LLM_MODEL_DECODER=ollama/qwen3.5:9b
-LLM_MODEL_WORKSHOP=bedrock/us.anthropic.claude-sonnet-4-20250514
+LLM_MODEL_IC=groq/llama-3.1-8b-instant
+LLM_MODEL_DECODER=groq/llama-3.1-8b-instant
+LLM_MODEL_POD=groq/llama-3.3-70b-versatile
+LLM_MODEL_ASSISTANT=groq/llama-3.3-70b-versatile
+LLM_MODEL_WORKSHOP=groq/llama-3.3-70b-versatile
 
 # Cloud fallback
+ANTHROPIC_API_KEY=<your key>
 BEDROCK_REGION=us-east-1
 BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514
-# AWS_PROFILE=DataScience.Admin-Analytics
-```
-
-### Ollama startup (launchd — required for concurrency)
-
-```bash
-launchctl setenv OLLAMA_KEEP_ALIVE -1       # models stay loaded permanently
-launchctl setenv OLLAMA_FLASH_ATTENTION 1   # Metal acceleration on Apple Silicon
-launchctl setenv OLLAMA_NUM_PARALLEL 10     # 10 parallel IC requests at once
-# Then restart Ollama
 ```
 
 ---

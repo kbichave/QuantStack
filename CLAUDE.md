@@ -202,40 +202,76 @@ all model strings follow the `provider/model_id` format.
 4. ProviderConfigError if all fail
 ```
 
-### Agent tiers and default Bedrock models
+### Always Loaded (Ollama — M3 Max 128GB)
 
-| Tier | Agents | Bedrock default |
-|------|--------|-----------------|
-| `ic` | `*_ic` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
-| `pod` | `*_pod_manager` | `us.anthropic.claude-sonnet-4-6` |
-| `assistant` | `trading_assistant`, `super_trader` | `us.anthropic.claude-sonnet-4-6` |
-| `decoder` | decoder crew agents | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| Model | Role | RAM | Active Params | Speed |
+|-------|------|-----|---------------|-------|
+| `qwen3.5:9b` | ICs (10), Decoder ICs (4) | ~6 GB | 9B dense | ~50 tok/s |
+| `qwen3.5:35b-a3b` | Pods (5), Assistant (1) | ~20 GB | 3B MoE | ~35 tok/s |
 
-### Cost presets (est. per full crew run)
+Peak crew memory: ~36 GB of 128 GB — no swap risk.
+`NUM_PARALLEL=10` handles all ICs hitting qwen3.5:9b simultaneously.
+Thinking mode disabled for all CrewAI agents (`think: false` via `extra_body`).
 
-| Setup | Config | Est. cost |
-|-------|--------|-----------|
-| Budget | `LLM_MODEL_IC=groq/llama-3.3-70b-versatile` + Gemini pods | ~$0.005 |
-| Balanced | Gemini ICs + Bedrock Sonnet pods | ~$0.02 |
-| Default | Haiku ICs + Sonnet pods (Bedrock) | ~$0.03 |
-| Premium | Haiku ICs + Sonnet pods + Opus assistant | ~$0.08 |
+### On Demand (Cloud)
+
+| Provider | Model | Role |
+|----------|-------|------|
+| AWS Bedrock | Claude Sonnet 4 | `/workshop` deep reasoning, fallback |
+| OpenAI | GPT-4o | secondary fallback |
+
+### Cost per Full Crew Run
+
+| Config | Cost | Notes |
+|--------|------|-------|
+| Local Ollama (current) | $0.00 | All ICs + pods local |
+| Bedrock fallback (Haiku ICs + Sonnet pods) | ~$0.02 | If Ollama down |
+| OpenAI GPT-4o (all) | ~$0.12 | Last resort fallback |
+| Workshop session (Bedrock Sonnet) | ~$0.02 | Deep hypothesis research |
+
+### Health Check
+
+Run `scripts/check_ollama_health.py` before any session.
+Both models must be loaded in memory. Script auto-preloads if pulled but not resident.
+
+### Agent tiers and model assignment
+
+| Tier | Agents | Local model | Env override |
+|------|--------|-------------|-------------|
+| `ic` | `*_ic` | `ollama/qwen3.5:9b` | `LLM_MODEL_IC` |
+| `pod` | `*_pod_manager` | `ollama/qwen3.5:35b-a3b` | `LLM_MODEL_POD` |
+| `assistant` | `trading_assistant`, `super_trader` | `ollama/qwen3.5:35b-a3b` | `LLM_MODEL_ASSISTANT` |
+| `decoder` | decoder crew agents | `ollama/qwen3.5:9b` | `LLM_MODEL_DECODER` |
+| `workshop` | (not a CrewAI agent — use `get_llm_for_role("workshop")`) | bedrock | `LLM_MODEL_WORKSHOP` |
 
 ### Key env vars
 
 ```bash
-LLM_PROVIDER=bedrock
-LLM_FALLBACK_CHAIN=anthropic,openai
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3.5:35b-a3b
+LLM_FALLBACK_CHAIN=bedrock,openai
 
-# Bedrock
+# Per-tier overrides (active in .env):
+LLM_MODEL_IC=ollama/qwen3.5:9b
+LLM_MODEL_POD=ollama/qwen3.5:35b-a3b
+LLM_MODEL_ASSISTANT=ollama/qwen3.5:35b-a3b
+LLM_MODEL_DECODER=ollama/qwen3.5:9b
+LLM_MODEL_WORKSHOP=bedrock/us.anthropic.claude-sonnet-4-20250514
+
+# Cloud fallback
 BEDROCK_REGION=us-east-1
-BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514
 # AWS_PROFILE=DataScience.Admin-Analytics
+```
 
-# Per-tier overrides (any LiteLLM model string, take precedence over everything):
-# LLM_MODEL_IC=bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
-# LLM_MODEL_POD=bedrock/us.anthropic.claude-sonnet-4-6
-# LLM_MODEL_ASSISTANT=bedrock/us.anthropic.claude-opus-4-6-v1
-# LLM_MODEL_DECODER=gemini/gemini-2.5-flash
+### Ollama startup (launchd — required for concurrency)
+
+```bash
+launchctl setenv OLLAMA_KEEP_ALIVE -1       # models stay loaded permanently
+launchctl setenv OLLAMA_FLASH_ATTENTION 1   # Metal acceleration on Apple Silicon
+launchctl setenv OLLAMA_NUM_PARALLEL 10     # 10 parallel IC requests at once
+# Then restart Ollama
 ```
 
 ---

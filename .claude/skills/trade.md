@@ -12,8 +12,11 @@ and (when execution is enabled) place trades.
 
 ## Workflow
 
-### Step 0: Read Context
-Before any tool calls, load your persistent memory:
+### Step 0: Read Context + Model Health Check
+Before any tool calls:
+- Run `python scripts/check_ollama_health.py` — abort if models not loaded.
+  Both qwen3.5:9b and qwen3.5:35b-a3b must be resident in memory before crew runs.
+  If health check fails: do not proceed. Report the error and stop.
 - Read `.claude/memory/trade_journal.md` — last 5 trades for patterns
 - Read `.claude/memory/regime_history.md` — is regime transitioning?
 - Read `.claude/memory/session_handoffs.md` — relevant handoffs from other sessions?

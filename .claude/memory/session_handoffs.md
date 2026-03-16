@@ -8,6 +8,30 @@
 
 | Date | From Session | To Session | Key Context |
 |------|-------------|------------|-------------|
+| 2026-03-15 | config | all | Local Ollama set as primary LLM provider. See self-modification log below. |
+
+---
+
+## Self-Modification Log
+
+### 2026-03-15 — Local Ollama setup (M3 Max 128GB)
+
+**Files modified:**
+- `packages/quant_pod/llm_config.py` — Added `workshop` tier, tier-aware `_model_ollama`, `_build_ollama_llm` helper (injects `api_base` + `extra_body={"think": False}`), `get_llm_for_role()` public function. `get_llm_for_agent` now returns `crewai.LLM` object for Ollama models instead of plain string.
+- `.env` — Switched `LLM_PROVIDER=ollama`. Set per-tier overrides: IC/decoder → qwen3.5:9b, pod/assistant → qwen3.5:35b-a3b. Workshop → bedrock/claude-sonnet-4. Fallback chain: bedrock,openai.
+- `.env.example` — Added Ollama section with comments.
+- `scripts/check_ollama_health.py` — New script (stdlib only). Checks server reachability, pulled models, loaded models, auto-preloads if needed. Exit 0 = healthy.
+- `.claude/skills/trade.md` — Step 0 now runs health check first; abort if models not loaded.
+- `.claude/skills/workshop.md` — Step 0 now runs health check + AWS credential verify.
+- `CLAUDE.md` — LLM Configuration section replaced with local model tables, cost breakdown, health check instructions, launchd startup config.
+
+**Why:** M3 Max has 128GB unified memory. Two models (~36GB peak total) run permanently at 0 cost vs ~$0.03/crew run on Bedrock. NUM_PARALLEL=10 enables all 10 ICs to hit qwen3.5:9b simultaneously. Thinking mode disabled for agents via `extra_body={"think": False}` — saves tokens/latency with no quality loss for focused IC work. Workshop sessions keep Bedrock Sonnet for deep reasoning quality.
+
+**Still needed (manual steps — Ollama not running at time of config):**
+1. `ollama serve` or start Ollama app
+2. `ollama pull qwen3.5:9b` and `ollama pull qwen3.5:35b-a3b`
+3. Set launchd env vars: KEEP_ALIVE=-1, FLASH_ATTENTION=1, NUM_PARALLEL=10, then restart Ollama
+4. Run `python scripts/check_ollama_health.py` to verify
 (empty)
 
 ## Self-Modification Log

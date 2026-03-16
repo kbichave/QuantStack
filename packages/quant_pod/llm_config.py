@@ -40,22 +40,33 @@ Cost-tier defaults (Bedrock)
     Pod managers → Sonnet 4.6  (synthesis requires stronger reasoning)
     Assistant    → Sonnet 4.6  (final synthesis for SuperTrader input)
     Decoder ICs  → Haiku 4.5   (same as IC tier)
+    Workshop     → Sonnet 4.6  (cloud model for deep strategy research)
 
 Override any tier via env:
     LLM_MODEL_IC=groq/llama-3.3-70b-versatile
     LLM_MODEL_POD=bedrock/us.anthropic.claude-sonnet-4-6
     LLM_MODEL_ASSISTANT=anthropic/claude-sonnet-4-20250514
     LLM_MODEL_DECODER=gemini/gemini-2.5-flash
+    LLM_MODEL_WORKSHOP=bedrock/us.anthropic.claude-sonnet-4-20250514
+
+Ollama / thinking-mode note
+----------------------------
+When the resolved model is an Ollama model (ollama/...), this module
+automatically returns a crewai.LLM object (not a plain string) so it can
+inject:
+    - api_base: OLLAMA_BASE_URL (required for LiteLLM to reach local server)
+    - extra_body: {"think": False} — disables Qwen 3.5 extended-thinking mode
+      for IC and pod agents (saves tokens/latency). Does NOT apply to the
+      LLM_MODEL_WORKSHOP tier (cloud model used there anyway).
 """
 
 from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import List, Optional
+from typing import Any
 
 from loguru import logger
-
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -78,13 +89,18 @@ _TIER_ENV_OVERRIDE = {
     "pod":       "LLM_MODEL_POD",
     "assistant": "LLM_MODEL_ASSISTANT",
     "decoder":   "LLM_MODEL_DECODER",
+    # Workshop is not a CrewAI agent tier — it is resolved via get_llm_for_role("workshop")
+    # by the /workshop skill for deep strategy research (always routes to cloud model).
+    "workshop":  "LLM_MODEL_WORKSHOP",
 }
 
 
 def _classify_tier(agent_name: str) -> str:
-    """Return one of: "ic", "pod", "assistant", "decoder"."""
+    """Return one of: "ic", "pod", "assistant", "decoder", "workshop"."""
     if agent_name in _SYNTHESIS_AGENTS:
         return "assistant"
+    if "workshop" in agent_name:
+        return "workshop"
     if "decoder" in agent_name:
         return "decoder"
     if agent_name.endswith("_pod_manager"):
@@ -283,9 +299,15 @@ def _model_mistral(_tier: str) -> str:
     return f"mistral/{model}"
 
 
-def _model_ollama(_tier: str) -> str:
-    model = os.getenv("OLLAMA_MODEL", "llama3.3:70b")
-    return f"ollama/{model}"
+def _model_ollama(tier: str) -> str:
+    # Tier-aware model selection for the two always-loaded models.
+    # ICs and Decoder: fast 9B dense model (10 parallel requests during crew run).
+    # Pods, Assistant, Workshop fallback: MoE 35B model (3B active params, ~35 tok/s).
+    # LLM_MODEL_OLLAMA_IC / LLM_MODEL_OLLAMA_POD env vars allow per-tier override
+    # without changing LLM_PROVIDER away from ollama.
+    if tier in ("ic", "decoder"):
+        return f"ollama/{os.getenv('OLLAMA_IC_MODEL', 'qwen3.5:9b')}"
+    return f"ollama/{os.getenv('OLLAMA_MODEL', 'qwen3.5:35b-a3b')}"
 
 
 def _model_custom_openai(_tier: str) -> str:
@@ -319,7 +341,7 @@ _MODEL_BUILDERS = {
 # ---------------------------------------------------------------------------
 
 
-def _fallback_chain() -> List[str]:
+def _fallback_chain() -> list[str]:
     """Parse LLM_FALLBACK_CHAIN into a list of provider names."""
     raw = os.getenv("LLM_FALLBACK_CHAIN", "")
     return [p.strip() for p in raw.split(",") if p.strip()]
@@ -333,7 +355,7 @@ def _resolve_provider(tier: str) -> str:
     """
     primary = os.getenv("LLM_PROVIDER", "bedrock").lower()
     chain = [primary] + _fallback_chain()
-    tried: List[str] = []
+    tried: list[str] = []
 
     for provider in chain:
         if provider in tried:
@@ -361,20 +383,63 @@ def _resolve_provider(tier: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Ollama LLM object builder
+# ---------------------------------------------------------------------------
+
+
+def _is_ollama_model(model_str: str) -> bool:
+    return model_str.startswith("ollama/")
+
+
+def _build_ollama_llm(model_str: str, disable_thinking: bool = True) -> Any:
+    """
+    Return a crewai.LLM object pre-configured for a local Ollama model.
+
+    This is necessary (not just a model string) for two reasons:
+    1. api_base must be passed so LiteLLM routes to the local server rather
+       than a hardcoded default.
+    2. extra_body={"think": False} disables Qwen 3.5 extended-thinking mode,
+       which wastes tokens and adds latency for focused IC/pod work.
+
+    The crewai.LLM object is accepted anywhere a model string is accepted
+    in Agent(llm=...) calls.
+    """
+    try:
+        from crewai import LLM
+    except ImportError:
+        # crewai not installed (test env) — fall back to plain string
+        logger.warning("[llm_config] crewai not importable, returning plain Ollama model string")
+        return model_str
+
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    kwargs: dict = {"api_base": base_url}
+    if disable_thinking:
+        # Qwen 3.5 interprets "think": false in the request body to skip
+        # the <think>...</think> reasoning block before the response.
+        kwargs["extra_body"] = {"think": False}
+
+    return LLM(model=model_str, **kwargs)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-def get_llm_for_agent(agent_name: str) -> str:
+def get_llm_for_agent(agent_name: str) -> Any:
     """
-    Resolve the LiteLLM model string for a given agent.
+    Resolve the LLM for a given agent.
+
+    For non-Ollama providers, returns a LiteLLM model string (str).
+    For Ollama providers, returns a crewai.LLM object with api_base and
+    think=False pre-configured. Both are accepted by Agent(llm=...).
 
     Args:
         agent_name: Agent identifier matching JSON config filename
                     (e.g., "data_ingestion_ic", "trading_assistant")
 
     Returns:
-        LiteLLM model string ready for CrewAI Agent(llm=...).
+        LiteLLM model string or crewai.LLM object for CrewAI Agent(llm=...).
 
     Raises:
         ProviderConfigError: If no provider in the chain has valid credentials.
@@ -385,9 +450,47 @@ def get_llm_for_agent(agent_name: str) -> str:
     override = os.getenv(_TIER_ENV_OVERRIDE[tier])
     if override:
         logger.debug(f"[llm_config] {agent_name} ({tier}): env override → {override}")
+        if _is_ollama_model(override):
+            return _build_ollama_llm(override)
         return override
 
-    return _resolve_provider(tier)
+    model = _resolve_provider(tier)
+    if _is_ollama_model(model):
+        return _build_ollama_llm(model)
+    return model
+
+
+def get_llm_for_role(role: str) -> Any:
+    """
+    Resolve the LLM for a named role without requiring an agent name.
+
+    Used by skills (e.g., /workshop) that need explicit model routing
+    outside of a CrewAI agent context.
+
+    Args:
+        role: One of "ic", "pod", "assistant", "decoder", "workshop"
+
+    Returns:
+        LiteLLM model string or crewai.LLM object.
+
+    Raises:
+        ProviderConfigError: If no provider in the chain has valid credentials.
+        ValueError: If role is not a known tier.
+    """
+    if role not in _TIER_ENV_OVERRIDE:
+        raise ValueError(f"Unknown role '{role}'. Valid roles: {list(_TIER_ENV_OVERRIDE)}")
+
+    override = os.getenv(_TIER_ENV_OVERRIDE[role])
+    if override:
+        logger.debug(f"[llm_config] role '{role}': env override → {override}")
+        if _is_ollama_model(override):
+            return _build_ollama_llm(override)
+        return override
+
+    model = _resolve_provider(role)
+    if _is_ollama_model(model):
+        return _build_ollama_llm(model)
+    return model
 
 
 def log_llm_config_summary() -> None:
@@ -409,6 +512,7 @@ def log_llm_config_summary() -> None:
         ("data_ingestion_ic",    "ic"),
         ("risk_pod_manager",     "pod"),
         ("trading_assistant",    "assistant"),
+        ("decoder_ic",           "decoder"),
     ]:
         try:
             model = get_llm_for_agent(agent_name)
@@ -417,4 +521,4 @@ def log_llm_config_summary() -> None:
             logger.error(f"[llm_config]   {tier:10s} → ERROR: {exc}")
 
 
-__all__ = ["get_llm_for_agent", "log_llm_config_summary", "ProviderConfigError"]
+__all__ = ["get_llm_for_agent", "get_llm_for_role", "log_llm_config_summary", "ProviderConfigError"]

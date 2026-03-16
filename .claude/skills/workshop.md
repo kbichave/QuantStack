@@ -14,8 +14,14 @@ through the same lifecycle: hypothesis → backtest → walk-forward → registe
 
 ## Workflow
 
-### Step 0: Read Context
-Before any tool calls, load your persistent memory:
+### Step 0: Read Context + Infrastructure Check
+Before any tool calls:
+- Run `python scripts/check_ollama_health.py` — abort if models not loaded.
+  The trading crew used in backtesting depends on local models being resident.
+- Verify AWS credentials for Bedrock (used for deep workshop reasoning):
+  `aws sts get-caller-identity` — confirm it returns an ARN without error.
+  If credentials are expired, deep hypothesis reasoning will fall back to
+  Ollama (weaker). Note this in the session if degraded mode is active.
 - Read `.claude/memory/workshop_lessons.md` — don't repeat failed hypotheses
 - Read `.claude/memory/strategy_registry.md` — what strategies exist, what gaps remain
 - Read `.claude/memory/regime_history.md` — what's the current regime?

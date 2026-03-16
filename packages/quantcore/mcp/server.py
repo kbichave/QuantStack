@@ -117,6 +117,18 @@ mcp = FastMCP(
 def _parse_timeframe(tf_str: str) -> Timeframe:
     """Parse timeframe string to Timeframe enum."""
     tf_map = {
+        "1m": Timeframe.M1,
+        "m1": Timeframe.M1,
+        "1min": Timeframe.M1,
+        "5m": Timeframe.M5,
+        "m5": Timeframe.M5,
+        "5min": Timeframe.M5,
+        "15m": Timeframe.M15,
+        "m15": Timeframe.M15,
+        "15min": Timeframe.M15,
+        "30m": Timeframe.M30,
+        "m30": Timeframe.M30,
+        "30min": Timeframe.M30,
         "1h": Timeframe.H1,
         "h1": Timeframe.H1,
         "hourly": Timeframe.H1,

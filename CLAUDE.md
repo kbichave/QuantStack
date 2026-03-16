@@ -204,13 +204,13 @@ all model strings follow the `provider/model_id` format.
 
 ### Always Loaded (Ollama — M3 Max 128GB)
 
-| Model | Role | RAM | Active Params | Speed |
-|-------|------|-----|---------------|-------|
-| `qwen3.5:9b` | ICs (10), Decoder ICs (4) | ~6 GB | 9B dense | ~50 tok/s |
-| `qwen3.5:35b-a3b` | Pods (5), Assistant (1) | ~20 GB | 3B MoE | ~35 tok/s |
+| Model | Role | RAM | Speed |
+|-------|------|-----|-------|
+| `qwen3.5:9b` | All agents: ICs (10), Pods (5), Assistant (1), Decoder ICs (4) | ~6 GB | ~50 tok/s |
 
-Peak crew memory: ~36 GB of 128 GB — no swap risk.
-`NUM_PARALLEL=10` handles all ICs hitting qwen3.5:9b simultaneously.
+Peak crew memory: ~16 GB of 128 GB (6 GB model + 10 GB KV cache for 10 parallel ICs).
+Single model simplifies ops — no model switching overhead between layers.
+`NUM_PARALLEL=10` handles all ICs simultaneously.
 Thinking mode disabled for all CrewAI agents (`think: false` via `extra_body`).
 
 ### On Demand (Cloud)
@@ -239,8 +239,8 @@ Both models must be loaded in memory. Script auto-preloads if pulled but not res
 | Tier | Agents | Local model | Env override |
 |------|--------|-------------|-------------|
 | `ic` | `*_ic` | `ollama/qwen3.5:9b` | `LLM_MODEL_IC` |
-| `pod` | `*_pod_manager` | `ollama/qwen3.5:35b-a3b` | `LLM_MODEL_POD` |
-| `assistant` | `trading_assistant`, `super_trader` | `ollama/qwen3.5:35b-a3b` | `LLM_MODEL_ASSISTANT` |
+| `pod` | `*_pod_manager` | `ollama/qwen3.5:9b` | `LLM_MODEL_POD` |
+| `assistant` | `trading_assistant`, `super_trader` | `ollama/qwen3.5:9b` | `LLM_MODEL_ASSISTANT` |
 | `decoder` | decoder crew agents | `ollama/qwen3.5:9b` | `LLM_MODEL_DECODER` |
 | `workshop` | (not a CrewAI agent — use `get_llm_for_role("workshop")`) | bedrock | `LLM_MODEL_WORKSHOP` |
 

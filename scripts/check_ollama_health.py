@@ -30,7 +30,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-REQUIRED_MODELS = ["qwen3.5:9b", "qwen3.5:35b-a3b"]
+REQUIRED_MODELS = ["qwen3.5:9b"]
 BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 PRELOAD_TIMEOUT = 180  # seconds; 35b model can take ~30s to load cold
 

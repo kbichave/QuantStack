@@ -33,12 +33,12 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quant_pod.mcp.server as srv
+    import quant_pod.mcp._state as _mcp_state
 
-    original = srv._ctx
-    srv._ctx = ctx
+    original = _mcp_state._ctx
+    _mcp_state._ctx = ctx
     yield ctx
-    srv._ctx = original
+    _mcp_state._ctx = original
 
 
 @pytest.fixture

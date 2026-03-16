@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Tests for DuckDB lock-guard logic in packages/quant_pod/db.py.
+Tests for DuckDB lock-guard logic.
 
-All file-backed tests use pytest's tmp_path fixture — no test touches
-~/.quant_pod/trader.duckdb.  Tests that exercise _connect_with_lock_guard
-mock duckdb.connect and _is_process_alive so they run instantly without
-spawning real competing processes.
+Lock-guard implementation lives in ``shared.duckdb_lock`` and is used by
+``quant_pod.db`` via an aliased import.  Tests that exercise the guard
+mock ``duckdb.connect`` and ``shared.duckdb_lock.pid_is_alive`` so they
+run instantly without spawning real competing processes.
 """
 
 from __future__ import annotations
@@ -18,15 +18,17 @@ from unittest.mock import MagicMock, patch
 import duckdb
 import pytest
 from quant_pod.db import (
-    _connect_with_lock_guard,
-    _is_process_alive,
     open_db_readonly,
     reset_connection,
     reset_connection_readonly,
 )
+from shared.duckdb_lock import (
+    connect_with_lock_guard,
+    pid_is_alive,
+)
 
 # ---------------------------------------------------------------------------
-# _is_process_alive
+# pid_is_alive
 # ---------------------------------------------------------------------------
 
 
@@ -35,24 +37,24 @@ class TestIsProcessAlive:
         """The current process must always be alive."""
         import os
 
-        assert _is_process_alive(os.getpid()) is True
+        assert pid_is_alive(os.getpid()) is True
 
     def test_dead_pid_returns_false(self):
         """After a process exits, its PID should not be alive."""
         proc = subprocess.Popen(["true"])
         proc.wait()
-        assert not _is_process_alive(proc.pid)
+        assert not pid_is_alive(proc.pid)
 
     def test_permission_error_treated_as_alive(self):
         """PermissionError from os.kill means the process exists (owned by another user)."""
         import os
 
         with patch.object(os, "kill", side_effect=PermissionError):
-            assert _is_process_alive(99999) is True
+            assert pid_is_alive(99999) is True
 
 
 # ---------------------------------------------------------------------------
-# _connect_with_lock_guard
+# connect_with_lock_guard
 # ---------------------------------------------------------------------------
 
 
@@ -68,7 +70,7 @@ class TestConnectWithLockGuard:
     def test_opens_clean_db(self, tmp_path):
         """No lock conflict → returns a valid DuckDB connection."""
         path = str(tmp_path / "test.duckdb")
-        conn = _connect_with_lock_guard(path)
+        conn = connect_with_lock_guard(path)
         assert conn is not None
         conn.close()
 
@@ -86,10 +88,10 @@ class TestConnectWithLockGuard:
         ]
 
         with (
-            patch("quant_pod.db.duckdb.connect", side_effect=side_effects) as mock_connect,
-            patch("quant_pod.db._is_process_alive", return_value=False),
+            patch("shared.duckdb_lock.duckdb.connect", side_effect=side_effects) as mock_connect,
+            patch("shared.duckdb_lock.pid_is_alive", return_value=False),
         ):
-            result = _connect_with_lock_guard("/fake/path.duckdb")
+            result = connect_with_lock_guard("/fake/path.duckdb")
 
         assert result is good_conn
         assert mock_connect.call_count == 3
@@ -103,11 +105,11 @@ class TestConnectWithLockGuard:
         exc = _lock_exc(live_pid)
 
         with (
-            patch("quant_pod.db.duckdb.connect", side_effect=exc) as mock_connect,
-            patch("quant_pod.db._is_process_alive", return_value=True),
+            patch("shared.duckdb_lock.duckdb.connect", side_effect=exc) as mock_connect,
+            patch("shared.duckdb_lock.pid_is_alive", return_value=True),
         ):
             with pytest.raises(RuntimeError, match=f"kill {live_pid}"):
-                _connect_with_lock_guard("/fake/path.duckdb")
+                connect_with_lock_guard("/fake/path.duckdb")
 
         assert mock_connect.call_count == 1
 
@@ -122,23 +124,23 @@ class TestConnectWithLockGuard:
             raise _lock_exc(dead_pid)
 
         with (
-            patch("quant_pod.db.duckdb.connect", side_effect=always_lock),
-            patch("quant_pod.db._is_process_alive", return_value=False),
+            patch("shared.duckdb_lock.duckdb.connect", side_effect=always_lock),
+            patch("shared.duckdb_lock.pid_is_alive", return_value=False),
             patch(
-                "quant_pod.db.time.monotonic",
+                "shared.duckdb_lock.time.monotonic",
                 side_effect=[0.0, 999.0],  # first call sets deadline, second is past it
             ),
         ):
             with pytest.raises(RuntimeError, match="Stale lock"):
-                _connect_with_lock_guard("/fake/path.duckdb")
+                connect_with_lock_guard("/fake/path.duckdb")
 
     def test_unrelated_ioexception_propagates(self):
         """Non-lock IOException (e.g. 'Disk full') must propagate unchanged."""
         exc = duckdb.IOException("IO Error: No space left on device")
 
-        with patch("quant_pod.db.duckdb.connect", side_effect=exc):
+        with patch("shared.duckdb_lock.duckdb.connect", side_effect=exc):
             with pytest.raises(duckdb.IOException, match="No space left"):
-                _connect_with_lock_guard("/fake/path.duckdb")
+                connect_with_lock_guard("/fake/path.duckdb")
 
     def test_no_pid_in_lock_message_propagates(self):
         """
@@ -147,9 +149,9 @@ class TestConnectWithLockGuard:
         """
         exc = duckdb.IOException("IO Error: Conflicting lock is held")
 
-        with patch("quant_pod.db.duckdb.connect", side_effect=exc):
+        with patch("shared.duckdb_lock.duckdb.connect", side_effect=exc):
             with pytest.raises(duckdb.IOException):
-                _connect_with_lock_guard("/fake/path.duckdb")
+                connect_with_lock_guard("/fake/path.duckdb")
 
 
 # ---------------------------------------------------------------------------

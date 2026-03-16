@@ -21,3 +21,4 @@ class DataProvider(str, Enum):
     ALPACA = "alpaca"
     POLYGON = "polygon"
     IBKR = "ibkr"
+    FINANCIAL_DATASETS = "financial_datasets"

@@ -15,12 +15,14 @@ if the package is not installed.  Install the matching extra:
 
 from quantcore.data.adapters.alpaca import AlpacaAdapter
 from quantcore.data.adapters.alphavantage import AlphaVantageAdapter
+from quantcore.data.adapters.financial_datasets import FinancialDatasetsAdapter
 from quantcore.data.adapters.ibkr import IBKRDataAdapter
 from quantcore.data.adapters.polygon_adapter import PolygonAdapter
 
 __all__ = [
     "AlphaVantageAdapter",
     "AlpacaAdapter",
-    "PolygonAdapter",
+    "FinancialDatasetsAdapter",
     "IBKRDataAdapter",
+    "PolygonAdapter",
 ]

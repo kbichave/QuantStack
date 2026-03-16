@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantcore"
-version = "0.2.0"
+version = "0.2.1"
 description = "Quantitative Trading Research Platform"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -67,6 +67,7 @@ dependencies = [
     "uvicorn[standard]>=0.27.0",
     "pyyaml>=6.0.0",
     "litellm>=1.82.2",
+    "httpx>=0.27.0",
 ]
 
 [project.optional-dependencies]
@@ -94,6 +95,9 @@ polygon = [
 ibkr = [
     "ib_insync>=0.9.86",
 ]
+financial-datasets = [
+    # httpx is a core dependency; this extra exists for consistency with other providers.
+]
 # LLM providers — install the one(s) you need
 bedrock = [
     "boto3>=1.34.0",
@@ -109,7 +113,7 @@ vertex-ai = [
 
 # Convenience bundles
 all-providers = [
-    "quantcore[alpaca,polygon,ibkr]",
+    "quantcore[alpaca,polygon,ibkr,financial-datasets]",
 ]
 all-llm = [
     "quantcore[bedrock,anthropic-llm,vertex-ai]",
@@ -224,11 +228,17 @@ omit = [
     "packages/quantcore/data/options_storage.py",
     "packages/quantcore/data/fetcher.py",
     "packages/quantcore/data/storage.py",
+    "packages/quantcore/data/_schema.py",
+    "packages/quantcore/data/_ohlcv.py",
+    "packages/quantcore/data/_options_news.py",
     "packages/quantcore/data/sec_edgar.py",
     "packages/quantcore/data/validator.py",
     "packages/quantcore/data/registry.py",
-    # MCP server (only exercised via MCP client in integration tests)
+    # MCP server + tool modules (only exercised via MCP client in integration tests)
     "packages/quantcore/mcp/server.py",
+    "packages/quantcore/mcp/_helpers.py",
+    "packages/quantcore/mcp/resources.py",
+    "packages/quantcore/mcp/tools/*",
     # GPU/RL modules — all agent/environment/training code requires GPU + training loops
     "packages/quantcore/rl/options/*",
     "packages/quantcore/rl/base.py",
@@ -285,6 +295,12 @@ omit = [
     "packages/quant_pod/tools/alphavantage_tools.py",
     "packages/quant_pod/memory/mem0_client.py",
     "packages/quant_pod/knowledge/store.py",
+    "packages/quant_pod/knowledge/_schema.py",
+    "packages/quant_pod/knowledge/_trades.py",
+    "packages/quant_pod/knowledge/_waves_regime.py",
+    "packages/quant_pod/knowledge/_messages.py",
+    "packages/quant_pod/knowledge/_performance.py",
+    "packages/quant_pod/knowledge/_learning.py",
     "packages/quant_pod/knowledge/policy_store.py",
     # Live WebSocket adapters
     "packages/quant_pod/data/adapters/*",
@@ -292,8 +308,10 @@ omit = [
     "packages/quant_pod/agents/microstructure_signal_agent.py",
     "packages/quant_pod/agents/portfolio_optimizer_agent.py",
     "packages/quant_pod/agents/regime_detector.py",
-    # MCP Pydantic models (only exercised via MCP integration tests)
+    # MCP server + tool modules (only exercised via MCP integration tests)
     "packages/quant_pod/mcp/models.py",
+    "packages/quant_pod/mcp/_state.py",
+    "packages/quant_pod/mcp/tools/*",
     # Runtime state/orchestration (require live session data)
     "packages/quant_pod/mtf_context.py",
     "packages/quant_pod/holding_period.py",

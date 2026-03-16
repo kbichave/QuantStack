@@ -79,6 +79,33 @@ class IBKRSettings(BaseSettings):
     timeout: int = Field(default=30, description="Connection timeout in seconds")
 
 
+class FinancialDatasetsSettings(BaseSettings):
+    """FinancialDatasets.ai API credentials and configuration.
+
+    Environment variables (prefix ``FINANCIAL_DATASETS_``):
+      FINANCIAL_DATASETS_API_KEY      — API key from financialdatasets.ai
+      FINANCIAL_DATASETS_BASE_URL     — API base URL (default: production)
+      FINANCIAL_DATASETS_RATE_LIMIT_RPM — requests per minute (Developer=1000)
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="FINANCIAL_DATASETS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    api_key: str = Field(default="", description="FinancialDatasets.ai API key")
+    base_url: str = Field(
+        default="https://api.financialdatasets.ai",
+        description="API base URL",
+    )
+    rate_limit_rpm: int = Field(
+        default=1000, description="Requests per minute (Developer=1000, Pro=unlimited)"
+    )
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables or .env file."""
 
@@ -95,6 +122,9 @@ class Settings(BaseSettings):
     alpaca: AlpacaSettings = Field(default_factory=AlpacaSettings)
     polygon: PolygonSettings = Field(default_factory=PolygonSettings)
     ibkr: IBKRSettings = Field(default_factory=IBKRSettings)
+    financial_datasets: FinancialDatasetsSettings = Field(
+        default_factory=FinancialDatasetsSettings
+    )
 
     # Provider priority: comma-separated list tried left-to-right.
     # Registry skips providers whose credentials are missing.

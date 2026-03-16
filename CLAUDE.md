@@ -122,7 +122,11 @@ currently tracking, so you don't have to re-read memory after every `run_analysi
 | `get_strategy` | Get full strategy details | `strategy_id?`, `name?` | `{strategy}` |
 | `update_strategy` | Update strategy fields | `strategy_id`, partial fields | updated record |
 | `run_backtest` | Backtest a strategy against price data | `strategy_id`, `symbol`, `start_date?`, `end_date?`, `initial_capital?`, etc. | `{sharpe_ratio, max_drawdown, win_rate, total_trades, profit_factor, calmar_ratio, ...}` |
+| `run_backtest_mtf` | Multi-timeframe backtest (setup_tf + trigger_tf) | `strategy_id`, `symbol`, `start_date?`, `end_date?`, `initial_capital?`, `position_size_pct?` | `{sharpe, win_rate, total_trades, profit_factor, max_drawdown, trades[]}` |
+| `run_backtest_options` | Options convexity backtest — BS-priced ATM calls/puts on equity signals | `strategy_id`, `symbol`, `option_type?`, `expiry_days?`, `tp_pct?`, `sl_pct?`, `time_stop_days?`, `iv_rank_max?` | `{sharpe, win_rate, avg_premium_return_pct, iv_crush_pct, equity_comparison, trades[]}` |
 | `run_walkforward` | Walk-forward validation with IS/OOS folds | `strategy_id`, `symbol`, `n_splits?`, `test_size?`, `min_train_size?` | `{fold_results, is_sharpe_mean, oos_sharpe_mean, overfit_ratio, oos_degradation_pct}` |
+| `run_walkforward_mtf` | Walk-forward for MTF strategies — uses run_backtest_mtf per fold | `strategy_id`, `symbol`, `n_splits?`, `test_size_days?`, `min_train_size_days?` | `{fold_results, is_sharpe_mean, oos_sharpe_mean, overfit_ratio, sparse_warning}` |
+| `walk_forward_sparse_signal` | Auto-adjusts OOS window to guarantee min trades per fold | `strategy_id`, `symbol`, `min_oos_trades?`, `n_splits?`, `max_test_size_pct?` | `{adjusted_test_size_bars, trades_per_bar, sparse_warning, fold_results, oos_sharpe_mean}` |
 
 ### Phase 3 — Execution (packages/quant_pod/mcp/server.py)
 

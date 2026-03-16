@@ -27,12 +27,13 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from dataclasses import asdict
-from datetime import datetime
 from typing import Any
 
 from fastmcp import FastMCP
 from loguru import logger
+
+from shared.mcp_toolkit import mcp_tool_response, mcp_tool_safe, require_resource
+from shared.serializers import serialize_for_json
 
 # ---------------------------------------------------------------------------
 # Server context
@@ -78,21 +79,7 @@ mcp = FastMCP("alpaca_mcp", lifespan=lifespan)
 
 
 def _require_broker() -> Any:
-    if _ctx.broker is None:
-        raise RuntimeError(
-            "Alpaca broker is not initialised. Check ALPACA_API_KEY / "
-            "ALPACA_SECRET_KEY environment variables."
-        )
-    return _ctx.broker
-
-
-def _dc_to_dict(obj) -> dict:
-    """Dataclass → JSON-safe dict (datetime fields → ISO strings)."""
-    d = asdict(obj)
-    for k, v in d.items():
-        if isinstance(v, datetime):
-            d[k] = v.isoformat()
-    return d
+    return require_resource(_ctx.broker, "Alpaca broker")
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +110,7 @@ def get_account() -> dict:
         accounts = broker.get_accounts()
         return {
             "success": True,
-            "accounts": [_dc_to_dict(a) for a in accounts],
+            "accounts": [serialize_for_json(a) for a in accounts],
         }
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -135,7 +122,7 @@ def get_balance() -> dict:
     try:
         broker = _require_broker()
         balance = broker.get_balance(_ctx.account_id)
-        return {"success": True, "balance": _dc_to_dict(balance)}
+        return {"success": True, "balance": serialize_for_json(balance)}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 
@@ -148,7 +135,7 @@ def get_positions() -> dict:
         positions = broker.get_positions(_ctx.account_id)
         return {
             "success": True,
-            "positions": [_dc_to_dict(p) for p in positions],
+            "positions": [serialize_for_json(p) for p in positions],
             "count": len(positions),
         }
     except Exception as exc:
@@ -167,7 +154,7 @@ def get_quote(symbols: list[str]) -> dict:
         quotes = broker.get_quote(symbols)
         return {
             "success": True,
-            "quotes": [_dc_to_dict(q) for q in quotes],
+            "quotes": [serialize_for_json(q) for q in quotes],
         }
     except Exception as exc:
         return {"success": False, "error": str(exc)}
@@ -258,7 +245,7 @@ def preview_order(
             limit_price=limit_price,
         )
         preview = broker.preview_order(_ctx.account_id, order)
-        return {"success": True, "preview": _dc_to_dict(preview)}
+        return {"success": True, "preview": serialize_for_json(preview)}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 
@@ -298,7 +285,7 @@ def place_order(
             extended_hours=extended_hours,
         )
         result = broker.place_order(_ctx.account_id, order)
-        return {"success": True, "order": _dc_to_dict(result)}
+        return {"success": True, "order": serialize_for_json(result)}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 
@@ -334,7 +321,7 @@ def get_orders(
         orders = broker.get_orders(_ctx.account_id, status=status)
         return {
             "success": True,
-            "orders": [_dc_to_dict(o) for o in orders[:limit]],
+            "orders": [serialize_for_json(o) for o in orders[:limit]],
             "count": len(orders),
         }
     except Exception as exc:

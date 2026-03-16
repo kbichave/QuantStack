@@ -31,12 +31,12 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quant_pod.mcp.server as srv
+    import quant_pod.mcp._state as _mcp_state
 
-    original = srv._ctx
-    srv._ctx = ctx
+    original = _mcp_state._ctx
+    _mcp_state._ctx = ctx
     yield ctx
-    srv._ctx = original
+    _mcp_state._ctx = original
 
 
 def _fn(tool_obj):
@@ -156,7 +156,7 @@ class TestRunBacktest:
     async def test_backtest_returns_metrics(self, _inject_ctx, registered_strategy, synthetic_data):
         from quant_pod.mcp.server import run_backtest
 
-        with patch("quant_pod.mcp.server._fetch_price_data", return_value=synthetic_data):
+        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=synthetic_data):
             result = await _fn(run_backtest)(
                 strategy_id=registered_strategy,
                 symbol="TEST",
@@ -178,7 +178,7 @@ class TestRunBacktest:
     ):
         from quant_pod.mcp.server import get_strategy, run_backtest
 
-        with patch("quant_pod.mcp.server._fetch_price_data", return_value=synthetic_data):
+        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=synthetic_data):
             await _fn(run_backtest)(strategy_id=registered_strategy, symbol="TEST")
 
         strat = await _fn(get_strategy)(strategy_id=registered_strategy)
@@ -189,7 +189,7 @@ class TestRunBacktest:
     async def test_backtest_no_data_fails(self, _inject_ctx, registered_strategy):
         from quant_pod.mcp.server import run_backtest
 
-        with patch("quant_pod.mcp.server._fetch_price_data", return_value=None):
+        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=None):
             result = await _fn(run_backtest)(strategy_id=registered_strategy, symbol="NODATA")
         assert result["success"] is False
         assert "No price data" in result["error"]
@@ -212,7 +212,7 @@ class TestRunBacktest:
             exit_rules=[],
         )
 
-        with patch("quant_pod.mcp.server._fetch_price_data", return_value=synthetic_data):
+        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=synthetic_data):
             result = await _fn(run_backtest)(strategy_id=r["strategy_id"], symbol="TEST")
         assert result["success"] is False
         assert "no entry_rules" in result["error"]
@@ -231,7 +231,7 @@ class TestRunWalkforward:
         # Need enough data: min_train_size(504) + n_splits(3) * test_size(60) = 684
         big_data = _make_trending_ohlcv(n_bars=800)
 
-        with patch("quant_pod.mcp.server._fetch_price_data", return_value=big_data):
+        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=big_data):
             result = await _fn(run_walkforward)(
                 strategy_id=registered_strategy,
                 symbol="TEST",
@@ -254,7 +254,7 @@ class TestRunWalkforward:
 
         small_data = _make_trending_ohlcv(n_bars=100)
 
-        with patch("quant_pod.mcp.server._fetch_price_data", return_value=small_data):
+        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=small_data):
             result = await _fn(run_walkforward)(
                 strategy_id=registered_strategy,
                 symbol="TEST",
@@ -271,7 +271,7 @@ class TestRunWalkforward:
 
         big_data = _make_trending_ohlcv(n_bars=800)
 
-        with patch("quant_pod.mcp.server._fetch_price_data", return_value=big_data):
+        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=big_data):
             await _fn(run_walkforward)(
                 strategy_id=registered_strategy,
                 symbol="TEST",
@@ -291,7 +291,7 @@ class TestRunWalkforward:
 
         big_data = _make_trending_ohlcv(n_bars=800)
 
-        with patch("quant_pod.mcp.server._fetch_price_data", return_value=big_data):
+        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=big_data):
             result = await _fn(run_walkforward)(
                 strategy_id=registered_strategy,
                 symbol="TEST",

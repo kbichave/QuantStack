@@ -181,6 +181,7 @@ If a capability needed for a workshop step doesn't exist in the MCP tools:
 These specs are reviewed after workshop sessions and built into QuantCore or QuantPod
 before the next session.
 
+
 ## Multi-Timeframe Strategy Design
 
 When 1D signals fire but trade count or precision is insufficient, consider a
@@ -201,8 +202,8 @@ MTF design rules:
 - Time stop runs from the SETUP date (not trigger date) to bound total holding time
 - Add `max_trigger_wait_days` param to avoid entering stale setups
 
-The standard `BacktestEngine` is single-timeframe. MTF backtests require direct Python
-or a new `run_backtest_mtf` tool (document as missing if needed).
+MTF backtesting, MTF walk-forward, sparse-signal walk-forward, and options convexity
+backtesting are all available via QuantPod MCP — use them directly.
 
 ## Anti-Overfitting Checklist
 

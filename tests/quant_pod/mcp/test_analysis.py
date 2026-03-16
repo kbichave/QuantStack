@@ -41,12 +41,12 @@ def ctx():
 @pytest.fixture
 def _inject_ctx(ctx):
     """Inject the test context into the MCP server module."""
-    import quant_pod.mcp.server as srv
+    import quant_pod.mcp._state as _mcp_state
 
-    original = srv._ctx
-    srv._ctx = ctx
+    original = _mcp_state._ctx
+    _mcp_state._ctx = ctx
     yield ctx
-    srv._ctx = original
+    _mcp_state._ctx = original
 
 
 # ---------------------------------------------------------------------------
@@ -326,15 +326,15 @@ class TestRunAnalysis:
 
 class TestRequireCtx:
     def test_raises_when_ctx_is_none(self):
-        import quant_pod.mcp.server as srv
+        import quant_pod.mcp._state as _mcp_state
 
-        original = srv._ctx
-        srv._ctx = None
+        original = _mcp_state._ctx
+        _mcp_state._ctx = None
         try:
             with pytest.raises(RuntimeError, match="not initialized"):
-                srv._require_ctx()
+                _mcp_state.require_ctx()
         finally:
-            srv._ctx = original
+            _mcp_state._ctx = original
 
 
 # ---------------------------------------------------------------------------

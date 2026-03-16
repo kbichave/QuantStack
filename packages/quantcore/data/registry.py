@@ -272,5 +272,19 @@ def _register_provider(
             ) from exc
         registry.register(IBKRDataAdapter(settings=settings.ibkr), priority=0)
 
+    elif provider_name == "financial_datasets":
+        if not settings.financial_datasets.api_key:
+            raise ValueError("FINANCIAL_DATASETS_API_KEY is not set")
+        from quantcore.data.adapters.financial_datasets import FinancialDatasetsAdapter
+
+        registry.register(
+            FinancialDatasetsAdapter(
+                api_key=settings.financial_datasets.api_key,
+                base_url=settings.financial_datasets.base_url,
+                rate_limit_rpm=settings.financial_datasets.rate_limit_rpm,
+            ),
+            priority=0,
+        )
+
     else:
         raise ValueError(f"Unknown provider: '{provider_name}'")

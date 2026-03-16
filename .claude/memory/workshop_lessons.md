@@ -178,3 +178,41 @@
 **Infrastructure note**: Walk-forward engine produces 0 OOS trades for low-frequency strategies. This is either signal sparsity (expected for RSI<35) or a bug in OOS signal generation. Needs investigation before next WF attempt.
 
 **Next step (v5)**: Multi-timeframe entry refinement on XOM/IBM/MSFT. Three profiles: Swing (1D+1H, 15d hold), Medium (4H+1H, 4d hold — fixes WF sparsity), Day trade (1H+15min, <6h hold). Medium and Day trade profiles also solve the signal-frequency problem. v6 = options convexity.
+
+### Multi-Timeframe RSI Mean-Reversion v5 — 2026-03-15
+
+**Input universe**: XOM (0.90), IBM (0.67), MSFT (0.55) — from v4 forward_testing
+**Profiles tested**: Swing (1D+1H, 15d hold), Medium (4H+1H, 4d hold). Day trade dropped (no 15min data available).
+**Data source**: Alpaca API direct (DuckDB lock prevented local DB access — fixed architecturally)
+
+**Per-profile results**:
+| Profile | XOM Sharpe | IBM Sharpe | MSFT Sharpe | WF outcome |
+|---------|-----------|-----------|------------|------------|
+| A (Swing 1D+1H) | **3.704** (41 tr) | -2.623 (43 tr) | **1.166** (40 tr) | INCONCLUSIVE (engine is single-TF) |
+| B (Medium 4H+1H) | -0.439 (164 tr) | -2.296 (127 tr) | **0.956** (142 tr) | INCONCLUSIVE (engine is single-TF) |
+
+**MTF verdict**: Swing IMPROVED on XOM/MSFT, DEGRADED on IBM. Medium only works on MSFT.
+
+**Key findings**:
+1. **Intraday trigger massively helped XOM** (0.90 → 3.70 Sharpe): 1H RSI crossback filters out false setups where daily RSI<35 persists without bouncing. The trigger catches the actual inflection.
+2. **IBM rejected MTF entirely** (0.67 → -2.62): IBM moves too slowly intraday for 1H RSI crossback to add value. The trigger often fires at worse prices than next-day open. IBM's edge is purely at daily resolution.
+3. **MSFT improved on both profiles**: Swing 0.55 → 1.17, Medium at 0.96 with 142 trades (3.5x more). MSFT has enough intraday momentum for the trigger to add precision.
+4. **4H setup does NOT generalize**: Profile B only works on MSFT. The 4H RSI<35 signal is noisier than 1D for XOM/IBM — too many false setups at lower timeframe.
+5. **15min/30min/1min data not in QuantCore DB or Alpaca MCP**: Profile C (day trade) is blocked until sub-hourly data is fetched via Alpaca `get_bars`.
+
+**Deployed strategies**:
+- `mtf_swing_rsimr` (strat_6af32bf683f6): XOM, MSFT — replaces v4 for these symbols
+- `mtf_medium_rsimr` (strat_e01e2da6d772): MSFT only — 142 trades, good frequency
+- `quality_rsimr_15d` (strat_3651b3242b6e): IBM only — v4 remains superior for IBM
+
+**Infrastructure fixes delivered**:
+- `run_backtest_mtf` MCP tool added (quantpod server.py) — no more standalone scripts
+- QuantPod DB: stale lock auto-recovery (db.py WAL cleanup + server.py lazy retry)
+- QuantCore DataStore: short-lived connections (no permanent write lock blocking external access)
+
+**Missing tools** (still needed):
+- `run_walkforward_mtf`: MTF walk-forward with cross-TF signal generation per fold
+- `walk_forward_sparse_signal`: auto-adjusts test_size for low-frequency strategies
+- Sub-hourly data fetch: 15min/1min via Alpaca `get_bars` tool (needs Alpaca MCP config)
+
+**Next step (v6)**: Options convexity on XOM/MSFT — buy ATM call 30 DTE when RSI<35 fires. Needs `price_option` + `compute_greeks` + IV surface check. Build AFTER `run_backtest_mtf` is validated.

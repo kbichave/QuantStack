@@ -73,6 +73,13 @@ trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it dire
 **When:** Executing an options position.
 **Follow with:** `mcp__quantcore__validate_trade` and `mcp__quantcore__score_trade_structure`
 
+### Options Convexity Assessment
+**When:** Evaluating whether an equity strategy's edge is better captured via options.
+**Decision rule:**
+- Options Sharpe > 2× equity Sharpe → deploy as options strategy
+- IV crush > 60% of trades → avoid options, stick with equity
+- Set IV rank max to 0.5 to filter entries when vol is elevated (reduces premium cost)
+
 ---
 
 ## Risk Enrichment (run before any position > 3% allocation)

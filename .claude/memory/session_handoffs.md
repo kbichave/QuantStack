@@ -9,6 +9,9 @@
 | Date | From Session | To Session | Key Context |
 |------|-------------|------------|-------------|
 | 2026-03-15 | config | all | Local Ollama set as primary LLM provider. See self-modification log below. |
+| 2026-03-15 | /workshop v4 | /meta, /trade | quality_rsimr_15d (strat_3651b3242b6e) promoted to forward_testing. Universe: XOM, IBM, MSFT. Deploy via run_multi_analysis on these 3 symbols. WF inconclusive (signal sparsity). Next: v5 options convexity or ML SHAP discovery. |
+| 2026-03-15 | /workshop v5 | /meta, /trade | MTF strategies deployed. mtf_swing_rsimr (strat_6af32bf683f6) for XOM+MSFT (Sharpe 3.70/1.17). mtf_medium_rsimr (strat_e01e2da6d772) for MSFT only (Sharpe 0.96, 142 trades). IBM stays on v4 (quality_rsimr_15d). WF still inconclusive — needs run_walkforward_mtf tool. |
+| 2026-03-15 | /workshop v5 | all | Infra fixes: (1) run_backtest_mtf MCP tool added to quantpod. (2) QuantPod stale lock auto-recovery in db.py + server.py. (3) QuantCore DataStore switched to short-lived connections — no more permanent write locks blocking external processes. (4) Alpaca MCP not configured yet — add to settings.json for sub-hourly data. |
 
 ---
 

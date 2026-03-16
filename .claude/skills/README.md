@@ -66,4 +66,5 @@ Versioned prompts live in `tmp/` (gitignored). Current series:
 | File | Status | Description |
 |------|--------|-------------|
 | `tmp/workshop_v4_quality_rsimr.md` | Done — forward_testing | Quality/low-beta filter (XOM, IBM, MSFT) |
-| `tmp/workshop_v5_mtf_rsimr.md` | **Next** | Multi-timeframe: Swing/Medium/Day-trade profiles on XOM, IBM, MSFT |
+| `tmp/workshop_v5_mtf_rsimr.md` | Done — forward_testing | Multi-timeframe: Swing/Medium profiles on XOM, IBM, MSFT. Tools: `run_backtest_mtf`, `run_walkforward_mtf` |
+| `tmp/workshop_v6_options_convexity.md` | **Next** | Options convexity on v4/v5 signals. Tool: `run_backtest_options` |

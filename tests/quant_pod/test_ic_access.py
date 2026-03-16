@@ -11,7 +11,7 @@ helper functions and MCP tool logic with mocked dependencies.
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -21,43 +21,44 @@ import pytest
 
 
 def test_ic_cache_set_and_get():
-    from quant_pod.mcp.server import _ic_cache_get, _ic_cache_set
+    from quant_pod.mcp._state import ic_cache_get, ic_cache_set
 
     symbol, ic_name = "TEST", "regime_detector_ic"
-    _ic_cache_set(symbol, ic_name, "trending_up, confidence 0.85")
+    ic_cache_set(symbol, ic_name, "trending_up, confidence 0.85")
 
-    result = _ic_cache_get(symbol, ic_name)
+    result = ic_cache_get(symbol, ic_name)
     assert result == "trending_up, confidence 0.85"
 
 
 def test_ic_cache_miss_for_unknown():
-    from quant_pod.mcp.server import _ic_cache_get
+    from quant_pod.mcp._state import ic_cache_get
 
-    result = _ic_cache_get("NOMATCH", "nonexistent_ic")
+    result = ic_cache_get("NOMATCH", "nonexistent_ic")
     assert result is None
 
 
 def test_ic_cache_ttl_expiry(monkeypatch):
     """Cache entries expire after TTL."""
-    from quant_pod.mcp import server as srv
+    from quant_pod.mcp import _state as _mcp_state
 
-    srv._ic_output_cache.clear()
-    srv._ic_cache_set("SPY", "volatility_ic", "ATR contracting")
+    _mcp_state.ic_cache.clear()
+    _mcp_state.ic_cache_set("SPY", "volatility_ic", "ATR contracting")
 
     # Fake that the entry is old by manipulating its timestamp
     key = "SPY::volatility_ic"
-    srv._ic_output_cache[key]["ts"] = time.monotonic() - (srv._IC_CACHE_TTL_SECS + 1)
+    value, _ = _mcp_state.ic_cache._store[key]
+    _mcp_state.ic_cache._store[key] = (value, time.monotonic() - (_mcp_state.ic_cache._ttl + 1))
 
-    result = srv._ic_cache_get("SPY", "volatility_ic")
+    result = _mcp_state.ic_cache_get("SPY", "volatility_ic")
     assert result is None
-    assert key not in srv._ic_output_cache  # expired entry cleaned up
+    assert key not in _mcp_state.ic_cache._store  # expired entry cleaned up
 
 
 def test_populate_ic_cache_from_result():
     """_populate_ic_cache_from_result extracts and caches IC outputs from crew result."""
-    from quant_pod.mcp import server as srv
+    from quant_pod.mcp import _state as _mcp_state
 
-    srv._ic_output_cache.clear()
+    _mcp_state.ic_cache.clear()
     symbol = "AAPL"
 
     # Mock a crew result with tasks_output
@@ -67,32 +68,32 @@ def test_populate_ic_cache_from_result():
     mock_result = MagicMock()
     mock_result.tasks_output = [mock_task_output] * 3  # 3 task outputs
 
-    srv._populate_ic_cache_from_result(symbol, mock_result)
+    _mcp_state.populate_ic_cache_from_result(symbol, mock_result)
 
     # First 3 ICs in IC_AGENT_ORDER should be cached
     from quant_pod.crews.trading_crew import IC_AGENT_ORDER
 
     for i in range(3):
         ic_name = IC_AGENT_ORDER[i]
-        cached = srv._ic_cache_get(symbol, ic_name)
+        cached = _mcp_state.ic_cache_get(symbol, ic_name)
         assert cached == "IC raw output text", f"IC {ic_name} not cached"
 
 
 def test_populate_ic_cache_handles_missing_tasks_output():
     """Gracefully handles crew results without tasks_output."""
-    from quant_pod.mcp import server as srv
+    from quant_pod.mcp import _state as _mcp_state
 
     mock_result = MagicMock(spec=[])  # No tasks_output attribute
-    srv._populate_ic_cache_from_result("SPY", mock_result)  # Should not raise
+    _mcp_state.populate_ic_cache_from_result("SPY", mock_result)  # Should not raise
 
 
 def test_populate_ic_cache_handles_empty_tasks_output():
     """Gracefully handles crew results with empty tasks_output."""
-    from quant_pod.mcp import server as srv
+    from quant_pod.mcp import _state as _mcp_state
 
     mock_result = MagicMock()
     mock_result.tasks_output = []
-    srv._populate_ic_cache_from_result("SPY", mock_result)  # Should not raise
+    _mcp_state.populate_ic_cache_from_result("SPY", mock_result)  # Should not raise
 
 
 # =============================================================================
@@ -145,12 +146,12 @@ async def test_list_ics_returns_pods():
 
 @pytest.mark.asyncio
 async def test_get_last_ic_output_cache_miss():
-    from quant_pod.mcp import server as srv
+    from quant_pod.mcp import _state as _mcp_state
     from quant_pod.mcp.server import get_last_ic_output
 
     # Ensure no cached entry exists
     key = "FRESHSYM::trend_momentum_ic"
-    srv._ic_output_cache.pop(key, None)
+    _mcp_state.ic_cache.delete(key)
 
     result = await get_last_ic_output.fn("FRESHSYM", "trend_momentum_ic")
 
@@ -161,10 +162,10 @@ async def test_get_last_ic_output_cache_miss():
 
 @pytest.mark.asyncio
 async def test_get_last_ic_output_cache_hit():
-    from quant_pod.mcp import server as srv
+    from quant_pod.mcp import _state as _mcp_state
     from quant_pod.mcp.server import get_last_ic_output
 
-    srv._ic_cache_set("MSFT", "volatility_ic", "vol contracting, ATR declining")
+    _mcp_state.ic_cache_set("MSFT", "volatility_ic", "vol contracting, ATR declining")
 
     result = await get_last_ic_output.fn("MSFT", "volatility_ic")
 
@@ -231,7 +232,7 @@ async def test_get_fill_quality_order_not_found():
     mock_ctx = MagicMock()
     mock_ctx.db.execute.return_value.fetchone.return_value = None
 
-    with patch("quant_pod.mcp.server._require_ctx", return_value=mock_ctx):
+    with patch("quant_pod.mcp.tools.feedback.live_db_or_error", return_value=(mock_ctx, None)):
         from quant_pod.mcp.server import get_fill_quality
 
         result = await get_fill_quality.fn("nonexistent_order_id")
@@ -255,7 +256,7 @@ async def test_get_fill_quality_returns_analysis():
         "2026-03-15 09:30:00",
     )
 
-    with patch("quant_pod.mcp.server._require_ctx", return_value=mock_ctx):
+    with patch("quant_pod.mcp.tools.feedback.live_db_or_error", return_value=(mock_ctx, None)):
         # Don't mock DataStore — let it fail gracefully (no VWAP data in test env)
         from quant_pod.mcp.server import get_fill_quality
 
@@ -280,7 +281,7 @@ async def test_get_position_monitor_no_position():
     mock_ctx = MagicMock()
     mock_ctx.portfolio.get_position.return_value = None
 
-    with patch("quant_pod.mcp.server._require_ctx", return_value=mock_ctx):
+    with patch("quant_pod.mcp.tools.feedback.live_db_or_error", return_value=(mock_ctx, None)):
         from quant_pod.mcp.server import get_position_monitor
 
         result = await get_position_monitor.fn("MISSING")
@@ -304,12 +305,10 @@ async def test_get_position_monitor_open_position():
     mock_ctx.db.execute.return_value.fetchone.return_value = ("2026-03-10 09:30:00",)
 
     with (
-        patch("quant_pod.mcp.server._require_ctx", return_value=mock_ctx),
+        patch("quant_pod.mcp.tools.feedback.live_db_or_error", return_value=(mock_ctx, None)),
         patch(
-            "quant_pod.mcp.server._detect_regime_for_symbol",
-            new=AsyncMock(
-                return_value={"trend": "trending_up", "volatility": "normal", "confidence": 0.82}
-            ),
+            "quant_pod.agents.regime_detector.RegimeDetectorAgent.detect_regime",
+            return_value={"trend_regime": "trending_up", "volatility": "normal", "confidence": 0.82, "atr": 5.0},
         ),
     ):
         from quant_pod.mcp.server import get_position_monitor

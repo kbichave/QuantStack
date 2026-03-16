@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
-from dataclasses import asdict
-from datetime import datetime
 from typing import Any
 
 from fastmcp import FastMCP
 from loguru import logger
+
+from shared.mcp_toolkit import require_resource
 
 # ---------------------------------------------------------------------------
 # Server context
@@ -73,22 +73,15 @@ mcp = FastMCP("ibkr_mcp", lifespan=lifespan)
 
 
 def _require_ib():
-    if _ctx.mgr is None or not _ctx.mgr.is_connected():
+    mgr = require_resource(_ctx.mgr, "IB Gateway connection")
+    if not mgr.is_connected():
         raise RuntimeError(
             f"IB Gateway not connected at "
             f"{os.getenv('IBKR_HOST', '127.0.0.1')}:"
             f"{os.getenv('IBKR_PORT', '4001')}. "
             "Start IB Gateway and call connect_gateway."
         )
-    return _ctx.mgr.ib
-
-
-def _dc_to_dict(obj) -> dict:
-    d = asdict(obj)
-    for k, v in d.items():
-        if isinstance(v, datetime):
-            d[k] = v.isoformat()
-    return d
+    return mgr.ib
 
 
 # ---------------------------------------------------------------------------

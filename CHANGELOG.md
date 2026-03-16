@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-03-16
+
+### Changed
+
+#### Module Decomposition
+- Split `packages/quantcore/mcp/server.py` (4500+ lines) into `tools/` sub-modules, `_helpers.py`, and `resources.py`
+- Split `packages/quantcore/data/storage.py` (1400+ lines) into `_ohlcv.py`, `_options_news.py`, `_schema.py`, and `_fundamentals_schema.py`
+- Split `packages/quant_pod/mcp/server.py` (3300+ lines) into `tools/` sub-modules and `_state.py`
+- Split `packages/quant_pod/knowledge/store.py` (1900+ lines) into `_learning.py`, `_messages.py`, `_performance.py`, `_schema.py`, `_trades.py`, `_waves_regime.py`
+- Replaced monolithic `packages/quant_pod/tools/mcp_bridge.py` with `mcp_bridge/` package
+
+#### Test Restructuring
+- Decomposed monolithic MCP test files into per-module test directories: `tests/quant_pod/mcp/`, `tests/quant_pod/tools/`, `tests/unit/quantcore_mcp/`
+- Added shared test fixtures in `tests/_fixtures/` and `tests/shared/`
+
+### Added
+- `packages/shared/` — shared utilities across packages
+- `packages/quantcore/data/adapters/financial_datasets.py` — Financial Datasets API adapter with `financial_datasets_client.py` HTTP client
+- `packages/quantcore/data/fundamentals.py` — fundamentals data module
+- `httpx` core dependency; `financial-datasets` optional extra
+- `packages/quantcore/mcp/resources.py` — MCP resource definitions (extracted from server)
+
+### Fixed
+- DuckDB lock guard improvements in `packages/quant_pod/db.py`
+- Updated coverage omit list in `pyproject.toml` for new module paths
+
 ## [0.2.0] - 2026-03-15
 
 ### Added
@@ -229,7 +255,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `0.1.0` - Initial release
 
-[Unreleased]: https://github.com/kbichave/QuantStack/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kbichave/QuantStack/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/kbichave/QuantStack/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kbichave/QuantStack/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kbichave/QuantStack/releases/tag/v0.1.0
 

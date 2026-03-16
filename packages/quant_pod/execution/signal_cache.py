@@ -244,6 +244,8 @@ class SignalCache:
 
         Called with self._lock held — don't acquire it here.
         """
+        if self._conn is None:
+            return
         try:
             self._conn.execute(
                 """

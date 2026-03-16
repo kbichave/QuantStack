@@ -18,6 +18,7 @@ from threading import Event, Thread
 import pandas as pd
 from loguru import logger
 
+from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
 from quantcore.data.universe import UniverseManager
 from quantcore.execution.broker import BrokerInterface
@@ -243,8 +244,8 @@ class PaperTradingEngine:
         try:
             df = self.data_store.load_ohlcv(
                 symbol=symbol,
-                timeframe="1D",
-                start=datetime.now() - timedelta(days=30),
+                timeframe=Timeframe.D1,
+                start_date=datetime.now() - timedelta(days=30),
             )
 
             if df.empty:
@@ -377,7 +378,10 @@ class PaperTradingEngine:
                 if pos.quantity <= 0:
                     del self.positions[symbol]
         else:
-            # New position
+            # New position — fill_price and fill_timestamp are set by the
+            # simulated fill above (lines 356-357) before we reach here.
+            assert order.fill_price is not None
+            assert order.fill_timestamp is not None
             self.positions[symbol] = PaperPosition(
                 symbol=symbol,
                 direction=order.direction,

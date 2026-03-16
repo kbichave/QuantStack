@@ -301,12 +301,11 @@ class MicrostructurePipeline:
 
             # Record fill so FillTracker + downstream risk gate stays consistent
             fill = FillEvent(
+                order_id=result.order_id,
                 symbol=order.symbol,
                 side=order.side,
-                quantity=result.filled_qty,
-                fill_price=result.avg_fill_price or current_price,
-                commission=result.commission or 0.0,
-                order_id=result.order_id,
+                filled_qty=result.filled_qty,
+                avg_fill_price=result.avg_fill_price or current_price,
             )
             self._fill_tracker.update_fill(fill)
             self._risk_gate.record_submission()

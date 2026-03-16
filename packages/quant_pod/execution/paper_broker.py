@@ -39,7 +39,7 @@ import duckdb
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from quant_pod.execution.portfolio_state import Position, get_portfolio_state
+from quant_pod.execution.portfolio_state import PortfolioState, Position, get_portfolio_state
 
 # =============================================================================
 # DATA MODELS
@@ -107,7 +107,7 @@ class PaperBroker:
     def __init__(
         self,
         conn: duckdb.DuckDBPyConnection | None = None,
-        portfolio: PortfolioState | None = None,  # noqa: F821
+        portfolio: PortfolioState | None = None,
         # Legacy parameter — ignored when conn is provided
         db_path: str | None = None,
     ):
@@ -336,7 +336,7 @@ class PaperBroker:
     def get_fills(self, symbol: str | None = None, limit: int = 100) -> list[Fill]:
         """Return recent fills, optionally filtered by symbol."""
         query = "SELECT * FROM fills"
-        params = []
+        params: list[str | int] = []
         if symbol:
             query += " WHERE symbol = ?"
             params.append(symbol)
@@ -367,7 +367,7 @@ class PaperBroker:
         row = self.conn.execute(
             "SELECT COALESCE(SUM(commission), 0) FROM fills WHERE rejected = FALSE"
         ).fetchone()
-        return float(row[0])
+        return float(row[0]) if row is not None else 0.0
 
     def get_avg_slippage_bps(self) -> float:
         """Average slippage in basis points across all fills."""
@@ -375,7 +375,7 @@ class PaperBroker:
             "SELECT COALESCE(AVG(slippage_bps), 0) FROM fills "
             "WHERE rejected = FALSE AND filled_quantity > 0"
         ).fetchone()
-        return float(row[0])
+        return float(row[0]) if row is not None else 0.0
 
 
 # Singleton — prefer injecting via TradingContext in new code.

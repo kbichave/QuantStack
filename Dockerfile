@@ -6,6 +6,15 @@ FROM python:3.11-slim-bookworm
 LABEL maintainer="QuantStack"
 LABEL description="QuantStack trading platform"
 
+# Optional: inject a corporate CA bundle (e.g. Zscaler) for local builds only.
+# Usage: docker build --build-arg EXTRA_CA_CERT="$(cat ~/.zscaler_cert.pem)" .
+# In CI this arg is empty — no extra certs are added to the production image.
+ARG EXTRA_CA_CERT=""
+RUN if [ -n "$EXTRA_CA_CERT" ]; then \
+        printf '%s\n' "$EXTRA_CA_CERT" >> /usr/local/share/ca-certificates/corporate.crt \
+        && update-ca-certificates; \
+    fi
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
@@ -15,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency management
-RUN pip install --no-cache-dir uv==0.4.30
+RUN pip install --no-cache-dir "uv>=0.5.0"
 
 WORKDIR /app
 

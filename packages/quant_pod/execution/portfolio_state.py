@@ -141,7 +141,8 @@ class PortfolioState:
     def _seed_cash(self) -> None:
         """Insert initial cash row if the table is empty (first run)."""
         with self._lock:
-            existing = self._conn.execute("SELECT COUNT(*) FROM cash_balance").fetchone()[0]
+            row = self._conn.execute("SELECT COUNT(*) FROM cash_balance").fetchone()
+            existing = row[0] if row is not None else 0
             if existing == 0:
                 self._conn.execute(
                     "INSERT INTO cash_balance (id, cash) VALUES (1, ?)",
@@ -421,7 +422,7 @@ class PortfolioState:
             row = self.conn.execute(
                 "SELECT COALESCE(SUM(realized_pnl), 0) FROM closed_trades"
             ).fetchone()
-        return float(row[0])
+        return float(row[0]) if row is not None else 0.0
 
     def get_daily_pnl(self, for_date: date | None = None) -> float:
         """Realized P&L for a specific date (defaults to today)."""
@@ -432,7 +433,7 @@ class PortfolioState:
                 "WHERE closed_at::DATE = ?",
                 [str(d)],
             ).fetchone()
-        return float(row[0])
+        return float(row[0]) if row is not None else 0.0
 
     def get_snapshot(self) -> PortfolioSnapshot:
         """

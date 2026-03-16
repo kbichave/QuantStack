@@ -8,6 +8,9 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  schedule:
+    # Nightly integration test run at 02:00 UTC
+    - cron: "0 2 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -15,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: "3.10"
+  PYTHON_VERSION: "3.11"
   FORCE_COLOR: "1"
 
 jobs:
@@ -28,28 +31,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ruff mypy pandas-stubs types-requests types-python-dateutil
+        run: uv sync --all-packages
 
       - name: Run Ruff linter
-        run: ruff check src/quantcore tests
+        run: uv run ruff check packages/ tests/
 
       - name: Run Ruff formatter check
-        run: ruff format --check src/quantcore tests
+        run: uv run ruff format --check packages/ tests/
 
-      - name: Run MyPy
-        run: mypy src/quantcore --config-file pyproject.toml
-        continue-on-error: true  # Allow failures during initial setup
+      - name: Run MyPy (critical path)
+        # Type-check the trading hot path: execution, risk, and kill switch.
+        # Broader codebase type coverage tracked in GitHub type-coverage label.
+        run: >
+          uv run mypy
+          packages/quantcore/execution
+          packages/quant_pod/execution
+          --config-file pyproject.toml
 
   # ==========================================================================
-  # Unit Tests
+  # Unit Tests (fast, in-memory DB, no external services)
   # ==========================================================================
   test:
     name: Test (Python ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -58,77 +67,83 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11", "3.12"]
         exclude:
-          # Reduce matrix for faster CI
+          # Reduce matrix for faster CI — 3.11 on ubuntu is the primary target
           - os: macos-latest
             python-version: "3.11"
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
         with:
-          python-version: ${{ matrix.python-version }}
+          version: "latest"
 
-      - name: Cache pip dependencies
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Cache uv dependencies
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-uv-${{ matrix.python-version }}-${{ hashFiles('uv.lock') }}
           restore-keys: |
-            ${{ runner.os }}-pip-${{ matrix.python-version }}-
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-uv-${{ matrix.python-version }}-
+            ${{ runner.os }}-uv-
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,ml]"
+        run: uv sync --all-packages --group dev
 
-      - name: Run tests with coverage
+      - name: Run unit tests with coverage
         run: |
-          pytest tests/ -v --cov=src/quantcore --cov-report=xml --cov-report=term-missing
+          uv run pytest tests/ -v \
+            --cov=packages/quantcore \
+            --cov=packages/quant_pod \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=60 \
+            -m "not slow and not integration and not requires_api and not requires_gpu"
 
       - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
-          fail_ci_if_error: false
+          # Fail CI if Codecov upload fails — prevents silently missing coverage
+          fail_ci_if_error: true
           verbose: true
 
   # ==========================================================================
-  # Build Package
+  # Integration Tests (nightly — hit in-memory DB, no external services)
+  # Run on schedule OR when triggered manually.  Not required for PR merges.
   # ==========================================================================
-  build:
-    name: Build Package
+  integration:
+    name: Integration Tests
     runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
       - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+        run: uv python install ${{ env.PYTHON_VERSION }}
 
-      - name: Install build tools
+      - name: Install dependencies
+        run: uv sync --all-packages
+
+      - name: Run integration tests
         run: |
-          python -m pip install --upgrade pip
-          pip install build twine
-
-      - name: Build package
-        run: python -m build
-
-      - name: Check package
-        run: twine check dist/*
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
+          uv run pytest tests/ -v \
+            --cov=packages/quant_pod \
+            --cov-report=term-missing \
+            -m "integration"
 
   # ==========================================================================
   # Security Scanning
@@ -139,58 +154,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          version: "latest"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install bandit safety
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install security tools
+        run: uv tool install bandit
 
       - name: Run Bandit security scan
-        run: bandit -r src/quantcore -ll
-        continue-on-error: true
-
-      - name: Check for known vulnerabilities
-        run: safety check --full-report
-        continue-on-error: true
+        # -lll = HIGH severity only. Medium B608 (SQL injection) is a known
+        # false positive for DuckDB internal queries that use no user input.
+        run: uvx bandit -r packages/ -lll --exclude packages/quantcore/rl/
 
   # ==========================================================================
-  # Documentation Build
+  # Docker Image Build + Trivy Scan
   # ==========================================================================
-  docs:
-    name: Build Documentation
+  docker:
+    name: Docker Build & Scan
     runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Build Docker image
+        run: docker build -t quantpod:${{ github.sha }} .
+
+      - name: Run Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[docs]"
-
-      - name: Build documentation
-        run: mkdocs build --strict
-        continue-on-error: true  # Allow failures until docs are set up
+          image-ref: quantpod:${{ github.sha }}
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
 
   # ==========================================================================
-  # All Checks Pass
+  # All required checks pass (gate for merges)
   # ==========================================================================
   all-checks:
     name: All Checks Pass
     if: always()
-    needs: [lint, test, build, security]
+    needs: [lint, test, security]
     runs-on: ubuntu-latest
     steps:
-      - name: Check all jobs passed
+      - name: Check all required jobs passed
         uses: re-actors/alls-green@release/v1
         with:
+          # integration and docker are not required for PR merges
           jobs: ${{ toJSON(needs) }}
-

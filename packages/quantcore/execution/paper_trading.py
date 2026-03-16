@@ -26,9 +26,9 @@ from quantcore.strategy.base import (
     PositionDirection,
     RegimeState,
 )
-from quantcore.data.fetcher import AlphaVantageClient
 from quantcore.data.storage import DataStore
 from quantcore.data.universe import UniverseManager
+from quantcore.execution.broker import BrokerInterface
 from quantcore.risk.options_risk import PortfolioGreeksManager, RiskState
 
 
@@ -102,8 +102,8 @@ class PaperTradingEngine:
         self,
         strategy: Strategy,
         universe: UniverseManager,
-        fetcher: AlphaVantageClient,
         data_store: DataStore,
+        quote_provider: Optional[BrokerInterface] = None,
         initial_equity: float = 100000,
         max_trade_value: float = 1000,  # $1K max per trade
         signals_path: str = "paper_trading/signals.json",
@@ -112,17 +112,19 @@ class PaperTradingEngine:
         Initialize paper trading engine.
 
         Args:
-            strategy: Strategy to run
-            universe: Universe manager
-            fetcher: AlphaVantage client
-            data_store: Data store for historical data
-            initial_equity: Starting equity
-            max_trade_value: Maximum value per trade (default $1K)
-            signals_path: Path for signal logging
+            strategy:       Strategy to run.
+            universe:       Universe manager.
+            data_store:     Data store for historical data.
+            quote_provider: BrokerInterface used to fetch live quotes.  When
+                            None, _get_current_quote() returns None and the
+                            engine operates on stored data only.
+            initial_equity: Starting equity.
+            max_trade_value: Maximum value per trade (default $1K).
+            signals_path:   Path for signal logging.
         """
         self.strategy = strategy
         self.universe = universe
-        self.fetcher = fetcher
+        self.quote_provider = quote_provider
         self.data_store = data_store
         self.initial_equity = initial_equity
         self.max_trade_value = max_trade_value
@@ -220,20 +222,22 @@ class PaperTradingEngine:
         self._save_signals()
 
     def _get_current_quote(self, symbol: str) -> Optional[Dict]:
-        """Get current quote for symbol."""
+        """Get current quote for symbol via BrokerInterface.get_quote()."""
+        if self.quote_provider is None:
+            return None
         try:
-            data = self.fetcher.fetch_quote(symbol)
-            if data.empty:
+            quotes = self.quote_provider.get_quote([symbol])
+            if not quotes:
                 return None
-
-            row = data.iloc[0]
+            q = quotes[0]
+            price = q.last or q.mid or 0.0
             return {
                 "symbol": symbol,
-                "price": row.get("price", row.get("close", 0)),
-                "open": row.get("open", 0),
-                "high": row.get("high", 0),
-                "low": row.get("low", 0),
-                "volume": row.get("volume", 0),
+                "price": price,
+                "open": price,
+                "high": price,
+                "low": price,
+                "volume": q.volume or 0,
             }
         except Exception as e:
             logger.debug(f"Error fetching quote for {symbol}: {e}")
@@ -492,19 +496,17 @@ def run_paper_trading(
     Returns:
         Final status
     """
-    from quantcore.data.fetcher import AlphaVantageClient
     from quantcore.data.storage import DataStore
     from quantcore.data.universe import UniverseManager
 
-    fetcher = AlphaVantageClient()
     data_store = DataStore()
     universe = UniverseManager()
 
     engine = PaperTradingEngine(
         strategy=strategy,
         universe=universe,
-        fetcher=fetcher,
         data_store=data_store,
+        # quote_provider can be injected by caller; defaults to None (no live quotes)
     )
 
     # Run in background

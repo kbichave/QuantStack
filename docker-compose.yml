@@ -1,0 +1,153 @@
+# QuantStack local development stack
+# Single-user, no auth required
+#
+# Usage:
+#   docker-compose up -d              # Start main API
+#   docker-compose up -d alpaca-mcp   # Also start Alpaca MCP HTTP server
+#   docker-compose logs -f api        # Follow API logs
+#   docker-compose down               # Stop everything
+#   docker-compose down -v            # Stop and delete data volumes
+#
+# Secrets: copy .env.example → .env and fill in values.
+# Never commit .env — the pre-commit hook will block it.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: quantstack:latest
+    container_name: quantstack-api
+    ports:
+      - "8420:8420"
+    volumes:
+      # Persist all DuckDB data files across restarts
+      - quantstack_data:/data/quant_pod
+      # Mount source for hot-reload in development
+      - ./packages:/app/packages
+    env_file:
+      # Load all variables from .env if it exists; individual overrides below
+      # take precedence when both are set.
+      - path: .env
+        required: false
+    environment:
+      # ── Data providers ────────────────────────────────────────────────────
+      - ALPACA_API_KEY=${ALPACA_API_KEY:-}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-}
+      - ALPACA_PAPER=${ALPACA_PAPER:-true}
+      - POLYGON_API_KEY=${POLYGON_API_KEY:-}
+      - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY:-}
+      - DATA_PROVIDER_PRIORITY=${DATA_PROVIDER_PRIORITY:-alpaca,polygon,alpha_vantage}
+
+      # ── LLM routing ───────────────────────────────────────────────────────
+      - LLM_PROVIDER=${LLM_PROVIDER:-bedrock}
+      - LLM_FALLBACK_CHAIN=${LLM_FALLBACK_CHAIN:-anthropic,openai}
+
+      # ── LLM credentials — set at least one provider ───────────────────────
+      # Bedrock (default): uses boto3 credential chain — mount ~/.aws as a
+      # read-only volume or inject AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
+      - BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-6}
+      - AWS_PROFILE=${AWS_PROFILE:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      # Direct providers
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+      - FIREWORKS_API_KEY=${FIREWORKS_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - AZURE_API_KEY=${AZURE_API_KEY:-}
+      - AZURE_API_BASE=${AZURE_API_BASE:-}
+      - AZURE_API_VERSION=${AZURE_API_VERSION:-}
+      - AZURE_DEPLOYMENT_NAME=${AZURE_DEPLOYMENT_NAME:-}
+      # Per-tier model overrides (optional)
+      - LLM_MODEL_IC=${LLM_MODEL_IC:-}
+      - LLM_MODEL_POD=${LLM_MODEL_POD:-}
+      - LLM_MODEL_ASSISTANT=${LLM_MODEL_ASSISTANT:-}
+      - LLM_MODEL_DECODER=${LLM_MODEL_DECODER:-}
+
+      # ── Trading execution ─────────────────────────────────────────────────
+      - USE_REAL_TRADING=${USE_REAL_TRADING:-false}
+      - ETRADE_CONSUMER_KEY=${ETRADE_CONSUMER_KEY:-}
+      - ETRADE_CONSUMER_SECRET=${ETRADE_CONSUMER_SECRET:-}
+      - ETRADE_SANDBOX=${ETRADE_SANDBOX:-true}
+      - ETRADE_ACCOUNT_ID_KEY=${ETRADE_ACCOUNT_ID_KEY:-}
+      - ETRADE_FILL_TIMEOUT=${ETRADE_FILL_TIMEOUT:-30}
+
+      # ── Discord (monitoring alerts + watchlist channel) ───────────────────
+      - DISCORD_TOKEN=${DISCORD_TOKEN:-}
+      - DISCORD_TOKEN_TYPE=${DISCORD_TOKEN_TYPE:-user}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+
+      # ── Risk limits ───────────────────────────────────────────────────────
+      - RISK_MAX_POSITION_PCT=${RISK_MAX_POSITION_PCT:-0.10}
+      - RISK_MAX_POSITION_NOTIONAL=${RISK_MAX_POSITION_NOTIONAL:-20000}
+      - RISK_DAILY_LOSS_LIMIT_PCT=${RISK_DAILY_LOSS_LIMIT_PCT:-0.02}
+      - RISK_MIN_DAILY_VOLUME=${RISK_MIN_DAILY_VOLUME:-500000}
+      - RISK_RESTRICTED_SYMBOLS=${RISK_RESTRICTED_SYMBOLS:-}
+
+      # ── Data paths (fixed inside container — backed by named volume) ──────
+      - PORTFOLIO_DB_PATH=/data/quant_pod/portfolio.duckdb
+      - PAPER_BROKER_DB_PATH=/data/quant_pod/paper_broker.duckdb
+      - AUDIT_LOG_DB_PATH=/data/quant_pod/audit_log.duckdb
+      - CALIBRATION_DB_PATH=/data/quant_pod/calibration.duckdb
+      - DUCKDB_PATH=/data/quant_pod/knowledge.duckdb
+      - KILL_SWITCH_SENTINEL=/data/quant_pod/KILL_SWITCH_ACTIVE
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8420/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    command: ["api"]
+
+  # ── Alpaca MCP HTTP server (optional) ─────────────────────────────────────
+  # Exposes alpaca_mcp tools over SSE so any MCP client can reach it over HTTP.
+  # Start with: docker-compose up -d alpaca-mcp
+  alpaca-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: quantstack:latest
+    container_name: quantstack-alpaca-mcp
+    ports:
+      - "8430:8430"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - ALPACA_API_KEY=${ALPACA_API_KEY:-}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-}
+      - ALPACA_PAPER=${ALPACA_PAPER:-true}
+    command: ["sh", "-c", "alpaca-mcp --transport sse --port 8430"]
+    restart: unless-stopped
+    profiles:
+      # Only starts when explicitly requested:
+      #   docker-compose --profile mcp-servers up -d
+      - mcp-servers
+
+  # ── IBKR MCP (not containerised) ──────────────────────────────────────────
+  # ibkr_mcp requires a live IB Gateway TCP socket on the host machine.
+  # It cannot run usefully inside Docker without network_mode: host or a
+  # socat tunnel.  Run it locally instead:
+  #
+  #   IBKR_HOST=127.0.0.1 IBKR_PORT=4001 ibkr-mcp
+  #
+  # Relevant env vars (set in .env):
+  #   IBKR_HOST       default 127.0.0.1
+  #   IBKR_PORT       default 4001 (IB Gateway) or 7497 (TWS)
+  #   IBKR_CLIENT_ID  default 1
+
+volumes:
+  quantstack_data:
+    driver: local

@@ -4,11 +4,80 @@ Application settings and configuration management.
 Uses pydantic-settings for validation and environment variable loading.
 """
 
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from typing import List
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, model_validator
+
+
+# =============================================================================
+# Per-provider settings — separate classes so env prefixes don't collide.
+# =============================================================================
+
+
+class AlpacaSettings(BaseSettings):
+    """Alpaca API credentials and mode flags.
+
+    Environment variables (prefix ``ALPACA_``):
+      ALPACA_API_KEY    — paper or live API key
+      ALPACA_SECRET_KEY — matching secret
+      ALPACA_PAPER      — "true" (default) for paper trading endpoint
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="ALPACA_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    api_key:    str  = Field(default="", description="Alpaca API key")
+    secret_key: str  = Field(default="", description="Alpaca secret key")
+    paper:      bool = Field(default=True, description="Use paper trading endpoint")
+
+
+class PolygonSettings(BaseSettings):
+    """Polygon.io credentials.
+
+    Environment variable: ``POLYGON_API_KEY``
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="POLYGON_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    api_key: str = Field(default="", description="Polygon.io API key")
+
+
+class IBKRSettings(BaseSettings):
+    """Interactive Brokers Gateway connection parameters.
+
+    Environment variables (prefix ``IBKR_``):
+      IBKR_HOST      — gateway hostname (default 127.0.0.1)
+      IBKR_PORT      — 4001 for IB Gateway (lighter), 7497 for TWS
+      IBKR_CLIENT_ID — unique integer per connection (0-999)
+      IBKR_TIMEOUT   — connect timeout seconds
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="IBKR_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    host:      str = Field(default="127.0.0.1", description="IB Gateway host")
+    port:      int = Field(default=4001,        description="IB Gateway port (4001=gateway, 7497=TWS)")
+    client_id: int = Field(default=1,           description="Client ID (must be unique per connection)")
+    timeout:   int = Field(default=30,          description="Connection timeout in seconds")
 
 
 class Settings(BaseSettings):
@@ -21,7 +90,21 @@ class Settings(BaseSettings):
         extra="ignore",  # Allow extra env vars like openai_api_key
     )
 
-    # Alpha Vantage API
+    # ── Provider settings (nested) ────────────────────────────────────────────
+    # Each provider reads its own env-prefix independently.  The nested model
+    # approach avoids field name collisions (e.g. api_key is shared by all).
+    alpaca:  AlpacaSettings  = Field(default_factory=AlpacaSettings)
+    polygon: PolygonSettings = Field(default_factory=PolygonSettings)
+    ibkr:    IBKRSettings    = Field(default_factory=IBKRSettings)
+
+    # Provider priority: comma-separated list tried left-to-right.
+    # Registry skips providers whose credentials are missing.
+    data_provider_priority: str = Field(
+        default="alpaca,polygon,alpha_vantage",
+        description="Comma-separated data provider priority (highest first)",
+    )
+
+    # ── Alpha Vantage API (legacy — keep for backward compat) ─────────────────
     alpha_vantage_api_key: str = Field(
         default="demo", description="Alpha Vantage API key"
     )
@@ -55,7 +138,7 @@ class Settings(BaseSettings):
         default="2019-01-01", description="Start date for historical data"
     )
     data_end_date: str = Field(
-        default="2024-12-31", description="End date for historical data"
+        default="", description="End date for historical data (defaults to today if empty)"
     )
     market_timezone: str = Field(
         default="America/New_York", description="Market timezone for data alignment"
@@ -101,6 +184,23 @@ class Settings(BaseSettings):
     spread_cost_bps: float = Field(default=2.0, description="Bid-ask spread cost")
     slippage_cost_bps: float = Field(default=1.0, description="Execution slippage")
     fee_cost_bps: float = Field(default=2.0, description="Exchange and clearing fees")
+
+    @model_validator(mode="after")
+    def _apply_defaults_and_warn(self) -> "Settings":
+        # Default data_end_date to today so data fetches are never silently capped in the past
+        if not self.data_end_date:
+            self.data_end_date = date.today().isoformat()
+
+        # Warn early if the API key was not configured — avoids silent demo-mode data
+        if self.alpha_vantage_api_key == "demo":
+            import logging
+            logging.getLogger(__name__).warning(
+                "ALPHA_VANTAGE_API_KEY is not set — using the demo key. "
+                "Data fetches will be heavily rate-limited. "
+                "Set ALPHA_VANTAGE_API_KEY in your .env file."
+            )
+
+        return self
 
     @property
     def total_transaction_cost_bps(self) -> float:

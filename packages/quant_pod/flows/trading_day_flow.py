@@ -25,8 +25,16 @@ All agents have reasoning enabled. If an agent fails, the flow fails.
 from __future__ import annotations
 
 import asyncio
+import os
+import uuid
 from datetime import date, datetime
 from typing import Any, Dict, List, Literal, Optional
+
+from quantcore.execution.tca_engine import TCAEngine, OrderSide as TCAOrderSide
+from quantcore.execution.smart_order_router import SmartOrderRouter, SmartOrderRouterError
+from quantcore.execution.fill_tracker import FillTracker
+from quantcore.execution.unified_models import UnifiedOrder
+from quant_pod.agents.portfolio_optimizer_agent import PortfolioOptimizerAgent
 
 from quant_pod.crewai_compat import Flow, listen, router, start
 from loguru import logger
@@ -37,6 +45,8 @@ from quant_pod.agents.regime_detector import RegimeDetectorAgent
 
 # Import CrewAI-native TradingCrew
 from quant_pod.crews import TradingCrew
+from quant_pod.crews.regime_config import apply_regime_config_to_inputs, get_regime_crew_config
+from quant_pod.crews.registry import PROFILE_DEFAULTS
 from quant_pod.crews.schemas import (
     TradeDecision,
     DailyBrief,
@@ -48,7 +58,19 @@ from quant_pod.memory.blackboard import (
     write_to_blackboard,
     read_blackboard_context,
     get_blackboard,
+    write_portfolio_state,
 )
+
+# Import execution layer
+from quant_pod.execution.portfolio_state import get_portfolio_state
+from quant_pod.execution.risk_gate import get_risk_gate
+from quant_pod.execution.kill_switch import get_kill_switch
+from quant_pod.execution.paper_broker import OrderRequest
+from quant_pod.execution.broker_factory import get_broker, get_broker_mode
+from quant_pod.execution.signal_cache import SignalCache, TradeSignal
+
+# Import audit trail
+from quant_pod.audit.decision_log import get_decision_log, make_trade_event, make_analysis_event
 
 
 # =============================================================================
@@ -119,13 +141,62 @@ class TradingDayFlow(Flow[TradingDayState]):
     NO FALLBACKS - all agents must produce output or fail explicitly.
     """
 
-    def __init__(self):
-        """Initialize the trading day flow."""
+    def __init__(
+        self,
+        signal_cache: Optional[SignalCache] = None,
+        signal_ttl_seconds: int = 900,
+    ):
+        """
+        Initialize the trading day flow.
+
+        Args:
+            signal_cache: When provided, the flow publishes signals to this cache
+                instead of executing directly.  The TickExecutor then picks up
+                signals and executes them on market ticks.  When None (default),
+                the flow executes trades directly (backward-compatible mode).
+            signal_ttl_seconds: How long published signals remain valid (default 15 min).
+        """
         self._regime_detector = None
         self._trading_crew = None
+        self._session_id = str(uuid.uuid4())
+        self._audit_log = get_decision_log()
+        self._portfolio = get_portfolio_state()
+        self._risk_gate = get_risk_gate()
+        self._kill_switch = get_kill_switch()
+        self._broker = get_broker()
+        self._signal_cache = signal_cache
+        self._signal_ttl_seconds = signal_ttl_seconds
+
+        # TCA engine tracks arrival prices + post-fill shortfall
+        self._tca = TCAEngine()
+        # FillTracker maintains live position map for SOR
+        self._fill_tracker = FillTracker()
+        # SmartOrderRouter: Alpaca/IBKR routing; None when no broker env vars are set
+        self._sor = self._build_sor()
+        # Portfolio optimizer: converts per-symbol signals into MV-optimal weights
+        self._portfolio_optimizer = PortfolioOptimizerAgent()
+
+        # RL online feedback — lazy initialised; never raises on import failure
+        self._rl_adapter = None
+        self._rl_config = None
+        try:
+            from quantcore.rl.config import get_rl_config
+            from quantcore.rl.online_adapter import PostTradeRLAdapter
+
+            self._rl_config = get_rl_config()
+            self._rl_adapter = PostTradeRLAdapter(self._rl_config, self._kill_switch)
+        except Exception as _rl_init_err:
+            logger.debug(f"[RL] Online adapter init skipped (non-fatal): {_rl_init_err}")
+
+        # Keep the blackboard aware of the current session
+        get_blackboard().set_session(self._session_id)
 
         super().__init__()
-        logger.info("TradingDayFlow initialized (CrewAI TradingCrew mode)")
+        mode = "signal-publish" if signal_cache is not None else "direct-execute"
+        logger.info(
+            f"TradingDayFlow initialized (session={self._session_id[:8]}, "
+            f"broker={get_broker_mode()}, mode={mode})"
+        )
 
     @property
     def regime_detector(self) -> RegimeDetectorAgent:
@@ -141,6 +212,43 @@ class TradingDayFlow(Flow[TradingDayState]):
             self._trading_crew = TradingCrew()
         return self._trading_crew
 
+    def _build_sor(self) -> Optional[SmartOrderRouter]:
+        """Build SmartOrderRouter if Alpaca or IBKR env vars are present.
+
+        Returns None when neither broker is configured so that _execute_directly
+        falls through to the paper broker unchanged (backward-compatible).
+        """
+        alpaca_broker = None
+        ibkr_broker = None
+
+        if os.getenv("ALPACA_API_KEY"):
+            try:
+                from alpaca_mcp.client import AlpacaBrokerClient  # type: ignore
+                alpaca_broker = AlpacaBrokerClient()
+                logger.info("[SOR] Alpaca broker client initialised")
+            except Exception as _e:
+                logger.debug(f"[SOR] Alpaca init skipped: {_e}")
+
+        if os.getenv("IBKR_HOST"):
+            try:
+                from ibkr_mcp.client import IBKRBrokerClient  # type: ignore
+                ibkr_broker = IBKRBrokerClient()
+                logger.info("[SOR] IBKR broker client initialised")
+            except Exception as _e:
+                logger.debug(f"[SOR] IBKR init skipped: {_e}")
+
+        if alpaca_broker is None and ibkr_broker is None:
+            logger.debug("[SOR] No live broker env vars set — direct broker mode")
+            return None
+
+        paper = os.getenv("ALPACA_PAPER", "true").lower() != "false"
+        return SmartOrderRouter(
+            alpaca_broker=alpaca_broker,
+            ibkr_broker=ibkr_broker,
+            fill_tracker=self._fill_tracker,
+            paper=paper,
+        )
+
     # =========================================================================
     # PHASE 1: REGIME DETECTION
     # =========================================================================
@@ -151,8 +259,30 @@ class TradingDayFlow(Flow[TradingDayState]):
         Detect market regimes for all symbols.
         Entry point of the flow.
         """
+        # Guard: no trading if kill switch is active
+        self._kill_switch.guard()
+
         current_date = self.state.current_date or date.today()
         symbols = self.state.symbols or ["SPY"]
+
+        # Inject current portfolio state as context so agents know existing positions
+        portfolio_context = self._portfolio.as_context_string()
+        portfolio_snapshot = self._portfolio.get_snapshot()
+        self.state.portfolio = {
+            **self.state.portfolio,
+            "context": portfolio_context,
+            "snapshot": portfolio_snapshot.model_dump(),
+        }
+
+        # Pin portfolio state to blackboard so agents can read it in history queries
+        write_portfolio_state(portfolio_context)
+
+        # Snapshot portfolio into knowledge store for time-series tracking
+        try:
+            from quant_pod.knowledge.store import KnowledgeStore
+            KnowledgeStore().save_portfolio_snapshot(portfolio_snapshot.model_dump())
+        except Exception as _snap_err:
+            logger.debug(f"Portfolio snapshot to knowledge store failed: {_snap_err}")
 
         logger.info("")
         logger.info(
@@ -253,6 +383,13 @@ class TradingDayFlow(Flow[TradingDayState]):
                 continue
 
             try:
+                # Derive regime-adaptive crew config (IC selection, size, threshold)
+                regime_config = get_regime_crew_config(
+                    trend_regime=regime.get("trend", "unknown"),
+                    volatility_regime=regime.get("volatility", "normal"),
+                )
+                base_ics = PROFILE_DEFAULTS.get("equities", {}).get("ics", [])
+
                 # Prepare inputs for crew kickoff
                 inputs = {
                     "symbol": symbol,
@@ -264,7 +401,16 @@ class TradingDayFlow(Flow[TradingDayState]):
                     "historical_context": historical_context,
                 }
 
-                logger.info(f"[CREW] Running TradingCrew for {symbol}...")
+                # Merge regime config: adds regime_guidance, size_multiplier,
+                # confidence_threshold, and active_ics to inputs
+                inputs = apply_regime_config_to_inputs(inputs, regime_config, base_ics)
+
+                logger.info(
+                    f"[CREW] Running TradingCrew for {symbol} "
+                    f"[{regime_config.trend_regime}/{regime_config.volatility_regime} "
+                    f"size×{regime_config.size_multiplier} "
+                    f"conf≥{regime_config.confidence_threshold}]"
+                )
 
                 # Kickoff the crew - NO FALLBACK
                 result = self.trading_crew.crew().kickoff(inputs=inputs)
@@ -300,11 +446,32 @@ class TradingDayFlow(Flow[TradingDayState]):
                     decision_dict["symbol"] = symbol
                     self.state.trade_decisions.append(decision_dict)
 
+                    # Audit log: record the SuperTrader decision
+                    action = decision_dict.get("action", "hold")
+                    confidence = decision_dict.get("confidence", 0.0)
+                    reasoning = decision_dict.get("reasoning", "")
+                    audit_event = make_trade_event(
+                        session_id=self._session_id,
+                        agent_name="SuperTrader",
+                        agent_role="super_trader",
+                        symbol=symbol,
+                        action=action,
+                        confidence=confidence,
+                        reasoning=reasoning,
+                        output_structured=decision_dict,
+                        portfolio_snapshot=self._portfolio.get_snapshot().model_dump()
+                        if hasattr(self._portfolio.get_snapshot(), "model_dump")
+                        else {},
+                    )
+                    # Inject portfolio snapshot into audit event
+                    snapshot = self._portfolio.get_snapshot()
+                    audit_event.portfolio_snapshot = snapshot.model_dump()
+                    self._audit_log.record(audit_event)
+
                     # Write to blackboard
                     self._store_decision(symbol, decision_dict)
 
                     # If actionable, add to approved
-                    action = decision_dict.get("action", "hold")
                     if action in ["buy", "sell"]:
                         self.state.approved_trades.append(decision_dict)
 
@@ -344,34 +511,312 @@ class TradingDayFlow(Flow[TradingDayState]):
 
     @listen("execute")
     def execute_trades(self) -> Dict[str, Any]:
-        """Execute approved trades."""
-        logger.info("═══ PHASE 5: TRADE EXECUTION ═══")
+        """
+        Publish signals or execute trades directly, depending on mode.
 
-        executed = []
+        HF mode (signal_cache provided):
+            Writes TradeSignal objects to the SignalCache with a TTL.
+            The TickExecutor picks up signals and executes on market ticks.
+            The slow analysis plane (this flow) never blocks on broker I/O.
+
+        Direct mode (no signal_cache — default):
+            Executes trades immediately.  Used for paper trading and backtesting.
+        """
+        if self._signal_cache is not None:
+            return self._publish_signals()
+        return self._execute_directly()
+
+    def _publish_signals(self) -> Dict[str, Any]:
+        """HF mode: write signals to SignalCache for the TickExecutor."""
+        logger.info("═══ PHASE 5: PUBLISHING SIGNALS → TICK EXECUTOR ═══")
+
+        signals: List[TradeSignal] = []
 
         for decision in self.state.approved_trades:
+            symbol = decision.get("symbol", "")
+            action = decision.get("action", "hold").upper()
+            confidence = float(decision.get("confidence", 0.0))
+
+            # Map position_size string to fraction
+            size_map = {"full": 0.20, "half": 0.10, "quarter": 0.05, "none": 0.0}
+            position_size_pct = size_map.get(decision.get("position_size", "quarter"), 0.05)
+
+            signal = TradeSignal.create(
+                symbol=symbol,
+                action=action,  # type: ignore[arg-type]
+                confidence=confidence,
+                position_size_pct=position_size_pct,
+                stop_loss=decision.get("stop_loss"),
+                take_profit=decision.get("take_profit"),
+                expires_in_seconds=self._signal_ttl_seconds,
+                session_id=self._session_id,
+            )
+            signals.append(signal)
+
+            logger.info(
+                f"[SIGNAL] Published {action} {symbol} "
+                f"conf={confidence:.0%} ttl={self._signal_ttl_seconds}s"
+            )
+
+        self._signal_cache.update_batch(signals)
+        self.state.signal_funnel["executed"] = len(signals)
+
+        return {"signals_published": len(signals)}
+
+    def _execute_directly(self) -> Dict[str, Any]:
+        """Direct mode: execute trades immediately (backward-compatible)."""
+        logger.info("═══ PHASE 5: TRADE EXECUTION (DIRECT) ═══")
+
+        executed = []
+        # alpha_proxy: bps of expected alpha per unit confidence (tunable via env var)
+        alpha_per_confidence = float(os.getenv("ALPHA_BPS_PER_UNIT_CONFIDENCE", "50"))
+
+        # -----------------------------------------------------------------------
+        # Portfolio optimization: compute MV-optimal weights for all approved
+        # trades before the loop, replacing per-symbol bucket sizing.
+        # Falls back to None → _calculate_quantity() path per symbol below.
+        # -----------------------------------------------------------------------
+        portfolio_target_weights: Dict[str, float] = {}
+        try:
+            returns_df = self._get_returns_dataframe()
+            snapshot = self._portfolio.get_snapshot()
+            portfolio_equity = self.state.portfolio.get("equity", 100_000) or 100_000
+            current_weights: Dict[str, float] = {
+                pos.symbol: pos.notional_value / portfolio_equity
+                for pos in (snapshot.positions or [])
+                if portfolio_equity > 0
+            }
+            portfolio_target_weights = self._portfolio_optimizer.optimize(
+                decisions=self.state.approved_trades,
+                returns_df=returns_df,
+                current_weights=current_weights or None,
+            )
+            logger.info(
+                f"[PortOpt] Target weights computed for "
+                f"{len(portfolio_target_weights)} symbols"
+            )
+        except Exception as _opt_err:
+            logger.warning(
+                f"[PortOpt] Optimization failed ({_opt_err}) — "
+                "falling back to per-symbol bucket sizing"
+            )
+
+        for i, decision in enumerate(self.state.approved_trades):
             symbol = decision.get("symbol")
             action = decision.get("action")
 
             try:
-                quantity = self._calculate_quantity(decision)
+                # Use portfolio-optimal weight when available, else legacy bucket
+                if symbol in portfolio_target_weights:
+                    quantity = self._calculate_quantity_from_weight(
+                        symbol, portfolio_target_weights[symbol]
+                    )
+                else:
+                    quantity = self._calculate_quantity(decision)
 
                 if quantity > 0:
+                    current_price = (
+                        self.state.features.get(symbol, {}).get("close", 0.0)
+                        or self.state.market_data.get(symbol, {}).get("close", 0.0)
+                    )
+                    daily_volume = int(
+                        self.state.market_data.get(symbol, {}).get("volume", 1_000_000)
+                    )
+
+                    # Risk gate check (hard stop — cannot be overridden by TCA or SOR)
+                    verdict = self._risk_gate.check(
+                        symbol=symbol,
+                        side=action,
+                        quantity=quantity,
+                        current_price=current_price,
+                        daily_volume=daily_volume,
+                    )
+
+                    if not verdict.approved:
+                        logger.warning(
+                            f"[RISK GATE] BLOCKED {action} {symbol}: {verdict.reason}"
+                        )
+                        rejection_event = make_trade_event(
+                            session_id=self._session_id,
+                            agent_name="RiskGate",
+                            agent_role="risk_gate",
+                            symbol=symbol,
+                            action=action,
+                            confidence=decision.get("confidence", 0.0),
+                            reasoning=verdict.reason,
+                            output_structured={"violations": [v.__dict__ for v in verdict.violations]},
+                            risk_approved=False,
+                            risk_violations=[v.description for v in verdict.violations],
+                        )
+                        self._audit_log.record(rejection_event)
+                        self.state.errors.append(f"RiskGate blocked {symbol}: {verdict.reason}")
+                        continue
+
+                    # Use approved_quantity (may be scaled down by risk gate)
+                    final_qty = verdict.approved_quantity or quantity
+
+                    # ----------------------------------------------------------
+                    # TCA: record arrival price (signal-fire benchmark)
+                    # ----------------------------------------------------------
+                    trade_id = f"{symbol}_{self._session_id[:8]}_{i}"
+                    tca_side = TCAOrderSide.BUY if action == "buy" else TCAOrderSide.SELL
+                    self._tca.record_arrival(
+                        trade_id=trade_id,
+                        symbol=symbol,
+                        side=tca_side,
+                        shares=float(final_qty),
+                        arrival_price=current_price,
+                    )
+
+                    # TCA: pre-trade cost forecast
+                    # atr_pct from feature pipeline; default 1.5% daily vol
+                    daily_vol_pct = float(
+                        self.state.features.get(symbol, {}).get("atr_pct", 1.5)
+                    )
+                    forecast = self._tca.pre_trade(
+                        trade_id=trade_id,
+                        adv=float(daily_volume),
+                        daily_vol_pct=daily_vol_pct,
+                    )
+
+                    # TCA: soft alpha-vs-cost check (cannot override risk gate)
+                    alpha_proxy_bps = decision.get("confidence", 0.5) * alpha_per_confidence
+                    should_trade, tca_reason = self._tca.alpha_vs_cost_check(
+                        trade_id, alpha_proxy_bps
+                    )
+                    if not should_trade:
+                        logger.warning(f"[TCA] Skipping {symbol}: {tca_reason}")
+                        self.state.errors.append(f"TCA {symbol}: {tca_reason}")
+                        continue
+
+                    # Derive recommended execution algo from TCA forecast
+                    exec_order_type = decision.get("entry_type", "market")
+                    if forecast and forecast.recommended_algo.value == "LIMIT":
+                        exec_order_type = "limit"
+                    elif exec_order_type not in ("market", "limit"):
+                        exec_order_type = "market"
+
+                    # ----------------------------------------------------------
+                    # Execution: SmartOrderRouter (if configured) else paper broker
+                    # ----------------------------------------------------------
+                    fill_price: float
+                    filled_quantity: int
+                    fill_slippage_bps: float
+                    fill_commission: float
+                    fill_order_id: str
+
+                    if self._sor is not None:
+                        unified_order = UnifiedOrder(
+                            symbol=symbol,
+                            side=action,
+                            quantity=float(final_qty),
+                            order_type=exec_order_type,
+                            limit_price=decision.get("limit_price"),
+                            client_order_id=trade_id,
+                        )
+                        try:
+                            sor_result = self._sor.route(
+                                account_id=os.getenv("BROKER_ACCOUNT_ID", "default"),
+                                order=unified_order,
+                                asset_class=decision.get("asset_class", "equity"),
+                            )
+                            if sor_result.status == "rejected":
+                                logger.warning(
+                                    f"[SOR] REJECTED {symbol}: {sor_result.reject_reason}"
+                                )
+                                self.state.errors.append(
+                                    f"SOR rejected {symbol}: {sor_result.reject_reason}"
+                                )
+                                continue
+                            fill_price = sor_result.avg_fill_price or current_price
+                            filled_quantity = int(sor_result.filled_qty)
+                            fill_commission = sor_result.commission or 0.0
+                            fill_slippage_bps = (
+                                abs(fill_price - current_price) / current_price * 10_000
+                                if current_price > 0 else 0.0
+                            )
+                            fill_order_id = sor_result.order_id
+                        except SmartOrderRouterError as sor_err:
+                            # SOR exhausted all brokers — fall back to paper broker
+                            logger.warning(
+                                f"[SOR] Failed for {symbol}: {sor_err} — "
+                                "falling back to paper broker"
+                            )
+                            fill = self._broker.execute(
+                                OrderRequest(
+                                    symbol=symbol,
+                                    side=action,
+                                    quantity=final_qty,
+                                    order_type=exec_order_type,
+                                    limit_price=decision.get("limit_price"),
+                                    current_price=current_price,
+                                    daily_volume=daily_volume,
+                                )
+                            )
+                            if fill.rejected:
+                                logger.warning(
+                                    f"[BROKER] REJECTED {symbol}: {fill.reject_reason}"
+                                )
+                                self.state.errors.append(
+                                    f"Broker rejected {symbol}: {fill.reject_reason}"
+                                )
+                                continue
+                            fill_price = fill.fill_price
+                            filled_quantity = fill.filled_quantity
+                            fill_commission = fill.commission
+                            fill_slippage_bps = fill.slippage_bps
+                            fill_order_id = fill.order_id
+                    else:
+                        # Default: paper broker (original path, fully backward-compatible)
+                        fill = self._broker.execute(
+                            OrderRequest(
+                                symbol=symbol,
+                                side=action,
+                                quantity=final_qty,
+                                order_type=exec_order_type,
+                                limit_price=decision.get("limit_price"),
+                                current_price=current_price,
+                                daily_volume=daily_volume,
+                            )
+                        )
+                        if fill.rejected:
+                            logger.warning(f"[BROKER] REJECTED {symbol}: {fill.reject_reason}")
+                            self.state.errors.append(
+                                f"Broker rejected {symbol}: {fill.reject_reason}"
+                            )
+                            continue
+                        fill_price = fill.fill_price
+                        filled_quantity = fill.filled_quantity
+                        fill_commission = fill.commission
+                        fill_slippage_bps = fill.slippage_bps
+                        fill_order_id = fill.order_id
+
+                    # ----------------------------------------------------------
+                    # TCA: record fill and compute post-trade shortfall
+                    # ----------------------------------------------------------
+                    self._tca.record_fill(trade_id=trade_id, fill_price=fill_price)
+
                     trade = {
                         "symbol": symbol,
                         "side": action,
-                        "quantity": quantity,
+                        "quantity": filled_quantity,
+                        "fill_price": fill_price,
+                        "slippage_bps": fill_slippage_bps,
+                        "commission": fill_commission,
                         "reason": decision.get("reasoning", ""),
                         "confidence": decision.get("confidence", 0),
                         "stop_loss": decision.get("stop_loss"),
                         "take_profit": decision.get("take_profit"),
                         "date": str(self.state.current_date),
+                        "order_id": fill_order_id,
                     }
                     executed.append(trade)
 
                     logger.info(
-                        f"[EXECUTED] {action.upper()} {quantity} {symbol} "
-                        f"@ {decision.get('confidence', 0):.0%} confidence"
+                        f"[EXECUTED] {action.upper()} {filled_quantity} {symbol} "
+                        f"@ ${fill_price:.2f} "
+                        f"({fill_slippage_bps:.1f} bps slippage, "
+                        f"{decision.get('confidence', 0):.0%} confidence)"
                     )
 
             except Exception as e:
@@ -412,7 +857,20 @@ class TradingDayFlow(Flow[TradingDayState]):
         return self._finalize_day()
 
     def _finalize_day(self) -> Dict[str, Any]:
-        """Build final day result."""
+        """Build final day result and run post-trade learning."""
+        # Post-trade learning: run ExpectancyEngine on any newly closed trades
+        self._run_post_trade_learning()
+
+        # TCA session aggregate
+        tca_report = self._tca.aggregate_report()
+        if tca_report.get("n_trades", 0) > 0:
+            logger.info(
+                f"[TCA] Session execution quality: {tca_report.get('execution_quality')} | "
+                f"avg IS={tca_report.get('avg_shortfall_vs_arrival_bps', 0):+.1f}bps | "
+                f"favorable={tca_report.get('pct_favorable', 0):.0f}% | "
+                f"total cost=${tca_report.get('total_dollar_cost', 0):+.2f}"
+            )
+
         logger.info("")
         logger.info(
             "╔══════════════════════════════════════════════════════════════════╗"
@@ -440,7 +898,74 @@ class TradingDayFlow(Flow[TradingDayState]):
             "regimes": self.state.regimes,
             "signal_funnel": self.state.signal_funnel,
             "errors": self.state.errors,
+            "session_id": self._session_id,
         }
+
+    def _run_post_trade_learning(self) -> None:
+        """Run ExpectancyEngine and SkillTracker updates after trade execution."""
+        try:
+            from quant_pod.knowledge.store import KnowledgeStore
+            from quant_pod.learning.expectancy_engine import ExpectancyEngine
+            from quant_pod.learning.skill_tracker import SkillTracker
+            from quant_pod.learning.calibration import get_calibration_tracker
+
+            store = KnowledgeStore()
+            expectancy = ExpectancyEngine(store)
+            skill_tracker = SkillTracker(store)
+            calibration = get_calibration_tracker()
+
+            result = expectancy.calculate_expectancy()
+            if result.sample_size >= 5:
+                logger.info(
+                    f"[LEARNING] Expectancy update: "
+                    f"win_rate={result.win_rate:.1%}, "
+                    f"expectancy={result.expectancy:+.2f}, "
+                    f"n={result.sample_size}"
+                )
+
+            # Update SkillTracker for each executed trade
+            for trade in self.state.executed_trades:
+                pnl = trade.get("pnl")
+                confidence = trade.get("confidence", 0.5)
+                if pnl is not None:
+                    skill_tracker.update_agent_skill(
+                        agent_id="SuperTrader",
+                        prediction_correct=pnl > 0,
+                        signal_pnl=pnl,
+                    )
+                    calibration.record(
+                        agent_name="SuperTrader",
+                        stated_confidence=confidence,
+                        was_correct=pnl > 0,
+                        symbol=trade.get("symbol"),
+                        action=trade.get("side"),
+                        pnl=pnl,
+                    )
+
+                # Check retraining trigger
+                if skill_tracker.needs_retraining("SuperTrader"):
+                    logger.warning(
+                        "[LEARNING] SuperTrader win rate below threshold — "
+                        "consider retraining"
+                    )
+
+        except Exception as e:
+            logger.warning(f"[LEARNING] Post-trade learning failed (non-fatal): {e}")
+
+        # RL online feedback loop — push trade outcomes to OnlineRLTrainer
+        # Reads pre-trade snapshots saved by RL tools to the module-level registry.
+        # Runs after ExpectancyEngine/SkillTracker so it never blocks them.
+        if self._rl_adapter is not None and self._rl_config is not None:
+            try:
+                from quantcore.rl.rl_tools import pop_pretrade_snapshot
+                for trade in self.state.executed_trades:
+                    # Try each tool type — one snapshot per tool per day
+                    for tool_name in ("rl_position_size", "rl_execution_strategy"):
+                        snapshot = pop_pretrade_snapshot(tool_name)
+                        if snapshot:
+                            self._rl_adapter.process_trade_outcome(trade, snapshot)
+            except Exception as _rl_err:
+                logger.warning(f"[RL] Online update failed (non-fatal): {_rl_err}")
 
     # =========================================================================
     # HELPER METHODS
@@ -484,11 +1009,86 @@ class TradingDayFlow(Flow[TradingDayState]):
             sim_date=self.state.current_date,
         )
 
+    def _get_returns_dataframe(self) -> Optional["pd.DataFrame"]:
+        """Pull 90-day daily close returns from the quantcore DataStore.
+
+        Returns None on any failure so the portfolio optimizer's fallback path
+        (signal-proportional equal-weight) activates instead of crashing the flow.
+        """
+        try:
+            import pandas as pd
+            from datetime import timedelta
+            from quantcore.data.storage import DataStore
+            from quantcore.config.timeframes import Timeframe
+
+            store = DataStore()
+            symbols = self.state.symbols or []
+            end_date = datetime.combine(
+                self.state.current_date or date.today(), datetime.min.time()
+            )
+            start_date = end_date - timedelta(days=120)  # extra buffer for weekends/holidays
+            returns_dict: Dict[str, Any] = {}
+
+            for sym in symbols:
+                try:
+                    ohlcv = store.load_ohlcv(
+                        symbol=sym,
+                        timeframe=Timeframe.D1,
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                    if ohlcv is not None and len(ohlcv) >= 2:
+                        returns_dict[sym] = ohlcv["close"].pct_change().dropna()
+                except Exception:
+                    pass  # Missing symbol data is non-fatal
+
+            if not returns_dict:
+                return None
+
+            returns_df = pd.DataFrame(returns_dict).dropna(how="all")
+            return returns_df if len(returns_df) >= 2 else None
+
+        except Exception as _e:
+            logger.debug(f"[PortOpt] Could not build returns DataFrame: {_e}")
+            return None
+
+    def _calculate_quantity_from_weight(self, symbol: str, weight: float) -> int:
+        """Convert a portfolio weight fraction into an integer share count.
+
+        Args:
+            symbol: Ticker symbol.
+            weight: Target portfolio weight as a fraction of NAV (0.15 = 15%).
+
+        Returns:
+            Number of shares to trade (0 if price unavailable or weight ≤ 0).
+        """
+        if weight <= 0.0:
+            return 0
+
+        equity = self.state.portfolio.get("equity", 100_000)
+        price = (
+            self.state.features.get(symbol, {}).get("close", 0.0)
+            or self.state.market_data.get(symbol, {}).get("close", 0.0)
+        )
+
+        if price <= 0.0:
+            return 0
+
+        return int(equity * weight / price)
+
     def _calculate_quantity(self, decision: Dict) -> int:
-        """Calculate trade quantity based on decision."""
+        """Calculate trade quantity based on decision.
+
+        Legacy per-symbol sizing used when the portfolio optimizer is bypassed
+        (e.g., single-symbol mode or optimizer failure).  Kept as a fallback
+        so no caller breaks if target_weights is unavailable for a symbol.
+        """
         symbol = decision.get("symbol")
-        equity = self.state.portfolio.get("equity", 100000)
-        price = self.state.features.get(symbol, {}).get("close", 0)
+        equity = self.state.portfolio.get("equity", 100_000)
+        price = (
+            self.state.features.get(symbol, {}).get("close", 0.0)
+            or self.state.market_data.get(symbol, {}).get("close", 0.0)
+        )
 
         if price <= 0:
             return 0
@@ -496,10 +1096,7 @@ class TradingDayFlow(Flow[TradingDayState]):
         size_map = {"full": 0.20, "half": 0.10, "quarter": 0.05, "none": 0.0}
         size_pct = size_map.get(decision.get("position_size", "quarter"), 0.05)
 
-        max_position_value = equity * size_pct
-        quantity = int(max_position_value / price)
-
-        return quantity
+        return int(equity * size_pct / price)
 
 
 # =============================================================================

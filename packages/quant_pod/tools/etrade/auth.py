@@ -27,7 +27,7 @@ import requests
 from loguru import logger
 from pydantic import BaseModel
 
-from etrade_mcp.models import AuthStatus, TokenData
+from quant_pod.tools.etrade.models import AuthStatus, TokenData
 
 # =============================================================================
 # CONSTANTS
@@ -192,14 +192,13 @@ class ETradeAuthManager:
                 "updated_at": datetime.now().isoformat(),
             }
 
-            # Write atomically
+            # Write atomically: set permissions on the temp file BEFORE rename so the
+            # final path is never world-readable, even briefly.
             temp_path = self.token_path.with_suffix(".tmp")
             with open(temp_path, "w") as f:
                 json.dump(data, f, indent=2)
+            temp_path.chmod(0o600)
             temp_path.rename(self.token_path)
-
-            # Secure permissions
-            os.chmod(self.token_path, 0o600)
 
             logger.info(f"Saved tokens to {self.token_path}")
         except Exception as e:
@@ -604,7 +603,7 @@ def create_auth_router(auth_manager: ETradeAuthManager):
             <html>
             <head><title>Authorization Successful</title></head>
             <body>
-                <h1>✅ Authorization Successful!</h1>
+                <h1>Authorization Successful!</h1>
                 <p>You can close this window and return to the application.</p>
                 <script>setTimeout(() => window.close(), 3000);</script>
             </body>
@@ -615,7 +614,7 @@ def create_auth_router(auth_manager: ETradeAuthManager):
             <html>
             <head><title>Authorization Failed</title></head>
             <body>
-                <h1>❌ Authorization Failed</h1>
+                <h1>Authorization Failed</h1>
                 <p>Error: {str(e)}</p>
             </body>
             </html>

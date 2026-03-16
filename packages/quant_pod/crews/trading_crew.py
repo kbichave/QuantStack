@@ -58,12 +58,20 @@ from quant_pod.crews.schemas import (
     TradeDecision,
     RiskVerdict,
 )
+from quant_pod.llm_config import get_llm_for_agent, log_llm_config_summary
 from quant_pod.prompts import PromptLoader, get_prompt_loader
 
 
 # =============================================================================
 # TOOL IMPORTS
 # =============================================================================
+
+from quant_pod.tools.alphavantage_tools import (
+    fetch_news_sentiment_tool,
+    fetch_upcoming_earnings_tool,
+    fetch_company_overview_tool,
+)
+from quant_pod.tools.options_flow_tools import OptionsFlowTool, PutCallRatioTool
 
 from quant_pod.crews.tools import (
     # Market Data
@@ -102,6 +110,9 @@ from quant_pod.crews.tools import (
     validate_trade_tool,
     score_trade_structure_tool,
     simulate_trade_outcome_tool,
+    # RL Tools
+    RL_TOOLS_AVAILABLE,
+    get_rl_tools,
 )
 
 
@@ -146,6 +157,13 @@ TOOL_REGISTRY = {
     "validate_trade": validate_trade_tool,
     "score_trade_structure": score_trade_structure_tool,
     "simulate_trade_outcome": simulate_trade_outcome_tool,
+    # Alpha Vantage — news, earnings, fundamentals
+    "fetch_news_sentiment": fetch_news_sentiment_tool,
+    "fetch_upcoming_earnings": fetch_upcoming_earnings_tool,
+    "fetch_company_overview": fetch_company_overview_tool,
+    # Options flow — UOA detection (singletons; re-used safely across agents)
+    "options_flow_analysis": lambda: OptionsFlowTool,
+    "put_call_ratio": lambda: PutCallRatioTool,
 }
 
 # Agent ordering for deterministic roster construction
@@ -160,6 +178,10 @@ IC_AGENT_ORDER = [
     "options_vol_ic",
     "risk_limits_ic",
     "calendar_events_ic",
+    # Alpha signals ICs — run last in wave (serialize Alpha Vantage calls)
+    "news_sentiment_ic",
+    "options_flow_ic",
+    "fundamentals_ic",
 ]
 
 POD_MANAGER_ORDER = [
@@ -168,6 +190,7 @@ POD_MANAGER_ORDER = [
     "technicals_pod_manager",
     "quant_pod_manager",
     "risk_pod_manager",
+    "alpha_signals_pod_manager",
 ]
 
 
@@ -238,6 +261,7 @@ class TradingCrew:
             raise FileNotFoundError(f"tasks.yaml not found in {config_dir}")
 
         logger.info("TradingCrew initialized with JSON prompts")
+        log_llm_config_summary()
 
     def _create_agent_from_config(self, name: str, tools: List = None) -> Agent:
         """
@@ -262,7 +286,7 @@ class TradingCrew:
             role=config.get("role", ""),
             goal=config.get("goal", ""),
             backstory=config.get("backstory", ""),
-            llm=settings.get("llm", "openai/gpt-4o"),
+            llm=get_llm_for_agent(name),
             verbose=settings.get("verbose", True),
             allow_delegation=settings.get("allow_delegation", False),
             max_iter=settings.get("max_iter", 20),
@@ -282,6 +306,9 @@ class TradingCrew:
             "options_vol_ic": self.options_vol_ic,
             "risk_limits_ic": self.risk_limits_ic,
             "calendar_events_ic": self.calendar_events_ic,
+            "news_sentiment_ic": self.news_sentiment_ic,
+            "options_flow_ic": self.options_flow_ic,
+            "fundamentals_ic": self.fundamentals_ic,
         }
 
     def _pod_manager_factories(self) -> Dict[str, Callable[[], Agent]]:
@@ -291,6 +318,7 @@ class TradingCrew:
             "technicals_pod_manager": self.technicals_pod_manager,
             "quant_pod_manager": self.quant_pod_manager,
             "risk_pod_manager": self.risk_pod_manager,
+            "alpha_signals_pod_manager": self.alpha_signals_pod_manager,
         }
 
     def _ic_task_factories(self) -> Dict[str, Callable[[], Task]]:
@@ -305,6 +333,9 @@ class TradingCrew:
             "options_vol_ic": self.options_task,
             "risk_limits_ic": self.risk_limits_task,
             "calendar_events_ic": self.events_task,
+            "news_sentiment_ic": self.news_sentiment_task,
+            "options_flow_ic": self.options_flow_task,
+            "fundamentals_ic": self.fundamentals_task,
         }
 
     def _pod_task_factories(self) -> Dict[str, Callable[[], Task]]:
@@ -314,6 +345,7 @@ class TradingCrew:
             "technicals_pod_manager": self.technicals_compile_task,
             "quant_pod_manager": self.quant_compile_task,
             "risk_pod_manager": self.risk_compile_task,
+            "alpha_signals_pod_manager": self.alpha_signals_compile_task,
         }
 
     def _assemble_roster(
@@ -325,7 +357,9 @@ class TradingCrew:
         self._last_roster = roster
         return roster
 
-    def _build_agents(self, roster: PodSelection) -> List[Agent]:
+    def _build_agents(
+        self, roster: PodSelection, stop_at_assistant: bool = False
+    ) -> List[Agent]:
         agents: List[Agent] = []
         ic_factories = self._ic_agent_factories()
         pod_factories = self._pod_manager_factories()
@@ -338,12 +372,14 @@ class TradingCrew:
             if name in roster.pod_managers and name in pod_factories:
                 agents.append(pod_factories[name]())
 
-        # Always include assistant and super trader
         agents.append(self.trading_assistant())
-        agents.append(self.super_trader())
+        if not stop_at_assistant:
+            agents.append(self.super_trader())
         return agents
 
-    def _build_tasks(self, roster: PodSelection) -> List[Task]:
+    def _build_tasks(
+        self, roster: PodSelection, stop_at_assistant: bool = False
+    ) -> List[Task]:
         tasks: List[Task] = []
         ic_task_factories = self._ic_task_factories()
         pod_task_factories = self._pod_task_factories()
@@ -357,7 +393,8 @@ class TradingCrew:
                 tasks.append(pod_task_factories[name]())
 
         tasks.append(self.assistant_synthesis_task())
-        tasks.append(self.trade_decision_task())
+        if not stop_at_assistant:
+            tasks.append(self.trade_decision_task())
         return tasks
 
     # =========================================================================
@@ -471,6 +508,21 @@ class TradingCrew:
         """Event calendar specialist IC."""
         return self._create_agent_from_config("calendar_events_ic")
 
+    @agent
+    def news_sentiment_ic(self) -> Agent:
+        """News sentiment and earnings risk specialist IC."""
+        return self._create_agent_from_config("news_sentiment_ic")
+
+    @agent
+    def options_flow_ic(self) -> Agent:
+        """Unusual options activity and institutional flow specialist IC."""
+        return self._create_agent_from_config("options_flow_ic")
+
+    @agent
+    def fundamentals_ic(self) -> Agent:
+        """Company fundamentals analyst IC."""
+        return self._create_agent_from_config("fundamentals_ic")
+
     # =========================================================================
     # LAYER 2: POD MANAGER AGENTS
     # =========================================================================
@@ -498,7 +550,19 @@ class TradingCrew:
     @agent
     def risk_pod_manager(self) -> Agent:
         """Risk and execution pod manager."""
-        return self._create_agent_from_config("risk_pod_manager")
+        agent = self._create_agent_from_config("risk_pod_manager")
+        # Risk pod manager can use RL execution strategy tool — it approves trade execution
+        # ICs do NOT get RL tools (preserves no-compounding-errors invariant)
+        if RL_TOOLS_AVAILABLE:
+            rl = get_rl_tools()
+            if rl:
+                agent.tools = (agent.tools or []) + rl
+        return agent
+
+    @agent
+    def alpha_signals_pod_manager(self) -> Agent:
+        """Alpha signals pod manager — synthesises news, flow, fundamentals, statarb, vol."""
+        return self._create_agent_from_config("alpha_signals_pod_manager")
 
     # =========================================================================
     # LAYER 3: ASSISTANT AGENT
@@ -516,61 +580,92 @@ class TradingCrew:
     @agent
     def super_trader(self) -> Agent:
         """Portfolio manager and final decision maker."""
-        return self._create_agent_from_config("super_trader")
+        agent = self._create_agent_from_config("super_trader")
+        # SuperTrader is the final decision maker — all three RL tools are available to it.
+        # ICs do NOT get RL tools (preserves no-compounding-errors invariant in agent_hardening.py)
+        if RL_TOOLS_AVAILABLE:
+            rl = get_rl_tools()
+            if rl:
+                agent.tools = (agent.tools or []) + rl
+        return agent
 
     # =========================================================================
     # LAYER 1 TASKS: IC Tasks - Raw Data Gathering
     # =========================================================================
 
+    # =========================================================================
+    # LAYER 1 TASKS: IC Tasks - Raw Data Gathering
+    # All IC tasks run asynchronously (async_execution=True) because they are
+    # independent of each other.  data_ingestion_ic runs first and its output
+    # is available as context; the remaining ICs can overlap with it because
+    # they rely only on already-fetched cached data.
+    # =========================================================================
+
     @task
     def fetch_data_task(self) -> Task:
-        """Data fetching task."""
+        """Data fetching task — runs first (ICs depend on data being available)."""
+        # Keep synchronous so data is on disk before the parallel IC wave starts.
         return Task(config=self.tasks_config["fetch_data_task"])
 
     @task
     def snapshot_task(self) -> Task:
         """Market snapshot task."""
-        return Task(config=self.tasks_config["snapshot_task"])
+        return Task(config=self.tasks_config["snapshot_task"], async_execution=True)
 
     @task
     def regime_task(self) -> Task:
         """Regime detection task."""
-        return Task(config=self.tasks_config["regime_task"])
+        return Task(config=self.tasks_config["regime_task"], async_execution=True)
 
     @task
     def trend_momentum_task(self) -> Task:
         """Trend and momentum task."""
-        return Task(config=self.tasks_config["trend_momentum_task"])
+        return Task(config=self.tasks_config["trend_momentum_task"], async_execution=True)
 
     @task
     def volatility_task(self) -> Task:
         """Volatility metrics task."""
-        return Task(config=self.tasks_config["volatility_task"])
+        return Task(config=self.tasks_config["volatility_task"], async_execution=True)
 
     @task
     def structure_task(self) -> Task:
         """Structure/levels task."""
-        return Task(config=self.tasks_config["structure_task"])
+        return Task(config=self.tasks_config["structure_task"], async_execution=True)
 
     @task
     def statarb_task(self) -> Task:
         """Statistical arbitrage task."""
-        return Task(config=self.tasks_config["statarb_task"])
+        return Task(config=self.tasks_config["statarb_task"], async_execution=True)
 
     @task
     def options_task(self) -> Task:
         """Options metrics task."""
-        return Task(config=self.tasks_config["options_task"])
+        return Task(config=self.tasks_config["options_task"], async_execution=True)
 
     @task
     def risk_limits_task(self) -> Task:
         """Risk limits task."""
-        return Task(config=self.tasks_config["risk_limits_task"])
+        return Task(config=self.tasks_config["risk_limits_task"], async_execution=True)
 
     @task
     def events_task(self) -> Task:
         """Calendar events task."""
-        return Task(config=self.tasks_config["events_task"])
+        return Task(config=self.tasks_config["events_task"], async_execution=True)
+
+    @task
+    def news_sentiment_task(self) -> Task:
+        """News sentiment task — synchronous to serialise Alpha Vantage calls (5/min rate limit)."""
+        return Task(config=self.tasks_config["news_sentiment_task"])
+
+    @task
+    def options_flow_task(self) -> Task:
+        """Options flow (UOA) task — synchronous to serialise Alpha Vantage calls."""
+        return Task(config=self.tasks_config["options_flow_task"])
+
+    @task
+    def fundamentals_task(self) -> Task:
+        """Company fundamentals task — synchronous to serialise Alpha Vantage calls."""
+        return Task(config=self.tasks_config["fundamentals_task"])
 
     # =========================================================================
     # LAYER 2 TASKS: Pod Manager Tasks - Compilation
@@ -600,6 +695,11 @@ class TradingCrew:
     def risk_compile_task(self) -> Task:
         """Risk pod compilation task."""
         return Task(config=self.tasks_config["risk_compile_task"])
+
+    @task
+    def alpha_signals_compile_task(self) -> Task:
+        """Alpha signals pod compilation task — news, flow, fundamentals, statarb, vol confluence."""
+        return Task(config=self.tasks_config["alpha_signals_compile_task"])
 
     # =========================================================================
     # LAYER 3 TASK: Assistant Synthesis
@@ -634,20 +734,27 @@ class TradingCrew:
         self,
         task_envelope: Optional[Any] = None,
         llm_decider: Optional[Callable[[str], str]] = None,
+        stop_at_assistant: bool = False,
     ) -> Crew:
         """
         Create and configure the hierarchical trading crew.
 
         Uses sequential process - tasks execute in defined order.
         Context flows through task dependencies defined in tasks.yaml.
+
+        Args:
+            stop_at_assistant: If True, the crew stops after the Trading
+                Assistant's DailyBrief synthesis — the SuperTrader agent and
+                trade_decision_task are excluded.  The crew output will be a
+                validated DailyBrief instead of a TradeDecision.
         """
         envelope_inputs: Dict[str, Any] = (
             {"task_envelope": task_envelope} if task_envelope is not None else {}
         )
         envelope = TaskEnvelope.from_inputs(envelope_inputs)
         roster = self._assemble_roster(envelope=envelope, llm_decider=llm_decider)
-        agents = self._build_agents(roster)
-        tasks = self._build_tasks(roster)
+        agents = self._build_agents(roster, stop_at_assistant=stop_at_assistant)
+        tasks = self._build_tasks(roster, stop_at_assistant=stop_at_assistant)
 
         logger.info(
             "Crew roster finalized",
@@ -694,29 +801,52 @@ def run_trading_analysis(
         portfolio: Optional portfolio state dict
         historical_context: Optional historical context string
         current_date: Optional date (defaults to today)
+        task_envelope: Optional pre-built TaskEnvelope for asset-class routing
 
     Returns:
         Crew execution result with TradeDecision
     """
     crew = TradingCrew()
 
+    # Pass raw inputs — the @before_kickoff prepare_inputs hook handles all
+    # normalization, envelope construction, and default-setting.
     inputs = {
         "symbol": symbol,
         "current_date": current_date or date.today(),
-        "regime": regime
-        or {"trend": "unknown", "volatility": "normal", "confidence": 0.5},
+        "regime": regime or {"trend": "unknown", "volatility": "normal", "confidence": 0.5},
         "portfolio": portfolio or {},
         "historical_context": historical_context,
     }
 
-    envelope = TaskEnvelope.from_inputs({"task_envelope": task_envelope, **inputs})
-    inputs["task_envelope"] = envelope.model_dump()
-    inputs.setdefault("asset_class", envelope.asset_class)
-    inputs.setdefault("task_intent", envelope.task_intent)
-    inputs.setdefault("instrument_type", envelope.instrument_type)
-
-    result = crew.crew(task_envelope=envelope).kickoff(inputs=inputs)
+    result = crew.crew(task_envelope=task_envelope).kickoff(inputs=inputs)
     return result
+
+
+def run_analysis_only(
+    symbol: str,
+    regime: Optional[Dict[str, Any]] = None,
+    portfolio: Optional[Dict] = None,
+    historical_context: str = "",
+    current_date: Optional[date] = None,
+    task_envelope: Optional[Any] = None,
+) -> Any:
+    """
+    Run crew analysis and return DailyBrief without SuperTrader decision.
+
+    Identical to run_trading_analysis but stops after the Trading Assistant's
+    synthesis, returning a DailyBrief instead of a TradeDecision.
+    """
+    crew = TradingCrew()
+    inputs = {
+        "symbol": symbol,
+        "current_date": current_date or date.today(),
+        "regime": regime or {"trend": "unknown", "volatility": "normal", "confidence": 0.5},
+        "portfolio": portfolio or {},
+        "historical_context": historical_context,
+    }
+    return crew.crew(task_envelope=task_envelope, stop_at_assistant=True).kickoff(
+        inputs=inputs
+    )
 
 
 def list_available_agents() -> Dict[str, List[str]]:
@@ -728,5 +858,6 @@ __all__ = [
     "TradingCrew",
     "create_trading_crew",
     "run_trading_analysis",
+    "run_analysis_only",
     "list_available_agents",
 ]

@@ -12,7 +12,9 @@ This conftest.py is automatically loaded by pytest and provides:
 
 from __future__ import annotations
 
+import asyncio
 import sys
+import uuid
 from pathlib import Path
 from typing import Generator
 
@@ -78,6 +80,94 @@ def temp_db(tmp_path: Path) -> Generator[Path, None, None]:
     db_path = tmp_path / "test.duckdb"
     yield db_path
     # Cleanup handled by tmp_path fixture
+
+
+# =============================================================================
+# Trading System Fixtures — fully isolated, in-memory, no file I/O
+# =============================================================================
+
+
+@pytest.fixture
+def trading_ctx():
+    """
+    Fully-wired TradingContext backed by an in-memory DuckDB.
+
+    Each test gets a completely fresh, isolated context — no shared state,
+    no file system side-effects, no interaction with production data.
+
+    Use this as the entry point for all trading-system tests:
+
+        def test_something(trading_ctx):
+            trading_ctx.portfolio.adjust_cash(-1000)
+            ...
+    """
+    from quant_pod.context import create_trading_context
+
+    ctx = create_trading_context(
+        db_path=":memory:",
+        initial_cash=100_000.0,
+        session_id=str(uuid.uuid4()),
+    )
+    yield ctx
+    # DuckDB in-memory connections are GC'd automatically; explicit close for safety
+    try:
+        ctx.db.close()
+    except Exception:
+        pass
+
+
+@pytest.fixture
+def signal_cache(trading_ctx):
+    """Pre-wired SignalCache from trading_ctx (convenience alias)."""
+    return trading_ctx.signal_cache
+
+
+@pytest.fixture
+def risk_state(trading_ctx):
+    """Pre-wired RiskState from trading_ctx (convenience alias)."""
+    return trading_ctx.risk_state
+
+
+@pytest.fixture
+def portfolio(trading_ctx):
+    """Pre-wired PortfolioState from trading_ctx (convenience alias)."""
+    return trading_ctx.portfolio
+
+
+@pytest.fixture
+def paper_broker(trading_ctx):
+    """Pre-wired PaperBroker from trading_ctx (convenience alias)."""
+    return trading_ctx.broker
+
+
+@pytest.fixture
+def kill_switch(trading_ctx):
+    """Fresh KillSwitch (not active) from trading_ctx."""
+    return trading_ctx.kill_switch
+
+
+@pytest.fixture
+def tick_executor(trading_ctx):
+    """
+    TickExecutor wired to the in-memory trading context.
+
+    fill_queue is an asyncio.Queue(maxsize=100).  Drain it in tests that
+    submit orders to verify fill contents.
+    """
+    import asyncio
+
+    from quant_pod.execution.tick_executor import TickExecutor
+
+    fill_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    executor = TickExecutor(
+        signal_cache=trading_ctx.signal_cache,
+        risk_state=trading_ctx.risk_state,
+        broker=trading_ctx.broker,
+        kill_switch=trading_ctx.kill_switch,
+        fill_queue=fill_queue,
+        session_id=trading_ctx.session_id,
+    )
+    return executor, fill_queue
 
 
 @pytest.fixture(autouse=True)
@@ -301,11 +391,20 @@ def make_swing_leg(
 ):
     """Create a swing leg for wave pattern testing.
 
-    Supports two calling conventions:
-    1. make_swing_leg(start_idx, end_idx, start_price, end_price, direction)
-    2. make_swing_leg(start_price, end_price, n_bars=10)  # Legacy
+    Supports two calling conventions — the active convention is detected by
+    whether ``direction`` (or ``end_price``) is supplied:
 
-    Returns a SwingLeg-like object with required attributes.
+    **New (preferred):**
+        ``make_swing_leg(start_idx, end_idx, start_price, end_price, direction)``
+        All five arguments must be provided.
+
+    **Legacy:**
+        ``make_swing_leg(start_price, end_price, n_bars=10)``
+        Only two positional args; ``direction`` is inferred from the price delta.
+
+    Returns a MockSwingLeg dataclass with ``start_idx``, ``end_idx``,
+    ``start_price``, ``end_price``, ``direction``, ``n_bars``, ``ret_pct``,
+    and ``length_bars``.
     """
     from dataclasses import dataclass
 

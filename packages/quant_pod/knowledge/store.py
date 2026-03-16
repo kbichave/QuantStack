@@ -1937,3 +1937,91 @@ class KnowledgeStore:
         except Exception as e:
             logger.debug(f"Failed to get recent trades: {e}")
             return []
+
+    # =========================================================================
+    # PORTFOLIO SNAPSHOT — queryable history of portfolio state over time
+    # =========================================================================
+
+    def save_portfolio_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        """
+        Save a point-in-time portfolio snapshot for historical tracking.
+
+        Called at session start so the knowledge store has a time-series
+        of portfolio equity, cash, and position count — queryable for
+        performance attribution and drawdown analysis.
+
+        Args:
+            snapshot: Dict with keys: cash, positions_value, total_equity,
+                      daily_pnl, total_realized_pnl, position_count,
+                      largest_position_pct
+        """
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+                id          BIGINT,
+                captured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                cash        DOUBLE,
+                positions_value DOUBLE,
+                total_equity    DOUBLE,
+                daily_pnl       DOUBLE,
+                total_realized_pnl DOUBLE,
+                position_count  INTEGER,
+                largest_position_pct DOUBLE
+            )
+            """
+        )
+        self.conn.execute(
+            "CREATE SEQUENCE IF NOT EXISTS seq_portfolio_snapshots START 1"
+        )
+        self.conn.execute(
+            """
+            INSERT INTO portfolio_snapshots
+                (id, cash, positions_value, total_equity, daily_pnl,
+                 total_realized_pnl, position_count, largest_position_pct)
+            VALUES (nextval('seq_portfolio_snapshots'), ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                snapshot.get("cash", 0.0),
+                snapshot.get("positions_value", 0.0),
+                snapshot.get("total_equity", 0.0),
+                snapshot.get("daily_pnl", 0.0),
+                snapshot.get("total_realized_pnl", 0.0),
+                snapshot.get("position_count", 0),
+                snapshot.get("largest_position_pct", 0.0),
+            ],
+        )
+        self.conn.commit()
+
+    def get_latest_portfolio_snapshot(self) -> Optional[Dict[str, Any]]:
+        """
+        Return the most recently saved portfolio snapshot.
+
+        Used at startup to surface the last known portfolio state without
+        requiring the full PortfolioState DuckDB to be open.
+        """
+        try:
+            row = self.conn.execute(
+                """
+                SELECT cash, positions_value, total_equity, daily_pnl,
+                       total_realized_pnl, position_count, largest_position_pct,
+                       captured_at
+                FROM portfolio_snapshots
+                ORDER BY captured_at DESC LIMIT 1
+                """
+            ).fetchone()
+        except Exception:
+            return None
+
+        if row is None:
+            return None
+
+        return {
+            "cash": row[0],
+            "positions_value": row[1],
+            "total_equity": row[2],
+            "daily_pnl": row[3],
+            "total_realized_pnl": row[4],
+            "position_count": row[5],
+            "largest_position_pct": row[6],
+            "captured_at": row[7].isoformat() if row[7] else None,
+        }

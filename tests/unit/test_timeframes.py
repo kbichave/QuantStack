@@ -29,7 +29,7 @@ class TestTimeframeEnum:
 
     def test_timeframe_count(self):
         """Test number of timeframes."""
-        assert len(Timeframe) == 4
+        assert len(Timeframe) == 9
 
     def test_timeframe_from_value(self):
         """Test creating timeframe from value."""
@@ -49,6 +49,11 @@ class TestTimeframeHierarchy:
             Timeframe.D1,
             Timeframe.H4,
             Timeframe.H1,
+            Timeframe.M30,
+            Timeframe.M15,
+            Timeframe.M5,
+            Timeframe.M1,
+            Timeframe.S5,
         ]
 
     def test_hierarchy_length(self):
@@ -142,22 +147,22 @@ class TestGetLowerTimeframes:
     def test_from_weekly(self):
         """Test getting lower timeframes from W1."""
         lower = get_lower_timeframes(Timeframe.W1)
-        assert lower == [Timeframe.D1, Timeframe.H4, Timeframe.H1]
+        assert lower == [Timeframe.D1, Timeframe.H4, Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1, Timeframe.S5]
 
     def test_from_daily(self):
         """Test getting lower timeframes from D1."""
         lower = get_lower_timeframes(Timeframe.D1)
-        assert lower == [Timeframe.H4, Timeframe.H1]
+        assert lower == [Timeframe.H4, Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1, Timeframe.S5]
 
     def test_from_four_hour(self):
         """Test getting lower timeframes from H4."""
         lower = get_lower_timeframes(Timeframe.H4)
-        assert lower == [Timeframe.H1]
+        assert lower == [Timeframe.H1, Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1, Timeframe.S5]
 
     def test_from_hourly(self):
-        """Test getting lower timeframes from H1 (none lower)."""
+        """Test getting lower timeframes from H1."""
         lower = get_lower_timeframes(Timeframe.H1)
-        assert lower == []
+        assert lower == [Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1, Timeframe.S5]
 
 
 class TestGetNextHigherTimeframe:
@@ -196,8 +201,8 @@ class TestGetNextLowerTimeframe:
         assert get_next_lower_timeframe(Timeframe.H4) == Timeframe.H1
 
     def test_from_hourly(self):
-        """Test next lower from H1 (returns None)."""
-        assert get_next_lower_timeframe(Timeframe.H1) is None
+        """Test next lower from H1."""
+        assert get_next_lower_timeframe(Timeframe.H1) == Timeframe.M30
 
 
 class TestTimeframeParamsAttributes:

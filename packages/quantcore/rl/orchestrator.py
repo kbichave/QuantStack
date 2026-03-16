@@ -71,6 +71,7 @@ class RLOrchestrator:
         enable_meta_rl: bool = True,
         enable_spread_rl: bool = True,
         device: str = "cpu",
+        knowledge_store: Optional[Any] = None,
     ):
         """
         Initialize RL orchestrator.
@@ -82,6 +83,9 @@ class RLOrchestrator:
             enable_meta_rl: Enable alpha selection
             enable_spread_rl: Enable spread trading
             device: Device for RL agents
+            knowledge_store: KnowledgeStore instance for real data injection.
+                When provided, environments are seeded with real trade history.
+                When None, meta and sizing agents degrade to synthetic data.
         """
         self.alpha_names = alpha_names or [
             "WTI_BRENT_SPREAD",
@@ -93,6 +97,7 @@ class RLOrchestrator:
             "MACRO",
         ]
         self.device = device
+        self._knowledge_store = knowledge_store
 
         # Feature flags
         self.enable_execution_rl = enable_execution_rl
@@ -105,15 +110,42 @@ class RLOrchestrator:
 
         # State tracking
         self.current_regime: Optional[Dict] = None
+        # alpha_performance is in-memory; when knowledge_store is provided,
+        # it is pre-seeded from real trade history to survive process restarts.
         self.alpha_performance: Dict[str, List[float]] = {
             name: [] for name in self.alpha_names
         }
+        if knowledge_store is not None:
+            self._seed_alpha_performance_from_store(knowledge_store)
 
     def _init_agents(self) -> None:
-        """Initialize RL agents."""
+        """Initialize RL agents, seeding environments with real data when available."""
+        store = self._knowledge_store
+
+        # ------------------------------------------------------------------
         # Meta agent (alpha selection)
+        # ------------------------------------------------------------------
         if self.enable_meta_rl:
-            meta_env = AlphaSelectionEnvironment(self.alpha_names)
+            if store is not None:
+                try:
+                    meta_env = AlphaSelectionEnvironment.from_knowledge_store(
+                        store=store,
+                        alpha_names=self.alpha_names,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"[Orchestrator] Meta env from_knowledge_store failed: {exc}. "
+                        "Falling back to synthetic data."
+                    )
+                    meta_env = AlphaSelectionEnvironment(self.alpha_names)
+            else:
+                # No store: log once but don't block initialisation
+                logger.info(
+                    "[Orchestrator] No KnowledgeStore provided — meta agent uses "
+                    "synthetic alpha returns. Pass knowledge_store= for real data."
+                )
+                meta_env = AlphaSelectionEnvironment(self.alpha_names)
+
             self.meta_agent = AlphaSelectionAgent(
                 state_dim=meta_env.get_state_dim(),
                 action_dim=meta_env.get_action_dim(),
@@ -124,14 +156,28 @@ class RLOrchestrator:
             self.meta_agent = None
             self.meta_env = None
 
+        # ------------------------------------------------------------------
         # Sizing agent
+        # ------------------------------------------------------------------
         if self.enable_sizing_rl:
+            if store is not None:
+                try:
+                    sizing_env = SizingEnvironment.from_knowledge_store(store=store)
+                except Exception as exc:
+                    logger.warning(
+                        f"[Orchestrator] Sizing env from_knowledge_store failed: {exc}. "
+                        "Falling back to synthetic signals."
+                    )
+                    sizing_env = SizingEnvironment()
+            else:
+                sizing_env = SizingEnvironment()
+
             self.sizing_agent = SizingRLAgent(
                 state_dim=10,
                 action_dim=1,
                 device=self.device,
             )
-            self.sizing_env = SizingEnvironment()
+            self.sizing_env = sizing_env
         else:
             self.sizing_agent = None
             self.sizing_env = None
@@ -263,52 +309,42 @@ class RLOrchestrator:
         market_features: Dict[str, float],
         regime_info: Optional[Dict],
     ) -> State:
-        """Build state for meta agent."""
-        features = []
+        """Build state for meta agent via RLFeatureExtractor (eliminates training-serving skew)."""
+        from quantcore.rl.features import RLFeatureExtractor
 
-        # Regime features (4)
-        if regime_info:
-            regime_type = regime_info.get("regime", "MACRO_DRIVEN")
-            regime_map = {
-                "INVENTORY_DRIVEN": [1, 0, 0, 0],
-                "MACRO_DRIVEN": [0, 1, 0, 0],
-                "USD_DRIVEN": [0, 0, 1, 0],
-                "VOLATILITY_DRIVEN": [0, 0, 0, 1],
-            }
-            features.extend(regime_map.get(regime_type, [0, 0, 0, 1]))
-        else:
-            features.extend([0, 0, 0, 1])
+        regime_type = (regime_info or {}).get("regime", "MACRO_DRIVEN")
+        # Map orchestrator regime strings to RLFeatureExtractor regime indices
+        _regime_idx_map = {
+            "INVENTORY_DRIVEN": 0,
+            "MACRO_DRIVEN": 1,
+            "USD_DRIVEN": 2,
+            "VOLATILITY_DRIVEN": 3,
+        }
+        regime_idx = _regime_idx_map.get(regime_type, 1)
 
-        # Per-alpha features (4 each)
-        signal_map = {s.alpha_name: s for s in alpha_signals}
+        # Build per-alpha return histories from in-memory performance tracker
+        alpha_returns_history = {
+            name: self.alpha_performance.get(name, [])
+            for name in self.alpha_names
+        }
 
-        for name in self.alpha_names:
-            if name in signal_map:
-                signal = signal_map[name]
-                # Recent Sharpe estimate
-                sharpe = self._get_alpha_sharpe(name)
-                # Recent return estimate
-                recent_return = self._get_alpha_recent_return(name)
-                # Hit rate estimate
-                hit_rate = self._get_alpha_hit_rate(name)
-                # Regime alignment
-                alignment = self._get_regime_alignment(name, regime_info)
+        # Regime alignment scores (use existing helper)
+        alpha_regime_alignments = {
+            name: self._get_regime_alignment(name, regime_info)
+            for name in self.alpha_names
+        }
 
-                features.extend([sharpe, recent_return, hit_rate, alignment])
-            else:
-                features.extend([0, 0, 0.5, 0.5])
-
-        # Market features (4)
-        features.extend(
-            [
-                market_features.get("volatility", 0.5),
-                market_features.get("correlation_regime", 0),
-                market_features.get("usd_regime", 0),
-                market_features.get("vix_level", 0.5),
-            ]
+        features = RLFeatureExtractor.alpha_selection_features(
+            regime_idx=regime_idx,
+            alpha_names=self.alpha_names,
+            alpha_returns_history=alpha_returns_history,
+            alpha_regime_alignments=alpha_regime_alignments,
+            market_volatility=market_features.get("volatility", 0.5),
+            vix_normalized=market_features.get("vix_level", 0.5),
+            correlation_regime=market_features.get("correlation_regime", 0.0),
+            usd_regime=market_features.get("usd_regime", 0.0),
         )
-
-        return State(features=np.array(features, dtype=np.float32))
+        return State(features=features)
 
     def _determine_position_size(
         self,
@@ -340,29 +376,38 @@ class RLOrchestrator:
         market_features: Dict[str, float],
         regime_info: Optional[Dict],
     ) -> State:
-        """Build state for sizing agent."""
-        direction = (
-            1
-            if signal.direction == "LONG"
-            else (-1 if signal.direction == "SHORT" else 0)
+        """Build state for sizing agent via RLFeatureExtractor (eliminates training-serving skew)."""
+        from quantcore.rl.features import RLFeatureExtractor
+
+        # Derive a regime label string from regime_info for the extractor
+        regime_type = (regime_info or {}).get("regime", "MACRO_DRIVEN")
+        _regime_to_label = {
+            "INVENTORY_DRIVEN": "trending_up",
+            "MACRO_DRIVEN": "normal",
+            "USD_DRIVEN": "trending_down",
+            "VOLATILITY_DRIVEN": "high_vol",
+        }
+        regime_label = _regime_to_label.get(regime_type, "normal")
+
+        # Use rolling returns from sizing env history when available
+        returns_window = (
+            list(self.sizing_env.returns[-20:])
+            if self.sizing_env is not None and self.sizing_env.returns
+            else []
         )
 
-        features = np.array(
-            [
-                signal.confidence,
-                direction,
-                market_features.get("volatility", 0.5),
-                market_features.get("drawdown", 0),
-                market_features.get("risk_budget_used", 0),
-                market_features.get("rolling_sharpe", 0),
-                market_features.get("current_position", 0),
-                market_features.get("time_since_trade", 0),
-                self._get_regime_indicator(regime_info),
-                market_features.get("win_rate", 0.5),
-            ],
-            dtype=np.float32,
+        features = RLFeatureExtractor.sizing_features(
+            signal_confidence=float(signal.confidence),
+            signal_direction=getattr(signal, "direction", "NEUTRAL"),
+            returns_window=returns_window,
+            current_position_pct=market_features.get("current_position", 0.0),
+            drawdown=market_features.get("drawdown", 0.0),
+            risk_budget_used=market_features.get("risk_budget_used", 0.0),
+            time_since_trade=int(market_features.get("time_since_trade", 0)),
+            regime_label=regime_label,
+            win_rate=market_features.get("win_rate", 0.5),
+            rolling_sharpe=market_features.get("rolling_sharpe", 0.0),
         )
-
         return State(features=features)
 
     def _get_spread_action(
@@ -554,6 +599,29 @@ class RLOrchestrator:
             "VOLATILITY_DRIVEN": 1.0,
         }
         return regime_map.get(regime, 0.0)
+
+    def _seed_alpha_performance_from_store(self, store: Any) -> None:
+        """Pre-populate alpha_performance from real closed trades in KnowledgeStore."""
+        try:
+            from quantcore.rl.data_bridge import KnowledgeStoreRLBridge
+
+            bridge = KnowledgeStoreRLBridge.from_knowledge_store(store)
+            histories = bridge.get_alpha_return_history(
+                alpha_names=self.alpha_names,
+                lookback_days=252,
+            )
+            loaded = 0
+            for name, series in histories.items():
+                if name in self.alpha_performance and len(series) > 0:
+                    self.alpha_performance[name] = list(series.values)[-100:]
+                    loaded += len(self.alpha_performance[name])
+            if loaded > 0:
+                logger.info(
+                    f"[Orchestrator] Seeded alpha_performance from store: "
+                    f"{loaded} observations across {len(histories)} alphas"
+                )
+        except Exception as exc:
+            logger.debug(f"[Orchestrator] alpha_performance seeding failed (non-fatal): {exc}")
 
     def update_alpha_performance(
         self,

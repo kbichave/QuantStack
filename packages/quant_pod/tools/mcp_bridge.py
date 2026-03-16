@@ -21,8 +21,6 @@ eTrade Tools:
 - Account: get_positions, get_account_balance
 """
 
-from __future__ import annotations
-
 import json
 import os
 from typing import Any, Dict, List, Optional, Type
@@ -41,7 +39,7 @@ class MCPBridge:
     """
     Bridge between CrewAI agents and MCP servers.
 
-    Handles communication with:
+    Handles in-process communication with:
     - QuantCore MCP (technical analysis, backtesting, options, risk)
     - eTrade MCP (trading, account management)
     """
@@ -51,9 +49,62 @@ class MCPBridge:
         self._quantcore_available = False
         self._etrade_available = False
         self._check_servers()
+        # Lazy-init validator to avoid circular imports at module load time
+        self._validator = None
+
+    def _get_validator(self):
+        """Lazily load the MCP response validator."""
+        if self._validator is None:
+            from quant_pod.guardrails.mcp_response_validator import get_mcp_validator
+            self._validator = get_mcp_validator()
+        return self._validator
+
+    def _validate_response(self, tool_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate a raw MCP tool response before returning it to agent context.
+
+        Routes to the appropriate typed validator based on tool name patterns.
+        Returns the original result (or an error dict) after logging violations.
+        Validation is non-blocking: a failed validation logs a warning and
+        returns {"error": ..., "validation_failed": True} so callers can
+        decide to fall back or reject the trade.
+        """
+        if not isinstance(result, dict) or "error" in result:
+            # Pass-through errors without re-validating
+            return result
+
+        validator = self._get_validator()
+
+        # Route to typed validators based on tool name
+        name_lower = tool_name.lower()
+
+        if "quote" in name_lower:
+            vr = validator.validate_quote_response(result)
+        elif any(x in name_lower for x in ("option", "greeks", "implied_vol")):
+            vr = validator.validate_options_response(result)
+        elif any(x in name_lower for x in ("position", "balance", "account")):
+            vr = validator.validate_portfolio_response(result)
+        elif any(x in name_lower for x in ("ohlcv", "market_data", "snapshot")):
+            vr = validator.validate_ohlcv_response(result, symbol=result.get("symbol", "UNKNOWN"))
+        else:
+            vr = validator.validate_generic_response(result, tool_name)
+
+        if not vr.is_valid:
+            logger.warning(
+                f"[MCPBridge] Validation FAILED for tool={tool_name}: "
+                f"{[str(v) for v in vr.violations]}"
+            )
+            return {
+                "error": f"MCP response validation failed for {tool_name}",
+                "validation_failed": True,
+                "violations": [str(v) for v in vr.violations],
+                "original_response": result,
+            }
+
+        return result
 
     def _check_servers(self) -> None:
-        """Check which MCP servers are available."""
+        """Check which tool clients are available."""
         try:
             from quantcore.mcp.server import mcp as quantcore_mcp
 
@@ -63,7 +114,7 @@ class MCPBridge:
             logger.warning("QuantCore MCP server not available")
 
         try:
-            from etrade_mcp.server import mcp as etrade_mcp
+            from etrade_mcp.server import mcp as etrade_mcp  # noqa: F401
 
             self._etrade_available = True
             logger.info("eTrade MCP server available")
@@ -82,13 +133,13 @@ class MCPBridge:
             if tool_func is None:
                 return {"error": f"Tool {tool_name} not found in QuantCore MCP"}
             result = await tool_func(**kwargs)
-            return result
+            return self._validate_response(tool_name, result)
         except Exception as e:
             logger.error(f"QuantCore MCP call failed: {e}")
             return {"error": str(e)}
 
     async def call_etrade(self, tool_name: str, **kwargs) -> Dict[str, Any]:
-        """Call an eTrade MCP tool."""
+        """Call an eTrade MCP tool in-process (same pattern as call_quantcore)."""
         if not self._etrade_available:
             return {"error": "eTrade MCP not available"}
 
@@ -99,9 +150,9 @@ class MCPBridge:
             if tool_func is None:
                 return {"error": f"Tool {tool_name} not found in eTrade MCP"}
             result = await tool_func(**kwargs)
-            return result
+            return self._validate_response(tool_name, result)
         except Exception as e:
-            logger.error(f"eTrade MCP call failed: {e}")
+            logger.error(f"eTrade MCP call failed ({tool_name}): {e}")
             return {"error": str(e)}
 
 

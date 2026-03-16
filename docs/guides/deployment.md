@@ -31,7 +31,9 @@ The `docker-compose.yml` defines:
 |---------|-------------|
 | `quantpod` | Main QuantPod process (trading flow + MCP server) |
 | `quantcore-mcp` | QuantCore MCP server (indicators, backtesting) |
+| `quantpod-api` | FastAPI REST interface for trading operations (port 8420) |
 | `alpaca-mcp` | Alpaca broker MCP (optional — starts only if `ALPACA_API_KEY` is set) |
+| `ibkr-mcp` | Interactive Brokers MCP (optional — starts only if `IBKR_HOST` is set and IB Gateway is running) |
 
 Environment variables are injected from your `.env` file. No secrets are baked into the image.
 

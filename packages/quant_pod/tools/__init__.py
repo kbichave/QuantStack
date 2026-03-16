@@ -91,6 +91,12 @@ from quant_pod.tools.alphavantage_tools import (
     fetch_ipo_calendar_tool,
     fetch_company_overview_tool,
 )
+from quant_pod.tools.options_flow_tools import (
+    OptionsFlowTool,
+    PutCallRatioTool,
+    OptionsFlowClient,
+    get_options_tools,
+)
 
 __all__ = [
     # Bridge
@@ -166,4 +172,9 @@ __all__ = [
     "fetch_upcoming_earnings_tool",
     "fetch_ipo_calendar_tool",
     "fetch_company_overview_tool",
+    # Options flow tools
+    "OptionsFlowTool",
+    "PutCallRatioTool",
+    "OptionsFlowClient",
+    "get_options_tools",
 ]

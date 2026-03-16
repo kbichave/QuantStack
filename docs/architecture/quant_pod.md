@@ -95,6 +95,37 @@ Output: `{trend_regime, volatility_regime, adx, atr, atr_percentile, confidence}
 
 ---
 
+## LLM Configuration (`packages/quant_pod/llm_config.py`)
+
+Agent model selection is handled by `llm_config.py`. CrewAI uses LiteLLM under the hood; model strings follow `provider/model_id` format.
+
+### Provider tiers
+
+| Tier | Env var | Examples |
+|------|---------|---------|
+| Tier 1 (recommended) | `LLM_PROVIDER` | `bedrock`, `anthropic`, `openai`, `vertex_ai`, `gemini` |
+| Tier 2 | `LLM_PROVIDER` | `azure`, `groq`, `together_ai`, `fireworks_ai`, `mistral` |
+| Tier 3 | `LLM_PROVIDER` | `ollama`, `custom_openai` |
+
+`LLM_FALLBACK_CHAIN` (comma-separated) specifies backup providers if the primary is unavailable, e.g. `LLM_FALLBACK_CHAIN=anthropic,openai`. Credentials are detected and cached per provider; missing credentials trigger a graceful skip to the next in chain.
+
+### Default model tiers
+
+| Agent tier | Bedrock default | OpenAI default |
+|-----------|----------------|----------------|
+| IC (`*_ic`) | `claude-haiku-4-5` | `gpt-4o` |
+| Pod manager | `claude-sonnet-4-6` | `gpt-4o` |
+| Trading Assistant | `claude-sonnet-4-6` | `gpt-4o` |
+
+Override per-tier:
+```bash
+LLM_MODEL_IC=bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+LLM_MODEL_POD=bedrock/us.anthropic.claude-sonnet-4-6
+LLM_MODEL_ASSISTANT=openai/gpt-4o   # mix providers freely
+```
+
+---
+
 ## Execution Layer
 
 `packages/quant_pod/execution/` — 12 modules, all receiving a single DuckDB connection via dependency injection.

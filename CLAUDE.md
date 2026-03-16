@@ -173,50 +173,70 @@ re-running the crew.
 
 ## 4. LLM Configuration
 
-LLM routing is handled by `packages/quant_pod/llm_config.py`. CrewAI uses LiteLLM
-under the hood; model strings follow the `provider/model_id` format.
+LLM routing lives in `packages/quant_pod/llm_config.py`. CrewAI uses LiteLLM;
+all model strings follow the `provider/model_id` format.
 
-### Provider selection (`LLM_PROVIDER`)
+### Supported providers
 
-| Value | Behaviour |
-|-------|-----------|
-| `bedrock` (default) | Uses AWS Bedrock via boto3 credential chain. Falls back to OpenAI automatically if no AWS creds are found. |
-| `openai` | Uses OpenAI directly. Requires `OPENAI_API_KEY`. |
+| Tier | Provider | Key env var | Notes |
+|------|----------|-------------|-------|
+| 1 | `bedrock` | `AWS_PROFILE` / boto3 chain | Default. Haiku for ICs, Sonnet for pods |
+| 1 | `anthropic` | `ANTHROPIC_API_KEY` | Claude direct API |
+| 1 | `openai` | `OPENAI_API_KEY` | GPT-4o etc. |
+| 1 | `vertex_ai` | `VERTEX_PROJECT` + gcloud auth | Gemini on GCP |
+| 1 | `gemini` | `GEMINI_API_KEY` | Google AI Studio (free tier) |
+| 2 | `azure` | `AZURE_API_KEY` + `AZURE_API_BASE` | OpenAI via Azure |
+| 2 | `groq` | `GROQ_API_KEY` | Fastest inference, free tier |
+| 2 | `together_ai` | `TOGETHER_API_KEY` | OSS models hosted |
+| 2 | `fireworks_ai` | `FIREWORKS_API_KEY` | Fast OSS inference |
+| 2 | `mistral` | `MISTRAL_API_KEY` | Mistral direct |
+| 3 | `ollama` | `OLLAMA_BASE_URL` reachable | Local models |
+| 3 | `custom_openai` | `CUSTOM_OPENAI_BASE_URL` reachable | vLLM / LM Studio |
 
-### Agent tiers and default models
+### Resolution order per agent
 
-| Tier | Agents | Default (Bedrock) | Default (OpenAI) |
-|------|--------|-------------------|-----------------|
-| IC | `*_ic` | `anthropic.claude-haiku-4-20250514` | `gpt-4o` |
-| Pod | `*_pod_manager` | `us.anthropic.claude-sonnet-4-20250514` | `gpt-4o` |
-| Assistant | `trading_assistant`, `super_trader` | `us.anthropic.claude-sonnet-4-20250514` | `gpt-4o` |
-
-ICs use Haiku (fast, cheap, sufficient for narrow focused tasks).
-Pods and Assistant use Sonnet (synthesis requires stronger reasoning).
-Full crew cost: ~$0.01–0.03 on Bedrock vs $0.10+ on GPT-4o.
-
-### Key environment variables
-
-```bash
-LLM_PROVIDER=bedrock                # or "openai"
-BEDROCK_REGION=us-east-1
-BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514   # for pods + assistant
-# AWS_PROFILE=DataScience.Admin-Analytics   # target a specific SSO profile
-
-# Per-tier overrides (take precedence over everything):
-# LLM_MODEL_IC=bedrock/anthropic.claude-haiku-4-20250514
-# LLM_MODEL_POD=bedrock/us.anthropic.claude-sonnet-4-20250514
-# LLM_MODEL_ASSISTANT=bedrock/us.anthropic.claude-sonnet-4-20250514
-
-OPENAI_API_KEY=           # required when provider=openai or Bedrock creds absent
-OPENAI_MODEL=gpt-4o
+```
+1. LLM_MODEL_{TIER} env override  (e.g. LLM_MODEL_IC=groq/llama-3.3-70b-versatile)
+2. LLM_PROVIDER default            (e.g. LLM_PROVIDER=bedrock)
+3. LLM_FALLBACK_CHAIN              (e.g. LLM_FALLBACK_CHAIN=anthropic,openai)
+4. ProviderConfigError if all fail
 ```
 
-### AWS credential chain
+### Agent tiers and default Bedrock models
 
-boto3 checks in order: `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` env vars →
-`~/.aws/credentials` → IAM instance role → SSO (`AWS_PROFILE`).
-The credential check is cached per process (see `_bedrock_credentials_available()`).
+| Tier | Agents | Bedrock default |
+|------|--------|-----------------|
+| `ic` | `*_ic` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+| `pod` | `*_pod_manager` | `us.anthropic.claude-sonnet-4-6` |
+| `assistant` | `trading_assistant`, `super_trader` | `us.anthropic.claude-sonnet-4-6` |
+| `decoder` | decoder crew agents | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+
+### Cost presets (est. per full crew run)
+
+| Setup | Config | Est. cost |
+|-------|--------|-----------|
+| Budget | `LLM_MODEL_IC=groq/llama-3.3-70b-versatile` + Gemini pods | ~$0.005 |
+| Balanced | Gemini ICs + Bedrock Sonnet pods | ~$0.02 |
+| Default | Haiku ICs + Sonnet pods (Bedrock) | ~$0.03 |
+| Premium | Haiku ICs + Sonnet pods + Opus assistant | ~$0.08 |
+
+### Key env vars
+
+```bash
+LLM_PROVIDER=bedrock
+LLM_FALLBACK_CHAIN=anthropic,openai
+
+# Bedrock
+BEDROCK_REGION=us-east-1
+BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-6
+# AWS_PROFILE=DataScience.Admin-Analytics
+
+# Per-tier overrides (any LiteLLM model string, take precedence over everything):
+# LLM_MODEL_IC=bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
+# LLM_MODEL_POD=bedrock/us.anthropic.claude-sonnet-4-6
+# LLM_MODEL_ASSISTANT=bedrock/us.anthropic.claude-opus-4-6-v1
+# LLM_MODEL_DECODER=gemini/gemini-2.5-flash
+```
 
 ---
 

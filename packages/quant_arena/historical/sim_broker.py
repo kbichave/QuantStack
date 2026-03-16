@@ -155,6 +155,7 @@ class SimBroker:
         max_position_pct: float = 0.20,
         max_drawdown_halt_pct: float = 0.15,
         max_leverage: float = 1.0,
+        max_daily_loss_pct: float = 0.05,
     ):
         """
         Initialize simulated broker.
@@ -166,6 +167,8 @@ class SimBroker:
             max_position_pct: Maximum position size as % of equity
             max_drawdown_halt_pct: Halt trading if drawdown exceeds this
             max_leverage: Maximum portfolio leverage (1.0 = no leverage)
+            max_daily_loss_pct: Halt trading if intraday equity falls this far
+                                from day-open equity (e.g. 0.05 = 5%)
         """
         self.initial_equity = initial_equity
         self.slippage_bps = slippage_bps
@@ -173,6 +176,7 @@ class SimBroker:
         self.max_position_pct = max_position_pct
         self.max_drawdown_halt_pct = max_drawdown_halt_pct
         self.max_leverage = max_leverage
+        self.max_daily_loss_pct = max_daily_loss_pct
 
         # Portfolio state
         self.cash = initial_equity
@@ -184,10 +188,23 @@ class SimBroker:
         self.realized_pnl = 0.0
         self._current_date: Optional[date] = None
 
+        # Daily loss limit tracking — reset each new trading day
+        self._day_open_equity: float = initial_equity
+        self._last_reset_date: Optional[date] = None
+
+        # Volume and volatility per symbol — populated by update_prices() when
+        # a full market snapshot is provided. Used for Almgren-Chriss slippage.
+        self._volumes: Dict[str, float] = {}        # daily volume per symbol
+        self._volatilities: Dict[str, float] = {}   # annualised vol per symbol
+
         # History
         self._orders: List[Order] = []
         self._trades: List[Trade] = []
         self._daily_snapshots: List[PortfolioState] = []
+
+        # Audit trail — every order attempt recorded with full lifecycle details.
+        # This is separate from _orders so it is never filtered/modified.
+        self._order_audit: List[Dict[str, Any]] = []
 
         # Trading state
         self._trading_halted = False
@@ -195,18 +212,45 @@ class SimBroker:
 
         logger.info(
             f"SimBroker initialized: equity=${initial_equity:,.0f}, "
-            f"slippage={slippage_bps}bps, commission=${commission_per_share}/share"
+            f"slippage={slippage_bps}bps, commission=${commission_per_share}/share, "
+            f"daily_loss_limit={max_daily_loss_pct:.0%}"
         )
 
-    def update_prices(self, prices: Dict[str, float], current_date: date) -> None:
+    def update_prices(
+        self,
+        prices: Dict[str, float],
+        current_date: date,
+        *,
+        volumes: Optional[Dict[str, float]] = None,
+        volatilities: Optional[Dict[str, float]] = None,
+    ) -> None:
         """
-        Update current prices for all symbols.
+        Update current prices (and optionally volume/volatility) for all symbols.
 
         Args:
-            prices: Dict of symbol -> price
+            prices: Dict of symbol -> closing price
             current_date: Current simulation date
+            volumes: Optional dict of symbol -> daily volume.
+                     When provided, slippage switches from flat-bps to
+                     Almgren-Chriss volume-dependent model.
+            volatilities: Optional dict of symbol -> annualised volatility (0–1).
+                          Used by the volume slippage model for market-impact calc.
         """
         self._prices.update(prices)
+
+        # Update volume and volatility context if provided
+        if volumes:
+            self._volumes.update(volumes)
+        if volatilities:
+            self._volatilities.update(volatilities)
+
+        # Reset daily loss baseline on each new trading day.
+        # Must happen before position prices are updated so _day_open_equity
+        # reflects the portfolio value at the start of the day, not mid-day.
+        if current_date != self._last_reset_date:
+            self._day_open_equity = self.get_equity()
+            self._last_reset_date = current_date
+
         self._current_date = current_date
 
         # Update position prices
@@ -271,20 +315,35 @@ class SimBroker:
             order.status = OrderStatus.REJECTED
             order.rejection_reason = rejection
             self._orders.append(order)
+            self._record_audit(order, mid_price=self._prices.get(order.symbol))
             logger.warning(f"Order rejected: {rejection}")
             return order
 
         # Execute order
         self._execute_order(order)
         self._orders.append(order)
+        self._record_audit(order, mid_price=self._prices.get(order.symbol))
 
         return order
 
     def _validate_order(self, order: Order) -> Optional[str]:
         """Validate order against risk limits. Returns rejection reason or None."""
-        # Check trading halt
+        # Check trading halt (drawdown halt takes precedence)
         if self._trading_halted:
             return f"Trading halted: {self._halt_reason}"
+
+        # Daily loss limit: halt new orders if today's equity has fallen too far
+        # from the day-open baseline. Only applies to new BUY orders — we still
+        # allow exits (SELL) so the desk can reduce risk when the limit is hit.
+        if order.side == OrderSide.BUY and self._day_open_equity > 0:
+            current_equity = self.get_equity()
+            daily_loss_pct = (self._day_open_equity - current_equity) / self._day_open_equity
+            if daily_loss_pct >= self.max_daily_loss_pct:
+                return (
+                    f"Daily loss limit reached: down {daily_loss_pct:.1%} from "
+                    f"day-open ${self._day_open_equity:,.0f} "
+                    f"(limit: {self.max_daily_loss_pct:.0%})"
+                )
 
         # Check price available
         if order.symbol not in self._prices:
@@ -329,8 +388,30 @@ class SimBroker:
         """Execute a validated order."""
         price = self._prices[order.symbol]
 
-        # Apply slippage
-        slippage = price * (self.slippage_bps / 10000)
+        # Apply slippage — use Almgren-Chriss volume model if volume data is
+        # available for this symbol, otherwise fall back to flat basis points.
+        volume = self._volumes.get(order.symbol, 0.0)
+        volatility = self._volatilities.get(order.symbol, 0.0)
+
+        if volume > 0:
+            try:
+                from quantcore.execution.slippage import VolumeSlippageModel
+
+                _vol_model = VolumeSlippageModel()
+                estimate = _vol_model.estimate(
+                    trade_size=float(order.quantity),
+                    price=price,
+                    volume=volume,
+                    volatility=volatility,
+                    spread_bps=self.slippage_bps,  # use config bps as spread floor
+                )
+                effective_bps = estimate.total_slippage_bps
+            except ImportError:
+                effective_bps = self.slippage_bps
+        else:
+            effective_bps = self.slippage_bps
+
+        slippage = price * (effective_bps / 10_000)
         if order.side == OrderSide.BUY:
             fill_price = price + slippage
         else:
@@ -531,6 +612,129 @@ class SimBroker:
             "total_trades": len(self._trades),
             "win_rate": win_rate,
             "is_halted": self._trading_halted,
+        }
+
+    def _record_audit(self, order: Order, mid_price: Optional[float]) -> None:
+        """Append a complete order lifecycle record to the audit trail."""
+        slippage_bps_actual: Optional[float] = None
+        if order.fill_price is not None and mid_price and mid_price > 0:
+            diff = order.fill_price - mid_price
+            # For sells, slippage is negative (worse price)
+            slippage_bps_actual = round((diff / mid_price) * 10_000, 2)
+
+        self._order_audit.append(
+            {
+                "order_id": order.order_id,
+                "date": order.created_at.isoformat() if order.created_at else None,
+                "symbol": order.symbol,
+                "side": order.side.value,
+                "qty_requested": order.quantity,
+                "qty_filled": order.filled_quantity,
+                "fill_price": order.fill_price,
+                "mid_price_at_order": mid_price,
+                "slippage_bps_actual": slippage_bps_actual,
+                "commission": order.commission,
+                "status": order.status.value,
+                "rejection_reason": order.rejection_reason,
+            }
+        )
+
+    def get_order_audit(self) -> List[Dict[str, Any]]:
+        """Return the complete order audit trail (all attempts, fills, and rejections)."""
+        return self._order_audit.copy()
+
+    def get_trade_analytics(self) -> Dict[str, Any]:
+        """
+        Compute institutional-grade trade analytics beyond the basic win rate.
+
+        Returns:
+            Dict with expectancy, profit factor, avg win/loss, consecutive
+            streaks, hold duration stats, and per-symbol breakdown.
+        """
+        closed_trades = [t for t in self._trades if t.pnl is not None]
+
+        if not closed_trades:
+            return {"error": "No closed trades available"}
+
+        wins = [t for t in closed_trades if t.pnl > 0]
+        losses = [t for t in closed_trades if t.pnl < 0]
+        n_total = len(closed_trades)
+
+        win_rate = len(wins) / n_total if n_total else 0.0
+
+        avg_win = sum(t.pnl for t in wins) / len(wins) if wins else 0.0
+        avg_loss = sum(t.pnl for t in losses) / len(losses) if losses else 0.0
+
+        # Expectancy: E[P&L per trade]
+        expectancy = (win_rate * avg_win) + ((1 - win_rate) * avg_loss)
+
+        # Profit factor: gross profit / gross loss
+        gross_profit = sum(t.pnl for t in wins)
+        gross_loss = abs(sum(t.pnl for t in losses))
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+
+        # Largest single winner and loser
+        largest_win = max((t.pnl for t in wins), default=0.0)
+        largest_loss = min((t.pnl for t in losses), default=0.0)
+
+        # Max consecutive wins and losses
+        max_consec_wins = max_consec_losses = cur_wins = cur_losses = 0
+        for t in closed_trades:
+            if t.pnl > 0:
+                cur_wins += 1
+                cur_losses = 0
+                max_consec_wins = max(max_consec_wins, cur_wins)
+            else:
+                cur_losses += 1
+                cur_wins = 0
+                max_consec_losses = max(max_consec_losses, cur_losses)
+
+        # Hold duration — requires both open and close trade records.
+        # We approximate using entry date from Position.opened_at if available;
+        # otherwise we use consecutive same-symbol trade pairs.
+        durations: List[int] = []
+        open_dates: Dict[str, date] = {}
+        for t in self._trades:
+            if t.side == "buy":
+                open_dates[t.symbol] = t.date
+            elif t.side == "sell" and t.symbol in open_dates:
+                hold_days = (t.date - open_dates[t.symbol]).days
+                if hold_days >= 0:
+                    durations.append(hold_days)
+                del open_dates[t.symbol]
+
+        avg_hold_days = sum(durations) / len(durations) if durations else 0.0
+        max_hold_days = max(durations, default=0)
+
+        # Per-symbol breakdown
+        by_symbol: Dict[str, Dict] = {}
+        for t in closed_trades:
+            entry = by_symbol.setdefault(t.symbol, {"trades": 0, "pnl": 0.0, "wins": 0})
+            entry["trades"] += 1
+            entry["pnl"] += t.pnl
+            if t.pnl > 0:
+                entry["wins"] += 1
+        for sym, entry in by_symbol.items():
+            n = entry["trades"]
+            entry["win_rate"] = entry["wins"] / n if n else 0.0
+
+        return {
+            "total_closed_trades": n_total,
+            "win_rate": round(win_rate, 4),
+            "avg_win": round(avg_win, 2),
+            "avg_loss": round(avg_loss, 2),
+            "avg_win_loss_ratio": round(abs(avg_win / avg_loss), 4) if avg_loss != 0 else None,
+            "expectancy": round(expectancy, 2),
+            "profit_factor": round(profit_factor, 4) if profit_factor != float("inf") else None,
+            "gross_profit": round(gross_profit, 2),
+            "gross_loss": round(gross_loss, 2),
+            "largest_win": round(largest_win, 2),
+            "largest_loss": round(largest_loss, 2),
+            "max_consecutive_wins": max_consec_wins,
+            "max_consecutive_losses": max_consec_losses,
+            "avg_hold_days": round(avg_hold_days, 1),
+            "max_hold_days": max_hold_days,
+            "by_symbol": by_symbol,
         }
 
     def __repr__(self) -> str:

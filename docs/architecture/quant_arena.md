@@ -17,13 +17,14 @@ packages/quant_arena/
 ├── __init__.py
 └── historical/
     ├── __init__.py
-    ├── clock.py        # Simulation clock management
-    ├── config.py       # Arena configuration
-    ├── data_loader.py  # Historical data loading
-    ├── engine.py       # Main simulation engine
-    ├── run.py          # CLI runner
-    ├── sim_broker.py   # Simulated broker
-    └── universe.py     # Asset universe management
+    ├── clock.py          # Simulation clock management
+    ├── config.py         # Arena configuration (HistoricalConfig)
+    ├── data_loader.py    # Historical data loading
+    ├── engine.py         # Main simulation engine
+    ├── risk_metrics.py   # Extended risk metrics (Calmar, Sortino, drawdown distribution)
+    ├── run.py            # CLI runner
+    ├── sim_broker.py     # Simulated broker with Almgren-Chriss slippage
+    └── universe.py       # Asset universe management
 ```
 
 ## Core Components
@@ -103,10 +104,11 @@ print(f"Filled at ${fill.price:.2f}")
 
 **Broker Features:**
 - Market and limit orders
-- Configurable slippage models
+- Configurable slippage: flat bps (default) or Almgren-Chriss impact model when `volumes` are provided to `update_prices()`
 - Commission modeling
-- Position tracking
-- P&L calculation
+- Position tracking and P&L calculation
+- `max_daily_loss_pct` intraday loss halt (enforced — halts trading for the rest of the day when breached)
+- Immutable `_order_audit` trail separate from `_orders` (every order attempt recorded, never filtered)
 
 ### Data Loader
 
@@ -266,17 +268,34 @@ fill_model = FillModel(
 ```python
 results = engine.run()
 
-# Access metrics
+# Core metrics
 print(f"Total Return: {results.total_return:.2%}")
 print(f"Sharpe Ratio: {results.sharpe_ratio:.2f}")
 print(f"Max Drawdown: {results.max_drawdown:.2%}")
 print(f"Win Rate: {results.win_rate:.2%}")
 print(f"Profit Factor: {results.profit_factor:.2f}")
 
+# Extended institutional metrics
+print(f"Calmar Ratio: {results.calmar_ratio:.2f}")
+print(f"Sharpe 95% CI: {results.sharpe_ci}")        # (lower, upper) via Lo (2002)
+print(f"Sample size OK: {results.sample_size_ok}")  # False when n_trades < 100
+
+# Benchmark comparison (requires benchmark_symbol in symbol universe)
+print(f"Alpha (ann.): {results.alpha:.2%}")
+print(f"Beta: {results.beta:.3f}")
+print(f"Information Ratio: {results.information_ratio:.2f}")
+
+# Overfitting analysis (from CPCVEvaluator via research/overfitting.py)
+print(f"Overfitting verdict: {results.overfitting_verdict}")  # GENUINE | SUSPECT | OVERFIT
+
+# Walk-forward summary (when walk_forward_mode=True in HistoricalConfig)
+if results.walk_forward_summary:
+    wf = results.walk_forward_summary
+    print(f"IS Sharpe: {wf.is_sharpe_mean:.2f}  OOS Sharpe: {wf.oos_sharpe_mean:.2f}")
+
 # Trade-level analysis
 trades = results.trades
 print(f"Total Trades: {len(trades)}")
-print(f"Avg Trade Duration: {trades.duration.mean()}")
 ```
 
 ### Equity Curve
@@ -330,29 +349,33 @@ streamlit run frontend/app.py
 
 ## Configuration
 
-```yaml
-# configs/quant_arena.yaml
-simulation:
-  start_date: "2023-01-01"
-  end_date: "2023-12-31"
-  initial_capital: 100000
-  timeframe: "1h"
+```python
+from quant_arena.historical.config import HistoricalConfig
 
-broker:
-  slippage_model: "percentage"
-  slippage_bps: 5.0
-  commission_per_trade: 1.0
-  
-universe:
-  symbols:
-    - SPY
-    - QQQ
-    - IWM
-  dynamic: false
+config = HistoricalConfig(
+    start_date="2023-01-01",
+    end_date="2023-12-31",
+    initial_capital=100_000,
+    symbols=["SPY", "QQQ", "IWM"],
 
-execution:
-  fill_model: "immediate"
-  partial_fills: false
+    # Risk limits
+    max_position_pct=0.20,           # Max 20% per position
+    max_drawdown_halt_pct=0.15,      # Halt at 15% drawdown
+    max_daily_loss_pct=0.05,         # Halt if intraday loss exceeds 5% (now enforced)
+    max_leverage=1.0,
+
+    # Correlation filter — rejects BUY orders that push avg pairwise
+    # portfolio correlation above this threshold. 1.0 = disabled (default).
+    max_portfolio_correlation=0.80,
+
+    # Benchmark for alpha/beta/IR calculation (must be in symbols list)
+    benchmark_symbol="SPY",
+
+    # Walk-forward validation (runs post-hoc after main simulation)
+    walk_forward_mode=False,
+    walk_forward_n_folds=5,
+    walk_forward_test_days=63,       # ~1 quarter per fold
+)
 ```
 
 ## CLI Usage

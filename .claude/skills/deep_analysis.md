@@ -1,0 +1,143 @@
+---
+name: deep_analysis
+description: QuantCore tool usage guide — when and how to enrich decisions with raw data, options intelligence, and risk checks beyond the DailyBrief.
+user_invocable: false
+---
+
+# Deep Analysis — QuantCore Tool Integration Guide
+
+This skill is a reference for **when to call which QuantCore MCP tools** during
+trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it directly.
+
+---
+
+## Pre-Trade Intelligence (run before every /trade and /meta session)
+
+### Economic Calendar Check
+**Tool:** `mcp__quantcore__get_event_calendar(symbol, days_ahead=2)`
+**When:** Before any session.
+**Decision rule:**
+- FOMC or CPI within 2 hours → reduce all position sizes 50% or skip
+- Earnings today/tomorrow → flag in trade plan, options only (defined risk)
+- No major events → proceed normally
+
+### Market Regime Snapshot
+**Tool:** `mcp__quantcore__get_market_regime_snapshot(end_date)`
+**When:** Opening of any session; supplement `get_regime` with broad market context.
+**What to look for:** VIX regime, breadth (% above 200-day MA), market phase.
+
+---
+
+## Signal Enrichment (run when DailyBrief confidence > 0.65)
+
+### Raw Price Action
+**Tool:** `mcp__quantcore__load_market_data(symbol, timeframe, start_date, end_date)`
+**When:** DailyBrief flags critical levels — verify the levels are real in the data.
+**What to look for:** Did price actually bounce at support? Is the resistance clean?
+
+### Volume Profile
+**Tool:** `mcp__quantcore__analyze_volume_profile(symbol, timeframe, lookback_days=20)`
+**When:** Before entering at a support or resistance level.
+**Decision rule:**
+- High volume node (HVN) at entry level → strong support/resistance, higher conviction
+- Low volume node (LVN) at entry level → price may slice through quickly, tighten stop
+
+### Multi-Timeframe Alignment
+**Tool:** `mcp__quantcore__compute_technical_indicators(symbol, timeframe, indicators)`
+**When:** When 1-day signal looks good but context is unclear.
+**Timeframes to check:** weekly (trend direction), daily (entry timing), 4h (entry precision)
+**Rule:** Enter only if weekly and daily agree on direction.
+
+### Relative Strength vs Sector
+**Tool:** `mcp__quantcore__run_screener(symbols, trend_filter, ...)`
+**When:** For sector-specific trades.
+**Decision rule:** Entry symbol should be outperforming its sector peers.
+
+---
+
+## Options Intelligence (run when volatility_ic flags elevated IV or options signal)
+
+### IV Rank and Skew
+**Tool:** `mcp__quantcore__compute_option_chain(symbol, expiry_date)`
+**When:** When considering options strategies or when vol_ic output mentions elevated IV.
+**What to extract:** IV percentile rank, skew direction, term structure shape.
+
+### Put/Call Ratio
+**Tools:** `mcp__quantcore__analyze_option_structure` (or options_flow_ic output)
+**Decision rule:**
+- P/C ratio > 1.2 → bearish sentiment (potential contrarian long setup)
+- P/C ratio < 0.7 → complacent / bullish (fade if overextended)
+
+### Trade Template
+**Tool:** `mcp__quantcore__generate_trade_template(symbol, direction, structure_type, expiry_days, risk_amount)`
+**When:** Executing an options position.
+**Follow with:** `mcp__quantcore__validate_trade` and `mcp__quantcore__score_trade_structure`
+
+---
+
+## Risk Enrichment (run before any position > 3% allocation)
+
+### Portfolio Beta Impact
+**Tool:** `mcp__quantcore__compute_portfolio_stats(equity_curve)`
+**When:** Before any position sized at "half" or "full".
+
+### VaR Check
+**Tool:** `mcp__quantcore__compute_var(returns, confidence_levels, method)`
+**When:** When gross_exposure is already > 80%.
+**Decision rule:** If adding this position pushes 99% VaR beyond 3% of equity, reduce size.
+
+### Stress Test
+**Tool:** `mcp__quantcore__stress_test_portfolio(positions, scenarios)`
+**When:** Earnings season or macro events on the calendar.
+**Scenarios:** Include 2008, COVID, Volmageddon as minimum.
+**Decision rule:** If any scenario shows > 10% portfolio loss, reduce gross exposure.
+
+### Liquidity Check
+**Tool:** `mcp__quantcore__analyze_liquidity(symbol, timeframe, window)`
+**When:** For any symbol outside the S&P 500.
+**Decision rule:** If bid-ask spread estimate > 10 bps, factor into expected return.
+
+---
+
+## Post-Trade Monitoring (run during /review)
+
+### Position Status
+**Tool:** `mcp__quantpod__get_position_monitor(symbol)` ← NEW E5 tool
+**When:** Every /review session for each open position.
+**Flags to act on:**
+- `near_stop=True` → tighten stop or close
+- `near_target=True` → consider partial exit
+- `days_held` > strategy max holding period → time stop, consider close
+
+### Fill Quality Audit
+**Tool:** `mcp__quantpod__get_fill_quality(order_id)` ← NEW E5 tool
+**When:** /reflect sessions — audit last 20 fills.
+**Metrics to track:**
+- Average slippage (target: < 5 bps)
+- fill_vs_vwap_bps (target: < 3 bps absolute)
+- Worst 3 fills: what time of day, what size, what symbol?
+**Action:** If avg slippage > 5 bps, check:
+  1. Are we trading illiquid names? (analyze_liquidity)
+  2. Are we sizing too large vs ADV? (check_risk_limits)
+  3. Are we trading at market open/close? (time pattern analysis)
+
+---
+
+## Conditional Usage Rules
+
+### When to call these tools vs relying on DailyBrief
+
+| Signal strength | Action |
+|-----------------|--------|
+| DailyBrief conviction >= 0.8, pod_agreement="unanimous" | Trust the brief, do minimal enrichment (just calendar check) |
+| DailyBrief conviction 0.65-0.8 | Run signal enrichment (volume profile + multi-TF) |
+| DailyBrief conviction 0.50-0.65 | Run full enrichment before trading |
+| DailyBrief conviction < 0.50 | Don't trade — no amount of enrichment justifies weak signal |
+
+### Never enrich past the point of diminishing returns
+3 confirming signals > 8 confirming signals.  Calling 10 QuantCore tools per
+trade is analysis paralysis. Pick 2-3 relevant enrichment tools and move on.
+
+### Cost-awareness
+Each QuantCore tool call has latency cost (~50-500ms).  Batch calls where possible
+using `compute_all_features` when you need multiple indicator values.

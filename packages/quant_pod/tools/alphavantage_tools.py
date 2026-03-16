@@ -17,6 +17,7 @@ import csv
 import io
 import json
 import os
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Type
 
@@ -36,14 +37,24 @@ class AlphaVantageClient:
 
     BASE_URL = "https://www.alphavantage.co/query"
 
+    _MAX_RETRIES = 3
+    _RATE_LIMIT_SLEEP = 60  # seconds to wait on API rate-limit response
+
     def __init__(self, api_key: Optional[str] = None):
         """
         Initialize Alpha Vantage client.
 
         Args:
-            api_key: Alpha Vantage API key (or ALPHAVANTAGE_API_KEY env var)
+            api_key: Alpha Vantage API key. Falls back to ALPHA_VANTAGE_API_KEY
+                     (project-standard) then ALPHAVANTAGE_API_KEY env vars.
         """
-        self.api_key = api_key or os.getenv("ALPHAVANTAGE_API_KEY", "demo")
+        # Check both the project-standard name and the legacy name used in some configs
+        self.api_key = api_key or os.getenv("ALPHA_VANTAGE_API_KEY") or os.getenv("ALPHAVANTAGE_API_KEY", "demo")
+        if self.api_key == "demo":
+            logger.warning(
+                "AlphaVantageClient using demo API key — data will be heavily rate-limited. "
+                "Set ALPHA_VANTAGE_API_KEY in your environment."
+            )
         self._client: Optional[httpx.Client] = None
 
     def _get_client(self) -> httpx.Client:
@@ -52,28 +63,67 @@ class AlphaVantageClient:
             self._client = httpx.Client(timeout=30.0)
         return self._client
 
+    def close(self) -> None:
+        """Close the underlying HTTP client."""
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+    def __del__(self) -> None:
+        self.close()
+
     def _request(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Make API request."""
+        """Make API request with retry and rate-limit handling."""
         params["apikey"] = self.api_key
-
         client = self._get_client()
-        response = client.get(self.BASE_URL, params=params)
-        response.raise_for_status()
 
-        return response.json()
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                response = client.get(self.BASE_URL, params=params)
+                response.raise_for_status()
+                data = response.json()
+
+                # Alpha Vantage signals rate-limiting via a "Note" key
+                if "Note" in data:
+                    logger.warning(f"Alpha Vantage rate limit hit, waiting {self._RATE_LIMIT_SLEEP}s")
+                    time.sleep(self._RATE_LIMIT_SLEEP)
+                    continue
+
+                if "Error Message" in data:
+                    raise ValueError(f"Alpha Vantage API error: {data['Error Message']}")
+
+                return data
+
+            except httpx.HTTPError as e:
+                if attempt < self._MAX_RETRIES - 1:
+                    wait = 2 ** attempt
+                    logger.warning(f"Request failed (attempt {attempt + 1}), retrying in {wait}s: {e}")
+                    time.sleep(wait)
+                else:
+                    raise
+
+        raise RuntimeError("Alpha Vantage request failed after max retries")
 
     def _request_csv(self, params: Dict[str, Any]) -> List[Dict[str, str]]:
-        """Make API request expecting CSV response."""
+        """Make API request expecting CSV response, with retry."""
         params["apikey"] = self.api_key
-
         client = self._get_client()
-        response = client.get(self.BASE_URL, params=params)
-        response.raise_for_status()
 
-        # Parse CSV
-        content = response.text
-        reader = csv.DictReader(io.StringIO(content))
-        return list(reader)
+        for attempt in range(self._MAX_RETRIES):
+            try:
+                response = client.get(self.BASE_URL, params=params)
+                response.raise_for_status()
+                reader = csv.DictReader(io.StringIO(response.text))
+                return list(reader)
+            except httpx.HTTPError as e:
+                if attempt < self._MAX_RETRIES - 1:
+                    wait = 2 ** attempt
+                    logger.warning(f"CSV request failed (attempt {attempt + 1}), retrying in {wait}s: {e}")
+                    time.sleep(wait)
+                else:
+                    raise
+
+        raise RuntimeError("Alpha Vantage CSV request failed after max retries")
 
     def get_news_sentiment(
         self,

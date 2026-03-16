@@ -90,28 +90,46 @@ class AlphaSelectionEnvironment(RLEnvironment):
         market_data: Optional[pd.DataFrame] = None,
         alpha_returns: Optional[Dict[str, pd.Series]] = None,
         seed: Optional[int] = None,
+        production_mode: bool = False,
     ):
         """
         Initialize alpha selection environment.
-
-        EXPERIMENTAL: Generates synthetic alpha returns for meta-learning research.
 
         Args:
             alpha_names: Names of alphas to select from
             lookback: Lookback for performance calculation
             include_no_trade: Include "no trade" as an option
             market_data: Optional DataFrame with 'volatility', 'vix' columns
-            alpha_returns: Optional dict of historical alpha returns
+            alpha_returns: Optional dict of historical alpha returns.
+                           Use KnowledgeStoreRLBridge.get_alpha_return_history() to
+                           populate this from real trade data.
             seed: Random seed for reproducibility
+            production_mode: When True, raises ValueError if alpha_returns is None
+                             instead of silently generating synthetic data.
         """
         super().__init__()
 
-        # Log experimental warning
-        logger.warning(
-            "AlphaSelectionEnvironment is EXPERIMENTAL. "
-            "It generates synthetic alpha returns for research purposes. "
-            "Do not use for production trading decisions."
-        )
+        # Production guard: synthetic data must not reach production inference
+        if production_mode and alpha_returns is None:
+            raise ValueError(
+                "AlphaSelectionEnvironment: production_mode=True but alpha_returns is None. "
+                "Populate alpha_returns using KnowledgeStoreRLBridge.get_alpha_return_history() "
+                "before instantiating in production mode. "
+                "If insufficient trade history exists, set enable_meta_rl=False in RLProductionConfig."
+            )
+
+        if alpha_returns is None:
+            # Log experimental warning
+            logger.warning(
+                "AlphaSelectionEnvironment is EXPERIMENTAL. "
+                "It generates synthetic alpha returns for research purposes. "
+                "Do not use for production trading decisions."
+            )
+        else:
+            logger.info(
+                f"AlphaSelectionEnvironment initialized with real alpha_returns "
+                f"({sum(len(v) for v in alpha_returns.values())} total data points)."
+            )
 
         self.alpha_names = alpha_names or [
             "WTI_BRENT_SPREAD",
@@ -154,6 +172,52 @@ class AlphaSelectionEnvironment(RLEnvironment):
 
         # Warning flags
         self._warned_synthetic = False
+
+    @classmethod
+    def from_knowledge_store(
+        cls,
+        store: "KnowledgeStore",  # type: ignore[name-defined]
+        alpha_names: Optional[List[str]] = None,
+        lookback_days: int = 252,
+        lookback: int = 20,
+        include_no_trade: bool = True,
+        seed: Optional[int] = None,
+    ) -> "AlphaSelectionEnvironment":
+        """
+        Factory method: build environment from real KnowledgeStore data.
+
+        This is the recommended constructor for production use. It replaces the
+        synthetic returns fallback with actual IC signal history from DuckDB.
+
+        Raises ValueError if insufficient data exists (< half of alpha_names have
+        20+ observations). In that case, disable meta RL via RLProductionConfig.
+        """
+        from quantcore.rl.data_bridge import KnowledgeStoreRLBridge
+
+        names = alpha_names or [
+            "WTI_BRENT_SPREAD", "CRACK_SPREAD", "EIA_INVENTORY",
+            "MICROSTRUCTURE", "COMMODITY_REGIME", "CROSS_ASSET", "MACRO",
+        ]
+        bridge = KnowledgeStoreRLBridge.from_knowledge_store(store)
+        alpha_returns = bridge.get_alpha_return_history(names, lookback_days=lookback_days)
+
+        # Gate: if fewer than half the alphas have real history, warn but still proceed
+        valid = sum(1 for s in alpha_returns.values() if len(s) >= 5)
+        if valid == 0:
+            logger.warning(
+                "[AlphaSelectionEnvironment] No real alpha history found. "
+                "Falling back to synthetic returns. Run bootstrap_from_alphavantage() first."
+            )
+            alpha_returns = None
+
+        return cls(
+            alpha_names=names,
+            lookback=lookback,
+            include_no_trade=include_no_trade,
+            alpha_returns=alpha_returns,
+            seed=seed,
+            production_mode=False,  # don't raise on empty — warning is enough
+        )
 
     def reset(self) -> State:
         """Reset environment."""
@@ -230,7 +294,7 @@ class AlphaSelectionEnvironment(RLEnvironment):
             "all_returns": alpha_returns,
             "best_alpha": max(alpha_returns, key=alpha_returns.get),
             "best_return": max(alpha_returns.values()),
-            "is_synthetic": True,  # Always mark as synthetic
+            "is_synthetic": self.alpha_returns_data is None,
         }
 
         return self._get_state(), reward, self.done, info

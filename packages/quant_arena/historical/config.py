@@ -92,7 +92,25 @@ class HistoricalConfig:
     # Risk limits
     max_position_pct: float = 0.20  # Max 20% in single position
     max_drawdown_halt_pct: float = 0.15  # Halt at 15% drawdown
-    max_daily_loss_pct: float = 0.05  # Max 5% daily loss
+    max_daily_loss_pct: float = 0.05  # Max 5% daily loss (now enforced)
+
+    # Benchmark for alpha/beta/IR reporting (must be in the symbol universe)
+    benchmark_symbol: str = "SPY"
+
+    # Maximum allowed average pairwise correlation of new position with existing
+    # holdings. Rejects BUY orders that would push portfolio avg correlation above
+    # this threshold. Set to 1.0 to disable (default = disabled to preserve current
+    # behaviour; set to ~0.80 for realistic constraint).
+    max_portfolio_correlation: float = 1.0
+
+    # Walk-forward validation settings.
+    # When walk_forward_mode=True, run() iterates over n_folds expanding-window
+    # folds and appends WalkForwardSummary to the SimulationResult.
+    # The single-pass simulation still runs on the full date range; walk-forward
+    # runs as an additional post-hoc analysis using daily return snapshots.
+    walk_forward_mode: bool = False
+    walk_forward_n_folds: int = 5   # Number of folds
+    walk_forward_test_days: int = 63  # Test window per fold (~1 quarter)
 
     # Storage
     db_path: Optional[str] = None  # Path to DuckDB, None = default location
@@ -124,6 +142,7 @@ class HistoricalConfig:
             "max_position_pct": self.max_position_pct,
             "max_drawdown_halt_pct": self.max_drawdown_halt_pct,
             "max_daily_loss_pct": self.max_daily_loss_pct,
+            "benchmark_symbol": self.benchmark_symbol,
             "db_path": self.db_path,
         }
 

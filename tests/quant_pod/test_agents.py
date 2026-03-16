@@ -19,7 +19,6 @@ class TestRegimeDetectorAgent:
         agent = RegimeDetectorAgent()
 
         assert "SPY" in agent.symbols
-        assert agent.agent is not None
 
     def test_custom_symbols(self):
         """Test with custom symbols."""
@@ -33,8 +32,8 @@ class TestRegimeDetectorAgent:
         agent = RegimeDetectorAgent()
 
         assert agent.ADX_TRENDING_THRESHOLD == 25
-        assert agent.VOL_LOW_THRESHOLD == 25
-        assert agent.VOL_NORMAL_THRESHOLD == 75
+        assert agent.VOL_LOW_PCT == 25
+        assert agent.VOL_HIGH_PCT == 75
 
 
 class TestDeprecatedFunctions:

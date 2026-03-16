@@ -11,6 +11,7 @@ import pytest
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.base import AssetClass, AssetClassAdapter
+from quantcore.data.provider_enum import DataProvider
 
 
 class TestAssetClassEnum:
@@ -43,6 +44,10 @@ class MockAdapter(AssetClassAdapter):
     @property
     def asset_class(self) -> AssetClass:
         return AssetClass.EQUITY
+
+    @property
+    def provider(self) -> DataProvider:
+        return DataProvider.ALPHA_VANTAGE
 
     def fetch_ohlcv(
         self,
@@ -163,6 +168,10 @@ class TestAdapterSubclassing:
             @property
             def asset_class(self):
                 return AssetClass.EQUITY
+
+            @property
+            def provider(self):
+                return DataProvider.ALPHA_VANTAGE
 
             def fetch_ohlcv(self, symbol, timeframe, start_date=None, end_date=None):
                 return pd.DataFrame()

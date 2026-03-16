@@ -46,6 +46,18 @@ IC_REGISTRY: Dict[str, Dict[str, Set[str]]] = {
         "asset_classes": {"equities", "options", "futures", "fx_crypto"},
         "capabilities": {"events"},
     },
+    "news_sentiment_ic": {
+        "asset_classes": {"equities", "options"},
+        "capabilities": {"sentiment", "events"},
+    },
+    "options_flow_ic": {
+        "asset_classes": {"equities", "options"},
+        "capabilities": {"options", "flow"},
+    },
+    "fundamentals_ic": {
+        "asset_classes": {"equities"},
+        "capabilities": {"fundamentals"},
+    },
 }
 
 POD_MANAGER_REGISTRY: Dict[str, Dict[str, Set[str]]] = {
@@ -69,6 +81,10 @@ POD_MANAGER_REGISTRY: Dict[str, Dict[str, Set[str]]] = {
         "asset_classes": {"equities", "options", "futures", "fx_crypto"},
         "capabilities": {"risk"},
     },
+    "alpha_signals_pod_manager": {
+        "asset_classes": {"equities", "options"},
+        "capabilities": {"quant", "sentiment", "flow", "fundamentals"},
+    },
 }
 
 POD_DEPENDENCIES: Dict[str, List[str]] = {
@@ -81,12 +97,18 @@ POD_DEPENDENCIES: Dict[str, List[str]] = {
     ],
     "quant_pod_manager": ["statarb_ic", "options_vol_ic"],
     "risk_pod_manager": ["risk_limits_ic", "calendar_events_ic"],
+    "alpha_signals_pod_manager": [
+        "news_sentiment_ic",
+        "options_flow_ic",
+        "fundamentals_ic",
+        "statarb_ic",
+        "options_vol_ic",
+    ],
 }
 
 # Default runtime profiles (ordered for determinism)
 PROFILE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
     "equities": {
-        # No options IC by default for equities
         "ics": [
             "data_ingestion_ic",
             "market_snapshot_ic",
@@ -97,6 +119,9 @@ PROFILE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
             "statarb_ic",
             "risk_limits_ic",
             "calendar_events_ic",
+            "news_sentiment_ic",
+            "options_flow_ic",
+            "fundamentals_ic",
         ],
         "pod_managers": [
             "data_pod_manager",
@@ -104,6 +129,7 @@ PROFILE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
             "technicals_pod_manager",
             "quant_pod_manager",
             "risk_pod_manager",
+            "alpha_signals_pod_manager",
         ],
     },
     "options": {
@@ -118,6 +144,9 @@ PROFILE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
             "options_vol_ic",
             "risk_limits_ic",
             "calendar_events_ic",
+            "news_sentiment_ic",
+            "options_flow_ic",
+            "fundamentals_ic",
         ],
         "pod_managers": [
             "data_pod_manager",
@@ -125,6 +154,7 @@ PROFILE_DEFAULTS: Dict[str, Dict[str, List[str]]] = {
             "technicals_pod_manager",
             "quant_pod_manager",
             "risk_pod_manager",
+            "alpha_signals_pod_manager",
         ],
     },
     "futures": {

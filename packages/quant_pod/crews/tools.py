@@ -25,10 +25,24 @@ Usage:
     all_tools = get_all_tools()
 """
 
-from typing import List
+from typing import List, Optional
 
 from quant_pod.crewai_compat import BaseTool
 from loguru import logger
+
+# RL tools (optional — degrade gracefully when torch/checkpoints unavailable)
+try:
+    from quantcore.rl.rl_tools import (
+        get_rl_tools as _get_rl_tools,
+        rl_position_size_tool,
+        rl_execution_strategy_tool,
+        rl_alpha_weight_tool,
+    )
+    from quantcore.rl.config import RLProductionConfig, get_rl_config
+    RL_TOOLS_AVAILABLE = True
+except ImportError:
+    RL_TOOLS_AVAILABLE = False
+    logger.debug("RL tools not available (quantcore.rl not importable).")
 
 
 # =============================================================================
@@ -209,6 +223,30 @@ def get_options_tools() -> List[BaseTool]:
     ]
 
 
+def get_rl_tools(config: "Optional[RLProductionConfig]" = None) -> List[BaseTool]:
+    """
+    Get RL agent tools for the trading crew.
+
+    Returns tools for: position sizing (PPO), execution strategy (DQN),
+    and alpha weighting (contextual bandit).
+
+    All tools start in shadow mode — output is tagged [SHADOW – not yet validated]
+    until the agent passes PromotionGate checks. The LLM agent can read the
+    recommendation and decide whether to follow it.
+
+    Only tools whose enable_* flag is True in RLProductionConfig are returned.
+    Falls back to [] if RL tools are not available (graceful degradation).
+    """
+    if not RL_TOOLS_AVAILABLE:
+        return []
+    try:
+        cfg = config or get_rl_config()
+        return _get_rl_tools(cfg)
+    except Exception as exc:
+        logger.warning(f"[RL] Failed to load RL tools (non-fatal): {exc}")
+        return []
+
+
 def get_all_tools() -> List[BaseTool]:
     """Get all available tools for the trading crew."""
     # Deduplicate tools (some appear in multiple categories)
@@ -258,6 +296,8 @@ def get_quantcore_mcps_config() -> dict:
 
 __all__ = [
     "MCP_TOOLS_AVAILABLE",
+    "RL_TOOLS_AVAILABLE",
+    "get_rl_tools",
     "get_market_data_tools",
     "get_technical_analysis_tools",
     "get_analyst_tools",

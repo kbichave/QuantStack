@@ -16,8 +16,6 @@ Usage:
     python -m quantcore.mcp.server
 """
 
-from __future__ import annotations
-
 import json
 import sys
 from contextlib import asynccontextmanager

@@ -1,60 +1,73 @@
-# Copyright 2024 QuantCore Contributors
+# Copyright 2024 QuantPod Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
 eTrade MCP Server - FastMCP Implementation.
 
-Exposes eTrade trading functionality as MCP tools:
-- OAuth authentication (authorize, refresh)
-- Account management (list, balance, positions)
-- Market data (quotes, option chains, expiry dates)
-- Order management (preview, place, spread, cancel)
+Exposes eTrade trading functionality as MCP tools.  The auth/client/model
+layer lives in ``quant_pod.tools.etrade``; this module is the pure MCP
+transport wrapper around it.
+
+Tools:
+    etrade_authorize        Start or complete OAuth 1.0a flow
+    etrade_refresh_token    Renew access token before midnight expiry
+    get_auth_status         Check authentication state
+    get_accounts            List accounts
+    get_account_balance     Cash / margin / buying-power summary
+    get_positions           Open positions with P&L
+    get_quote               Real-time quotes (up to 25 symbols)
+    get_option_expiry_dates Available expirations for a symbol
+    get_option_chains       Full option chain with Greeks
+    preview_order           Estimate cost — always call before place_order
+    place_order             Submit equity or single-leg option order
+    place_spread_order      Submit multi-leg spread order
+    cancel_order            Cancel an open order
+    get_orders              Order history with optional status filter
+
+Auth (environment variables):
+    ETRADE_CONSUMER_KEY     required
+    ETRADE_CONSUMER_SECRET  required
+    ETRADE_SANDBOX          true (default) | false
 
 Usage:
+    etrade-mcp                     # via pyproject.toml script entry
     python -m etrade_mcp.server
 """
 
-from __future__ import annotations
-
 import json
 import os
-import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP
 from loguru import logger
 
-# Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from etrade_mcp.auth import ETradeAuthManager
-from etrade_mcp.client import ETradeClient
-from etrade_mcp.models import (
+from quant_pod.tools.etrade.auth import ETradeAuthManager
+from quant_pod.tools.etrade.client import ETradeClient
+from quant_pod.tools.etrade.models import (
+    MarketSession,
+    OptionType,
     OrderAction,
     OrderDuration,
     OrderLeg,
     OrderRequest,
     OrderType,
-    OptionType,
     SecurityType,
     SpreadLeg,
     SpreadOrderRequest,
-    MarketSession,
 )
 
 
 # =============================================================================
-# MCP SERVER INITIALIZATION
+# SERVER CONTEXT
 # =============================================================================
 
 
 @dataclass
 class ServerContext:
-    """Shared context for MCP server."""
+    """Shared state for the MCP server process."""
 
     auth_manager: ETradeAuthManager
     client: Optional[ETradeClient] = None
@@ -63,10 +76,9 @@ class ServerContext:
 
 @asynccontextmanager
 async def lifespan(server: FastMCP):
-    """Initialize and cleanup server resources."""
+    """Initialise and clean up server resources."""
     logger.info("eTrade MCP Server starting...")
 
-    # Check for required environment variables
     consumer_key = os.getenv("ETRADE_CONSUMER_KEY")
     consumer_secret = os.getenv("ETRADE_CONSUMER_SECRET")
 
@@ -76,7 +88,6 @@ async def lifespan(server: FastMCP):
             "Authentication tools will not work until configured."
         )
 
-    # Initialize auth manager
     sandbox = os.getenv("ETRADE_SANDBOX", "true").lower() in ("true", "1", "yes")
     auth_manager = ETradeAuthManager(
         consumer_key=consumer_key,
@@ -84,223 +95,178 @@ async def lifespan(server: FastMCP):
         sandbox=sandbox,
     )
 
-    # Initialize client if authenticated
     client = None
     if auth_manager.is_authenticated():
         client = ETradeClient(auth_manager)
-        logger.info("eTrade client initialized with existing tokens")
+        logger.info("eTrade client initialised with existing tokens")
 
-    ctx = ServerContext(
-        auth_manager=auth_manager,
-        client=client,
-        sandbox_mode=sandbox,
-    )
-
+    ctx = ServerContext(auth_manager=auth_manager, client=client, sandbox_mode=sandbox)
     server.context = ctx
-    logger.info(f"eTrade MCP Server initialized (sandbox={sandbox})")
+    logger.info(f"eTrade MCP Server ready (sandbox={sandbox})")
 
     yield
 
     logger.info("eTrade MCP Server stopped")
 
 
-# Create the FastMCP server
+# =============================================================================
+# FASTMCP SERVER
+# =============================================================================
+
 mcp = FastMCP(
     name="eTrade Trading Platform",
     instructions=(
         "eTrade trading platform with OAuth authentication, account management, "
         "market data, and order execution. Use sandbox mode for testing. "
-        "IMPORTANT: Always use preview_order before place_order to verify order details."
+        "IMPORTANT: Always call preview_order before place_order."
     ),
     lifespan=lifespan,
 )
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# HELPERS
 # =============================================================================
 
 
 def _get_context() -> ServerContext:
-    """Get server context with validation."""
     ctx = mcp.context
     if not ctx:
-        raise ValueError("Server not initialized")
+        raise ValueError("Server not initialised")
     return ctx
 
 
 def _ensure_client() -> ETradeClient:
-    """Get client, raising error if not authenticated."""
     ctx = _get_context()
-
     if not ctx.auth_manager.is_authenticated():
         raise ValueError(
             "Not authenticated. Call etrade_authorize first to complete OAuth flow."
         )
-
     if not ctx.client:
         ctx.client = ETradeClient(ctx.auth_manager)
-
     return ctx.client
 
 
-def _serialize_pydantic(obj: Any) -> Any:
-    """Serialize Pydantic models and other types to JSON-compatible format."""
+def _serialize(obj: Any) -> Any:
+    """Recursively serialise Pydantic models / datetimes to JSON-safe types."""
     if hasattr(obj, "model_dump"):
         return obj.model_dump(by_alias=True)
     if hasattr(obj, "dict"):
         return obj.dict(by_alias=True)
     if isinstance(obj, list):
-        return [_serialize_pydantic(item) for item in obj]
+        return [_serialize(item) for item in obj]
     if isinstance(obj, dict):
-        return {k: _serialize_pydantic(v) for k, v in obj.items()}
+        return {k: _serialize(v) for k, v in obj.items()}
     if isinstance(obj, datetime):
         return obj.isoformat()
     return obj
 
 
 # =============================================================================
-# AUTH TOOLS (2)
+# AUTH TOOLS
 # =============================================================================
 
 
 @mcp.tool()
 async def etrade_authorize(verifier_code: Optional[str] = None) -> Dict[str, Any]:
     """
-    Start or complete eTrade OAuth authorization.
+    Start or complete eTrade OAuth authorisation.
 
     OAuth is a three-step process:
-    1. Call without verifier_code to get authorization URL
-    2. Visit the URL in a browser and authorize the application
-    3. Call again with the verifier_code from the authorization page
+    1. Call without verifier_code to get the authorisation URL.
+    2. Visit the URL in a browser and authorise the application.
+    3. Call again with the verifier_code shown on the eTrade page.
 
     Args:
-        verifier_code: The verifier code from eTrade authorization page.
-                      If None, returns the authorization URL to visit.
-
-    Returns:
-        Dictionary with auth_url (step 1) or authentication status (step 3)
-
-    Example:
-        # Step 1: Get auth URL
-        result = etrade_authorize()
-        # Visit result["auth_url"] in browser
-
-        # Step 2: Complete with verifier from browser
-        result = etrade_authorize(verifier_code="ABC123")
+        verifier_code: Verifier from the eTrade authorisation page.
+                       Omit to get the URL for step 1.
     """
     ctx = _get_context()
     auth = ctx.auth_manager
 
     try:
         if verifier_code:
-            # Step 3: Complete authorization with verifier
             success = auth.complete_authorization(verifier_code)
-
             if success:
-                # Initialize client
                 ctx.client = ETradeClient(auth)
-
                 return {
                     "success": True,
-                    "message": "Authorization successful! You can now use trading tools.",
-                    "status": _serialize_pydantic(auth.get_auth_status()),
+                    "message": "Authorisation successful. Trading tools are now available.",
+                    "status": _serialize(auth.get_auth_status()),
                 }
-            else:
-                return {
-                    "success": False,
-                    "error": "Authorization failed. Please try again.",
-                }
-        else:
-            # Step 1: Get authorization URL
-            auth_url = auth.get_authorization_url()
+            return {"success": False, "error": "Authorisation failed. Please try again."}
 
-            return {
-                "success": True,
-                "message": (
-                    "Visit the authorization URL below and authorize the application. "
-                    "Then copy the verifier code and call this tool again with the verifier_code."
-                ),
-                "auth_url": auth_url,
-                "sandbox_mode": ctx.sandbox_mode,
-            }
-
-    except Exception as e:
+        auth_url = auth.get_authorization_url()
         return {
-            "success": False,
-            "error": str(e),
+            "success": True,
+            "message": (
+                "Visit the authorisation URL below, approve the application, "
+                "then call this tool again with the verifier_code."
+            ),
+            "auth_url": auth_url,
+            "sandbox_mode": ctx.sandbox_mode,
         }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
 async def etrade_refresh_token() -> Dict[str, Any]:
     """
-    Refresh eTrade access token to extend session.
+    Refresh the eTrade access token.
 
-    Access tokens expire at midnight Eastern time. Call this tool
-    periodically to keep the session alive without re-authorizing.
-
-    Returns:
-        Dictionary with refresh status
+    Access tokens expire at midnight Eastern. Call this periodically
+    to extend the session without re-authorising.
     """
     ctx = _get_context()
     auth = ctx.auth_manager
 
     try:
         if not auth.is_authenticated():
-            return {
-                "success": False,
-                "error": "Not authenticated. Call etrade_authorize first.",
-            }
+            return {"success": False, "error": "Not authenticated. Call etrade_authorize first."}
 
         success = auth.refresh_token()
-
         return {
             "success": success,
-            "status": _serialize_pydantic(auth.get_auth_status()),
-            "message": (
-                "Token refreshed successfully" if success else "Token refresh failed"
-            ),
+            "status": _serialize(auth.get_auth_status()),
+            "message": "Token refreshed" if success else "Token refresh failed",
         }
-
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def get_auth_status() -> Dict[str, Any]:
+    """Get current eTrade authentication status and token expiry."""
+    ctx = _get_context()
+    auth = ctx.auth_manager
+    return {
+        "success": True,
+        "status": _serialize(auth.get_auth_status()),
+        "sandbox_mode": ctx.sandbox_mode,
+        "consumer_key_set": bool(auth.consumer_key),
+    }
 
 
 # =============================================================================
-# ACCOUNT TOOLS (3)
+# ACCOUNT TOOLS
 # =============================================================================
 
 
 @mcp.tool()
 async def get_accounts() -> Dict[str, Any]:
     """
-    Get list of eTrade accounts for the authenticated user.
+    List eTrade accounts for the authenticated user.
 
-    Returns account IDs, names, types, and descriptions.
-    Use the accountIdKey for subsequent account operations.
-
-    Returns:
-        Dictionary with list of accounts
+    Returns account IDs, names, and types. Use accountIdKey for
+    subsequent account operations.
     """
     try:
         client = _ensure_client()
         accounts = client.get_accounts()
-
-        return {
-            "success": True,
-            "count": len(accounts),
-            "accounts": [_serialize_pydantic(acc) for acc in accounts],
-        }
-
+        return {"success": True, "count": len(accounts), "accounts": _serialize(accounts)}
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -308,28 +274,15 @@ async def get_account_balance(account_id_key: str) -> Dict[str, Any]:
     """
     Get account balance and buying power.
 
-    Returns cash balances, margin buying power, and option buying power.
-
     Args:
-        account_id_key: The accountIdKey from get_accounts
-
-    Returns:
-        Dictionary with balance details
+        account_id_key: accountIdKey from get_accounts
     """
     try:
         client = _ensure_client()
         balance = client.get_account_balance(account_id_key)
-
-        return {
-            "success": True,
-            "balance": _serialize_pydantic(balance),
-        }
-
+        return {"success": True, "balance": _serialize(balance)}
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -338,37 +291,22 @@ async def get_positions(
     symbol: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Get positions for an account.
-
-    Returns all positions with cost basis, market value, and P&L.
-    Optionally filter by symbol.
+    Get open positions for an account.
 
     Args:
-        account_id_key: The accountIdKey from get_accounts
+        account_id_key: accountIdKey from get_accounts
         symbol: Optional symbol to filter positions
-
-    Returns:
-        Dictionary with list of positions
     """
     try:
         client = _ensure_client()
         positions = client.get_positions(account_id_key, symbol=symbol)
-
-        return {
-            "success": True,
-            "count": len(positions),
-            "positions": [_serialize_pydantic(pos) for pos in positions],
-        }
-
+        return {"success": True, "count": len(positions), "positions": _serialize(positions)}
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 # =============================================================================
-# MARKET DATA TOOLS (3)
+# MARKET DATA TOOLS
 # =============================================================================
 
 
@@ -377,31 +315,16 @@ async def get_quote(symbols: str) -> Dict[str, Any]:
     """
     Get real-time quotes for one or more symbols.
 
-    Returns bid/ask, last price, volume, and other quote data.
-
     Args:
-        symbols: Comma-separated list of symbols (max 25), e.g., "AAPL,MSFT,GOOGL"
-
-    Returns:
-        Dictionary with quote data for each symbol
+        symbols: Comma-separated symbols (max 25), e.g. "AAPL,MSFT,SPY"
     """
     try:
         client = _ensure_client()
-
         symbol_list = [s.strip().upper() for s in symbols.split(",")]
         quotes = client.get_quote(symbol_list)
-
-        return {
-            "success": True,
-            "count": len(quotes),
-            "quotes": [_serialize_pydantic(q) for q in quotes],
-        }
-
+        return {"success": True, "count": len(quotes), "quotes": _serialize(quotes)}
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -409,30 +332,20 @@ async def get_option_expiry_dates(symbol: str) -> Dict[str, Any]:
     """
     Get available option expiration dates for a symbol.
 
-    Returns all available expiration dates with days to expiration.
-
     Args:
-        symbol: Underlying symbol (e.g., "SPY", "AAPL")
-
-    Returns:
-        Dictionary with list of expiration dates
+        symbol: Underlying symbol, e.g. "SPY"
     """
     try:
         client = _ensure_client()
         expirations = client.get_option_expiry_dates(symbol)
-
         return {
             "success": True,
             "symbol": symbol.upper(),
             "count": len(expirations),
-            "expirations": [_serialize_pydantic(exp) for exp in expirations],
+            "expirations": _serialize(expirations),
         }
-
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -444,30 +357,17 @@ async def get_option_chains(
     option_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Get option chain for a symbol.
-
-    Returns calls and puts with bid/ask, Greeks, and open interest.
+    Get option chain for a symbol with calls, puts, and Greeks.
 
     Args:
-        symbol: Underlying symbol (e.g., "SPY", "AAPL")
-        expiration_date: Specific expiration in YYYY-MM-DD format (None for nearest)
-        strike_price_near: Center strikes around this price (None for ATM)
-        no_of_strikes: Number of strikes to return (default 10)
-        option_type: Filter by "CALL" or "PUT" (None for both)
-
-    Returns:
-        Dictionary with calls and puts option chains
-
-    Example:
-        # Get SPY options near current price
-        get_option_chains("SPY", strike_price_near=450, no_of_strikes=5)
-
-        # Get specific expiration
-        get_option_chains("AAPL", expiration_date="2024-03-15", option_type="CALL")
+        symbol: Underlying symbol, e.g. "SPY"
+        expiration_date: YYYY-MM-DD (omit for nearest expiry)
+        strike_price_near: Centre strikes around this price (omit for ATM)
+        no_of_strikes: Number of strikes (default 10)
+        option_type: "CALL" or "PUT" (omit for both)
     """
     try:
         client = _ensure_client()
-
         chain = client.get_option_chains(
             symbol=symbol.upper(),
             expiration_date=expiration_date,
@@ -475,21 +375,13 @@ async def get_option_chains(
             no_of_strikes=no_of_strikes,
             option_type=option_type.upper() if option_type else None,
         )
-
-        return {
-            "success": True,
-            "chain": _serialize_pydantic(chain),
-        }
-
+        return {"success": True, "chain": _serialize(chain)}
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 # =============================================================================
-# ORDER TOOLS (4)
+# ORDER TOOLS
 # =============================================================================
 
 
@@ -509,45 +401,24 @@ async def preview_order(
     expiration_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Preview an order before placement.
-
-    ALWAYS preview orders before placing them to see estimated costs
-    and verify order details.
+    Preview an order before placement — always call this first.
 
     Args:
-        account_id_key: The accountIdKey from get_accounts
-        symbol: Stock/option symbol
-        action: Order action - "BUY", "SELL", "BUY_TO_OPEN", "BUY_TO_CLOSE",
-                "SELL_TO_OPEN", "SELL_TO_CLOSE"
-        quantity: Number of shares/contracts
-        order_type: "MARKET", "LIMIT", "STOP", "STOP_LIMIT"
-        limit_price: Limit price (required for LIMIT and STOP_LIMIT)
-        stop_price: Stop price (required for STOP and STOP_LIMIT)
-        duration: "DAY", "GOOD_TILL_CANCEL", "IMMEDIATE_OR_CANCEL"
-        security_type: "EQ" for stocks, "OPTN" for options
-        option_type: "CALL" or "PUT" (required for options)
+        account_id_key: accountIdKey from get_accounts
+        symbol: Stock or option symbol
+        action: BUY | SELL | BUY_TO_OPEN | BUY_TO_CLOSE | SELL_TO_OPEN | SELL_TO_CLOSE
+        quantity: Shares or contracts
+        order_type: MARKET | LIMIT | STOP | STOP_LIMIT (default LIMIT)
+        limit_price: Required for LIMIT / STOP_LIMIT orders
+        stop_price: Required for STOP / STOP_LIMIT orders
+        duration: DAY | GOOD_TILL_CANCEL | IMMEDIATE_OR_CANCEL (default DAY)
+        security_type: EQ for stocks, OPTN for options (default EQ)
+        option_type: CALL | PUT (required for options)
         strike_price: Strike price (required for options)
-        expiration_date: Expiration in YYYY-MM-DD (required for options)
-
-    Returns:
-        Dictionary with preview_id and estimated costs
-
-    Example:
-        # Stock order
-        preview_order("abc123", "AAPL", "BUY", 100, "LIMIT", limit_price=175.00)
-
-        # Option order
-        preview_order(
-            "abc123", "AAPL", "BUY_TO_OPEN", 1,
-            "LIMIT", limit_price=5.00,
-            security_type="OPTN", option_type="CALL",
-            strike_price=180, expiration_date="2024-03-15"
-        )
+        expiration_date: YYYY-MM-DD (required for options)
     """
     try:
         client = _ensure_client()
-
-        # Build order leg
         leg = OrderLeg(
             symbol=symbol.upper(),
             securityType=SecurityType(security_type),
@@ -557,28 +428,20 @@ async def preview_order(
             strikePrice=strike_price,
             expirationDate=expiration_date,
         )
-
-        # Build order request
-        order_request = OrderRequest(
+        order_req = OrderRequest(
             accountIdKey=account_id_key,
             orderType=OrderType(order_type.upper()),
             priceType=order_type.upper(),
             limitPrice=limit_price,
             stopPrice=stop_price,
-            orderTerm=(
-                OrderDuration(duration.upper())
-                if duration != "DAY"
-                else OrderDuration.DAY
-            ),
+            orderTerm=OrderDuration(duration.upper()) if duration != "DAY" else OrderDuration.DAY,
             marketSession=MarketSession.REGULAR,
             legs=[leg],
         )
-
-        preview = client.preview_order(account_id_key, order_request)
-
+        preview = client.preview_order(account_id_key, order_req)
         return {
             "success": True,
-            "preview": _serialize_pydantic(preview),
+            "preview": _serialize(preview),
             "order_details": {
                 "symbol": symbol.upper(),
                 "action": action.upper(),
@@ -587,14 +450,10 @@ async def preview_order(
                 "limit_price": limit_price,
                 "stop_price": stop_price,
             },
-            "message": "Order preview successful. Use the preview_id to place the order.",
+            "message": "Preview successful. Use preview_id to place the order.",
         }
-
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -614,48 +473,30 @@ async def place_order(
     preview_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Place an order.
-
-    IMPORTANT: Always call preview_order first to verify order details!
+    Place an order. Always call preview_order first.
 
     Args:
-        account_id_key: The accountIdKey from get_accounts
-        symbol: Stock/option symbol
-        action: Order action - "BUY", "SELL", "BUY_TO_OPEN", "BUY_TO_CLOSE",
-                "SELL_TO_OPEN", "SELL_TO_CLOSE"
-        quantity: Number of shares/contracts
-        order_type: "MARKET", "LIMIT", "STOP", "STOP_LIMIT"
-        limit_price: Limit price (required for LIMIT and STOP_LIMIT)
-        stop_price: Stop price (required for STOP and STOP_LIMIT)
-        duration: "DAY", "GOOD_TILL_CANCEL", "IMMEDIATE_OR_CANCEL"
-        security_type: "EQ" for stocks, "OPTN" for options
-        option_type: "CALL" or "PUT" (required for options)
+        account_id_key: accountIdKey from get_accounts
+        symbol: Stock or option symbol
+        action: BUY | SELL | BUY_TO_OPEN | BUY_TO_CLOSE | SELL_TO_OPEN | SELL_TO_CLOSE
+        quantity: Shares or contracts
+        order_type: MARKET | LIMIT | STOP | STOP_LIMIT (default LIMIT)
+        limit_price: Required for LIMIT / STOP_LIMIT orders
+        stop_price: Required for STOP / STOP_LIMIT orders
+        duration: DAY | GOOD_TILL_CANCEL | IMMEDIATE_OR_CANCEL (default DAY)
+        security_type: EQ for stocks, OPTN for options (default EQ)
+        option_type: CALL | PUT (required for options)
         strike_price: Strike price (required for options)
-        expiration_date: Expiration in YYYY-MM-DD (required for options)
-        preview_id: Preview ID from preview_order (recommended)
-
-    Returns:
-        Dictionary with order_id and order details
-
-    Example:
-        # First preview
-        preview = preview_order("abc123", "AAPL", "BUY", 100, "LIMIT", 175.00)
-
-        # Then place with preview_id
-        place_order(
-            "abc123", "AAPL", "BUY", 100, "LIMIT", 175.00,
-            preview_id=preview["preview"]["previewId"]
-        )
+        expiration_date: YYYY-MM-DD (required for options)
+        preview_id: preview_id from preview_order (strongly recommended)
     """
     try:
         client = _ensure_client()
         ctx = _get_context()
 
-        # Safety warning for production
         if not ctx.sandbox_mode and not preview_id:
-            logger.warning("Placing order in PRODUCTION without preview_id!")
+            logger.warning("Placing PRODUCTION order without preview_id!")
 
-        # Build order leg
         leg = OrderLeg(
             symbol=symbol.upper(),
             securityType=SecurityType(security_type),
@@ -665,36 +506,24 @@ async def place_order(
             strikePrice=strike_price,
             expirationDate=expiration_date,
         )
-
-        # Build order request
-        order_request = OrderRequest(
+        order_req = OrderRequest(
             accountIdKey=account_id_key,
             orderType=OrderType(order_type.upper()),
             priceType=order_type.upper(),
             limitPrice=limit_price,
             stopPrice=stop_price,
-            orderTerm=(
-                OrderDuration(duration.upper())
-                if duration != "DAY"
-                else OrderDuration.DAY
-            ),
+            orderTerm=OrderDuration(duration.upper()) if duration != "DAY" else OrderDuration.DAY,
             marketSession=MarketSession.REGULAR,
             legs=[leg],
         )
-
-        order = client.place_order(account_id_key, order_request, preview_id=preview_id)
-
+        order = client.place_order(account_id_key, order_req, preview_id=preview_id)
         return {
             "success": True,
-            "order": _serialize_pydantic(order),
-            "message": f"Order placed successfully. Order ID: {order.order_id}",
+            "order": _serialize(order),
+            "message": f"Order placed. Order ID: {order.order_id}",
         }
-
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -707,122 +536,77 @@ async def place_spread_order(
     duration: str = "DAY",
 ) -> Dict[str, Any]:
     """
-    Place a multi-leg option spread order.
-
-    Supports vertical spreads, iron condors, butterflies, calendars, etc.
+    Place a multi-leg option spread (vertical, iron condor, calendar, etc.).
 
     Args:
-        account_id_key: The accountIdKey from get_accounts
-        underlying_symbol: Underlying stock symbol (e.g., "SPY")
-        legs: List of leg dictionaries, each with:
-              - option_type: "CALL" or "PUT"
-              - strike_price: Strike price
-              - expiration_date: YYYY-MM-DD format
-              - action: "BUY_TO_OPEN", "SELL_TO_OPEN", etc.
-              - quantity: Number of contracts
-        order_type: "LIMIT" or "MARKET"
+        account_id_key: accountIdKey from get_accounts
+        underlying_symbol: Underlying stock symbol, e.g. "SPY"
+        legs: List of dicts, each with keys:
+              option_type (CALL|PUT), strike_price, expiration_date (YYYY-MM-DD),
+              action (BUY_TO_OPEN|SELL_TO_OPEN|…), quantity
+        order_type: LIMIT | MARKET (default LIMIT)
         limit_price: Net credit (negative) or debit (positive)
-        duration: "DAY" or "GOOD_TILL_CANCEL"
+        duration: DAY | GOOD_TILL_CANCEL (default DAY)
 
-    Returns:
-        Dictionary with order details
-
-    Example - Bull Put Spread:
-        place_spread_order(
-            "abc123",
-            "SPY",
-            legs=[
-                {"option_type": "PUT", "strike_price": 440, "expiration_date": "2024-03-15",
-                 "action": "SELL_TO_OPEN", "quantity": 1},
-                {"option_type": "PUT", "strike_price": 435, "expiration_date": "2024-03-15",
-                 "action": "BUY_TO_OPEN", "quantity": 1},
-            ],
-            limit_price=-0.50  # $0.50 credit
-        )
+    Example — bull put spread:
+        legs=[
+            {"option_type": "PUT", "strike_price": 440, "expiration_date": "2024-03-15",
+             "action": "SELL_TO_OPEN", "quantity": 1},
+            {"option_type": "PUT", "strike_price": 435, "expiration_date": "2024-03-15",
+             "action": "BUY_TO_OPEN", "quantity": 1},
+        ],
+        limit_price=-0.50
     """
     try:
         client = _ensure_client()
-
-        # Build spread legs
-        spread_legs = []
-        for leg_data in legs:
-            spread_legs.append(
-                SpreadLeg(
-                    symbol=underlying_symbol.upper(),
-                    optionType=OptionType(leg_data["option_type"].upper()),
-                    strikePrice=leg_data["strike_price"],
-                    expirationDate=leg_data["expiration_date"],
-                    orderAction=OrderAction(leg_data["action"].upper()),
-                    quantity=leg_data["quantity"],
-                )
+        spread_legs = [
+            SpreadLeg(
+                symbol=underlying_symbol.upper(),
+                optionType=OptionType(leg["option_type"].upper()),
+                strikePrice=leg["strike_price"],
+                expirationDate=leg["expiration_date"],
+                orderAction=OrderAction(leg["action"].upper()),
+                quantity=leg["quantity"],
             )
-
-        # Build spread request
-        spread_request = SpreadOrderRequest(
+            for leg in legs
+        ]
+        spread_req = SpreadOrderRequest(
             accountIdKey=account_id_key,
             underlyingSymbol=underlying_symbol.upper(),
             orderType=OrderType(order_type.upper()),
             limitPrice=limit_price,
-            orderTerm=(
-                OrderDuration(duration.upper())
-                if duration != "DAY"
-                else OrderDuration.DAY
-            ),
+            orderTerm=OrderDuration(duration.upper()) if duration != "DAY" else OrderDuration.DAY,
             marketSession=MarketSession.REGULAR,
             legs=spread_legs,
         )
-
-        order = client.place_spread_order(account_id_key, spread_request)
-
+        order = client.place_spread_order(account_id_key, spread_req)
         return {
             "success": True,
-            "order": _serialize_pydantic(order),
+            "order": _serialize(order),
             "message": f"Spread order placed. Order ID: {order.order_id}",
         }
-
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
-async def cancel_order(
-    account_id_key: str,
-    order_id: str,
-) -> Dict[str, Any]:
+async def cancel_order(account_id_key: str, order_id: str) -> Dict[str, Any]:
     """
     Cancel an open order.
 
     Args:
-        account_id_key: The accountIdKey from get_accounts
+        account_id_key: accountIdKey from get_accounts
         order_id: Order ID to cancel
-
-    Returns:
-        Dictionary with cancellation status
     """
     try:
         client = _ensure_client()
         success = client.cancel_order(account_id_key, order_id)
-
         return {
             "success": success,
-            "message": (
-                f"Order {order_id} cancelled" if success else "Cancellation failed"
-            ),
+            "message": f"Order {order_id} cancelled" if success else "Cancellation failed",
         }
-
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
-
-
-# =============================================================================
-# ADDITIONAL UTILITY TOOLS
-# =============================================================================
+        return {"success": False, "error": str(e)}
 
 
 @mcp.tool()
@@ -834,52 +618,19 @@ async def get_orders(
     Get orders for an account.
 
     Args:
-        account_id_key: The accountIdKey from get_accounts
-        status: Filter by status - "OPEN", "EXECUTED", "CANCELLED"
-
-    Returns:
-        Dictionary with list of orders
+        account_id_key: accountIdKey from get_accounts
+        status: OPEN | EXECUTED | CANCELLED (omit for all)
     """
     try:
         client = _ensure_client()
         orders = client.get_orders(account_id_key, status=status)
-
-        return {
-            "success": True,
-            "count": len(orders),
-            "orders": [_serialize_pydantic(order) for order in orders],
-        }
-
+        return {"success": True, "count": len(orders), "orders": _serialize(orders)}
     except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
-
-
-@mcp.tool()
-async def get_auth_status() -> Dict[str, Any]:
-    """
-    Get current eTrade authentication status.
-
-    Returns whether authenticated, token expiration, and environment info.
-
-    Returns:
-        Dictionary with authentication status
-    """
-    ctx = _get_context()
-    auth = ctx.auth_manager
-
-    return {
-        "success": True,
-        "status": _serialize_pydantic(auth.get_auth_status()),
-        "sandbox_mode": ctx.sandbox_mode,
-        "consumer_key_set": bool(auth.consumer_key),
-    }
+        return {"success": False, "error": str(e)}
 
 
 # =============================================================================
-# MAIN ENTRY POINT
+# ENTRY POINT
 # =============================================================================
 
 
@@ -889,28 +640,19 @@ def main():
 
     parser = argparse.ArgumentParser(description="eTrade MCP Server")
     parser.add_argument(
-        "--sandbox",
-        action="store_true",
-        default=True,
-        help="Use sandbox environment (default: True)",
-    )
-    parser.add_argument(
         "--production",
         action="store_true",
-        help="Use production environment (CAUTION: Real money!)",
+        help="Use production environment (CAUTION: real money!)",
     )
-
     args = parser.parse_args()
 
-    # Set environment
     if args.production:
         os.environ["ETRADE_SANDBOX"] = "false"
-        logger.warning("⚠️  PRODUCTION MODE - Real money transactions!")
+        logger.warning("PRODUCTION MODE — real-money transactions enabled")
     else:
-        os.environ["ETRADE_SANDBOX"] = "true"
-        logger.info("Sandbox mode - Paper trading")
+        os.environ.setdefault("ETRADE_SANDBOX", "true")
+        logger.info("Sandbox mode — paper trading")
 
-    # Run server
     mcp.run()
 
 

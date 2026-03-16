@@ -13,6 +13,7 @@ import pytest
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.base import AssetClass, AssetClassAdapter
 from quantcore.data.manager import UnifiedDataManager
+from quantcore.data.provider_enum import DataProvider
 
 
 class MockEquityAdapter(AssetClassAdapter):
@@ -24,6 +25,10 @@ class MockEquityAdapter(AssetClassAdapter):
     @property
     def asset_class(self) -> AssetClass:
         return AssetClass.EQUITY
+
+    @property
+    def provider(self) -> DataProvider:
+        return DataProvider.ALPHA_VANTAGE
 
     def fetch_ohlcv(
         self,
@@ -55,6 +60,10 @@ class MockCryptoAdapter(AssetClassAdapter):
     @property
     def asset_class(self) -> AssetClass:
         return AssetClass.CRYPTO
+
+    @property
+    def provider(self) -> DataProvider:
+        return DataProvider.ALPACA
 
     def fetch_ohlcv(
         self,

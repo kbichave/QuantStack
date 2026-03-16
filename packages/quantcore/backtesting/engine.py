@@ -21,15 +21,23 @@ from quantcore.validation.input_validation import DataFrameValidator
 
 @dataclass
 class BacktestConfig:
-    """Configuration for backtesting."""
+    """Configuration for backtesting.
+
+    Note: BacktestEngine.run() is a single-instrument engine.
+    max_concurrent_trades is reserved for a future multi-position extension.
+    stop_loss and take_profit ATR multiples are not currently enforced by
+    BacktestEngine.run(); use run_backtest_with_params() for z-score-based stops.
+    """
 
     initial_capital: float = 100000.0
-    max_concurrent_trades: int = 5
+    # Reserved — BacktestEngine.run() only supports one open position at a time.
+    max_concurrent_trades: int = 1
     commission_per_trade: float = 1.0
     slippage_pct: float = 0.001
     position_size_pct: float = 0.1
-    stop_loss_atr_multiple: float = 2.0
-    take_profit_atr_multiple: float = 3.0
+    # trading_periods_per_year: set to 252 for daily bars, 252*24 for hourly, etc.
+    # Used for Sharpe ratio annualization; defaults to 252 (daily).
+    trading_periods_per_year: int = 252
 
 
 @dataclass
@@ -87,6 +95,7 @@ class BacktestEngine:
         capital = self.config.initial_capital
         position = 0
         entry_price = 0.0
+        position_shares = 0.0  # fixed at entry, used for all P&L and MTM calculations
         trades = []
         equity_curve = [capital]
 
@@ -112,10 +121,12 @@ class BacktestEngine:
                     position = 1
                     entry_price = current_price * (1 + self.config.slippage_pct)
                     capital -= self.config.commission_per_trade
+                    position_shares = (capital * self.config.position_size_pct) / entry_price
                 elif direction == "SHORT":
                     position = -1
                     entry_price = current_price * (1 - self.config.slippage_pct)
                     capital -= self.config.commission_per_trade
+                    position_shares = (capital * self.config.position_size_pct) / entry_price
 
             # Exit on opposite signal or flat
             elif position != 0:
@@ -132,13 +143,9 @@ class BacktestEngine:
                         1 - self.config.slippage_pct * position
                     )
                     if position == 1:
-                        pnl = (exit_price - entry_price) * (
-                            capital * self.config.position_size_pct / entry_price
-                        )
+                        pnl = (exit_price - entry_price) * position_shares
                     else:
-                        pnl = (entry_price - exit_price) * (
-                            capital * self.config.position_size_pct / entry_price
-                        )
+                        pnl = (entry_price - exit_price) * position_shares
 
                     capital += pnl - self.config.commission_per_trade
                     trades.append(
@@ -150,16 +157,13 @@ class BacktestEngine:
                         }
                     )
                     position = 0
+                    position_shares = 0.0
 
-            # Mark to market
+            # Mark to market using the fixed position_shares set at entry
             if position == 1:
-                mtm = capital + (current_price - entry_price) * (
-                    capital * self.config.position_size_pct / entry_price
-                )
+                mtm = capital + (current_price - entry_price) * position_shares
             elif position == -1:
-                mtm = capital + (entry_price - current_price) * (
-                    capital * self.config.position_size_pct / entry_price
-                )
+                mtm = capital + (entry_price - current_price) * position_shares
             else:
                 mtm = capital
             equity_curve.append(mtm)
@@ -182,10 +186,10 @@ class BacktestEngine:
         winners = sum(1 for t in trades if t["pnl"] > 0)
         win_rate = winners / total_trades if total_trades > 0 else 0
 
-        # Returns and Sharpe
+        # Returns and Sharpe — annualized using the configured trading periods
         if len(equity) > 1:
             returns = np.diff(equity) / (equity[:-1] + 1e-8)
-            sharpe = np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(252)
+            sharpe = np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(self.config.trading_periods_per_year)
         else:
             sharpe = 0
 
@@ -221,13 +225,19 @@ def calculate_metrics(
     initial_capital: float,
     trades: List[Dict],
     equity_curve: List[float],
+    trading_periods_per_year: int = 252,
 ) -> Dict[str, float]:
-    """Calculate standard metrics from backtest results."""
+    """Calculate standard metrics from backtest results.
+
+    Args:
+        trading_periods_per_year: Used for Sharpe annualization.
+            252 for daily bars, 252*24 for hourly, 252*78 for 5-minute, etc.
+    """
     equity_curve = np.array(equity_curve)
 
     if len(equity_curve) > 1:
         returns = np.diff(equity_curve) / (equity_curve[:-1] + 1e-8)
-        sharpe = np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(252)
+        sharpe = np.mean(returns) / (np.std(returns) + 1e-8) * np.sqrt(trading_periods_per_year)
 
         peak = np.maximum.accumulate(equity_curve)
         drawdown = (peak - equity_curve) / (peak + 1e-8)

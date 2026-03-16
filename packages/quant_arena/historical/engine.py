@@ -45,6 +45,29 @@ class SimulationResult:
     trading_days: int
     symbols: List[str]
 
+    # --- Institutional stats (T1-1) ---
+    sharpe_ci: Optional[tuple] = None        # (lower, upper) 95% CI from Lo (2002)
+    calmar_ratio: Optional[float] = None     # annualised return / max drawdown
+    sample_size_ok: bool = True              # False when n_trades < 100
+    sample_size_msg: str = ""
+
+    # --- Benchmark comparison (T1-6) ---
+    benchmark_symbol: str = "SPY"
+    benchmark_return: Optional[float] = None
+    alpha: Optional[float] = None            # annualised excess return vs benchmark
+    beta: Optional[float] = None
+    information_ratio: Optional[float] = None
+
+    # --- Overfitting analysis (T1-2) ---
+    overfitting_verdict: str = ""            # GENUINE | SUSPECT | OVERFIT
+    overfitting_summary: str = ""            # full text from OverfittingReport
+
+    # --- TCA (T1-7) ---
+    tca_report: Optional[Any] = None         # TCA aggregate report (from TCAEngine)
+
+    # --- Walk-forward (T1-3) ---
+    walk_forward_summary: Optional[Any] = None  # WalkForwardSummary (if enabled)
+
 
 class HistoricalEngine:
     """
@@ -99,6 +122,7 @@ class HistoricalEngine:
             max_position_pct=config.max_position_pct,
             max_drawdown_halt_pct=config.max_drawdown_halt_pct,
             max_leverage=config.max_leverage,
+            max_daily_loss_pct=config.max_daily_loss_pct,
         )
         self.clock: Optional[HistoricalClock] = None  # Initialized after data load
 
@@ -120,6 +144,12 @@ class HistoricalEngine:
         self._enable_mtf = getattr(config, "enable_mtf", False)
         self._execution_timeframe = getattr(config, "execution_timeframe", "daily")
         self._use_super_trader = getattr(config, "use_super_trader", True)
+
+        # TCA engine — tracks execution quality throughout the simulation.
+        # Instantiated lazily on first trade to avoid import errors if quantcore
+        # is not installed.
+        self._tca: Optional[Any] = None
+        self._tca_available: Optional[bool] = None  # None = not yet checked
 
         # Callbacks
         self._on_day_complete: Optional[Callable] = None
@@ -235,9 +265,14 @@ class HistoricalEngine:
             logger.warning(f"No data for {current_date}, skipping")
             return
 
-        # 2. Update broker prices
+        # 2. Update broker prices — also pass volume and volatility so slippage
+        #    can use the Almgren-Chriss model rather than flat basis points.
         prices = snapshot.get_prices()
-        self.broker.update_prices(prices, current_date)
+        volumes = {
+            sym: data.get("volume", 0.0)
+            for sym, data in snapshot.data.items()
+        }
+        self.broker.update_prices(prices, current_date, volumes=volumes)
 
         # 3. Build simulation context
         context = await self._build_context(current_date, snapshot)
@@ -245,7 +280,7 @@ class HistoricalEngine:
         # 4. Run historical flow
         day_result = await self._run_flow(context)
 
-        # 5. Execute trades
+        # 5. Execute trades — apply correlation-concentration filter before broker
         executed_trades = []
         # Handle both dict and object response formats
         trades_list = (
@@ -254,6 +289,13 @@ class HistoricalEngine:
             else getattr(day_result, "trades", [])
         )
         for trade_instruction in trades_list:
+            # Reject BUY orders that would push avg portfolio correlation above limit
+            if not self._correlation_check_passes(trade_instruction, current_date):
+                logger.warning(
+                    f"Correlation limit rejected {trade_instruction.get('symbol')} "
+                    f"buy (max_portfolio_correlation={self.config.max_portfolio_correlation})"
+                )
+                continue
             order = self._execute_trade(trade_instruction)
             if order and order.status.value == "filled":
                 executed_trades.append(order)
@@ -311,9 +353,13 @@ class HistoricalEngine:
         if daily_snapshot is None:
             return
 
-        # 3. Update broker prices
+        # 3. Update broker prices — pass volumes for Almgren-Chriss slippage
         prices = daily_snapshot.get_prices()
-        self.broker.update_prices(prices, current_date)
+        volumes = {
+            sym: data.get("volume", 0.0)
+            for sym, data in daily_snapshot.data.items()
+        }
+        self.broker.update_prices(prices, current_date, volumes=volumes)
 
         # 4. Build MTF-aware context
         context = await self._build_mtf_context(
@@ -721,8 +767,86 @@ class HistoricalEngine:
             signals=[],
         )
 
+    def _correlation_check_passes(
+        self, trade_instruction: Dict, current_date: date
+    ) -> bool:
+        """
+        Return True if the trade is allowed under the portfolio correlation limit.
+
+        Only applies to BUY orders when:
+        - config.max_portfolio_correlation < 1.0 (limit is active)
+        - There are existing positions to correlate against
+        - Price history is available for correlation calculation
+
+        The check computes the average Pearson correlation of the new symbol's
+        20-day return series against each existing position's return series.
+        If adding this position would push the average above the threshold, the
+        trade is rejected. Correlation validation lives at the engine (policy)
+        layer, not the broker (mechanical) layer.
+        """
+        import numpy as np
+
+        max_corr = getattr(self.config, "max_portfolio_correlation", 1.0)
+        if max_corr >= 1.0:
+            return True  # Limit disabled
+
+        side_str = trade_instruction.get("side", "").lower()
+        if side_str != "buy":
+            return True  # Only restrict new longs
+
+        new_symbol = trade_instruction.get("symbol")
+        if not new_symbol:
+            return True
+
+        existing_symbols = list(self.broker.get_positions().keys())
+        if not existing_symbols:
+            return True  # No positions to correlate against
+
+        try:
+            new_prices = self.data_loader.get_price_history(
+                symbol=new_symbol, end_date=current_date, days=25
+            )
+            if len(new_prices) < 10:
+                return True  # Insufficient history — don't block
+
+            new_returns = new_prices.pct_change().dropna().values[-20:]
+            if len(new_returns) < 10:
+                return True
+
+            correlations = []
+            for sym in existing_symbols:
+                existing_prices = self.data_loader.get_price_history(
+                    symbol=sym, end_date=current_date, days=25
+                )
+                if len(existing_prices) < 10:
+                    continue
+                existing_returns = existing_prices.pct_change().dropna().values[-20:]
+                n = min(len(new_returns), len(existing_returns))
+                if n < 5:
+                    continue
+                corr = float(np.corrcoef(new_returns[-n:], existing_returns[-n:])[0, 1])
+                if not np.isnan(corr):
+                    correlations.append(corr)
+
+            if not correlations:
+                return True
+
+            avg_corr = float(np.mean(correlations))
+            if avg_corr > max_corr:
+                return False
+
+        except Exception as e:
+            logger.debug(f"Correlation check error for {new_symbol}: {e}")
+
+        return True
+
     def _execute_trade(self, trade_instruction: Dict) -> Optional[Any]:
-        """Execute a trade instruction via broker."""
+        """
+        Execute a trade instruction via broker.
+
+        Runs pre-trade TCA (cost forecast) before submission and records the
+        fill for post-trade implementation shortfall analysis.
+        """
         symbol = trade_instruction.get("symbol")
         side_str = trade_instruction.get("side", "").lower()
         quantity = trade_instruction.get("quantity", 0)
@@ -732,7 +856,70 @@ class HistoricalEngine:
 
         side = OrderSide.BUY if side_str == "buy" else OrderSide.SELL
 
-        return self.broker.submit_order(symbol, side, quantity)
+        # --- TCA pre-trade ---
+        tca = self._get_tca()
+        trade_id: Optional[str] = None
+        if tca is not None:
+            try:
+                from quantcore.execution.tca_engine import OrderSide as TCAOrderSide
+                import uuid as _uuid
+
+                trade_id = f"tca_{_uuid.uuid4().hex[:8]}"
+                arrival_price = self.broker._prices.get(symbol, 0.0)
+                tca_side = TCAOrderSide.BUY if side_str == "buy" else TCAOrderSide.SELL
+
+                tca.record_arrival(
+                    trade_id=trade_id,
+                    symbol=symbol,
+                    side=tca_side,
+                    shares=float(quantity),
+                    arrival_price=arrival_price,
+                )
+
+                # Run cost forecast using volume and volatility from broker state
+                adv = self.broker._volumes.get(symbol, 0.0)
+                vol_annual = self.broker._volatilities.get(symbol, 0.0)
+                # Convert annualised vol to daily % (vol_annual / sqrt(252) * 100)
+                daily_vol_pct = (vol_annual / (252 ** 0.5)) * 100 if vol_annual > 0 else 1.5
+
+                if adv > 0:
+                    tca.pre_trade(
+                        trade_id=trade_id,
+                        adv=adv,
+                        daily_vol_pct=daily_vol_pct,
+                        commission_per_share=self.config.commission_per_share,
+                    )
+            except Exception as e:
+                logger.debug(f"TCA pre-trade skipped for {symbol}: {e}")
+                trade_id = None
+
+        order = self.broker.submit_order(symbol, side, quantity)
+
+        # --- TCA post-trade fill recording ---
+        if tca is not None and trade_id is not None and order is not None:
+            try:
+                if order.fill_price is not None:
+                    tca.record_fill(trade_id=trade_id, fill_price=order.fill_price)
+            except Exception as e:
+                logger.debug(f"TCA fill recording skipped: {e}")
+
+        return order
+
+    def _get_tca(self) -> Optional[Any]:
+        """Lazy-load TCAEngine — returns None if quantcore is not available."""
+        if self._tca_available is False:
+            return None
+        if self._tca is not None:
+            return self._tca
+        try:
+            from quantcore.execution.tca_engine import TCAEngine
+            self._tca = TCAEngine()
+            self._tca_available = True
+            logger.info("TCA engine initialised")
+        except ImportError:
+            self._tca_available = False
+            logger.debug("TCA engine not available (quantcore.execution.tca_engine missing)")
+        return self._tca
 
     async def _log_experience(
         self,
@@ -1222,29 +1409,200 @@ class HistoricalEngine:
         return " | ".join(parts)
 
     def _generate_result(self) -> SimulationResult:
-        """Generate final simulation result."""
+        """
+        Generate final simulation result with institutional-grade statistics.
+
+        Computes:
+        - Sharpe ratio with 95% confidence interval (Lo 2002)
+        - Calmar ratio and sample-size adequacy check
+        - Benchmark comparison: alpha, beta, information ratio vs SPY
+        - Overfitting analysis: Deflated Sharpe Ratio + verdict (GENUINE/SUSPECT/OVERFIT)
+        """
+        import numpy as np
+        import pandas as pd
+
         summary = self.broker.get_summary()
-
-        # Calculate Sharpe ratio from daily returns
         snapshots = self.broker.get_daily_snapshots()
+
+        # --- Build daily returns series ---
+        returns: List[float] = []
         if len(snapshots) > 1:
-            returns = []
             for i in range(1, len(snapshots)):
-                r = (snapshots[i].equity - snapshots[i - 1].equity) / snapshots[
-                    i - 1
-                ].equity
-                returns.append(r)
+                prev_eq = snapshots[i - 1].equity
+                if prev_eq > 0:
+                    returns.append((snapshots[i].equity - prev_eq) / prev_eq)
 
-            if returns:
-                import numpy as np
+        returns_series = pd.Series(returns, dtype=float)
 
-                mean_return = np.mean(returns) * 252
-                std_return = np.std(returns) * (252**0.5)
-                sharpe = mean_return / std_return if std_return > 0 else 0
-            else:
-                sharpe = None
-        else:
-            sharpe = None
+        # --- T1-1: Sharpe CI + Calmar + sample size check ---
+        sharpe_ratio = None
+        sharpe_ci = None
+        calmar = None
+        sample_ok = True
+        sample_msg = ""
+
+        try:
+            from quantcore.backtesting.stats import (
+                sharpe_ratio_with_ci,
+                calmar_ratio,
+                min_sample_size_check,
+            )
+
+            if len(returns) >= 10:
+                sharpe_ratio, sharpe_ci = sharpe_ratio_with_ci(returns)
+                calmar = calmar_ratio(returns)
+
+            n_closed = sum(1 for t in self.broker.get_trade_history() if t.pnl is not None)
+            sample_ok, sample_msg = min_sample_size_check(n_closed)
+
+        except ImportError:
+            logger.warning("quantcore.backtesting.stats not available — using basic Sharpe")
+            if len(returns) > 1:
+                arr = np.array(returns)
+                std = arr.std()
+                sharpe_ratio = float(arr.mean() / std * (252 ** 0.5)) if std > 0 else 0.0
+
+        # --- T1-6: Benchmark comparison (alpha / beta / information ratio) ---
+        benchmark_symbol = getattr(self.config, "benchmark_symbol", "SPY")
+        benchmark_return = None
+        alpha = None
+        beta = None
+        information_ratio = None
+
+        try:
+            bench_prices = self.data_loader.get_price_history(
+                symbol=benchmark_symbol,
+                end_date=self.data_loader.end,
+                days=len(snapshots) + 10,
+            )
+            if len(bench_prices) > 1 and len(returns) > 1:
+                bench_returns_raw = bench_prices.pct_change().dropna()
+                # Align to the same length as strategy returns
+                bench_returns = bench_returns_raw.values[-len(returns):]
+                strat_arr = np.array(returns[: len(bench_returns)])
+
+                if len(strat_arr) > 5 and len(bench_returns) == len(strat_arr):
+                    bench_arr = np.array(bench_returns, dtype=float)
+
+                    # Beta = Cov(strat, bench) / Var(bench)
+                    cov_matrix = np.cov(strat_arr, bench_arr)
+                    var_bench = float(np.var(bench_arr, ddof=1))
+                    if var_bench > 0:
+                        beta = float(cov_matrix[0, 1] / var_bench)
+
+                        # Annualised alpha = mean(strat - beta*bench) * 252
+                        active_returns = strat_arr - beta * bench_arr
+                        alpha = float(np.mean(active_returns) * 252)
+
+                        # Information ratio = alpha / tracking_error
+                        tracking_error = float(np.std(active_returns, ddof=1) * (252 ** 0.5))
+                        information_ratio = alpha / tracking_error if tracking_error > 0 else 0.0
+
+                    # Total benchmark return over the period
+                    benchmark_return = float(np.prod(1 + bench_returns) - 1)
+
+        except Exception as e:
+            logger.debug(f"Benchmark comparison skipped: {e}")
+
+        # --- T1-2: Overfitting analysis (DSR + PBO) ---
+        overfitting_verdict = ""
+        overfitting_summary = ""
+
+        try:
+            from quantcore.research.overfitting import run_overfitting_analysis
+
+            if len(returns_series.dropna()) >= 20:
+                n_trials = len(getattr(self.config, "active_pods", [1]))
+                report = run_overfitting_analysis(
+                    strategy_returns=returns_series,
+                    n_trials=max(1, n_trials),
+                )
+                overfitting_verdict = report.verdict
+                overfitting_summary = report.summary
+                if not report.dsr_result.is_genuine:
+                    logger.warning(
+                        f"Overfitting check FAILED: {report.verdict} — {report.summary}"
+                    )
+                else:
+                    logger.info(f"Overfitting check passed: {report.verdict}")
+
+        except ImportError:
+            logger.debug("quantcore.research.overfitting not available — DSR/PBO skipped")
+        except Exception as e:
+            logger.warning(f"Overfitting analysis error: {e}")
+
+        # --- T1-3: Walk-forward validation (post-hoc, on already-collected returns) ---
+        wf_summary = None
+        if getattr(self.config, "walk_forward_mode", False) and len(returns) > 20:
+            try:
+                from quantcore.backtesting.stats import (
+                    WalkForwardFold,
+                    walk_forward_summary,
+                )
+                import numpy as _np
+
+                n_folds = getattr(self.config, "walk_forward_n_folds", 5)
+                test_days = getattr(self.config, "walk_forward_test_days", 63)
+                total_r = len(returns)
+
+                wf_folds: List[Any] = []
+                for fold_id in range(n_folds):
+                    # Expanding window: train grows, test is the next `test_days` block
+                    test_start_idx = total_r - (n_folds - fold_id) * test_days
+                    test_end_idx = test_start_idx + test_days
+
+                    if test_start_idx < 20 or test_end_idx > total_r:
+                        continue
+
+                    train_r = _np.array(returns[:test_start_idx])
+                    test_r = _np.array(returns[test_start_idx:test_end_idx])
+
+                    def _fold_sharpe(r: _np.ndarray) -> float:
+                        std = r.std(ddof=1)
+                        return float(r.mean() / std * (252 ** 0.5)) if std > 0 else 0.0
+
+                    def _fold_dd(r: _np.ndarray) -> float:
+                        cum = _np.cumprod(1 + r)
+                        peak = _np.maximum.accumulate(cum)
+                        dd = (cum - peak) / peak
+                        return float(_np.min(dd)) if len(dd) > 0 else 0.0
+
+                    snap_dates = [s.date for s in snapshots]
+                    wf_folds.append(
+                        WalkForwardFold(
+                            fold_id=fold_id,
+                            train_start=snap_dates[0].isoformat() if snap_dates else "",
+                            train_end=snap_dates[test_start_idx - 1].isoformat() if test_start_idx <= len(snap_dates) else "",
+                            test_start=snap_dates[test_start_idx].isoformat() if test_start_idx < len(snap_dates) else "",
+                            test_end=snap_dates[min(test_end_idx, len(snap_dates) - 1)].isoformat(),
+                            train_sharpe=_fold_sharpe(train_r),
+                            test_sharpe=_fold_sharpe(test_r),
+                            train_return=float(_np.prod(1 + train_r) - 1),
+                            test_return=float(_np.prod(1 + test_r) - 1),
+                            test_max_drawdown=abs(_fold_dd(test_r)),
+                            n_trades=0,  # Trade attribution per fold not tracked
+                        )
+                    )
+
+                if wf_folds:
+                    wf_summary = walk_forward_summary(wf_folds)
+                    logger.info(
+                        f"Walk-forward: {wf_summary.n_folds} folds, "
+                        f"avg_test_sharpe={wf_summary.avg_test_sharpe:.2f}, "
+                        f"degradation={wf_summary.sharpe_degradation:.2f}"
+                    )
+
+            except Exception as e:
+                logger.warning(f"Walk-forward analysis failed: {e}")
+
+        # --- T1-7: TCA aggregate report ---
+        tca_report = None
+        tca = self._get_tca()
+        if tca is not None:
+            try:
+                tca_report = tca.aggregate_report()
+            except Exception as e:
+                logger.debug(f"TCA aggregate report failed: {e}")
 
         return SimulationResult(
             start_date=self.data_loader.start,
@@ -1255,9 +1613,27 @@ class HistoricalEngine:
             max_drawdown=summary["max_drawdown"],
             total_trades=summary["total_trades"],
             win_rate=summary["win_rate"],
-            sharpe_ratio=sharpe,
+            sharpe_ratio=sharpe_ratio,
             trading_days=len(self.data_loader),
             symbols=self.universe.symbols,
+            # Institutional stats
+            sharpe_ci=sharpe_ci,
+            calmar_ratio=calmar,
+            sample_size_ok=sample_ok,
+            sample_size_msg=sample_msg,
+            # Benchmark
+            benchmark_symbol=benchmark_symbol,
+            benchmark_return=benchmark_return,
+            alpha=alpha,
+            beta=beta,
+            information_ratio=information_ratio,
+            # Overfitting
+            overfitting_verdict=overfitting_verdict,
+            overfitting_summary=overfitting_summary,
+            # TCA
+            tca_report=tca_report,
+            # Walk-forward
+            walk_forward_summary=wf_summary,
         )
 
     def _get_knowledge_store(self) -> Any:

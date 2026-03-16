@@ -1,0 +1,41 @@
+{
+  "mcpServers": {
+    "quantpod": {
+      "command": "quantpod-mcp",
+      "type": "stdio"
+    },
+    "quantcore": {
+      "command": "quantcore-mcp",
+      "type": "stdio"
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "run_analysis",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 scripts/validate_brief_quality.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "execute_trade",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 scripts/log_decision.py",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "python3 scripts/notify_discord.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

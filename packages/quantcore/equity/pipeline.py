@@ -19,7 +19,9 @@ import pandas as pd
 from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
-from quantcore.data.fetcher import AlphaVantageClient
+from quantcore.data.base import AssetClass
+from quantcore.data.fetcher import AlphaVantageClient  # still used by fetch_news_sentiment_for_symbols
+from quantcore.data.registry import DataProviderRegistry
 from quantcore.data.storage import DataStore
 from quantcore.data.resampler import TimeframeResampler
 from quantcore.data.universe import UniverseManager
@@ -111,7 +113,7 @@ def get_universe_symbols() -> List[str]:
 
 def fetch_equity_data(
     symbols: List[str],
-    fetcher: AlphaVantageClient,
+    fetcher: "DataProviderRegistry",
     data_store: DataStore,
     skip_fetch: bool = False,
     force_fetch: bool = False,
@@ -123,14 +125,16 @@ def fetch_equity_data(
     Fetch historical equity data for all symbols.
 
     Args:
-        symbols: List of symbols to fetch
-        fetcher: AlphaVantage API client
-        data_store: Data storage
-        skip_fetch: Skip fetching entirely, use cached only
-        force_fetch: Force re-fetch all data even if cached
-        soft_fetch: Only fetch missing data (check date coverage)
-        start_year: Start year for data range
-        end_year: End year for data range (default: current year)
+        symbols:    List of symbols to fetch.
+        fetcher:    DataProviderRegistry (tries providers in priority order with
+                    automatic fallback).  The parameter is named ``fetcher`` for
+                    backward compatibility with call sites.
+        data_store: Data storage.
+        skip_fetch: Skip fetching entirely, use cached only.
+        force_fetch: Force re-fetch all data even if cached.
+        soft_fetch: Only fetch missing data (check date coverage).
+        start_year: Start year for data range.
+        end_year:   End year for data range (default: current year).
     """
     # Default end_year to current year
     if end_year is None:
@@ -173,11 +177,10 @@ def fetch_equity_data(
                 logger.info(
                     f"  [FORCE-FETCH] Fetching full intraday history ({start_year}-{end_year})..."
                 )
-                df = fetcher.fetch_all_intraday_history(
-                    symbol=symbol,
-                    interval="60min",
-                    start_year=start_year,
-                    end_year=end_year,
+                df = fetcher.fetch_ohlcv(
+                    symbol, AssetClass.EQUITY, Timeframe.H1,
+                    start_date=datetime(start_year, 1, 1),
+                    end_date=datetime(end_year, 12, 31),
                 )
 
                 if df is not None and not df.empty:
@@ -248,11 +251,10 @@ def fetch_equity_data(
                         logger.info(
                             f"  [SOFT-FETCH] Fetching {fetch_start}-{fetch_end}..."
                         )
-                        new_df = fetcher.fetch_all_intraday_history(
-                            symbol=symbol,
-                            interval="60min",
-                            start_year=fetch_start,
-                            end_year=fetch_end,
+                        new_df = fetcher.fetch_ohlcv(
+                            symbol, AssetClass.EQUITY, Timeframe.H1,
+                            start_date=datetime(fetch_start, 1, 1),
+                            end_date=datetime(fetch_end, 12, 31),
                         )
 
                         if new_df is not None and not new_df.empty:
@@ -282,11 +284,10 @@ def fetch_equity_data(
                     logger.info(
                         f"  [SOFT-FETCH] No cache, fetching full range ({start_year}-{end_year})..."
                     )
-                    df = fetcher.fetch_all_intraday_history(
-                        symbol=symbol,
-                        interval="60min",
-                        start_year=start_year,
-                        end_year=end_year,
+                    df = fetcher.fetch_ohlcv(
+                        symbol, AssetClass.EQUITY, Timeframe.H1,
+                        start_date=datetime(start_year, 1, 1),
+                        end_date=datetime(end_year, 12, 31),
                     )
 
                     if df is not None and not df.empty:
@@ -311,11 +312,10 @@ def fetch_equity_data(
             logger.info(
                 f"  [FETCH] Fetching full intraday history ({start_year}-{end_year})..."
             )
-            df = fetcher.fetch_all_intraday_history(
-                symbol=symbol,
-                interval="60min",
-                start_year=start_year,
-                end_year=end_year,
+            df = fetcher.fetch_ohlcv(
+                symbol, AssetClass.EQUITY, Timeframe.H1,
+                start_date=datetime(start_year, 1, 1),
+                end_date=datetime(end_year, 12, 31),
             )
 
             if df is not None and not df.empty:
@@ -747,7 +747,9 @@ def run_pipeline(
     logger.info(f"Fetch News: {fetch_news}")
     logger.info(f"Trade Size: 100 shares, $0 commission")
 
-    fetcher = AlphaVantageClient()
+    from quantcore.config.settings import get_settings
+    from quantcore.data.registry import DataProviderRegistry
+    fetcher = DataProviderRegistry.from_settings(get_settings())
     data_store = DataStore()
 
     # Phase 1: Fetch equity data

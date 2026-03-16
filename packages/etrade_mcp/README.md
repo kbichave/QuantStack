@@ -1,84 +1,124 @@
-# E-Trade MCP
+# etrade_mcp
 
-MCP (Model Context Protocol) server for E-Trade brokerage integration, enabling AI agents to access account data and execute trades.
+eTrade MCP server — account management, market data, and order execution via the [eTrade API](https://developer.etrade.com).
 
-## Installation
+> **Note**: The OAuth auth layer, API client, and Pydantic models live in `packages/quant_pod/tools/etrade/`. This package is the thin MCP transport wrapper around them.
 
-E-Trade MCP is part of the main repository:
+## Prerequisites
+
+- eTrade brokerage account
+- Developer API keys from [developer.etrade.com](https://developer.etrade.com/getting-started)
+- Start with sandbox mode (`ETRADE_SANDBOX=true`) — no real money, fake data
+
+## Configuration
 
 ```bash
-uv sync --all-extras
+# Required
+ETRADE_CONSUMER_KEY=your_consumer_key
+ETRADE_CONSUMER_SECRET=your_consumer_secret
+
+# Sandbox mode (default: true — always start here)
+# true  → apisb.etrade.com (test environment, fake data)
+# false → api.etrade.com   (real market data; paper or live account)
+ETRADE_SANDBOX=true
 ```
 
-## Components
-
-| Component | Description |
-|-----------|-------------|
-| `auth.py` | OAuth 1.0a authentication handling |
-| `client.py` | E-Trade API client wrapper |
-| `models.py` | Pydantic models (Order, Position, Balance) |
-| `server.py` | MCP server implementation |
-
-## Setup
-
-### 1. E-Trade Developer Account
-
-Register at [E-Trade Developer](https://developer.etrade.com/) to get API credentials.
-
-### 2. Authentication
+## Usage
 
 ```bash
-# First-time setup (opens browser for OAuth)
-etrade-mcp --setup
-```
-
-Tokens are stored in `~/.etrade/credentials.json`.
-
-## Starting the Server
-
-```bash
+# Start in sandbox mode (default)
 etrade-mcp
 
-# With custom port
-etrade-mcp --port 8081
-
-# Paper trading mode
-etrade-mcp --paper-trading
+# Switch to production (real data, paper or live account — use with care)
+etrade-mcp --production
 ```
+
+## Authentication (OAuth 1.0a)
+
+eTrade uses a three-step OAuth flow. Tokens expire at midnight Eastern every day.
+
+### Step 1 — Get authorization URL
+
+```
+Call: etrade_authorize (no arguments)
+Returns: {"auth_url": "https://us.etrade.com/e/t/etws/authorize?..."}
+```
+
+### Step 2 — Authorize in browser
+
+Visit the `auth_url`, log in with your eTrade credentials, and approve the application. The page shows a **verifier code**.
+
+### Step 3 — Complete authorization
+
+```
+Call: etrade_authorize(verifier_code="XXXX")
+Returns: {"success": true, "message": "Authorisation successful."}
+```
+
+After this, all trading tools are available for the rest of the day.
+
+### Token refresh
+
+Tokens expire at midnight Eastern. Call `etrade_refresh_token` to extend the session without re-authorizing.
 
 ## Available Tools
 
+### Auth
+
 | Tool | Description |
 |------|-------------|
-| `get_accounts` | List all accounts |
-| `get_balance` | Account balance and buying power |
-| `get_positions` | Current positions |
-| `get_orders` | Order history |
-| `place_order` | Submit market/limit orders |
-| `cancel_order` | Cancel pending order |
-| `get_quote` | Real-time quote |
+| `etrade_authorize` | Start or complete OAuth flow (step 1: get URL; step 3: submit verifier) |
+| `etrade_refresh_token` | Renew access token (call before midnight to avoid session expiry) |
+| `get_auth_status` | Check authentication state and sandbox mode |
 
-## Usage Example
+### Account
 
-```python
-from etrade_mcp.client import ETradeClient
+| Tool | Description |
+|------|-------------|
+| `get_accounts` | List all accounts — returns `accountIdKey` needed for other tools |
+| `get_account_balance` | Cash, margin, and buying power summary |
+| `get_positions` | Open positions with P&L (optionally filter by symbol) |
 
-client = ETradeClient()
+### Market Data
 
-# Get positions
-positions = client.get_positions(account_id="12345678")
+| Tool | Description |
+|------|-------------|
+| `get_quote` | Real-time quotes for up to 25 symbols (comma-separated string) |
+| `get_option_expiry_dates` | Available option expiration dates for a symbol |
+| `get_option_chains` | Full option chain with Greeks (calls, puts, or both) |
 
-# Place order
-order = client.place_order(
-    account_id="12345678",
-    symbol="AAPL",
-    side="buy",
-    quantity=100,
-    order_type="limit",
-    limit_price=175.50
-)
+### Orders
+
+| Tool | Description |
+|------|-------------|
+| `preview_order` | Estimate cost — **always call before `place_order`** |
+| `place_order` | Submit equity or single-leg option order |
+| `place_spread_order` | Submit multi-leg option spread (vertical, iron condor, calendar, etc.) |
+| `cancel_order` | Cancel an open order |
+| `get_orders` | Order history, filterable by status (`OPEN`, `EXECUTED`, `CANCELLED`) |
+
+## Sandbox vs Production
+
+| Setting | API host | Data | Money |
+|---------|----------|------|-------|
+| `ETRADE_SANDBOX=true` | `apisb.etrade.com` | Fake | No |
+| `ETRADE_SANDBOX=false` | `api.etrade.com` | Real | Depends on account |
+
+Always test your full workflow in sandbox before switching to `false`.
+
+## MCP Config
+
+```json
+{
+  "mcpServers": {
+    "etrade": {
+      "command": "etrade-mcp",
+      "env": {
+        "ETRADE_CONSUMER_KEY": "your_key",
+        "ETRADE_CONSUMER_SECRET": "your_secret",
+        "ETRADE_SANDBOX": "true"
+      }
+    }
+  }
+}
 ```
-
-## Documentation
-
-See [MCP Servers Documentation](../../docs/architecture/mcp_servers.md) for detailed API reference.

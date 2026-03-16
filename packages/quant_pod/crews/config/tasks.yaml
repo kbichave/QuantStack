@@ -197,6 +197,69 @@ events_task:
   agent: calendar_events_ic
 
 # ============================================================================
+# ALPHA SIGNALS IC TASKS
+# NOTE: These three tasks are synchronous (no async_execution) to serialise
+# Alpha Vantage API calls and respect the 5 calls/min free-tier rate limit.
+# ============================================================================
+
+news_sentiment_task:
+  description: >
+    Fetch news sentiment for {symbol} using fetch_news_sentiment (limit=10).
+    Also check for upcoming earnings using fetch_upcoming_earnings for {symbol}
+    within 7 days.
+
+    Return RAW sentiment data only:
+    - overall_sentiment_score (Bearish=-1..Bullish=+1)
+    - number of articles analyzed
+    - top 3 headlines (truncated to 80 chars each)
+    - earnings_risk: True/False with date if within 7 days, else False
+  expected_output: >
+    Raw sentiment metrics. Example:
+    - Sentiment: +0.32 (Somewhat-Bullish) from 8 articles
+    - Earnings risk: True — reports 2024-01-25 (3 days away)
+    - Top stories: "Fed signals rate pause...", "Revenue beat estimates...", "Analyst upgrades..."
+  agent: news_sentiment_ic
+
+options_flow_task:
+  description: >
+    Analyse unusual options activity for {symbol}.
+    Use options_flow_analysis (expiry_within_days=45).
+    Use put_call_ratio for confirmation.
+
+    Return RAW flow data only:
+    - flow_bias: BULLISH/BEARISH/NEUTRAL/MIXED
+    - unusual_score: 0-100
+    - put_call_ratio value
+    - net_premium_usd (positive = calls dominate)
+    - largest_trade description (1 sentence max)
+  expected_output: >
+    Raw options flow signal. Example:
+    - Flow: BULLISH (score=72/100)
+    - P/C ratio: 0.42 (heavy call buying)
+    - Net premium: +$2.1M
+    - Largest: 480 CALL exp 2024-02-16 — 5,200 contracts (vol/OI=4.2×)
+  agent: options_flow_ic
+
+fundamentals_task:
+  description: >
+    Fetch company fundamentals for {symbol} using fetch_company_overview.
+
+    Return RAW fundamentals only:
+    - P/E ratio (trailing)
+    - EPS (trailing twelve months)
+    - Beta
+    - 52-week high and low; where current price sits (% of range)
+    - Analyst consensus target price and implied upside/downside vs current
+    - Sector and industry
+  expected_output: >
+    Raw fundamental metrics. Example:
+    - P/E: 28.5 | EPS TTM: $6.32 | Beta: 1.22
+    - 52w: $148/$198, current $182 (81% of range)
+    - Analyst target: $210 (+15% upside)
+    - Sector: Technology / Software-Infrastructure
+  agent: fundamentals_ic
+
+# ============================================================================
 # POD MANAGER TASKS - Compilation & Coordination
 # ============================================================================
 
@@ -296,6 +359,38 @@ quant_compile_task:
     - statarb_task
     - options_task
 
+alpha_signals_compile_task:
+  description: >
+    Synthesize alpha signals from five ICs: news_sentiment_ic, options_flow_ic,
+    fundamentals_ic, statarb_ic, and options_vol_ic.
+
+    IC Output Context (provided via context).
+
+    Your job:
+    1. Score each directional signal: +1 bullish, -1 bearish, 0 neutral
+    2. Compute weighted alpha_score = mean of non-neutral signals
+    3. Count directional signals (signal_count)
+    4. Label confluence: "aligned" (≥4/5 same direction), "mixed" (3/5), "conflicting" (<3/5)
+    5. Identify highest_conviction signal (name only)
+    6. Write a 3-bullet synthesis for the Trading Assistant
+  expected_output: >
+    Alpha Signals Pod Summary:
+    - alpha_score: [−1..+1] (e.g. +0.61 moderately bullish)
+    - Signals: [N/5] directional, [X] bullish / [Y] bearish
+    - Confluence: [aligned/mixed/conflicting]
+    - Highest conviction: [signal name]
+    - Bullets:
+      • [Fundamental anchor — PE, analyst target]
+      • [Flow signal — options bias, UOA score]
+      • [Sentiment/catalyst — news tone, earnings risk]
+  agent: alpha_signals_pod_manager
+  context:
+    - news_sentiment_task
+    - options_flow_task
+    - fundamentals_task
+    - statarb_task
+    - options_task
+
 risk_compile_task:
   description: >
     Review risk limits and events IC outputs.
@@ -337,6 +432,7 @@ assistant_synthesis_task:
     - Market Monitor Pod: regime and snapshot
     - Technicals Pod: trend/momentum/vol/structure
     - Quant Pod: statistical and options findings
+    - Alpha Signals Pod: news sentiment, options flow, fundamentals, statarb confluence
     - Risk Pod: constraints and events
     
     Your job:
@@ -361,7 +457,11 @@ assistant_synthesis_task:
     - Key Levels: Support [X], Resistance [Y]
     
     QUANTITATIVE SIGNALS:
-    - [Any stat signals or "No significant quant signals"]
+    - [Stat/options signals from quant pod]
+
+    ALPHA SIGNALS:
+    - alpha_score: [score] | Confluence: [aligned/mixed/conflicting]
+    - [Top signal name and key finding]
     
     RISK ENVIRONMENT:
     - VaR: [daily]
@@ -381,6 +481,7 @@ assistant_synthesis_task:
     - market_monitor_compile_task
     - technicals_compile_task
     - quant_compile_task
+    - alpha_signals_compile_task
     - risk_compile_task
 
 # ============================================================================

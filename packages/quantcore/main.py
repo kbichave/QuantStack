@@ -16,7 +16,8 @@ from loguru import logger
 
 from quantcore.config.settings import get_settings, Settings
 from quantcore.config.timeframes import Timeframe, TIMEFRAME_HIERARCHY
-from quantcore.data.fetcher import AlphaVantageClient
+from quantcore.data.base import AssetClass
+from quantcore.data.registry import DataProviderRegistry
 from quantcore.data.storage import DataStore
 from quantcore.data.resampler import OHLCVResampler
 from quantcore.data.preprocessor import DataPreprocessor
@@ -52,7 +53,7 @@ class TradingPlatform:
         self.settings = settings or get_settings()
 
         # Initialize components
-        self.data_client = AlphaVantageClient()
+        self.data_registry = DataProviderRegistry.from_settings(self.settings)
         self.data_store = DataStore()
         self.resampler = OHLCVResampler()
         self.preprocessor = DataPreprocessor()
@@ -80,8 +81,10 @@ class TradingPlatform:
             logger.info(f"Fetching data for {symbol}")
 
             try:
-                # Fetch hourly data
-                df_1h = self.data_client.fetch_all_intraday_history(symbol)
+                # Fetch hourly data via the registry (tries providers in priority order)
+                df_1h = self.data_registry.fetch_ohlcv(
+                    symbol, AssetClass.EQUITY, Timeframe.H1
+                )
 
                 if df_1h.empty:
                     logger.warning(f"No data fetched for {symbol}")

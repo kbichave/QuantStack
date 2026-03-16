@@ -361,6 +361,168 @@ def backtest_walk_forward(
     return results
 
 
+class CPCVEvaluator:
+    """
+    Combinatorial Purged CV evaluator.
+
+    Wraps CombinatorialPurgedCV with full performance measurement across splits,
+    then feeds the result into DSR and PBO for overfitting detection.
+
+    Typical usage::
+
+        evaluator = CPCVEvaluator(n_splits=6, n_test_splits=2)
+        report = evaluator.evaluate(returns_matrix)
+        print(report.summary)
+    """
+
+    def __init__(
+        self,
+        n_splits: int = 6,
+        n_test_splits: int = 2,
+        embargo_pct: float = 0.01,
+        n_trials: int = 1,
+        significance_level: float = 0.95,
+    ):
+        """
+        Args:
+            n_splits: CPCV groups.
+            n_test_splits: Groups held out per split.
+            embargo_pct: Embargo window fraction.
+            n_trials: Number of strategy variants tried before selecting this one.
+                      Used for DSR multiple-testing correction.
+            significance_level: DSR confidence threshold.
+        """
+        self.cpcv = CombinatorialPurgedCV(n_splits, n_test_splits, embargo_pct)
+        self.n_trials = n_trials
+        self.significance_level = significance_level
+
+    def evaluate(
+        self,
+        returns: pd.DataFrame,
+        signal_col: str = "signal",
+        returns_col: str = "returns",
+    ):
+        """
+        Evaluate a single signal across CPCV splits and return DSR + PBO.
+
+        Args:
+            returns: DataFrame with signal and returns columns, DatetimeIndex.
+            signal_col: Column name of the trading signal.
+            returns_col: Column name of asset returns.
+
+        Returns:
+            OverfittingReport from quantcore.research.overfitting.
+        """
+        from quantcore.research.overfitting import run_overfitting_analysis
+
+        # Collect OOS returns across all splits
+        oos_return_series = []
+        for _, test_idx in self.cpcv.split(returns):
+            test = returns.iloc[test_idx]
+            strat_ret = test[signal_col].shift(1) * test[returns_col]
+            oos_return_series.append(strat_ret.dropna())
+
+        if not oos_return_series:
+            logger.warning("CPCVEvaluator: no valid splits produced")
+            from quantcore.research.overfitting import (
+                OverfittingReport,
+                DSRResult,
+            )
+            dummy_dsr = DSRResult(
+                observed_sharpe=0.0,
+                benchmark_sharpe=0.0,
+                dsr=0.0,
+                is_genuine=False,
+                n_trials=self.n_trials,
+                skewness=0.0,
+                kurtosis=0.0,
+            )
+            return OverfittingReport(
+                dsr_result=dummy_dsr,
+                pbo_result=None,
+                verdict="OVERFIT",
+                summary="CPCVEvaluator: insufficient data",
+            )
+
+        combined_oos = pd.concat(oos_return_series).sort_index()
+
+        # Build a (T × 1) returns matrix for PBO (single strategy)
+        r_matrix = combined_oos.values.reshape(-1, 1)
+
+        return run_overfitting_analysis(
+            strategy_returns=combined_oos,
+            n_trials=self.n_trials,
+            all_strategy_returns=r_matrix if len(combined_oos) >= 20 else None,
+            n_cpcv_splits=self.cpcv.n_splits,
+            significance_level=self.significance_level,
+        )
+
+    def evaluate_multiple(
+        self,
+        returns: pd.DataFrame,
+        strategy_signals: dict,
+        returns_col: str = "returns",
+    ):
+        """
+        Evaluate multiple strategy signals simultaneously, computing PBO
+        across all variants.
+
+        Args:
+            returns: DataFrame with returns column and DatetimeIndex.
+            strategy_signals: Dict of {strategy_name: signal_series}.
+            returns_col: Column name of asset returns.
+
+        Returns:
+            Dict of {strategy_name: OverfittingReport} plus a combined PBO.
+        """
+        import numpy as np
+        from quantcore.research.overfitting import (
+            run_overfitting_analysis,
+            probability_of_backtest_overfitting,
+        )
+
+        n = len(strategy_signals)
+        all_names = list(strategy_signals.keys())
+
+        # Align all signals to the returns index
+        aligned = {}
+        for name, sig in strategy_signals.items():
+            common = sig.index.intersection(returns.index)
+            strat_ret = sig.reindex(common).shift(1) * returns[returns_col].reindex(common)
+            aligned[name] = strat_ret.dropna()
+
+        # Build returns matrix (T × N) across common time axis
+        common_dates = aligned[all_names[0]].index
+        for s in aligned.values():
+            common_dates = common_dates.intersection(s.index)
+
+        if len(common_dates) < 20:
+            logger.warning("CPCVEvaluator.evaluate_multiple: insufficient overlapping data")
+            return {}
+
+        r_matrix = np.column_stack([aligned[nm].reindex(common_dates).values for nm in all_names])
+
+        # PBO across all strategies
+        pbo_result = probability_of_backtest_overfitting(
+            r_matrix, n_splits=self.cpcv.n_splits
+        )
+
+        # Per-strategy DSR
+        results = {}
+        for name in all_names:
+            report = run_overfitting_analysis(
+                strategy_returns=aligned[name].reindex(common_dates),
+                n_trials=n,  # All variants count as trials
+                all_strategy_returns=r_matrix,
+                n_cpcv_splits=self.cpcv.n_splits,
+                significance_level=self.significance_level,
+            )
+            results[name] = report
+
+        results["_pbo_combined"] = pbo_result
+        return results
+
+
 def generate_walk_forward_report(result: WalkForwardResult) -> str:
     """Generate text report from walk-forward validation."""
     report = """

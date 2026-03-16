@@ -29,7 +29,6 @@ env/
 # IDE
 .idea/
 .vscode/
-.claude/
 .cursor/
 *.swp
 *.swo
@@ -40,6 +39,8 @@ env/
 data/
 *.duckdb
 *.db
+*.parquet
+*.arrow
 
 # Logs
 logs/
@@ -54,9 +55,29 @@ models/
 *.pkl
 *.joblib
 
-# Environment
+# Environment — allow only the example template; block all real env files
 .env
 .env.local
+.env.production
+.env.staging
+.env.live
+.env.test
+.env.backup
+.env.secret
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+
+# Cloud credential files
+credentials.json
+service_account.json
+*_credentials.json
+*_service_account.json
 
 # MCP server config (contains machine-specific absolute paths)
 .mcp.json
@@ -74,6 +95,7 @@ Thumbs.db
 .coverage
 .ruff_cache/
 htmlcov/
+.mypy_cache/
 
 # Plan files
 *.plan.md

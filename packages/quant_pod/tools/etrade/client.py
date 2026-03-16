@@ -26,12 +26,11 @@ from urllib.parse import urlencode
 import requests
 from loguru import logger
 
-from etrade_mcp.auth import ETradeAuthManager
-from etrade_mcp.models import (
+from quant_pod.tools.etrade.auth import ETradeAuthManager
+from quant_pod.tools.etrade.models import (
     Account,
     AccountBalance,
     APIResponse,
-    Option,
     OptionChain,
     OptionExpiration,
     OptionQuote,
@@ -801,9 +800,7 @@ class ETradeClient:
         }
 
         try:
-            response = self._request("PUT", endpoint, json_data=payload)
-
-            cancel_data = response.get("CancelOrderResponse", {})
+            self._request("PUT", endpoint, json_data=payload)
             logger.info(f"Order {order_id} cancelled")
             return True
 

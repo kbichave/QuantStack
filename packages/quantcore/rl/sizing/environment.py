@@ -110,6 +110,7 @@ class SizingEnvironment(RLEnvironment):
         data: Optional[pd.DataFrame] = None,
         signals: Optional[List[TradingSignal]] = None,
         seed: Optional[int] = None,
+        production_mode: bool = False,
     ):
         """
         Initialize sizing environment.
@@ -120,9 +121,20 @@ class SizingEnvironment(RLEnvironment):
             max_drawdown_limit: Max drawdown before forced liquidation
             risk_free_rate: Risk-free rate for Sharpe calculation
             data: Historical price data (requires 'close' column)
-            signals: Pre-generated signals for simulation
+            signals: Pre-generated signals for simulation.
+                     Use KnowledgeStoreRLBridge.get_signal_history() to populate
+                     from real CrewAI IC signal history.
             seed: Random seed for reproducibility
+            production_mode: When True, raises ValueError if signals is None.
         """
+        # Production guard
+        if production_mode and signals is None:
+            raise ValueError(
+                "SizingEnvironment: production_mode=True but signals is None. "
+                "Populate signals using KnowledgeStoreRLBridge.get_signal_history() "
+                "or set enable_sizing_rl=False in RLProductionConfig."
+            )
+
         super().__init__()
 
         self.initial_equity = initial_equity
@@ -154,6 +166,47 @@ class SizingEnvironment(RLEnvironment):
         # Validate data if provided
         if self.data is not None:
             self._validate_data()
+
+    @classmethod
+    def from_knowledge_store(
+        cls,
+        store: "KnowledgeStore",  # type: ignore[name-defined]
+        symbol: Optional[str] = None,
+        lookback_days: int = 90,
+        initial_equity: float = 100000,
+        seed: Optional[int] = None,
+    ) -> "SizingEnvironment":
+        """
+        Factory method: build sizing environment from real KnowledgeStore data.
+
+        Loads historical IC signals as the signal stream.
+        Loads OHLCV as the price data for return simulation.
+
+        Falls back gracefully when data is sparse (no ValueError raised).
+        """
+        from quantcore.rl.data_bridge import KnowledgeStoreRLBridge
+
+        bridge = KnowledgeStoreRLBridge.from_knowledge_store(store)
+        signals = bridge.get_signal_history(lookback_days=lookback_days) or None
+        data = None
+        if symbol:
+            ohlcv = bridge.get_ohlcv_for_execution(symbol, lookback_days=lookback_days)
+            if not ohlcv.empty:
+                data = ohlcv
+
+        if not signals:
+            logger.warning(
+                "[SizingEnvironment] No historical signals found. "
+                "Falling back to synthetic signals. Run bootstrap first."
+            )
+
+        return cls(
+            initial_equity=initial_equity,
+            data=data,
+            signals=signals,
+            seed=seed,
+            production_mode=False,
+        )
 
     def _validate_data(self) -> None:
         """Validate input data."""

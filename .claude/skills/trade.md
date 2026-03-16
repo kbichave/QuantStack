@@ -68,7 +68,7 @@ Skip full analysis (Step 4) and STOP if:
 
 ### Step 4: Commission Analysis
 Call `run_analysis` with the symbol and regime.
-- This kicks off the full TradingCrew: 10 ICs, 5 Pod Managers, Trading Assistant.
+- This kicks off the full TradingCrew: 13 ICs, 6 Pod Managers, Trading Assistant.
 - Returns a structured DailyBrief.
 - This may take 1-3 minutes depending on LLM latency.
 

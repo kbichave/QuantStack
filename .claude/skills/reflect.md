@@ -42,6 +42,28 @@ Compute:
 - Common failure modes → add to `workshop_lessons.md`
 - Missing workflow steps → candidates for skill edits
 
+### Step 3.5: Production Monitor Findings
+
+**AlphaMonitor Discord alerts (check first):**
+- Review Discord for `[ALPHA CRITICAL]` or `[ALPHA WARNING]` alerts since last /reflect.
+- CRITICAL = rolling_ic_30 < 0 for an IC → that IC's signals are losing money.
+  Action: reduce conviction weight on that IC, flag for retraining in `agent_performance.md`.
+- WARNING = IC decaying toward 0 → watch closely, one more declining session → treat as CRITICAL.
+
+**DegradationDetector (for active strategies):**
+- If `StrategyValidationFlow` ran on Saturday, check for any quarantined or degraded strategies.
+  These appear as `[DEGRADATION]` Discord alerts or in the FastAPI `/dashboard/anomalies` endpoint.
+- IS/OOS ratio > 4 → strategy is quarantined, do NOT send new signals from it.
+- IS/OOS ratio 2–4 → reduce position sizes per detector recommendation.
+- Log findings in `strategy_registry.md` under the affected strategy.
+
+### Step 3.6: ML Model Health (if any models in ml_model_registry.md)
+- Read `.claude/memory/ml_model_registry.md`
+- For each trained model: has live performance degraded vs OOS baseline?
+- If degradation > 20%: flag for retraining — log in `session_handoffs.md`
+- Check SHAP feature importance for drift: are top features still the same as at training?
+  If new features are dominating, the market structure has changed
+
 ### Step 4: Update Memory Files
 - `trade_journal.md`: add weekly summary section
 - `agent_performance.md`: update IC accuracy, Known Biases

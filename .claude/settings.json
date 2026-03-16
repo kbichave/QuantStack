@@ -35,6 +35,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "register_strategy",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 scripts/log_decision.py",
+            "timeout": 10
+          }
+        ]
       }
     ]
   }

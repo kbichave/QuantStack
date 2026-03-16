@@ -22,6 +22,13 @@ regime mismatches, and strategy health. Propose promotions and retirements.
 Call `get_system_status` — confirm system is operational.
 Call `get_portfolio_state` — all open positions.
 
+**Check intraday monitor output (if available):**
+The `IntradayMonitorFlow` runs every 30–60 min via cron. If it has fired since last
+/review, check `.claude/memory/session_handoffs.md` for any handoff it wrote, or
+check Discord for `[INTRADAY ALERT]` messages.
+- `regime_reversals` in the report → symbols where regime flipped since entry (act immediately)
+- `action_items` → review each before looking at individual positions
+
 ### Step 2: Position Review
 For each open position:
 

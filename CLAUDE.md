@@ -36,12 +36,12 @@ and improve your own configuration over time.
         ▼              ▼              ▼
 ┌───────────┐  ┌───────────┐  ┌───────────────┐
 │ Trading   │  │ Decoder   │  │ QuantCore MCP │
-│ Crew      │  │ Crew      │  │ (40+ tools)   │
+│ Crew      │  │ Crew      │  │ (44 tools)    │
 │           │  │ (Phase 4) │  │ quantcore/    │
 │ Layer 1:  │  └───────────┘  │ mcp/server.py │
-│  10 ICs   │                 └───────────────┘
+│  13 ICs   │                 └───────────────┘
 │ Layer 2:  │
-│  5 Pods   │
+│  6 Pods   │
 │ Layer 3:  │
 │  Assistant │
 │ (stops     │
@@ -58,7 +58,7 @@ and improve your own configuration over time.
 
 ### TradingCrew Composition (`packages/quant_pod/crews/trading_crew.py`)
 
-**Layer 1 — ICs (10 agents, llama-3.1-8b-instant via Groq, async):**
+**Layer 1 — ICs (13 agents, async):**
 | IC | Pod | Role |
 |----|-----|------|
 | `data_ingestion_ic` | data | Fetch OHLCV data |
@@ -69,12 +69,15 @@ and improve your own configuration over time.
 | `structure_levels_ic` | technicals | Support/resistance levels |
 | `statarb_ic` | quant | ADF test, information coefficient |
 | `options_vol_ic` | quant | IV, Greeks, skew |
+| `fundamentals_ic` | quant | Earnings, valuation, fundamental signals |
+| `news_sentiment_ic` | alpha_signals | News sentiment scoring |
+| `options_flow_ic` | alpha_signals | Unusual options activity, flow signals |
 | `risk_limits_ic` | risk | VaR, stress tests, limit checks |
 | `calendar_events_ic` | risk | Earnings, FOMC, event calendar |
 
-**Layer 2 — Pod Managers (5 agents):**
+**Layer 2 — Pod Managers (6 agents):**
 `data_pod_manager`, `market_monitor_pod_manager`, `technicals_pod_manager`,
-`quant_pod_manager`, `risk_pod_manager`
+`quant_pod_manager`, `risk_pod_manager`, `alpha_signals_pod_manager`
 
 **Layer 3 — Trading Assistant (1 agent):**
 Synthesizes all pod outputs → `DailyBrief` (Pydantic model)
@@ -202,58 +205,36 @@ all model strings follow the `provider/model_id` format.
 4. ProviderConfigError if all fail
 ```
 
-### Primary (Groq — Free Tier)
+### Active Configuration (Ollama — Local)
 
-| Model | Role | Free tier limits |
-|-------|------|-----------------|
-| `llama-3.1-8b-instant` | ICs (10), Decoder ICs (4) — fast, focused narrow tasks | 20k TPM, 14.4k RPD |
-| `llama-3.3-70b-versatile` | Pods (5), Assistant (1), Workshop — synthesis + reasoning | 6k TPM, 1k RPD |
-
-Rate limit note: 10 parallel IC calls use `8b-instant` to stay well within free-tier TPM.
-If rate-limited on pods, add a small delay or switch to `llama-3.1-70b-versatile` (higher limits).
-
-### On Demand (Cloud Fallback)
-
-| Provider | Model | Role |
-|----------|-------|------|
-| Anthropic | Claude Haiku/Sonnet | Fallback if Groq is down |
-| AWS Bedrock | Claude Sonnet 4 | Secondary fallback |
-
-### Cost per Full Crew Run
-
-| Config | Cost | Notes |
-|--------|------|-------|
-| Groq free tier (current) | $0.00 | 8b ICs + 70b pods — within free limits |
-| Anthropic fallback | ~$0.02–0.05 | Haiku ICs + Sonnet pods |
-| Bedrock fallback | ~$0.02 | If Anthropic also down |
-
-### Agent tiers and model assignment
+All crew agents run on local Ollama. No API cost, no rate limits.
 
 | Tier | Agents | Model | Env override |
 |------|--------|-------|-------------|
-| `ic` | `*_ic` | `groq/llama-3.1-8b-instant` | `LLM_MODEL_IC` |
-| `pod` | `*_pod_manager` | `groq/llama-3.3-70b-versatile` | `LLM_MODEL_POD` |
-| `assistant` | `trading_assistant`, `super_trader` | `groq/llama-3.3-70b-versatile` | `LLM_MODEL_ASSISTANT` |
-| `decoder` | decoder crew agents | `groq/llama-3.1-8b-instant` | `LLM_MODEL_DECODER` |
-| `workshop` | (not a CrewAI agent — use `get_llm_for_role("workshop")`) | `groq/llama-3.3-70b-versatile` | `LLM_MODEL_WORKSHOP` |
+| `ic` | all 13 `*_ic` | `ollama/qwen3.5:9b` | `LLM_MODEL_IC` |
+| `pod` | all 6 `*_pod_manager` | `ollama/qwen3.5:9b` | `LLM_MODEL_POD` |
+| `assistant` | `trading_assistant` | `ollama/qwen3.5:9b` | `LLM_MODEL_ASSISTANT` |
+| `decoder` | decoder crew agents | `ollama/qwen3.5:9b` | `LLM_MODEL_DECODER` |
+| `workshop` | deep reasoning (not CrewAI) | `bedrock/us.anthropic.claude-sonnet-4-20250514` | `LLM_MODEL_WORKSHOP` |
+
+Required: `ollama pull qwen3.5:9b` (~6.3 GB). Verify: `ollama list`
+
+### Fallback Chain
+
+Bedrock (Claude Sonnet) activates if Ollama is unreachable.
+Workshop always uses Bedrock regardless of provider setting.
 
 ### Key env vars
 
 ```bash
-LLM_PROVIDER=groq
-GROQ_API_KEY=<your key>
-GROQ_MODEL=llama-3.3-70b-versatile   # used by _model_groq() as default; prefix NOT included
-LLM_FALLBACK_CHAIN=anthropic,bedrock
-
-# Per-tier overrides (active in .env):
-LLM_MODEL_IC=groq/llama-3.1-8b-instant
-LLM_MODEL_DECODER=groq/llama-3.1-8b-instant
-LLM_MODEL_POD=groq/llama-3.3-70b-versatile
-LLM_MODEL_ASSISTANT=groq/llama-3.3-70b-versatile
-LLM_MODEL_WORKSHOP=groq/llama-3.3-70b-versatile
-
-# Cloud fallback
-ANTHROPIC_API_KEY=<your key>
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+LLM_MODEL_IC=ollama/qwen3.5:9b
+LLM_MODEL_POD=ollama/qwen3.5:9b
+LLM_MODEL_ASSISTANT=ollama/qwen3.5:9b
+LLM_MODEL_DECODER=ollama/qwen3.5:9b
+LLM_MODEL_WORKSHOP=bedrock/us.anthropic.claude-sonnet-4-20250514
+LLM_FALLBACK_CHAIN=bedrock,openai
 BEDROCK_REGION=us-east-1
 BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514
 ```
@@ -313,6 +294,49 @@ BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514
 | `StrategyAllocation` | Single strategy's capital allocation (strategy_id, capital_pct, mode, regime_score) |
 | `AllocationPlan` | Portfolio-level allocation plan with per-strategy weights and warnings |
 | `ConflictResolution` | Result of resolving a signal conflict for a single symbol |
+
+---
+
+## 5.5 ML Integration (`packages/quantcore/`)
+
+The system includes a production-grade ML stack alongside rule-based strategies.
+These run **outside** the CrewAI crew — they are Python modules callable directly
+or via QuantCore MCP tools.
+
+### Supervised Learning (`packages/quantcore/models/`)
+| Module | Class | What it does |
+|--------|-------|-------------|
+| `trainer.py` | `ModelTrainer` | Train LightGBM / XGBoost / CatBoost classifiers with TimeSeriesSplit CV |
+| `predictor.py` | `Predictor` | Calibrated probability predictions with feature alignment |
+| `ensemble.py` | `HierarchicalEnsemble` | Combine W1/D1/H4/1H predictions with configurable timeframe weights |
+| `explainer.py` | `SHAPExplainer` | Global + local feature importance via SHAP |
+
+### Labeling (`packages/quantcore/labeling/`)
+| Module | Class | What it does |
+|--------|-------|-------------|
+| `event_labeler.py` | `EventLabeler` | Binary WIN/LOSS labels from ATR-based TP/SL outcomes |
+| `wave_event_labeler.py` | `WaveEventLabeler` | Wave-specific outcome labeling |
+| `llm_labeler.py` | `LLMLabelProvider` | Attach externally-computed LLM quality labels |
+
+### Regime Classification (`packages/quantcore/hierarchy/regime/`)
+| Module | Class | What it does |
+|--------|-------|-------------|
+| `tft_regime.py` | `TFTRegimeModel` | Temporal Fusion Transformer — 4 regimes with attention weights |
+| `hmm_model.py` | `HMMRegimeModel` | Hidden Markov Model — state transitions + regime stability |
+| `changepoint.py` | `BayesianChangepointDetector` | Online changepoint detection (Adams & MacKay 2007) |
+| `regime_classifier.py` | `WeeklyRegimeClassifier` | Rule-based BULL/BEAR/SIDEWAYS with confidence score |
+
+### When to use ML vs rule-based strategies
+- **Rule-based** (workshop default): fast to iterate, interpretable, good for < 100 trades/year
+- **ML-backed**: better for high-frequency signals, when feature importance reveals non-obvious drivers, when regime classification needs probabilistic output
+- Use `SHAPExplainer` in /reflect to understand which features drove recent predictions
+- Use `HMMRegimeModel` when `get_regime()` confidence is low — HMM provides state probabilities, not just a label
+- See `.claude/memory/ml_model_registry.md` for all trained models, their feature sets, and OOS accuracy
+
+### MCP exposure
+Feature inputs are exposed (`compute_all_features`, `compute_feature_matrix`).
+Training/prediction/SHAP are **not** MCP tools — call them directly in scripts
+or via `packages/quantcore/equity/pipeline.py` → `run_ml_strategy()`.
 
 ---
 
@@ -388,6 +412,7 @@ All files in `.claude/memory/`. Git-tracked. These ARE your persistent brain.
 | `agent_performance.md` | IC/Pod signal quality and known biases | /reflect, /meta | /reflect |
 | `session_handoffs.md` | Cross-session context + self-modification log | Every session | When context transfers needed, when config/skill files modified |
 | `workshop_lessons.md` | Accumulated R&D learnings | /workshop, /reflect | /workshop, /reflect |
+| `ml_model_registry.md` | Trained ML models: type, features, OOS accuracy, last validated | /workshop, /reflect | /workshop when a model is trained or evaluated |
 
 ---
 
@@ -465,3 +490,141 @@ Sessions are triggered by `scripts/scheduler.py` at key market times (US/Eastern
 **Usage:** `python scripts/scheduler.py` (requires `pip install apscheduler>=3.10.0`)
 **One-off:** `python scripts/scheduler.py --run-now morning_routine`
 **Cron equivalent:** `python scripts/scheduler.py --cron`
+
+---
+
+## 12. Production Operations Stack
+
+These components run outside the MCP layer — they are Python modules/flows invoked
+directly (via scheduler, cron, or CLI). They are NOT session types, but you should
+be aware of their outputs when they appear in alerts or logs.
+
+### Monitoring (`packages/quant_pod/monitoring/`)
+
+| Module | Class | What it does | When it runs |
+|--------|-------|-------------|-------------|
+| `alpha_monitor.py` | `AlphaMonitor` | Computes rolling 30-day IC for each IC agent; emits Discord alerts when IC < 0 (CRITICAL) or IC decaying toward 0 (WARNING). Sources data from `SkillTracker` DB. | After each trading session |
+| `degradation_detector.py` | `DegradationDetector` | Computes live (OOS) Sharpe vs IS backtest Sharpe. Flags CRITICAL when live Sharpe < 0 or IS/OOS ratio > 4; WARNING when ratio > 2. Returns recommended position_size_pct reductions (advisory, not auto-applied). | Weekly via StrategyValidationFlow |
+| `metrics.py` | Prometheus counters | Tracks: orders_placed, orders_rejected, regime_transitions, kill_switch_activations, IC run latency. Exposed on `/metrics` if FastAPI server is running. | Always-on, incremented by execution layer |
+
+**Discord alerts:** All monitoring alerts send to `DISCORD_WEBHOOK_URL` in `.env`.
+If the URL is missing, alerts are silently skipped (preferred over broken loops).
+
+### Guardrails (`packages/quant_pod/guardrails/`)
+
+| Module | Class | What it protects against |
+|--------|-------|--------------------------|
+| `agent_hardening.py` | `AgentHardener` | (1) Prompt injection via market data — raw news/headlines are never injected as text, only as vectors. (2) Compounding errors — ICs see only raw data, never other ICs' interpretations; execution scales DOWN on IC disagreement. (3) Context window exhaustion — portfolio state is always injected first; old trades are summarized. |
+| `mcp_response_validator.py` | `MCPResponseValidator` | Guards against TradeTrap attack vectors (arxiv:2512.02261): tool hijacking, data fabrication, state tampering. Validates every MCP tool response with numerical bounds, cross-field consistency, and statistical plausibility checks. Failures are non-blocking — trade is rejected, process continues. |
+
+### Flows (`packages/quant_pod/flows/`)
+
+| Flow | When to run | Purpose |
+|------|------------|---------|
+| `IntradayMonitorFlow` | Every 30–60 min via cron/scheduler | Lightweight (no LLM, seconds to run). Updates position mark-to-market, re-runs regime detection on held symbols, detects intraday regime reversals, checks P&L vs daily loss limit, runs AlphaMonitor + DegradationDetector, posts Discord alert if action items exist. |
+| `StrategyValidationFlow` | Saturdays (weekly cron) | Walk-forward validation (5 folds, 63-day OOS, 21-day embargo) + DSR/PBO overfitting checks. Routes each strategy to: `passed` → log OK, `degraded` → retrain alert, `overfit` → quarantine. |
+| `TradingDayFlow` | Morning session trigger | Full-day orchestration flow (used by the scheduler for the morning routine). |
+
+**Running intraday monitor manually:**
+```python
+from quant_pod.flows.intraday_monitor_flow import IntradayMonitorFlow
+report = IntradayMonitorFlow().run()
+# report.action_items  — list of strings for ops review
+# report.regime_reversals  — symbols where regime has flipped since entry
+```
+
+### FastAPI REST Server (`packages/quant_pod/api/server.py`)
+
+Local single-user HTTP server for UI tooling and scripting. **No auth by design.**
+Run with: `uvicorn quant_pod.api.server:app --port 8000`
+
+Key endpoints (not an exhaustive list — see file docstring for all 28):
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/health` | System status + service uptime |
+| `GET` | `/portfolio` | Current portfolio snapshot |
+| `POST` | `/analyze/{symbol}` | Trigger TradingDayFlow for a symbol |
+| `GET` | `/regime/{symbol}` | Current regime detection |
+| `GET` | `/audit` | Recent audit log entries |
+| `GET` | `/audit/{event_id}/attribution` | SHAP-style indicator attribution per decision |
+| `GET` | `/skills` | Agent skill performance summary |
+| `GET` | `/calibration` | IC confidence calibration report |
+| `GET` | `/dashboard/pnl` | Daily realized + unrealized P&L |
+| `GET` | `/dashboard/anomalies` | Order size, win rate, tool failure anomalies |
+| `POST` | `/kill` | Activate kill switch |
+| `POST` | `/reset` | Reset kill switch |
+| `GET` | `/etrade/status` | eTrade connection status |
+| `POST` | `/etrade/auth` | eTrade OAuth flow |
+
+---
+
+## 13. Broker Integrations
+
+QuantPod supports three broker backends. Selection is automatic via `SmartOrderRouter`
+based on which credentials are present in `.env`.
+
+### Priority Order
+```
+IBKR (if IBKR_HOST reachable + ib_insync) → Alpaca (if ALPACA_API_KEY set) → PaperBroker (fallback)
+```
+Override with `DATA_PROVIDER_PRIORITY` env var.
+
+### Alpaca (`packages/alpaca_mcp/`)
+
+| Tool | Description |
+|------|-------------|
+| `get_auth_status` | Check connectivity and paper/live mode |
+| `get_balance` | Cash, buying power, portfolio value |
+| `get_positions` | Open positions with entry price + unrealised P&L |
+| `get_quote` | Real-time best-bid/offer for up to 50 symbols |
+| `get_bars` | Historical OHLCV (1m/5m/15m/30m/1h/4h/1d/1w) |
+| `get_option_chains` | Options chain snapshot (requires Options Data subscription) |
+| `preview_order` | Cost + commission estimate without submitting |
+| `place_order` | Market/limit/stop/stop_limit equity order |
+| `cancel_order` | Cancel open order by UUID |
+| `get_orders` | Order history by status |
+
+**Config:** `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_PAPER=true` (default — safe)
+**Install:** `uv sync --extra alpaca`
+
+### Interactive Brokers (`packages/ibkr_mcp/`)
+
+| Tool | Description |
+|------|-------------|
+| `get_connection_status` | IB Gateway connection status + account ID |
+| `connect_gateway` | Explicitly reconnect without restarting server |
+| `get_balance` | Net liquidation, cash, buying power, margin |
+| `get_positions` | Positions with avg cost, market value, P&L |
+| `get_quote` | Real-time snapshot bid/ask/last (up to 20 symbols) |
+| `get_historical_bars` | OHLCV from IB Gateway (`reqHistoricalData`) |
+| `get_option_chains` | Available expirations and strikes |
+| `place_order` | Market or limit equity order |
+| `cancel_order` | Cancel open order by IB order ID |
+| `get_orders` | Open and completed orders by status |
+
+**Config:** `IBKR_HOST=127.0.0.1`, `IBKR_PORT=4001` (IB Gateway live), `IBKR_CLIENT_ID=1`
+**Paper ports:** IB Gateway=4002, TWS=7496
+**Install:** `uv sync --extra ibkr`
+**Prereq:** IB Gateway must be running and API socket enabled
+
+### eTrade (`packages/etrade_mcp/`)
+
+Legacy integration. Requires OAuth dance.
+Use FastAPI `/etrade/auth` endpoint to complete OAuth flow.
+`packages/quant_pod/execution/etrade_broker.py` handles execution.
+
+### PaperBroker (built-in fallback)
+
+Always available. Zero-fill execution with slippage simulation.
+No credentials required. Default when no broker credentials are set.
+
+### Adding a Broker to MCP (optional)
+
+To expose Alpaca or IBKR tools directly to Claude, add to `.claude/settings.json`:
+```json
+"alpaca": { "command": "alpaca-mcp", "type": "stdio" },
+"ibkr":   { "command": "ibkr-mcp",   "type": "stdio" }
+```
+This is optional — QuantPod's `SmartOrderRouter` routes orders to them automatically
+based on env vars, without requiring MCP exposure.

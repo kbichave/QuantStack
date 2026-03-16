@@ -125,6 +125,46 @@ If the first hypothesis failed:
   - Regime-specific notes
 - `.claude/memory/session_handoffs.md` — if /meta or /trade needs to know about the new strategy
 
+## ML-Backed Strategy Path (alternative to rule-based)
+
+Use when rule-based hypotheses have failed 2+ iterations with Sharpe < 0.5.
+
+**Step 3 (alternate): Train an ML model to discover entry conditions**
+
+```python
+from quantcore.labeling.event_labeler import EventLabeler
+from quantcore.models.trainer import ModelTrainer
+from quantcore.models.explainer import SHAPExplainer
+from quantcore.data.storage import DataStore
+
+store = DataStore()
+df = store.load_ohlcv(symbol, timeframe)
+
+labeler = EventLabeler(tp_atr_multiple=2.5, sl_atr_multiple=1.5, max_hold_bars=10)
+labeled = labeler.label(df)
+
+trainer = ModelTrainer(model_type="lightgbm")
+model, metrics = trainer.train(labeled, target_col="label", cv_folds=5)
+
+explainer = SHAPExplainer(model)
+importance = explainer.get_global_importance(labeled)
+# top SHAP features reveal which conditions actually predict outcomes
+```
+
+**Decision rule after training:**
+- OOS accuracy > 55% AND top SHAP features are interpretable →
+  convert the top 3 features into explicit rule-based entry conditions,
+  then proceed with register_strategy as normal
+- OOS accuracy < 52% → signal is noise, document in workshop_lessons.md
+- Top SHAP features are lagged price only → autocorrelation artefact, discard
+
+**Do not register an ML model directly as a strategy.** Convert its insights
+into auditable rules that can be regime-gated and inspected.
+Use `HMMRegimeModel` or `TFTRegimeModel` for regime classification if
+`get_regime()` confidence < 0.6.
+
+---
+
 ## Anti-Overfitting Checklist
 
 Before promoting any strategy to forward_testing:

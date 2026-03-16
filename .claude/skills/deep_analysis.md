@@ -123,6 +123,34 @@ trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it dire
 
 ---
 
+## ML Signal Enrichment (use in /workshop when rule-based Sharpe < 0.5)
+
+### Feature Importance Check
+**How:** Directly import `SHAPExplainer` from `quantcore.models.explainer`
+**When:** After a backtest fails — understand which features actually drove signals
+**What to look for:** If top SHAP features are lagged price (not indicators), the
+signal may be autocorrelation artefact, not a real edge
+
+### Regime Probability (when `get_regime` confidence < 0.6)
+**How:** `from quantcore.hierarchy.regime.hmm_model import HMMRegimeModel`
+**When:** `get_regime()` returns confidence < 0.6 or regime has changed 3x in 5 days
+**What it adds:** State transition probabilities — "40% chance staying in ranging,
+35% trending_up, 25% trending_down" is more useful than a single label
+
+### ML-Backed Direction Signal
+**How:** `from quantcore.equity.pipeline import run_ml_strategy`
+**When:** Rule-based workshop strategies repeatedly fail Sharpe > 1.0 threshold
+**What it adds:** GradientBoosting classifier trained on 200+ features with
+TimeSeriesSplit CV — provides calibrated probability of up/down move
+
+### Changepoint Detection
+**How:** `from quantcore.hierarchy.regime.changepoint import BayesianChangepointDetector`
+**When:** Entering a new trade after a regime that has been stable for 20+ days
+**Decision rule:** If changepoint probability > 0.3, reduce position size 50%
+— you may be near a regime transition
+
+---
+
 ## Conditional Usage Rules
 
 ### When to call these tools vs relying on DailyBrief

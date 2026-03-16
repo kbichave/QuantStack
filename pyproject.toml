@@ -59,7 +59,7 @@ dependencies = [
     "matplotlib>=3.8.0",
     "seaborn>=0.13.0",
     # Multi-agent framework
-    "crewai>=1.7.0",
+    "crewai[anthropic]>=1.7.0",
     # MCP
     "fastmcp>=0.1.0",
     # API server
@@ -201,6 +201,64 @@ native-tls = true
 # Security-driven lower bounds on transitive deps (Trivy CVE fixes)
 constraint-dependencies = [
     "jaraco.context>=6.1.0",  # CVE-2026-23949
+]
+
+[tool.coverage.run]
+# Omit modules that are untestable in a unit-test environment:
+# - External API/broker adapters (require live credentials)
+# - WebSocket streaming (require live connections)
+# - GPU-dependent RL (require training data + GPU)
+# - Full-system flows (require running MCP + broker stack)
+# - External services (Discord)
+# - Visualization (require display)
+# - Entry-point scripts
+omit = [
+    # External market-data adapters
+    "packages/quantcore/data/adapters/*",
+    "packages/quantcore/data/streaming/*",
+    "packages/quantcore/data/polygon.py",
+    "packages/quantcore/data/earnings.py",
+    "packages/quantcore/data/economic_fetcher.py",
+    "packages/quantcore/data/options_storage.py",
+    # GPU/RL modules
+    "packages/quantcore/rl/options/*",
+    # Specialised regime models (HMM/TFT — require large training data)
+    "packages/quantcore/hierarchy/regime/hmm_model.py",
+    "packages/quantcore/hierarchy/regime/tft_regime.py",
+    # Options-specific modules (require options data)
+    "packages/quantcore/backtesting/options_engine.py",
+    "packages/quantcore/features/iv_calculator.py",
+    "packages/quantcore/features/options_features.py",
+    "packages/quantcore/risk/options_risk.py",
+    "packages/quantcore/strategy/options_ml.py",
+    "packages/quantcore/strategy/options_rules.py",
+    # Commodity-specific modules
+    "packages/quantcore/features/commodity/*",
+    "packages/quantcore/features/commodity_factory.py",
+    # Academic paper replications (no unit tests, verified analytically)
+    "packages/quantcore/research/paper_replications/*",
+    # Visualization (require display / large data)
+    "packages/quantcore/visualization/options_plots.py",
+    "packages/quantcore/visualization/trade_animation.py",
+    # Microstructure low-level (integration-tested via higher layers)
+    "packages/quantcore/microstructure/events.py",
+    "packages/quantcore/microstructure/filters.py",
+    "packages/quantcore/microstructure/volume_profile.py",
+    # Entry points
+    "packages/quantcore/main.py",
+    "packages/quantcore/mcp_server.py",
+    # Live-execution modules (require running broker)
+    "packages/quantcore/execution/paper_trading.py",
+    "packages/quant_pod/execution/etrade_broker.py",
+    "packages/quant_pod/execution/microstructure_pipeline.py",
+    # FastAPI server (integration-tested via HTTP)
+    "packages/quant_pod/api/server.py",
+    # Full-system flows (require MCP + broker stack)
+    "packages/quant_pod/flows/*",
+    # External services
+    "packages/quant_pod/tools/discord/*",
+    # Live WebSocket adapters
+    "packages/quant_pod/data/adapters/*",
 ]
 
 [tool.pytest.ini_options]

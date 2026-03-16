@@ -787,6 +787,7 @@ class TestSyntheticTAIntegration:
                 corr = features[col].corr(future_close)
                 assert abs(corr) < 0.95, f"{col} suspiciously correlated with future: {corr}"
 
+    @pytest.mark.slow
     def test_ta_performance_on_synthetic(self):
         """TA computation should complete in reasonable time on synthetic data."""
         import time

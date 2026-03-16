@@ -66,9 +66,7 @@ async def lifespan(server: FastMCP):
     try:
         ctx.data_store = DataStore()
     except RuntimeError as exc:
-        logger.warning(
-            f"DuckDB write lock conflict — falling back to read-only mode. {exc}"
-        )
+        logger.warning(f"DuckDB write lock conflict — falling back to read-only mode. {exc}")
         try:
             ctx.data_store = DataStore(read_only=True)
             logger.warning(
@@ -1383,7 +1381,6 @@ async def compute_implied_vol(
 
     except Exception as e:
         return {"error": str(e)}
-
 
 
 @mcp.tool()
@@ -4253,8 +4250,6 @@ async def get_event_calendar(
 # =============================================================================
 # EXECUTION TOOLS (NEW)
 # =============================================================================
-
-
 
 
 # =============================================================================

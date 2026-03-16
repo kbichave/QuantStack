@@ -486,6 +486,7 @@ You have permission and are expected to update your own configuration.
 | `/meta` | `.claude/skills/meta.md` | Portfolio-level orchestration across symbols and strategies |
 | `/review` | `.claude/skills/review.md` | Position review, strategy lifecycle, promotion/retirement |
 | `/tune` | `.claude/skills/tune.md` | Edit IC/pod manager prompts based on accuracy data from /reflect. Run after 3+ reflect sessions or when an IC accuracy < 50%. |
+| `/compact-memory` | `.claude/skills/compact_memory.md` | Distill memory files to remove stale/redundant entries. Run when any file exceeds 200 lines or after 5+ sessions. |
 
 ### Reference (not user-invocable)
 | File | Purpose |

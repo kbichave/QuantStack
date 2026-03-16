@@ -165,6 +165,45 @@ Use `HMMRegimeModel` or `TFTRegimeModel` for regime classification if
 
 ---
 
+## Tool Gap Protocol
+
+If a capability needed for a workshop step doesn't exist in the MCP tools:
+1. Use the best available workaround (direct Python, manual computation, etc.)
+2. Document the gap in the session's Final Report under "Missing Tools":
+   ```
+   Missing: <tool_name>
+   Input: <schema>
+   Output: <schema>
+   Package: quantcore or quant_pod
+   Priority: HIGH/MEDIUM (HIGH if it unlocks a whole strategy class)
+   ```
+3. Do NOT halt or skip steps — work around it, document it, and continue.
+These specs are reviewed after workshop sessions and built into QuantCore or QuantPod
+before the next session.
+
+## Multi-Timeframe Strategy Design
+
+When 1D signals fire but trade count or precision is insufficient, consider a
+cross-timeframe approach: **higher-timeframe setup + lower-timeframe trigger**.
+
+Standard MTF patterns:
+- **1D setup + 1H trigger**: Most common. Daily oversold/overbought sets up the trade;
+  1H momentum reversal times the entry. Reduces false starts, tighter stops.
+- **4H setup + 15min trigger**: More setups than 1D. Good for strategies needing
+  higher trade count (>200/year).
+- **1W setup + 1D trigger**: Macro regime as setup, daily signal as entry.
+  Very low trade count but high conviction.
+
+MTF design rules:
+- Setup timeframe defines the edge (tested and validated at that TF first)
+- Trigger timeframe refines entry timing only — do NOT use it to redefine the edge
+- Use trigger-TF ATR for stops (tighter, appropriate for the entry precision)
+- Time stop runs from the SETUP date (not trigger date) to bound total holding time
+- Add `max_trigger_wait_days` param to avoid entering stale setups
+
+The standard `BacktestEngine` is single-timeframe. MTF backtests require direct Python
+or a new `run_backtest_mtf` tool (document as missing if needed).
+
 ## Anti-Overfitting Checklist
 
 Before promoting any strategy to forward_testing:

@@ -45,6 +45,7 @@ async def execute_trade(
     limit_price: float | None = None,
     strategy_id: str | None = None,
     paper_mode: bool = True,
+    regime_at_entry: str | None = None,
 ) -> dict[str, Any]:
     """
     Execute a trade through the risk gate and broker.
@@ -202,6 +203,29 @@ async def execute_trade(
                 portfolio_snapshot=_serialize(snapshot) or {},
             )
         )
+
+        # 8. Outcome attribution — best-effort, never blocks the fill
+        if strategy_id and not fill.rejected:
+            try:
+                import asyncio
+                from quant_pod.learning.outcome_tracker import OutcomeTracker
+                tracker = OutcomeTracker()
+                regime = regime_at_entry or "unknown"
+                if action == "buy":
+                    await asyncio.to_thread(
+                        tracker.record_entry,
+                        strategy_id, symbol, regime, action,
+                        fill.fill_price, ctx.session_id,
+                    )
+                elif action == "sell":
+                    await asyncio.to_thread(
+                        tracker.record_exit,
+                        strategy_id, symbol, fill.fill_price,
+                    )
+                    # Apply learning immediately after exit
+                    await asyncio.to_thread(tracker.apply_learning, strategy_id)
+            except Exception as _ot_exc:
+                logger.debug(f"[execute_trade] outcome attribution failed (non-critical): {_ot_exc}")
 
         return {
             "success": not fill.rejected,

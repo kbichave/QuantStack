@@ -63,6 +63,10 @@ Compute:
 - If degradation > 20%: flag for retraining — log in `session_handoffs.md`
 - Check SHAP feature importance for drift: are top features still the same as at training?
   If new features are dominating, the market structure has changed
+- **Causal feature drift check:** re-run `CausalFilter` on recent data (last 60 days)
+  and compare surviving features to the set used at training time. If the surviving set
+  has changed materially (>30% different features), the causal structure has shifted —
+  this is stronger evidence of regime change than SHAP drift alone. Log in `agent_performance.md`.
 
 ### Step 4: Update Memory Files
 - `trade_journal.md`: add weekly summary section

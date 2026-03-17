@@ -347,6 +347,79 @@ class AlphaMonitor:
             # Do not re-raise — a broken alert channel must not halt trading
 
 
+    def check_strategy_drift(
+        self,
+        strategy_ids: list[str],
+        signal_features: dict[str, dict] | None = None,
+    ) -> list[DegradationAlert]:
+        """
+        Check drift for a list of strategies and fire alerts.
+
+        Called after check_all_agents() in monitoring flows. Reuses the same
+        Discord alert channel.
+
+        Args:
+            strategy_ids: Strategies to check.
+            signal_features: Optional pre-computed features per strategy_id.
+                If None, drift check is skipped (features must come from
+                SignalEngine run — can't be manufactured here).
+
+        Returns:
+            List of DegradationAlert for strategies with drift.
+        """
+        if signal_features is None:
+            return []
+
+        try:
+            from quant_pod.learning.drift_detector import DriftDetector
+        except ImportError:
+            return []
+
+        detector = DriftDetector()
+        alerts: list[DegradationAlert] = []
+
+        for sid in strategy_ids:
+            if not detector.has_baseline(sid):
+                continue
+
+            features = signal_features.get(sid)
+            if not features:
+                continue
+
+            report = detector.check_drift(sid, features)
+            if report.severity == "NONE":
+                continue
+
+            severity = (
+                AlertSeverity.CRITICAL
+                if report.severity == "CRITICAL"
+                else AlertSeverity.WARNING
+            )
+            alerts.append(DegradationAlert(
+                agent_id=f"drift:{sid}",
+                severity=severity,
+                message=(
+                    f"[DRIFT] Strategy {sid}: PSI={report.overall_psi:.3f} "
+                    f"({report.severity}). Drifted features: {report.drifted_features}"
+                ),
+                detail={
+                    "type": "signal_drift",
+                    "strategy_id": sid,
+                    "overall_psi": report.overall_psi,
+                    "feature_psis": report.feature_psis,
+                    "drifted_features": report.drifted_features,
+                },
+            ))
+
+        if alerts:
+            logger.warning(
+                f"[MONITOR] {len(alerts)} drift alerts: "
+                f"{sum(1 for a in alerts if a.severity == AlertSeverity.CRITICAL)} critical"
+            )
+
+        return alerts
+
+
 def get_alpha_monitor() -> AlphaMonitor:
     """Convenience factory — reads DISCORD_WEBHOOK_URL from environment."""
     return AlphaMonitor()

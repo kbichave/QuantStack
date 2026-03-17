@@ -376,6 +376,19 @@ class RLExecutionStrategyTool(BaseTool):
         strategy_label, order_fraction = self._STRATEGY_MAP.get(action_idx, ("BALANCED", 0.25))
         is_shadow = cfg.execution_shadow
 
+        # Save pre-trade snapshot for PostTradeRLAdapter (AC reward needs these)
+        save_pretrade_snapshot(
+            "rl_execution_strategy",
+            {
+                "tool_name": "rl_execution_strategy",
+                "state_vector": features.tolist(),
+                "action_value": action_idx,
+                "volatility_at_entry": float(features[4]),  # volatility from state vector
+                "daily_volume": 0.0,  # populated by caller if available
+                "signal_confidence": 0.7 if not is_shadow else 0.5,
+            },
+        )
+
         result = {
             "strategy": strategy_label,
             "order_fraction": round(order_fraction, 2),

@@ -12,11 +12,8 @@ and (when execution is enabled) place trades.
 
 ## Workflow
 
-### Step 0: Read Context + Model Health Check
+### Step 0: Read Context
 Before any tool calls:
-- Run `python scripts/check_ollama_health.py` — abort if models not loaded.
-  Both qwen3.5:9b and qwen3.5:35b-a3b must be resident in memory before crew runs.
-  If health check fails: do not proceed. Report the error and stop.
 - Read `.claude/memory/trade_journal.md` — last 5 trades for patterns
 - Read `.claude/memory/regime_history.md` — is regime transitioning?
 - Read `.claude/memory/session_handoffs.md` — relevant handoffs from other sessions?
@@ -39,38 +36,34 @@ Call `get_regime` with the requested symbol.
 - Record: trend_regime, volatility_regime, confidence, ADX, ATR percentile.
 - Consider regime implications for strategy selection.
 
-### Step 3.5: Targeted Pre-Screen (Enhancement 3 — Conditional Analysis Chain)
+### Step 3.5: Targeted Pre-Screen
 
-Before spending the cost of a full crew run, do a quick targeted check:
-
-**a) Regime pre-screen via `run_ic("regime_detector_ic", symbol)`:**
+**a) Regime pre-screen** — already done in Step 3 via `get_regime`.
 - If `confidence < 0.60`: regime is ambiguous.
   → Log "regime ambiguous, skipping full analysis" in trade_journal.md and STOP.
-  → A full crew run in an ambiguous regime wastes resources and produces unreliable output.
-- If `trend_regime == "unknown"`: force paper_mode for this session regardless of strategy status.
+- If `trend_regime == "unknown"`: force paper_mode for this session.
 
-**b) Volatility pre-screen via `run_ic("volatility_ic", symbol)`:**
-- If volatility regime == "extreme":
-  → Reduce ALL position sizes to 50% of strategy spec for this session.
-  → Log: "extreme vol detected, sizes halved" in trade_journal.md.
-- If volatility IC flags a vol spike (ATR > 2x normal):
-  → Options strategies only; avoid naked equity positions.
+**b) Volatility pre-screen** via `mcp__quantcore__compute_technical_indicators(symbol, "daily", ["ATR", "ADX"])`:
+- If ATR is > 2× its 20-day average (vol spike):
+  → Reduce ALL position sizes to 50% of strategy spec.
+  → Log: "vol spike detected, sizes halved" in trade_journal.md.
 
-**c) Calendar pre-screen via `mcp__quantcore__get_event_calendar(symbol, days_ahead=1)`:**
+**c) Calendar pre-screen** via `mcp__quantcore__get_event_calendar(symbol, days_ahead=1)`:
 - FOMC, CPI, NFP, or earnings within 24 hours:
   → Reduce position sizes 50% OR skip equity positions entirely.
   → Options with defined risk (spreads) are acceptable.
 
-Skip full analysis (Step 4) and STOP if:
+Skip Step 4 and STOP if:
 - Regime confidence < 0.60, OR
 - Kill switch / risk halt is active, OR
 - No strategy in the registry fits the current regime
 
 ### Step 4: Commission Analysis
-Call `run_analysis` with the symbol and regime.
-- This kicks off the full TradingCrew: 13 ICs, 6 Pod Managers, Trading Assistant.
-- Returns a structured DailyBrief.
-- This may take 1-3 minutes depending on LLM latency.
+Call `get_signal_brief(symbol, regime)` via the quantpod MCP server.
+- Runs the SignalEngine: 6 parallel collectors → deterministic synthesis.
+- Returns a DailyBrief-compatible SignalBrief in ~2–5 seconds. No Ollama needed.
+- If `collector_failures` is non-empty: note which collectors failed and reduce
+  conviction by 0.05 per failure (already factored in by the engine).
 
 ### Step 4a: Pre-Trade Intelligence (Enhancement 2)
 

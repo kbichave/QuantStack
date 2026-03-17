@@ -105,6 +105,68 @@ SCHEDULE: List[dict] = [
 # Session runner
 # ---------------------------------------------------------------------------
 
+def run_autonomous_loop(dry_run: bool = False) -> None:
+    """Invoke the AutonomousRunner as a subprocess (no Claude Code session needed)."""
+    label = "autonomous_runner"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    cmd = [sys.executable, "-m", "quant_pod.autonomous.runner", "--paper-only"]
+    if dry_run:
+        cmd.append("--dry-run")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would run at {timestamp}: {' '.join(cmd)}")
+        return
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(WORKDIR),
+            timeout=300,  # 5-minute max — if SignalEngine takes > 5 min, something is wrong
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(f"'{label}' exited with code {result.returncode}")
+        else:
+            logger.info(f"'{label}' completed successfully")
+    except subprocess.TimeoutExpired:
+        logger.error(f"'{label}' timed out after 5 minutes")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_alpha_discovery(dry_run: bool = False) -> None:
+    """Invoke AlphaDiscoveryEngine overnight (no Claude Code session)."""
+    label = "alpha_discovery"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    cmd = [sys.executable, "-m", "quant_pod.alpha_discovery.engine"]
+    if dry_run:
+        cmd.append("--dry-run")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would run at {timestamp}: {' '.join(cmd)}")
+        return
+
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=str(WORKDIR),
+            timeout=3600,  # 60-minute max for overnight discovery pass
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(f"'{label}' exited with code {result.returncode}")
+        else:
+            logger.info(f"'{label}' completed successfully")
+    except subprocess.TimeoutExpired:
+        logger.error(f"'{label}' timed out after 60 minutes")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
 def run_session(prompt: str, label: str, dry_run: bool = False) -> None:
     """Invoke Claude Code with the given session prompt."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -190,9 +252,32 @@ def start_scheduler(dry_run: bool = False) -> None:
             f"({weekdays}) {TIMEZONE}"
         )
 
+    # Autonomous runner — runs after morning routine completes and at midday
+    for hour, minute, label in [(9, 35, "autonomous_09:35"), (13, 0, "autonomous_13:00")]:
+        scheduler.add_job(
+            run_autonomous_loop,
+            CronTrigger(hour=hour, minute=minute, day_of_week="mon-fri", timezone=TIMEZONE),
+            args=[dry_run],
+            id=label,
+            name=label,
+            misfire_grace_time=300,
+        )
+        logger.info(f"Scheduled '{label}' at {hour:02d}:{minute:02d} (mon-fri) {TIMEZONE}")
+
+    # AlphaDiscovery — overnight, after market close + data is settled
+    scheduler.add_job(
+        run_alpha_discovery,
+        CronTrigger(hour=22, minute=0, day_of_week="mon-fri", timezone=TIMEZONE),
+        args=[dry_run],
+        id="alpha_discovery",
+        name="alpha_discovery",
+        misfire_grace_time=600,
+    )
+    logger.info(f"Scheduled 'alpha_discovery' at 22:00 (mon-fri) {TIMEZONE}")
+
     print(
         f"\nQuantPod Scheduler started (workdir={WORKDIR}, symbol={SYMBOL})\n"
-        f"Scheduled {len(SCHEDULE)} sessions.\n"
+        f"Scheduled {len(SCHEDULE)} Claude sessions + 2 autonomous loops + 1 discovery.\n"
         f"Press Ctrl+C to stop.\n"
     )
 
@@ -265,9 +350,17 @@ def main() -> None:
         return
 
     if args.run_now:
+        # Python-native jobs
+        if args.run_now == "autonomous_runner":
+            run_autonomous_loop(dry_run=args.dry_run)
+            return
+        if args.run_now == "alpha_discovery":
+            run_alpha_discovery(dry_run=args.dry_run)
+            return
+        # Claude Code session jobs
         job = next((j for j in SCHEDULE if j["label"] == args.run_now), None)
         if job is None:
-            valid = [j["label"] for j in SCHEDULE]
+            valid = [j["label"] for j in SCHEDULE] + ["autonomous_runner", "alpha_discovery"]
             print(f"Unknown label '{args.run_now}'. Valid: {valid}")
             sys.exit(1)
         run_session(job["prompt"], job["label"], dry_run=args.dry_run)

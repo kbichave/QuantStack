@@ -95,6 +95,7 @@ class BacktestEngine:
         capital = self.config.initial_capital
         position = 0
         entry_price = 0.0
+        entry_date = None
         position_shares = 0.0  # fixed at entry, used for all P&L and MTM calculations
         trades = []
         equity_curve = [capital]
@@ -120,11 +121,13 @@ class BacktestEngine:
                 if direction == "LONG":
                     position = 1
                     entry_price = current_price * (1 + self.config.slippage_pct)
+                    entry_date = idx
                     capital -= self.config.commission_per_trade
                     position_shares = (capital * self.config.position_size_pct) / entry_price
                 elif direction == "SHORT":
                     position = -1
                     entry_price = current_price * (1 - self.config.slippage_pct)
+                    entry_date = idx
                     capital -= self.config.commission_per_trade
                     position_shares = (capital * self.config.position_size_pct) / entry_price
 
@@ -150,6 +153,8 @@ class BacktestEngine:
                         {
                             "entry_price": entry_price,
                             "exit_price": exit_price,
+                            "entry_date": str(entry_date),
+                            "exit_date": str(idx),
                             "pnl": pnl,
                             "direction": "LONG" if position == 1 else "SHORT",
                         }

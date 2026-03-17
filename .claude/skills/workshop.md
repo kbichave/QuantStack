@@ -146,6 +146,7 @@ Use when rule-based hypotheses have failed 2+ iterations with Sharpe < 0.5.
 from quantcore.labeling.event_labeler import EventLabeler
 from quantcore.models.trainer import ModelTrainer
 from quantcore.models.explainer import SHAPExplainer
+from quantcore.validation.causal_filter import CausalFilter
 from quantcore.data.storage import DataStore
 
 store = DataStore()
@@ -154,11 +155,16 @@ df = store.load_ohlcv(symbol, timeframe)
 labeler = EventLabeler(tp_atr_multiple=2.5, sl_atr_multiple=1.5, max_hold_bars=10)
 labeled = labeler.label(df)
 
+# Causal filtering: drop features that don't Granger-cause forward returns
+causal = CausalFilter(max_lag=5, significance_level=0.05)
+X_filtered = causal.fit_transform(features_df, labeled["label"])
+# Log: causal.get_result().surviving_features vs original count
+
 trainer = ModelTrainer(model_type="lightgbm")
-model, metrics = trainer.train(labeled, target_col="label", cv_folds=5)
+model, metrics = trainer.train(X_filtered, target_col="label", cv_folds=5)
 
 explainer = SHAPExplainer(model)
-importance = explainer.get_global_importance(labeled)
+importance = explainer.get_global_importance(X_filtered)
 # top SHAP features reveal which conditions actually predict outcomes
 ```
 
@@ -225,6 +231,7 @@ Before promoting any strategy to forward_testing:
 - [ ] Strategy logic is explainable in one sentence
 - [ ] Entry/exit rules use different indicators (not the same twice)
 - [ ] Risk params include stop loss (no open-ended risk)
+- [ ] If ML-backed: features passed CausalFilter (Granger causality at p<0.05 after Bonferroni)
 
 ## Notes
 

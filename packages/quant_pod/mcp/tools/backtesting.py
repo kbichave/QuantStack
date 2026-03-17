@@ -191,8 +191,13 @@ def _generate_signals_from_rules(
 
     # Combine: structured entries (prerequisite AND confirmation) OR'd with plain
     if prerequisite_rules or confirmation_rules:
-        structured_long = prereq_pass & confirm_pass
-        entry_long = entry_long | structured_long
+        structured_entry = prereq_pass & confirm_pass
+        # Determine direction from parameters or prerequisite rules
+        struct_dir = parameters.get("direction", "LONG").upper()
+        if struct_dir == "SHORT":
+            entry_short = entry_short | structured_entry
+        else:
+            entry_long = entry_long | structured_entry
 
     # ── Parse exit rules for simulation ──────────────────────────────────
     time_stop_days: int | None = None
@@ -563,6 +568,7 @@ async def run_backtest(
             if hasattr(price_data.index[-1], "date")
             else str(price_data.index[-1]),
             "bars_tested": len(price_data),
+            "trades": result.trades,
         }
 
         # 6. Persist summary on strategy record

@@ -38,6 +38,7 @@ env/
 data/
 !packages/*/data/
 !packages/*/data/**
+packages/*/data/**/__pycache__/
 # Nested data dirs inside prompts (IC pod subdirectory named "data")
 !packages/*/prompts/**/data/
 !packages/*/prompts/**/data/**
@@ -57,6 +58,7 @@ reports/
 models/
 !packages/*/models/
 !packages/*/models/**
+packages/*/models/**/__pycache__/
 *.pkl
 *.joblib
 
@@ -115,3 +117,6 @@ paper_trading/*.json
 
 # Scratch prompts (generated per session, never committed)
 tmp/
+
+# Claude memory (local brain — never committed)
+.claude/memory/

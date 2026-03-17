@@ -37,8 +37,12 @@ class OHLCVMixin:
             logger.warning(f"Empty DataFrame provided for {symbol} {timeframe.value}")
             return 0
 
-        # Prepare data
+        # Prepare data — keep only OHLCV columns (providers may add vwap, trade_count, etc.)
         data = df.copy()
+        core_cols = ["open", "high", "low", "close", "volume"]
+        extra = [c for c in data.columns if c.lower() not in core_cols]
+        if extra:
+            data = data.drop(columns=extra, errors="ignore")
         data = data.reset_index()
         data.columns = ["timestamp", "open", "high", "low", "close", "volume"]
         data["symbol"] = symbol

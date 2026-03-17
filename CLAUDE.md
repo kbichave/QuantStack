@@ -343,17 +343,25 @@ or via QuantCore MCP tools.
 | `changepoint.py` | `BayesianChangepointDetector` | Online changepoint detection (Adams & MacKay 2007) |
 | `regime_classifier.py` | `WeeklyRegimeClassifier` | Rule-based BULL/BEAR/SIDEWAYS with confidence score |
 
+### Feature Validation (`packages/quantcore/validation/`)
+| Module | Class | What it does |
+|--------|-------|-------------|
+| `causal_filter.py` | `CausalFilter` | Granger causality + optional transfer entropy; drops features that don't causally predict forward returns (Bonferroni/Holm corrected) |
+| `orthogonalization.py` | `CorrelationFilter` | Removes highly correlated feature clusters (r > 0.85) |
+| `orthogonalization.py` | `FeatureOrthogonalizer` | Chains CausalFilter (optional) → CorrelationFilter → PCA |
+
 ### When to use ML vs rule-based strategies
 - **Rule-based** (workshop default): fast to iterate, interpretable, good for < 100 trades/year
 - **ML-backed**: better for high-frequency signals, when feature importance reveals non-obvious drivers, when regime classification needs probabilistic output
+- Use `CausalFilter` before model training to drop spurious features (reduces overfitting, improves OOS)
 - Use `SHAPExplainer` in /reflect to understand which features drove recent predictions
 - Use `HMMRegimeModel` when `get_regime()` confidence is low — HMM provides state probabilities, not just a label
 - See `.claude/memory/ml_model_registry.md` for all trained models, their feature sets, and OOS accuracy
 
 ### MCP exposure
 Feature inputs are exposed (`compute_all_features`, `compute_feature_matrix`).
-Training/prediction/SHAP are **not** MCP tools — call them directly in scripts
-or via `packages/quantcore/equity/pipeline.py` → `run_ml_strategy()`.
+Training/prediction/SHAP/CausalFilter are **not** MCP tools — call them directly
+in scripts or via `packages/quantcore/equity/pipeline.py` → `run_ml_strategy()`.
 
 ---
 

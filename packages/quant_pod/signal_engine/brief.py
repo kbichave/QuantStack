@@ -1,0 +1,75 @@
+# Copyright 2024 QuantPod Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+SignalBrief — DailyBrief-compatible output from SignalEngine.
+
+SignalBrief is a strict superset of DailyBrief: every field present in
+DailyBrief exists here with an identical name, type, and semantic.
+
+Backward-compat invariant (enforced by tests/test_signal_brief_schema.py):
+    DailyBrief.model_validate(signal_brief.model_dump())  # must not raise
+"""
+
+from datetime import date
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+# Import shared schema types — do NOT redefine them here.
+from quant_pod.crews.schemas import DailyBrief, KeyLevel, SymbolBrief  # noqa: F401
+
+
+class SignalBrief(BaseModel):
+    """
+    Output of SignalEngine.run(). Drop-in replacement for DailyBrief.
+
+    The DailyBrief fields are reproduced verbatim so that any code
+    consuming a DailyBrief dict can consume a SignalBrief dict without
+    change.  Extra fields (engine_version, collection_duration_ms,
+    collector_failures) are additive and ignored by DailyBrief consumers.
+    """
+
+    # ------------------------------------------------------------------ #
+    # DailyBrief fields — identical names, types, defaults                #
+    # ------------------------------------------------------------------ #
+
+    date: date
+
+    market_overview: str
+    market_bias: Literal["bullish", "bearish", "neutral"]
+    market_conviction: float = Field(ge=0, le=1, default=0.5)
+
+    risk_environment: Literal["low", "normal", "elevated", "high"]
+
+    symbol_briefs: list[SymbolBrief] = Field(default_factory=list)
+    top_opportunities: list[str] = Field(default_factory=list)
+    key_risks: list[str] = Field(default_factory=list)
+    strategic_notes: str = ""
+
+    pods_reporting: int = 0
+    total_analyses: int = 0
+    overall_confidence: float = Field(ge=0, le=1, default=0.5)
+
+    # ------------------------------------------------------------------ #
+    # SignalEngine-specific additions (not in DailyBrief)                 #
+    # ------------------------------------------------------------------ #
+
+    engine_version: str = "signal_engine_v1"
+    collection_duration_ms: float = 0.0
+
+    # Names of collectors that timed out or raised an exception.
+    # Consumers should lower conviction when this is non-empty.
+    collector_failures: list[str] = Field(default_factory=list)
+
+    # Raw RegimeContext dict for advanced consumers (AutonomousRunner, /reflect).
+    regime_detail: dict | None = None
+
+    # Sentiment signal from SentimentCollector (news-scored via Groq).
+    # Defaults to neutral (0.5) when no headlines or Groq is unavailable.
+    sentiment_score: float = Field(ge=0.0, le=1.0, default=0.5)
+    dominant_sentiment: str = "neutral"  # "positive" | "negative" | "neutral"
+
+    def to_daily_brief(self) -> DailyBrief:
+        """Return a DailyBrief-compatible view of this brief (drops extra fields)."""
+        return DailyBrief.model_validate(self.model_dump())

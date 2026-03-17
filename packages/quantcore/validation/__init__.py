@@ -1,5 +1,10 @@
 """Statistical validation and anti-leakage module."""
 
+from quantcore.validation.causal_filter import (
+    CausalFilter,
+    CausalFilterResult,
+    CausalTestResult,
+)
 from quantcore.validation.input_validation import (
     DataFrameValidator,
     ValidationResult,
@@ -34,6 +39,10 @@ from quantcore.validation.purged_cv import (
 )
 
 __all__ = [
+    # Causal filtering
+    "CausalFilter",
+    "CausalFilterResult",
+    "CausalTestResult",
     # Cross-validation
     "PurgedKFoldCV",
     "CombinatorialPurgedCV",

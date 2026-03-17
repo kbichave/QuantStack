@@ -266,9 +266,10 @@ class FeatureOrthogonalizer:
     """
     Combined feature orthogonalization pipeline.
 
-    Applies:
-    1. Correlation filtering
-    2. Optional PCA reduction
+    Applies (in order):
+    1. Optional causal filtering (Granger causality on forward returns)
+    2. Correlation filtering
+    3. Optional PCA reduction
     """
 
     def __init__(
@@ -276,6 +277,8 @@ class FeatureOrthogonalizer:
         correlation_threshold: float = 0.85,
         use_pca: bool = False,
         pca_variance_threshold: float = 0.95,
+        use_causal_filter: bool = False,
+        causal_filter_kwargs: dict | None = None,
     ):
         """
         Initialize orthogonalizer.
@@ -284,7 +287,16 @@ class FeatureOrthogonalizer:
             correlation_threshold: Correlation threshold for filtering
             use_pca: Whether to apply PCA after correlation filter
             pca_variance_threshold: PCA variance threshold
+            use_causal_filter: Whether to apply causal filtering before correlation filter
+            causal_filter_kwargs: Keyword arguments passed to CausalFilter
         """
+        self.use_causal_filter = use_causal_filter
+        self.causal_filter = None
+        if use_causal_filter:
+            from quantcore.validation.causal_filter import CausalFilter
+
+            self.causal_filter = CausalFilter(**(causal_filter_kwargs or {}))
+
         self.corr_filter = CorrelationFilter(threshold=correlation_threshold)
         self.use_pca = use_pca
         self.pca_reducer = (
@@ -293,16 +305,25 @@ class FeatureOrthogonalizer:
 
         self._fitted = False
 
-    def fit(self, X: pd.DataFrame) -> "FeatureOrthogonalizer":
+    def fit(
+        self, X: pd.DataFrame, y: pd.Series | None = None
+    ) -> "FeatureOrthogonalizer":
         """
         Fit orthogonalization pipeline.
 
         Args:
             X: Feature DataFrame
+            y: Target series (forward returns). Required when use_causal_filter=True.
 
         Returns:
             self
         """
+        # Step 0: Causal filter (optional)
+        if self.use_causal_filter and self.causal_filter is not None:
+            if y is None:
+                raise ValueError("y (forward returns) is required when use_causal_filter=True")
+            X = self.causal_filter.fit_transform(X, y)
+
         # Step 1: Correlation filter
         X_filtered = self.corr_filter.fit_transform(X)
 
@@ -326,6 +347,10 @@ class FeatureOrthogonalizer:
         if not self._fitted:
             raise ValueError("Must fit before transform")
 
+        # Step 0: Causal filter (optional)
+        if self.use_causal_filter and self.causal_filter is not None:
+            X = self.causal_filter.transform(X)
+
         # Step 1: Correlation filter
         X_filtered = self.corr_filter.transform(X)
 
@@ -335,9 +360,11 @@ class FeatureOrthogonalizer:
 
         return X_filtered
 
-    def fit_transform(self, X: pd.DataFrame) -> pd.DataFrame:
+    def fit_transform(
+        self, X: pd.DataFrame, y: pd.Series | None = None
+    ) -> pd.DataFrame:
         """Fit and transform."""
-        self.fit(X)
+        self.fit(X, y)
         return self.transform(X)
 
     def get_feature_importance_mapping(self) -> dict[str, list[str]]:

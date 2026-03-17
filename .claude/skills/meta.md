@@ -49,10 +49,12 @@ Use the regime-strategy matrix:
   - Any warnings (low confidence, forward_testing cap)
 
 ### Step 5: Multi-Symbol Analysis
-For each allocated strategy, call `run_analysis` or `run_multi_analysis`
+For each allocated strategy, call `get_signal_brief` or `run_multi_signal_brief`
 for the relevant symbols.
-- Collect all DailyBriefs.
+- `run_multi_signal_brief(symbols)` runs up to 5 in parallel (~4–8 sec total).
+- Collect all SignalBriefs (DailyBrief-compatible).
 - Note which symbols have actionable signals.
+- If `collector_failures` is non-empty for a symbol: note it, treat conviction as lower.
 
 ### Step 6: Generate Candidate Trades
 From each DailyBrief + strategy allocation:

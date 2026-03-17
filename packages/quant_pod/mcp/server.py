@@ -108,6 +108,9 @@ from quant_pod.mcp.tools.ic_access import (  # noqa: E402, F401
 from quant_pod.mcp.tools.feedback import (  # noqa: E402, F401
     get_fill_quality, get_position_monitor,
 )
+from quant_pod.mcp.tools.signal import (  # noqa: E402, F401
+    get_signal_brief, run_multi_signal_brief,
+)
 
 
 # =============================================================================

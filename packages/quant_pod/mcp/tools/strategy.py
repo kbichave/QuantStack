@@ -307,8 +307,74 @@ async def update_strategy(
         )
         logger.info(f"[quantpod_mcp] Updated strategy {strategy_id}")
 
+        # Auto-create drift baseline when promoted to forward_testing
+        if status == "forward_testing":
+            _create_drift_baseline(strategy_id)
+
         # Return the updated record
         return await get_strategy.fn(strategy_id=strategy_id)
     except Exception as e:
         logger.error(f"[quantpod_mcp] update_strategy failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+def _create_drift_baseline(strategy_id: str) -> None:
+    """
+    Create drift detection baseline from recent market data.
+
+    Called automatically when a strategy is promoted to forward_testing.
+    Best-effort — failure does not block the promotion.
+    """
+    try:
+        from quantcore.data import DataStore
+        from quantcore.indicators import TechnicalIndicators
+
+        from quant_pod.learning.drift_detector import DriftDetector, TRACKED_FEATURES
+
+        store = DataStore()
+        detector = DriftDetector()
+
+        # Load 1 year of daily data for a representative symbol
+        # Use the strategy's first symbol or default to SPY
+        import numpy as np
+
+        # Try to load recent data — use SPY as a reasonable broad-market proxy
+        # for baseline feature distributions
+        df = store.load_ohlcv("SPY", "1D")
+        if df is None or len(df) < 60:
+            logger.info(f"[drift_baseline] Insufficient data for {strategy_id}, skipping baseline")
+            return
+
+        # Compute technical indicators
+        ti = TechnicalIndicators(df)
+        features: dict[str, np.ndarray] = {}
+
+        feature_methods = {
+            "rsi_14": lambda: ti.rsi(14),
+            "atr_pct": lambda: ti.atr(14) / df["close"] * 100,
+            "adx_14": lambda: ti.adx(14),
+            "bb_pct": lambda: ti.bollinger_pct_b(20, 2.0),
+        }
+
+        for name, method in feature_methods.items():
+            try:
+                values = method()
+                if values is not None:
+                    arr = np.asarray(values, dtype=np.float64).ravel()
+                    arr = arr[np.isfinite(arr)]
+                    if len(arr) > 20:
+                        features[name] = arr
+            except Exception:
+                continue
+
+        if features:
+            detector.set_baseline(strategy_id, features)
+            logger.info(
+                f"[drift_baseline] Created baseline for {strategy_id}: "
+                f"{list(features.keys())} ({len(next(iter(features.values())))} samples)"
+            )
+        else:
+            logger.info(f"[drift_baseline] No features computed for {strategy_id}")
+
+    except Exception as exc:
+        logger.debug(f"[drift_baseline] Failed for {strategy_id} (non-critical): {exc}")

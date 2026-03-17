@@ -1,11 +1,11 @@
 {
   "mcpServers": {
     "quantpod": {
-      "command": "quantpod-mcp",
+      "command": "/Users/kshitijbichave/Personal/Trader/.venv/bin/quantpod-mcp",
       "type": "stdio"
     },
     "quantcore": {
-      "command": "quantcore-mcp",
+      "command": "/Users/kshitijbichave/Personal/Trader/.venv/bin/quantcore-mcp",
       "type": "stdio"
     }
   },

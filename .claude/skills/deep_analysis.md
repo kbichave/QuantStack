@@ -146,6 +146,18 @@ Use this — not `compute_option_chain` — for the IV rank decision matrix in `
 
 ## ML Signal Enrichment (use in /workshop when rule-based Sharpe < 0.5)
 
+### Causal Feature Filtering (when # features > 30)
+**How:** `from quantcore.validation.causal_filter import CausalFilter`
+**When:** After variance filtering but before model training — drops spurious correlations
+**What it adds:** Granger causality tests identify which features actually predict forward
+returns; Bonferroni-corrected p-values prevent false discoveries across 200+ features;
+optional transfer entropy captures nonlinear causal relationships
+**Decision rule:** Features surviving the causal filter have stronger OOS stability than
+correlation-filtered features alone. If < 10 features survive, fall back to top
+correlations — the signal may be too noisy for causal detection at current sample size
+**Diagnostics:** `cf.get_result()` returns per-feature p-values, stationarity status,
+and which features were dropped — feed this into /reflect for feature quality analysis
+
 ### Feature Importance Check
 **How:** Directly import `SHAPExplainer` from `quantcore.models.explainer`
 **When:** After a backtest fails — understand which features actually drove signals
@@ -162,7 +174,8 @@ signal may be autocorrelation artefact, not a real edge
 **How:** `from quantcore.equity.pipeline import run_ml_strategy`
 **When:** Rule-based workshop strategies repeatedly fail Sharpe > 1.0 threshold
 **What it adds:** GradientBoosting classifier trained on 200+ features with
-TimeSeriesSplit CV — provides calibrated probability of up/down move
+CausalFilter pre-selection + TimeSeriesSplit CV — provides calibrated probability
+of up/down move
 
 ### Changepoint Detection
 **How:** `from quantcore.hierarchy.regime.changepoint import BayesianChangepointDetector`

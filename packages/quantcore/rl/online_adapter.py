@@ -129,7 +129,7 @@ class PostTradeRLAdapter:
             self._updates_today += 1
 
         elif tool_name == "rl_execution_strategy" and self.config.enable_execution_rl:
-            reward_value = self._compute_execution_reward(slippage_bps)
+            reward_value = self._compute_execution_reward(slippage_bps, trade, snapshot)
             self._update_execution_agent(snapshot, reward_value)
             self._record_shadow(tool_name, snapshot, trade, reward_value, symbol)
             self._updates_today += 1
@@ -159,13 +159,41 @@ class PostTradeRLAdapter:
 
         return float(np.clip(risk_adj_pnl, -10.0, 10.0))
 
-    def _compute_execution_reward(self, slippage_bps: float) -> float:
+    def _compute_execution_reward(
+        self,
+        slippage_bps: float,
+        trade: dict[str, Any] | None = None,
+        snapshot: dict[str, Any] | None = None,
+    ) -> float:
         """
-        Negative implementation shortfall as execution reward.
+        Execution reward: improvement vs Almgren-Chriss expected cost.
 
-        Lower slippage = higher reward. Baseline TWAP ≈ 5 bps.
+        Uses AC model to compute an adaptive baseline that scales with order
+        size, volatility, and liquidity. Falls back to flat 5 bps baseline
+        when trade/snapshot data is unavailable.
         """
-        baseline_bps = 5.0
+        baseline_bps = 5.0  # fallback
+
+        if trade and snapshot:
+            try:
+                from quantcore.execution.almgren_chriss import almgren_chriss_expected_cost_bps
+
+                filled_qty = float(trade.get("filled_quantity", 0) or 0)
+                daily_vol = float(snapshot.get("daily_volume", 0) or 0)
+                volatility = float(snapshot.get("volatility_at_entry", 0) or 0)
+
+                if filled_qty > 0 and daily_vol > 0 and volatility > 0:
+                    baseline_bps = almgren_chriss_expected_cost_bps(
+                        order_shares=filled_qty,
+                        daily_volume=daily_vol,
+                        daily_volatility=volatility,
+                    )
+                    # Floor at 1 bps — AC can return very small values for tiny orders,
+                    # which would make the reward trivially positive
+                    baseline_bps = max(baseline_bps, 1.0)
+            except Exception:
+                pass  # fall back to flat baseline
+
         improvement = baseline_bps - slippage_bps
         # Scale: every bps better than baseline = +0.2 reward
         return float(np.clip(improvement * 0.2, -5.0, 5.0))

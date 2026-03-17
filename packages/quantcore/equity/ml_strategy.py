@@ -84,11 +84,29 @@ def run_ml_strategy(
                 f for f, s in zip(feature_cols, selector.get_support(), strict=False) if s
             ]
 
-            if len(selected_features) > 100:
-                correlations = (
-                    train_features[selected_features].corrwith(train_features["label"]).abs()
+            if len(selected_features) > 30:
+                from quantcore.validation.causal_filter import CausalFilter
+
+                causal = CausalFilter(max_lag=5, significance_level=0.05)
+                X_causal = causal.fit_transform(
+                    train_features[selected_features], train_features["label"]
                 )
-                selected_features = correlations.nlargest(100).index.tolist()
+                if len(X_causal.columns) >= 10:
+                    selected_features = list(X_causal.columns)
+                    logger.info(f"  Causal filter kept {len(selected_features)} features")
+                else:
+                    # Fallback: causal filter too aggressive, use top correlations
+                    correlations = (
+                        train_features[selected_features]
+                        .corrwith(train_features["label"])
+                        .abs()
+                    )
+                    selected_features = correlations.nlargest(
+                        min(100, len(selected_features))
+                    ).index.tolist()
+                    logger.info(
+                        f"  Causal filter too aggressive, fell back to top-{len(selected_features)} by correlation"
+                    )
 
             logger.info(f"  Selected {len(selected_features)} features")
 

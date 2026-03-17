@@ -92,6 +92,10 @@ _TIER_ENV_OVERRIDE = {
     # Workshop is not a CrewAI agent tier — it is resolved via get_llm_for_role("workshop")
     # by the /workshop skill for deep strategy research (always routes to cloud model).
     "workshop": "LLM_MODEL_WORKSHOP",
+    # autonomous_pm: PM synthesis in the AutonomousRunner for non-routine decisions.
+    # Defaults to groq/llama-3.3-70b-versatile (fast, free tier, good reasoning).
+    # Override with LLM_MODEL_AUTONOMOUS_PM env var.
+    "autonomous_pm": "LLM_MODEL_AUTONOMOUS_PM",
 }
 
 

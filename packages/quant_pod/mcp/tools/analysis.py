@@ -46,6 +46,12 @@ async def run_analysis(
     """
     Run TradingCrew analysis for a symbol and return a DailyBrief.
 
+    .. deprecated:: v0.3.0
+        Use ``get_signal_brief`` instead.  run_analysis calls CrewAI and Ollama
+        (3–5 min, schema-failure-prone).  get_signal_brief uses the SignalEngine
+        (~4 sec, deterministic, no LLM in analysis path).
+        run_analysis will be removed in v0.4.0.
+
     The crew runs all ICs (data, technicals, quant, risk, market monitor),
     Pod Managers compile their findings, and the Trading Assistant synthesizes
     a structured DailyBrief.  The SuperTrader is NOT invoked — Claude Code

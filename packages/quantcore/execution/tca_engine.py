@@ -214,6 +214,8 @@ class TradeRecord:
     twap_price: float | None = None  # Interval TWAP if available
     prev_close: float | None = None  # Previous day close
     timestamp: pd.Timestamp | None = None
+    daily_volume: float | None = None  # ADV for AC benchmark
+    daily_volatility: float | None = None  # Daily vol for AC benchmark
 
 
 @dataclass
@@ -235,6 +237,9 @@ class TradeTCAResult:
 
     # Summary
     is_favorable: bool  # True if fill was better than arrival price
+
+    # Almgren-Chriss benchmark
+    ac_expected_cost_bps: float | None = None  # AC model expected cost for this order
 
 
 def _shortfall_bps(
@@ -288,6 +293,20 @@ def post_trade_tca(record: TradeRecord) -> TradeTCAResult:
     direction = 1 if record.side == OrderSide.BUY else -1
     shortfall_dollar = (record.fill_price - record.arrival_price) * record.shares * direction
 
+    # Almgren-Chriss expected cost benchmark (when volume/vol data available)
+    ac_cost = None
+    if record.daily_volume and record.daily_volatility and record.shares > 0:
+        try:
+            from quantcore.execution.almgren_chriss import almgren_chriss_expected_cost_bps
+
+            ac_cost = almgren_chriss_expected_cost_bps(
+                order_shares=record.shares,
+                daily_volume=record.daily_volume,
+                daily_volatility=record.daily_volatility,
+            )
+        except Exception:
+            pass
+
     return TradeTCAResult(
         trade_id=record.trade_id,
         symbol=record.symbol,
@@ -296,6 +315,7 @@ def post_trade_tca(record: TradeRecord) -> TradeTCAResult:
         shortfall_vs_vwap_bps=vs_vwap,
         shortfall_vs_twap_bps=vs_twap,
         shortfall_vs_prev_close_bps=vs_close,
+        ac_expected_cost_bps=ac_cost,
         shortfall_dollar=shortfall_dollar,
         is_favorable=vs_arrival <= 0,
     )

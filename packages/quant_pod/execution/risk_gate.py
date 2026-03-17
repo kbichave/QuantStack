@@ -73,6 +73,21 @@ class RiskLimits:
     # Restricted list
     restricted_symbols: set[str] = field(default_factory=set)
 
+    # ── Options-specific limits (v0.5.0) ─────────────────────────────────────
+    # These only apply when instrument_type='options' is passed to check().
+    # Equity checks are unchanged and run regardless.
+
+    # Per-position: max premium at risk as % of equity
+    # For debit structures: premium paid. For credit structures: max loss (spread_width - credit).
+    max_premium_at_risk_pct: float = 0.02   # 2% of equity per options position
+
+    # Portfolio total: max options premium outstanding as % of equity
+    max_total_premium_pct: float = 0.08     # 8% of equity total options book
+
+    # DTE bounds at entry
+    min_dte_entry: int = 7    # No entries with < 7 DTE (gamma pins, binary outcomes)
+    max_dte_entry: int = 60   # No far-dated speculative entries
+
     @classmethod
     def from_env(cls) -> RiskLimits:
         """Load limits from environment variables (override defaults)."""
@@ -87,6 +102,15 @@ class RiskLimits:
             limits.min_daily_volume = int(v)
         if v := os.getenv("RISK_RESTRICTED_SYMBOLS"):
             limits.restricted_symbols = set(v.split(","))
+        # Options limits
+        if v := os.getenv("RISK_MAX_PREMIUM_AT_RISK_PCT"):
+            limits.max_premium_at_risk_pct = float(v)
+        if v := os.getenv("RISK_MAX_TOTAL_PREMIUM_PCT"):
+            limits.max_total_premium_pct = float(v)
+        if v := os.getenv("RISK_MIN_DTE_ENTRY"):
+            limits.min_dte_entry = int(v)
+        if v := os.getenv("RISK_MAX_DTE_ENTRY"):
+            limits.max_dte_entry = int(v)
         return limits
 
     @classmethod
@@ -223,17 +247,34 @@ class RiskGate:
         quantity: int,
         current_price: float,
         daily_volume: int = 0,
+        instrument_type: str = "equity",
+        premium_at_risk: float = 0.0,
+        dte: int = 0,
     ) -> RiskVerdict:
         """
         Run all risk checks. Returns RiskVerdict (approved / rejected / scaled).
 
+        For equity orders (instrument_type='equity', default):
+            standard notional-based checks apply.
+
+        For options orders (instrument_type='options'):
+            - DTE bounds checked (min_dte_entry ≤ dte ≤ max_dte_entry)
+            - premium_at_risk checked vs per-position limit (max_premium_at_risk_pct)
+            - Equity notional checks (position size, gross exposure) are SKIPPED —
+              options notional is not meaningful for risk sizing
+            - Daily halt, restricted symbols, and liquidity checks still apply
+
         Args:
-            symbol: Ticker symbol
+            symbol: Ticker symbol (underlying for options)
             side: "buy" or "sell"
-            quantity: Number of shares/contracts
-            current_price: Latest price
-            daily_volume: Average daily volume — REQUIRED. Pass 0 only if truly
-                unknown; the gate will reject the order rather than skip the check.
+            quantity: Number of shares (equity) or contracts (options)
+            current_price: Latest underlying price
+            daily_volume: Average daily volume of the underlying
+            instrument_type: "equity" (default) or "options"
+            premium_at_risk: For options only — total $ at risk for this position.
+                For debit structures: premium paid. For credit structures: max loss
+                (spread_width × contracts × 100 - credit received).
+            dte: For options only — days to expiration at entry.
         """
         violations: list[RiskViolation] = []
         snapshot = self._portfolio.get_snapshot()
@@ -324,8 +365,64 @@ class RiskGate:
             )
             quantity = max_qty
 
+        if not violations and instrument_type == "options":
+            # -- Options path: DTE and premium-at-risk checks.
+            #    Equity notional checks (steps 7-8) are skipped for options.
+            equity = snapshot.total_equity or 100_000.0
+
+            # -- 7a. DTE bounds
+            if dte > 0:
+                if dte < self.limits.min_dte_entry:
+                    violations.append(
+                        RiskViolation(
+                            rule="options_min_dte",
+                            limit=self.limits.min_dte_entry,
+                            actual=dte,
+                            description=(
+                                f"{symbol} option DTE {dte} < minimum {self.limits.min_dte_entry} "
+                                "— gamma risk too high near expiry"
+                            ),
+                        )
+                    )
+                elif dte > self.limits.max_dte_entry:
+                    violations.append(
+                        RiskViolation(
+                            rule="options_max_dte",
+                            limit=self.limits.max_dte_entry,
+                            actual=dte,
+                            description=(
+                                f"{symbol} option DTE {dte} > maximum {self.limits.max_dte_entry} "
+                                "— no far-dated speculative entries"
+                            ),
+                        )
+                    )
+
+            # -- 7b. Per-position premium at risk
+            if premium_at_risk > 0:
+                max_premium = equity * self.limits.max_premium_at_risk_pct
+                if premium_at_risk > max_premium:
+                    violations.append(
+                        RiskViolation(
+                            rule="options_premium_at_risk",
+                            limit=max_premium,
+                            actual=premium_at_risk,
+                            description=(
+                                f"{symbol} options premium at risk ${premium_at_risk:,.0f} > "
+                                f"limit ${max_premium:,.0f} "
+                                f"({self.limits.max_premium_at_risk_pct:.0%} of equity)"
+                            ),
+                        )
+                    )
+
+            if violations:
+                for v in violations:
+                    logger.warning(f"[RISK] OPTIONS VIOLATION [{v.rule}]: {v.description}")
+                return RiskVerdict(approved=False, violations=violations)
+
+            return RiskVerdict(approved=True, approved_quantity=quantity)
+
         if not violations:
-            # -- 7. Per-symbol position size
+            # -- 7. Per-symbol position size (equity path)
             equity = snapshot.total_equity or 100_000.0
             order_notional = quantity * current_price
 

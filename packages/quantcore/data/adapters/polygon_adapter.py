@@ -112,6 +112,93 @@ class PolygonAdapter(AssetClassAdapter):
     def get_available_symbols(self) -> list[str]:
         return []
 
+    def fetch_options_chain(
+        self,
+        symbol: str,
+        expiry_min_days: int = 0,
+        expiry_max_days: int = 60,
+    ) -> list[dict] | None:
+        """Fetch live options chain snapshot from Polygon.io.
+
+        Uses the /v3/snapshot/options/{underlyingAsset} endpoint.
+        Requires a Polygon Starter plan ($29/mo) or higher.
+        Returns None if options data is unavailable or the API key lacks access.
+        """
+        try:
+            from polygon import RESTClient as PolygonREST
+        except ImportError:
+            logger.debug("[PolygonAdapter] polygon-api-client not available")
+            return None
+
+        import os
+        from datetime import date as _date, timedelta
+
+        api_key = self._provider.api_key if hasattr(self._provider, "api_key") else os.getenv("POLYGON_API_KEY", "")
+        if not api_key:
+            return None
+
+        today = _date.today()
+        min_expiry = today + timedelta(days=expiry_min_days)
+        max_expiry = today + timedelta(days=expiry_max_days)
+
+        try:
+            client = PolygonREST(api_key)
+            contracts: list[dict] = []
+
+            # Polygon returns paginated results; iterate all pages
+            for snap in client.list_snapshot_options_chain(
+                underlying_asset=symbol,
+                limit=250,
+            ):
+                try:
+                    details = snap.details
+                    greeks = snap.greeks
+                    day = snap.day
+                    last_quote = snap.last_quote
+
+                    expiry_str = details.expiration_date
+                    if not expiry_str:
+                        continue
+                    expiry_date = _date.fromisoformat(expiry_str)
+                    if not (min_expiry <= expiry_date <= max_expiry):
+                        continue
+
+                    dte = (expiry_date - today).days
+                    bid = float(last_quote.bid) if last_quote and last_quote.bid else None
+                    ask = float(last_quote.ask) if last_quote and last_quote.ask else None
+                    mid = round((bid + ask) / 2, 2) if bid and ask else None
+
+                    contracts.append({
+                        "contract_id": snap.details.ticker,
+                        "underlying": symbol,
+                        "expiry": expiry_str,
+                        "strike": float(details.strike_price),
+                        "option_type": details.contract_type,  # "call" or "put"
+                        "dte": dte,
+                        "bid": bid,
+                        "ask": ask,
+                        "mid": mid,
+                        "last": float(day.close) if day and day.close else None,
+                        "iv": float(snap.implied_volatility) if snap.implied_volatility else None,
+                        "delta": float(greeks.delta) if greeks and greeks.delta else None,
+                        "gamma": float(greeks.gamma) if greeks and greeks.gamma else None,
+                        "theta": float(greeks.theta) if greeks and greeks.theta else None,
+                        "vega": float(greeks.vega) if greeks and greeks.vega else None,
+                        "open_interest": int(snap.open_interest) if snap.open_interest else None,
+                        "volume": int(day.volume) if day and day.volume else None,
+                        "source": "polygon",
+                    })
+                except Exception as exc:
+                    logger.debug(f"[PolygonAdapter] skipping contract: {exc}")
+                    continue
+
+            logger.info(f"[PolygonAdapter] fetched {len(contracts)} option contracts for {symbol}")
+            return contracts if contracts else None
+
+        except Exception as exc:
+            logger.warning(f"[PolygonAdapter] options chain failed for {symbol}: {exc}")
+            return None
+
     # ── Internal fetch ────────────────────────────────────────────────────────
 
     def _fetch(

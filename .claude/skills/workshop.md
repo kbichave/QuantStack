@@ -12,6 +12,17 @@ Research, backtest, and validate new trading strategies.  Every strategy goes
 through the same lifecycle: hypothesis → backtest → walk-forward → register
 (or reject).  This skill enforces that discipline.
 
+## Instrument Type
+
+Specify instrument type at the start of each session:
+- **equity** (default): rule-based swing strategies, use `run_backtest` / `run_walkforward`
+- **options**: options convexity on an equity signal, use `run_backtest_options` instead of `run_backtest`
+- **investment**: long-term fundamentals, use 1D/1W timeframes only, require 500+ bars minimum;
+  backtesting is less relevant — use `/invest` instead for live fundamental scoring
+
+For options sessions: the backtest uses synthetic IV (`compute_option_chain`), which is acceptable
+for strategy design. For actual trade execution, use `get_options_chain` (live data) in `/options`.
+
 ## Workflow
 
 ### Step 0: Read Context + Infrastructure Check

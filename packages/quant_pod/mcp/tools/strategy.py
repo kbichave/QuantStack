@@ -23,6 +23,9 @@ async def register_strategy(
     regime_affinity: dict[str, float] | None = None,
     risk_params: dict[str, Any] | None = None,
     source: str = "manual",
+    instrument_type: str = "equity",
+    time_horizon: str = "swing",
+    holding_period_days: int = 5,
 ) -> dict[str, Any]:
     """
     Register a new strategy in the persistent catalog.
@@ -37,6 +40,9 @@ async def register_strategy(
         regime_affinity: Map of regime → suitability score (0-1).
         risk_params: Sizing/stop config (e.g., {"stop_loss_atr": 2.0}).
         source: "manual", "decoded", "workshop", "generated".
+        instrument_type: "equity", "options", "multi_leg" — what this strategy trades.
+        time_horizon: "intraday", "swing", "position", "investment" — holding cadence.
+        holding_period_days: Expected holding period in days (default 5 for swing).
 
     Returns:
         Dict with strategy_id and status.
@@ -54,8 +60,9 @@ async def register_strategy(
             """
             INSERT INTO strategies
                 (strategy_id, name, description, asset_class, regime_affinity,
-                 parameters, entry_rules, exit_rules, risk_params, status, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                 parameters, entry_rules, exit_rules, risk_params, status, source,
+                 instrument_type, time_horizon, holding_period_days)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
             """,
             [
                 strategy_id,
@@ -68,6 +75,9 @@ async def register_strategy(
                 json.dumps(exit_rules),
                 json.dumps(risk_params or {}),
                 source,
+                instrument_type,
+                time_horizon,
+                holding_period_days,
             ],
         )
         logger.info(f"[quantpod_mcp] Registered strategy {strategy_id}: {name}")
@@ -181,6 +191,9 @@ async def get_strategy(
             "created_at",
             "updated_at",
             "created_by",
+            "instrument_type",
+            "time_horizon",
+            "holding_period_days",
         ]
         record = {}
         for i, col in enumerate(cols):
@@ -220,6 +233,9 @@ async def update_strategy(
     regime_affinity: dict[str, float] | None = None,
     backtest_summary: dict[str, Any] | None = None,
     walkforward_summary: dict[str, Any] | None = None,
+    instrument_type: str | None = None,
+    time_horizon: str | None = None,
+    holding_period_days: int | None = None,
 ) -> dict[str, Any]:
     """
     Update fields of an existing strategy.
@@ -237,6 +253,9 @@ async def update_strategy(
         regime_affinity: Updated regime affinity map.
         backtest_summary: Backtest results to store.
         walkforward_summary: Walk-forward results to store.
+        instrument_type: "equity", "options", "multi_leg".
+        time_horizon: "intraday", "swing", "position", "investment".
+        holding_period_days: Expected holding period in days.
 
     Returns:
         Updated strategy record.
@@ -252,6 +271,9 @@ async def update_strategy(
         field_map = {
             "status": status,
             "description": description,
+            "instrument_type": instrument_type,
+            "time_horizon": time_horizon,
+            "holding_period_days": holding_period_days,
         }
         json_fields = {
             "parameters": parameters,
@@ -286,7 +308,7 @@ async def update_strategy(
         logger.info(f"[quantpod_mcp] Updated strategy {strategy_id}")
 
         # Return the updated record
-        return await get_strategy(strategy_id=strategy_id)
+        return await get_strategy.fn(strategy_id=strategy_id)
     except Exception as e:
         logger.error(f"[quantpod_mcp] update_strategy failed: {e}")
         return {"success": False, "error": str(e)}

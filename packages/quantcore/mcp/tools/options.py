@@ -888,3 +888,298 @@ async def simulate_trade_outcome(
 
     except Exception as e:
         return {"error": str(e)}
+
+
+# =============================================================================
+# LIVE OPTIONS CHAIN TOOLS (Phase 1 — v0.5.0)
+# =============================================================================
+
+
+@mcp.tool()
+async def get_options_chain(
+    symbol: str,
+    expiry_min_days: int = 7,
+    expiry_max_days: int = 45,
+    option_type: str | None = None,
+) -> dict[str, Any]:
+    """
+    Fetch live options chain from broker data (Alpaca → Polygon fallback).
+
+    Returns real bid/ask, IV, and Greeks for each contract. Use this tool
+    for /options execution decisions. For strategy design and backtesting,
+    use compute_option_chain (synthetic).
+
+    Falls back to synthetic compute_option_chain if broker data is unavailable
+    (no API key, market closed, no options subscription). The 'source' field
+    in the response indicates where the data came from.
+
+    Args:
+        symbol: Underlying equity symbol (e.g., "SPY").
+        expiry_min_days: Minimum DTE to include (default 7 — avoids gamma pins).
+        expiry_max_days: Maximum DTE to include (default 45 — standard range).
+        option_type: Filter to "call" or "put" only. None returns both.
+
+    Returns:
+        Dict with:
+            - symbol, underlying_price, as_of
+            - contracts: list of contract dicts (strike, expiry, dte, bid, ask,
+                         mid, iv, delta, gamma, theta, vega, open_interest, volume)
+            - calls: contracts filtered to calls
+            - puts: contracts filtered to puts
+            - source: "alpaca" | "polygon" | "synthetic"
+            - chain_metrics: atm_strike, atm_iv, num_calls, num_puts
+    """
+    import os
+
+    from quantcore.data.adapters.alpaca import AlpacaAdapter
+    from quantcore.data.adapters.polygon_adapter import PolygonAdapter
+
+    # Try Alpaca first, then Polygon, then synthetic fallback
+    contracts: list[dict] | None = None
+    data_source = "synthetic"
+
+    alpaca_key = os.getenv("ALPACA_API_KEY", "")
+    if alpaca_key:
+        try:
+            adapter = AlpacaAdapter(api_key=alpaca_key, secret_key=os.getenv("ALPACA_SECRET_KEY", ""))
+            contracts = adapter.fetch_options_chain(symbol, expiry_min_days, expiry_max_days)
+            if contracts:
+                data_source = "alpaca"
+        except Exception:
+            contracts = None
+
+    if not contracts:
+        polygon_key = os.getenv("POLYGON_API_KEY", "")
+        if polygon_key:
+            try:
+                adapter = PolygonAdapter(api_key=polygon_key)
+                contracts = adapter.fetch_options_chain(symbol, expiry_min_days, expiry_max_days)
+                if contracts:
+                    data_source = "polygon"
+            except Exception:
+                contracts = None
+
+    # Fallback: synthetic chain from compute_option_chain
+    if not contracts:
+        synthetic = await compute_option_chain(symbol=symbol)
+        if "error" in synthetic:
+            return synthetic
+        underlying_price = synthetic["underlying_price"]
+        all_contracts = []
+        for c in synthetic.get("calls", []):
+            all_contracts.append({**c, "option_type": "call", "underlying": symbol,
+                                   "expiry": None, "contract_id": f"{symbol}_call_{c['strike']}",
+                                   "open_interest": None, "volume": None, "last": None,
+                                   "mid": c.get("mid", c.get("ask"))})
+        for p in synthetic.get("puts", []):
+            all_contracts.append({**p, "option_type": "put", "underlying": symbol,
+                                   "expiry": None, "contract_id": f"{symbol}_put_{p['strike']}",
+                                   "open_interest": None, "volume": None, "last": None,
+                                   "mid": p.get("mid", p.get("ask"))})
+        contracts = all_contracts
+        data_source = "synthetic"
+        as_of = synthetic.get("as_of", "synthetic")
+    else:
+        store = _get_reader()
+        try:
+            df = store.load_ohlcv(symbol, _parse_timeframe("daily"))
+            underlying_price = float(df["close"].iloc[-1]) if not df.empty else None
+            as_of = str(df.index[-1]) if not df.empty else "unknown"
+        except Exception:
+            underlying_price = None
+            as_of = "unknown"
+        finally:
+            store.close()
+
+        # Write to options_chains table for get_iv_surface to read later
+        try:
+            from datetime import date
+            from quantcore.data.storage import DataStore
+            ds = DataStore()
+            today_str = str(date.today())
+            for c in contracts:
+                ds.conn.execute("""
+                    INSERT OR REPLACE INTO options_chains
+                        (contract_id, underlying, data_date, expiry, strike, option_type,
+                         bid, ask, mid, last, volume, open_interest, iv,
+                         delta, gamma, theta, vega, rho)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, [
+                    c.get("contract_id"), c.get("underlying"), today_str,
+                    c.get("expiry"), c.get("strike"), c.get("option_type"),
+                    c.get("bid"), c.get("ask"), c.get("mid"), c.get("last"),
+                    c.get("volume"), c.get("open_interest"), c.get("iv"),
+                    c.get("delta"), c.get("gamma"), c.get("theta"), c.get("vega"), None,
+                ])
+            ds.close()
+        except Exception:
+            pass  # Storage write is best-effort; chain data is still returned
+
+    # Filter by option_type if requested
+    if option_type:
+        otype = option_type.lower()
+        contracts = [c for c in contracts if c.get("option_type", "").lower() == otype]
+
+    calls = [c for c in contracts if c.get("option_type", "").lower() == "call"]
+    puts = [c for c in contracts if c.get("option_type", "").lower() == "put"]
+
+    # Compute ATM metrics
+    atm_iv = None
+    atm_strike = None
+    if underlying_price and contracts:
+        atm_contracts = sorted(contracts, key=lambda c: abs((c.get("strike") or 0) - underlying_price))
+        if atm_contracts:
+            atm_strike = atm_contracts[0].get("strike")
+            atm_ivs = [c["iv"] for c in atm_contracts[:4] if c.get("iv")]
+            atm_iv = round(sum(atm_ivs) / len(atm_ivs), 4) if atm_ivs else None
+
+    return {
+        "symbol": symbol,
+        "underlying_price": underlying_price,
+        "as_of": as_of,
+        "source": data_source,
+        "contracts": contracts,
+        "calls": sorted(calls, key=lambda c: (c.get("expiry") or "", c.get("strike") or 0)),
+        "puts": sorted(puts, key=lambda c: (c.get("expiry") or "", c.get("strike") or 0)),
+        "chain_metrics": {
+            "atm_strike": atm_strike,
+            "atm_iv": atm_iv,
+            "num_calls": len(calls),
+            "num_puts": len(puts),
+            "expiry_range_days": f"{expiry_min_days}-{expiry_max_days}",
+        },
+        "note": f"Data source: {data_source}" + (" — use live broker data for execution" if data_source == "synthetic" else ""),
+    }
+
+
+@mcp.tool()
+async def get_iv_surface(
+    symbol: str,
+) -> dict[str, Any]:
+    """
+    Compute IV surface metrics from today's stored options chain data.
+
+    Reads the options_chains table populated by get_options_chain. If today's
+    data is not stored, calls get_options_chain first.
+
+    Returns IV rank, IV percentile, skew (25-delta), and term structure —
+    the inputs needed for the /options structure selection decision matrix.
+
+    Args:
+        symbol: Underlying equity symbol (e.g., "SPY").
+
+    Returns:
+        Dict with:
+            - iv_rank: Current IV vs 52-week range (0–100), None until history builds
+            - iv_percentile: % of days in past year with lower IV
+            - atm_iv_30d: ATM IV for nearest 30-DTE expiry
+            - atm_iv_60d: ATM IV for nearest 60-DTE expiry
+            - skew_25d: 25-delta put IV minus 25-delta call IV (positive = put skew)
+            - term_structure: list of {expiry, dte, atm_iv} sorted by DTE
+            - data_source: where chain data came from
+    """
+    from datetime import date
+    from collections import defaultdict
+
+    today = str(date.today())
+    today_date = date.today()
+
+    def _load_rows():
+        from quantcore.data.storage import DataStore
+        ds = DataStore()
+        rows = ds.conn.execute("""
+            SELECT expiry, strike, option_type, iv, delta
+            FROM options_chains
+            WHERE underlying = ? AND data_date = ? AND iv IS NOT NULL
+            ORDER BY expiry, strike
+        """, [symbol, today]).fetchall()
+        ds.close()
+        return rows
+
+    try:
+        rows = _load_rows()
+    except Exception:
+        rows = []
+
+    if not rows:
+        chain_result = await get_options_chain(symbol=symbol)
+        if "error" in chain_result:
+            return chain_result
+        try:
+            rows = _load_rows()
+        except Exception:
+            rows = []
+
+    if not rows:
+        return {
+            "symbol": symbol,
+            "iv_rank": None,
+            "iv_percentile": None,
+            "atm_iv_30d": None,
+            "atm_iv_60d": None,
+            "skew_25d": None,
+            "term_structure": [],
+            "data_source": "none",
+            "note": "No options chain data available for today",
+        }
+
+    expiry_contracts: dict[str, list] = defaultdict(list)
+    for expiry, strike, option_type, iv, delta in rows:
+        expiry_contracts[str(expiry)].append({
+            "strike": strike, "option_type": option_type,
+            "iv": float(iv), "delta": float(delta) if delta else None,
+        })
+
+    term_structure = []
+    for expiry_str, contracts in sorted(expiry_contracts.items()):
+        try:
+            exp_date = date.fromisoformat(expiry_str)
+        except (ValueError, TypeError):
+            continue
+        dte = (exp_date - today_date).days
+        if dte < 0:
+            continue
+
+        calls = [c for c in contracts if c["option_type"] == "call" and c["iv"] and c["delta"]]
+        if calls:
+            atm_call = min(calls, key=lambda c: abs((c["delta"] or 0) - 0.50))
+            term_structure.append({"expiry": expiry_str, "dte": dte, "atm_iv": round(atm_call["iv"], 4)})
+
+    def _nearest_iv(dte_target: int) -> float | None:
+        if not term_structure:
+            return None
+        closest = min(term_structure, key=lambda x: abs(x["dte"] - dte_target))
+        return closest["atm_iv"] if abs(closest["dte"] - dte_target) <= 15 else None
+
+    atm_iv_30d = _nearest_iv(30)
+    atm_iv_60d = _nearest_iv(60)
+
+    # 25-delta skew for front month
+    skew_25d = None
+    if term_structure:
+        front_expiry = term_structure[0]["expiry"]
+        front_contracts = expiry_contracts.get(front_expiry, [])
+        put_25d = next(
+            (c["iv"] for c in front_contracts
+             if c["option_type"] == "put" and c["delta"] and abs(abs(c["delta"]) - 0.25) < 0.05),
+            None,
+        )
+        call_25d = next(
+            (c["iv"] for c in front_contracts
+             if c["option_type"] == "call" and c["delta"] and abs(c["delta"] - 0.25) < 0.05),
+            None,
+        )
+        if put_25d and call_25d:
+            skew_25d = round(put_25d - call_25d, 4)
+
+    return {
+        "symbol": symbol,
+        "iv_rank": None,   # Requires 52-week daily chain history to compute
+        "iv_percentile": None,
+        "atm_iv_30d": atm_iv_30d,
+        "atm_iv_60d": atm_iv_60d,
+        "skew_25d": skew_25d,
+        "term_structure": term_structure,
+        "data_source": "options_chains_table",
+        "note": "iv_rank/iv_percentile require 52-week of daily chain data — will populate over time",
+    }

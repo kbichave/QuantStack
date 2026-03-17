@@ -199,6 +199,7 @@ def run_migrations(conn: duckdb.DuckDBPyConnection) -> None:
         _migrate_system(conn)
         _migrate_strategies(conn)
         _migrate_regime_matrix(conn)
+        _migrate_strategy_outcomes(conn)
         conn.execute("COMMIT")
         logger.info("[DB] Migrations complete")
     except Exception:
@@ -429,6 +430,19 @@ def _migrate_strategies(conn: duckdb.DuckDBPyConnection) -> None:
         CREATE INDEX IF NOT EXISTS strategies_status_idx
         ON strategies (status)
     """)
+    # v0.5.0 additive columns — instrument type and time horizon classification
+    conn.execute("""
+        ALTER TABLE strategies
+        ADD COLUMN IF NOT EXISTS instrument_type VARCHAR DEFAULT 'equity'
+    """)
+    conn.execute("""
+        ALTER TABLE strategies
+        ADD COLUMN IF NOT EXISTS time_horizon VARCHAR DEFAULT 'swing'
+    """)
+    conn.execute("""
+        ALTER TABLE strategies
+        ADD COLUMN IF NOT EXISTS holding_period_days INTEGER DEFAULT 5
+    """)
 
 
 def _migrate_regime_matrix(conn: duckdb.DuckDBPyConnection) -> None:
@@ -452,4 +466,42 @@ def _migrate_regime_matrix(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS rsm_regime_idx
         ON regime_strategy_matrix (regime)
+    """)
+
+
+def _migrate_strategy_outcomes(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Strategy outcome attribution — the learning loop's ground truth.
+
+    Written at entry (buy fill) and closed at exit (sell fill) by execute_trade.
+    OutcomeTracker reads this table to update regime_affinity weights.
+
+    Why a separate table (not a column on closed_trades):
+      closed_trades is owned by PortfolioState, which has no concept of strategies.
+      This table belongs to the learning layer, injected by the MCP execution path.
+      Decoupled by design — a closed_trades failure never corrupts outcome data.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_outcomes (
+            id               INTEGER PRIMARY KEY,
+            strategy_id      VARCHAR NOT NULL,
+            symbol           VARCHAR NOT NULL,
+            regime_at_entry  VARCHAR NOT NULL DEFAULT 'unknown',
+            action           VARCHAR NOT NULL,
+            entry_price      DOUBLE NOT NULL,
+            exit_price       DOUBLE,
+            realized_pnl_pct DOUBLE,
+            outcome          VARCHAR,
+            opened_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            closed_at        TIMESTAMP,
+            session_id       VARCHAR DEFAULT ''
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS so_strategy_idx
+        ON strategy_outcomes (strategy_id)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS so_open_idx
+        ON strategy_outcomes (strategy_id, symbol, closed_at)
     """)

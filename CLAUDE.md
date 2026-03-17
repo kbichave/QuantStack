@@ -117,7 +117,7 @@ currently tracking, so you don't have to re-read memory after every `run_analysi
 
 | Tool | Description | Input | Output |
 |------|-------------|-------|--------|
-| `register_strategy` | Register a new strategy in the catalog | `name`, `parameters`, `entry_rules`, `exit_rules`, `description?`, `asset_class?`, `regime_affinity?`, `risk_params?`, `source?` | `{strategy_id, status}` |
+| `register_strategy` | Register a new strategy in the catalog | `name`, `parameters`, `entry_rules`, `exit_rules`, `description?`, `asset_class?`, `regime_affinity?`, `risk_params?`, `source?`, `instrument_type?`, `time_horizon?`, `holding_period_days?` | `{strategy_id, status}` |
 | `list_strategies` | List strategies with optional filters | `status?`, `asset_class?` | `{strategies, total}` |
 | `get_strategy` | Get full strategy details | `strategy_id?`, `name?` | `{strategy}` |
 | `update_strategy` | Update strategy fields | `strategy_id`, partial fields | updated record |
@@ -411,6 +411,13 @@ Overridable via environment variables.
 | Min daily volume (ADV) | 500,000 | `RISK_MIN_DAILY_VOLUME` | Rejected |
 | Max ADV participation | 1% | — | Order quantity capped |
 | Restricted symbols | (empty) | `RISK_RESTRICTED_SYMBOLS` | Rejected |
+| **Options: max premium at risk per position** | 2% of equity | `RISK_MAX_PREMIUM_AT_RISK_PCT` | Rejected |
+| **Options: max total premium outstanding** | 8% of equity | `RISK_MAX_TOTAL_PREMIUM_PCT` | Advisory (not auto-enforced yet) |
+| **Options: min DTE at entry** | 7 days | `RISK_MIN_DTE_ENTRY` | Rejected |
+| **Options: max DTE at entry** | 60 days | `RISK_MAX_DTE_ENTRY` | Rejected |
+
+Options checks only activate when `instrument_type='options'` is passed to `risk_gate.check()`.
+Equity checks are unchanged and run regardless of instrument_type.
 
 Daily halt state persists via sentinel file (`~/.quant_pod/DAILY_HALT_ACTIVE`)
 and survives process restarts.
@@ -489,7 +496,8 @@ You have permission and are expected to update your own configuration.
 | `/decode` | `.claude/skills/decode.md` | Reverse-engineer strategies from trade history |
 | `/meta` | `.claude/skills/meta.md` | Portfolio-level orchestration across symbols and strategies |
 | `/review` | `.claude/skills/review.md` | Position review, strategy lifecycle, promotion/retirement |
-| `/tune` | `.claude/skills/tune.md` | Edit IC/pod manager prompts based on accuracy data from /reflect. Run after 3+ reflect sessions or when an IC accuracy < 50%. |
+| `/invest` | `.claude/skills/invest.md` | Long-term fundamental investing — weekly cadence, DCF + quality scoring |
+| `/options` | `.claude/skills/options.md` | Short-term options trading — event-driven, Greeks/IV-based, expiry cadence |
 | `/compact-memory` | `.claude/skills/compact_memory.md` | Distill memory files to remove stale/redundant entries. Run when any file exceeds 200 lines or after 5+ sessions. |
 
 ### Reference (not user-invocable)

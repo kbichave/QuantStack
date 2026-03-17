@@ -39,6 +39,14 @@ try:
 except ImportError:
     _ALPACA_AVAILABLE = False
 
+try:
+    from alpaca.data.historical import OptionHistoricalDataClient
+    from alpaca.data.requests import OptionSnapshotRequest
+
+    _ALPACA_OPTIONS_AVAILABLE = True
+except ImportError:
+    _ALPACA_OPTIONS_AVAILABLE = False
+
 
 # Timeframes that Alpaca serves natively (no resample needed)
 _ALPACA_NATIVE = {
@@ -94,6 +102,47 @@ def _bars_to_df(bar_set) -> pd.DataFrame:
     df = df.set_index("timestamp").sort_index()
     df.index.name = "timestamp"
     return df
+
+
+def _parse_alpaca_expiry(contract_symbol: str) -> str | None:
+    """Extract expiry date string (YYYY-MM-DD) from Alpaca contract symbol.
+
+    Alpaca contract symbols follow the OCC format: <underlying><YYMMDD><C|P><strike*1000>.
+    Examples: SPY240119C00480000, AAPL240119P00170000
+    """
+    import re
+
+    match = re.search(r"([CP])(\d{6})\d+$", contract_symbol)
+    if not match:
+        return None
+    # Find the date portion (comes before C/P)
+    date_match = re.search(r"(\d{6})[CP]", contract_symbol)
+    if not date_match:
+        return None
+    date_str = date_match.group(1)
+    try:
+        year = 2000 + int(date_str[:2])
+        month = int(date_str[2:4])
+        day = int(date_str[4:6])
+        return f"{year:04d}-{month:02d}-{day:02d}"
+    except (ValueError, IndexError):
+        return None
+
+
+def _parse_alpaca_strike(contract_symbol: str) -> float | None:
+    """Extract strike price from Alpaca contract symbol.
+
+    The last 8 digits encode strike * 1000 (e.g., 00480000 = $480.00).
+    """
+    import re
+
+    match = re.search(r"[CP](\d{8})$", contract_symbol)
+    if not match:
+        return None
+    try:
+        return int(match.group(1)) / 1000.0
+    except (ValueError, IndexError):
+        return None
 
 
 class AlpacaAdapter(AssetClassAdapter):
@@ -195,6 +244,93 @@ class AlpacaAdapter(AssetClassAdapter):
             return self._resampler.resample_to_higher_tf(df_1d, Timeframe.W1)
 
         return self._fetch_native(symbol, timeframe, start_date, end_date)
+
+    def fetch_options_chain(
+        self,
+        symbol: str,
+        expiry_min_days: int = 0,
+        expiry_max_days: int = 60,
+    ) -> list[dict] | None:
+        """Fetch live options chain snapshot from Alpaca.
+
+        Requires an Alpaca Options Data subscription. Returns None if
+        options data is unavailable (no subscription, market closed, import error).
+        """
+        if not _ALPACA_OPTIONS_AVAILABLE:
+            logger.debug("[AlpacaAdapter] alpaca-py options client not available")
+            return None
+
+        try:
+            client = OptionHistoricalDataClient(
+                api_key=self._api_key,
+                secret_key=self._secret_key,
+            )
+            request = OptionSnapshotRequest(underlying_symbols=[symbol])
+            snapshots = client.get_option_snapshot(request)
+        except Exception as exc:
+            logger.warning(f"[AlpacaAdapter] options snapshot failed for {symbol}: {exc}")
+            return None
+
+        if not snapshots:
+            return None
+
+        from datetime import date as _date, timedelta
+
+        today = _date.today()
+        min_expiry = today + timedelta(days=expiry_min_days)
+        max_expiry = today + timedelta(days=expiry_max_days)
+
+        contracts: list[dict] = []
+        for contract_symbol, snap in snapshots.items():
+            try:
+                greeks = snap.greeks
+                quote = snap.latest_quote
+                trade = snap.latest_trade
+
+                # Parse expiry from contract symbol (e.g., "SPY240119C00480000")
+                expiry_str = _parse_alpaca_expiry(contract_symbol)
+                if expiry_str is None:
+                    continue
+                expiry_date = _date.fromisoformat(expiry_str)
+
+                if not (min_expiry <= expiry_date <= max_expiry):
+                    continue
+
+                dte = (expiry_date - today).days
+                option_type = "call" if "C" in contract_symbol[len(symbol):] else "put"
+                strike = _parse_alpaca_strike(contract_symbol)
+
+                bid = float(quote.bid_price) if quote and quote.bid_price else None
+                ask = float(quote.ask_price) if quote and quote.ask_price else None
+                mid = round((bid + ask) / 2, 2) if bid and ask else None
+                last = float(trade.price) if trade and trade.price else None
+
+                contracts.append({
+                    "contract_id": contract_symbol,
+                    "underlying": symbol,
+                    "expiry": expiry_str,
+                    "strike": strike,
+                    "option_type": option_type,
+                    "dte": dte,
+                    "bid": bid,
+                    "ask": ask,
+                    "mid": mid,
+                    "last": last,
+                    "iv": float(snap.implied_volatility) if snap.implied_volatility else None,
+                    "delta": float(greeks.delta) if greeks and greeks.delta else None,
+                    "gamma": float(greeks.gamma) if greeks and greeks.gamma else None,
+                    "theta": float(greeks.theta) if greeks and greeks.theta else None,
+                    "vega": float(greeks.vega) if greeks and greeks.vega else None,
+                    "open_interest": int(snap.open_interest) if snap.open_interest else None,
+                    "volume": int(snap.day.volume) if snap.day and snap.day.volume else None,
+                    "source": "alpaca",
+                })
+            except Exception as exc:
+                logger.debug(f"[AlpacaAdapter] skipping contract {contract_symbol}: {exc}")
+                continue
+
+        logger.info(f"[AlpacaAdapter] fetched {len(contracts)} option contracts for {symbol}")
+        return contracts if contracts else None
 
     def _fetch_native(
         self,

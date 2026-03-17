@@ -14,7 +14,8 @@ Claude Code slash commands for the QuantPod trading system. Type `/skill-name` t
 | [workshop](workshop.md) | `/workshop` | Research and backtest a new strategy hypothesis | When a regime slot is empty or a strategy has failed |
 | [reflect](reflect.md) | `/reflect` | Review recent outcomes, update memory, fix broken skills and IC prompts | Weekly or after 10+ trades |
 | [decode](decode.md) | `/decode` | Reverse-engineer a strategy from external signal history or your own trade log | When you see a pattern worth formalising |
-| [tune](tune.md) | `/tune` | Edit IC and pod manager prompts based on accuracy data | After 3+ reflect sessions or when an IC accuracy < 50% |
+| [invest](invest.md) | `/invest` | Long-term fundamental investing — weekly cadence, DCF + quality scoring | When building or reviewing long-term equity positions |
+| [options](options.md) | `/options` | Short-term options trading — event-driven, Greeks/IV-based, expiry cadence | When entering options structures on events or IV signals |
 | [compact-memory](compact_memory.md) | `/compact-memory` | Distil memory files, remove stale/redundant entries | When any memory file exceeds 200 lines, or after 5+ sessions |
 
 ---
@@ -36,12 +37,22 @@ Typical day:
 
 Weekly (Friday close):
 ```
-/reflect  →  (if IC accuracy issues) /tune
+/reflect  →  (if signal quality issues) fix collector code in signal_engine/collectors/
 ```
 
 Strategy R&D (any time):
 ```
 /workshop  →  (if decoding external signals) /decode
+```
+
+Long-term investing (weekly cadence):
+```
+/invest  →  /review (weekly fundamental check)
+```
+
+Options trading:
+```
+/options  →  /review (DTE + theta monitoring)
 ```
 
 ---

@@ -58,6 +58,16 @@ For each open position:
 - Call `get_rl_recommendation` for position size adjustment signal.
 - Note: this is advisory only (shadow mode).
 
+**f) Options Position Checks (if position has `instrument_type='options'`):**
+- Check DTE remaining: if < 21 days, flag for **CLOSE** regardless of P&L (gamma risk)
+- Check theta bleed: daily theta as % of remaining position value (flag if > 2%/day)
+- Check IV change since entry: if IV moved > 20 relative IV points, re-evaluate the structure
+- Check proximity to breakeven: if price within 1 ATR of short strike, flag as **TIGHTEN**
+- Standard management rules:
+  - Credit spread / condor: close at 50% of max profit (don't hold to expiry)
+  - Debit spread: exit at 2× premium paid if moving against you
+  - Exit at 21 DTE regardless — do NOT hold through gamma-acceleration zone
+
 ### Step 3: Categorize Each Position
 
 | Category | Condition | Action |

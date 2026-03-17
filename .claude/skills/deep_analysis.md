@@ -58,9 +58,23 @@ trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it dire
 ## Options Intelligence (run when volatility_ic flags elevated IV or options signal)
 
 ### IV Rank and Skew
+
+**For strategy design and backtesting (synthetic chain):**
 **Tool:** `mcp__quantcore__compute_option_chain(symbol, expiry_date)`
-**When:** When considering options strategies or when vol_ic output mentions elevated IV.
-**What to extract:** IV percentile rank, skew direction, term structure shape.
+**When:** `/workshop` sessions — evaluating whether a signal has options convexity, running `run_backtest_options`.
+**Important:** This chain is **synthetic** (hardcoded 25% IV, fake bid/ask spreads). Do NOT use for live /options execution.
+**What to extract:** Theoretical IV percentile, skew shape, options Sharpe vs equity Sharpe comparison.
+
+**For live /options execution (live broker chain):**
+**Tool:** `get_options_chain(symbol, expiry_min_days=7, expiry_max_days=45)`
+**When:** `/options` sessions — selecting strikes and structures for real trades.
+**What to extract:** Real bid/ask, live IV per contract, open interest, volume.
+
+**IV surface (live):**
+**Tool:** `get_iv_surface(symbol)`
+**When:** Before any `/options` entry decision.
+**What to extract:** `iv_rank` (0–100), `iv_percentile`, `skew_25d`, `atm_iv_30d`, `atm_iv_60d`.
+Use this — not `compute_option_chain` — for the IV rank decision matrix in `/options`.
 
 ### Put/Call Ratio
 **Tools:** `mcp__quantcore__analyze_option_structure` (or options_flow_ic output)

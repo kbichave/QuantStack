@@ -312,6 +312,34 @@ class AssetClassAdapter(ABC):
         """
         raise NotImplementedError("Subclasses must implement get_feature_factory")
 
+    def fetch_options_chain(
+        self,
+        symbol: str,
+        expiry_min_days: int = 0,
+        expiry_max_days: int = 60,
+    ) -> list[dict] | None:
+        """Fetch live options chain for a symbol.
+
+        Parameters
+        ----------
+        symbol : str
+            Underlying equity symbol (e.g., "SPY").
+        expiry_min_days : int
+            Minimum days to expiration to include (inclusive).
+        expiry_max_days : int
+            Maximum days to expiration to include (inclusive).
+
+        Returns
+        -------
+        list[dict] or None
+            List of contract dicts with keys:
+            contract_id, underlying, expiry, strike, option_type,
+            bid, ask, mid, iv, delta, gamma, theta, vega,
+            open_interest, volume, dte.
+            Returns None if this provider does not support options data.
+        """
+        return None  # default: provider does not support options
+
     def validate_symbol(self, symbol: str) -> bool:
         """
         Validate that a symbol is valid for this asset class.

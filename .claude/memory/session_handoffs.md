@@ -12,6 +12,13 @@
 | 2026-03-15 | /workshop v4 | /meta, /trade | quality_rsimr_15d (strat_3651b3242b6e) promoted to forward_testing. Universe: XOM, IBM, MSFT. Deploy via run_multi_analysis on these 3 symbols. WF inconclusive (signal sparsity). Next: v5 options convexity or ML SHAP discovery. |
 | 2026-03-15 | /workshop v5 | /meta, /trade | MTF strategies deployed. mtf_swing_rsimr (strat_6af32bf683f6) for XOM+MSFT (Sharpe 3.70/1.17). mtf_medium_rsimr (strat_e01e2da6d772) for MSFT only (Sharpe 0.96, 142 trades). IBM stays on v4 (quality_rsimr_15d). WF still inconclusive — needs run_walkforward_mtf tool. |
 | 2026-03-15 | /workshop v5 | all | Infra fixes: (1) run_backtest_mtf MCP tool added to quantpod. (2) QuantPod stale lock auto-recovery in db.py + server.py. (3) QuantCore DataStore switched to short-lived connections — no more permanent write locks blocking external processes. (4) Alpaca MCP not configured yet — add to settings.json for sub-hourly data. |
+| 2026-03-16 | /workshop v6 | /trade, /meta | Options strategy deployed: `options_atm_rsimr` (strat_1e4e9ba80af7) on XOM+MSFT. When RSI<35 fires, prefer ATM call 30 DTE over equity. No IV filter needed. XOM Sharpe 2.08 (47.5% avg premium return), MSFT Sharpe 3.25 (70.7%). IBM stays equity-only (v4). |
+| 2026-03-16 | /workshop v6 | all | Bug fixes: (1) `save_ohlcv` column mismatch — Alpaca returns 8 cols, save expected 6. Fixed: drop non-core cols. (2) `update_strategy` calling FunctionTool as callable — fixed to `.fn()`, needs MCP restart. (3) XOM/MSFT daily+1H data now persisted in DuckDB via Alpaca. (4) 15min data confirmed available — Profile C day trade unblocked. |
+| 2026-03-16 | /workshop v7 | /workshop v8 | RSI>65 overbought short FAILED: equity shorts Sharpe 0.007/-0.39/-0.50, puts Sharpe -0.14/0.30. Overbought≠oversold — positive drift means 70-80% of entries keep rising. Bidirectional MR on individual stocks is disproven. |
+| 2026-03-16 | /workshop v7 | all | Bug fixes: (1) BacktestEngine now includes `entry_date`/`exit_date` in trade records (engine.py). (2) `run_backtest` now returns `trades` list in response (backtesting.py). (3) Signal generator prerequisite direction: added `parameters.direction` check to route structured entries to `entry_short` when direction=SHORT (backtesting.py). All 3 need MCP server restart to take effect. |
+| 2026-03-17 | /lit-review | /workshop, all | First full literature review completed. Created `/lit-review` skill (.claude/skills/lit_review.md) + memory file (lit_review_findings.md). **P0 gaps:** (1) Grammar-guided alpha discovery (GP+RL) — AlphaCFG/HARLA outperform grid search. (2) Proactive concept drift detection — Proceed/DynaME frameworks. **P1 gaps:** Decision Transformer for meta-RL, causal discovery for alpha factors, LLM-RAG sentiment on earnings calls. See lit_review_findings.md for full roadmap. |
+
+| 2026-03-17 | v0.5.0 build | all | Multi-strategy architecture complete. Three trading styles now supported: /trade (equity swing), /invest (fundamental, weekly), /options (event/IV-driven). See self-modification log for all files changed. |
 
 ---
 
@@ -35,7 +42,32 @@
 2. `ollama pull qwen3.5:9b` and `ollama pull qwen3.5:35b-a3b`
 3. Set launchd env vars: KEEP_ALIVE=-1, FLASH_ATTENTION=1, NUM_PARALLEL=10, then restart Ollama
 4. Run `python scripts/check_ollama_health.py` to verify
-(empty)
+
+### 2026-03-17 — v0.5.0 Multi-Strategy Architecture
+
+**Files modified:**
+
+Skills:
+- `.claude/skills/tune.md` — **DELETED** (CrewAI IC tuning deprecated as of v0.3.0; fix collector code instead)
+- `.claude/skills/reflect.md` — Step 4.5 updated: replaced /tune flag with collector code fix path
+- `.claude/skills/deep_analysis.md` — Options Intelligence section: distinguish synthetic (`compute_option_chain`) vs live (`get_options_chain`) chain tools
+- `.claude/skills/workshop.md` — Added instrument_type param section (equity/options/investment)
+- `.claude/skills/review.md` — Added options position checks (DTE < 21, theta bleed, skew, 50% profit exit)
+- `.claude/skills/README.md` — Removed tune, added invest + options to user-invocable list; updated session flows
+- `.claude/skills/invest.md` — **NEW** — Long-term fundamental investing: FCF/quality scorecard, DCF MOS, weekly cadence
+- `.claude/skills/options.md` — **NEW** — Short-term options: event calendar + IV rank decision matrix, defined-risk only
+
+Infrastructure:
+- `packages/quantcore/data/base.py` — Added `fetch_options_chain()` optional interface method
+- `packages/quantcore/data/adapters/alpaca.py` — Implemented `fetch_options_chain()` via OptionHistoricalDataClient
+- `packages/quantcore/data/adapters/polygon_adapter.py` — Implemented `fetch_options_chain()` via Polygon v3 snapshot endpoint
+- `packages/quantcore/mcp/tools/options.py` — Added `get_options_chain()` and `get_iv_surface()` MCP tools (Alpaca → Polygon → synthetic fallback)
+- `packages/quant_pod/db.py` — Added `instrument_type`, `time_horizon`, `holding_period_days` columns to strategies table
+- `packages/quant_pod/mcp/tools/strategy.py` — Extended `register_strategy()` and `update_strategy()` with new fields; `get_strategy()` returns them
+- `packages/quant_pod/execution/risk_gate.py` — Added `max_premium_at_risk_pct`, `max_total_premium_pct`, `min_dte_entry`, `max_dte_entry` to `RiskLimits`; `check()` now accepts `instrument_type`, `premium_at_risk`, `dte` — options get separate check path
+- `CLAUDE.md` — Removed /tune from Section 11; added /invest + /options; added options risk limits to Section 8; updated register_strategy signature
+
+**Why:** v0.4.0 was single-instrument, single-time-horizon. v0.5.0 enables three qualitatively different trading styles. No provider switch needed — FinancialDatasets.ai already integrated. Key invariant: `compute_option_chain` (synthetic) untouched — it remains the backtest tool. `get_options_chain` (live) is additive for execution only.
 
 ## Self-Modification Log
 
@@ -71,3 +103,5 @@
 | 2026-03-15 | packages/quant_pod/crews/config/tasks.yaml | assistant_synthesis_task: prose expected_output → strict JSON schema; added {strategy_context}/{session_notes} template vars | Same root cause as assistant JSON fix | Determinism audit |
 | 2026-03-15 | packages/quant_pod/guardrails/ic_output_validator.py | New: ICOutputValidator with per-IC required field patterns; wired into _populate_ic_cache_from_result | No IC output validation existed; /tune had no evidence base | Determinism audit |
 | 2026-03-15 | .claude/skills/tune.md | New skill: /tune for IC+pod prompt improvement; wired into /reflect Step 4.5 | No process existed to improve IC prompts from reflect findings | Determinism audit |
+| 2026-03-16 | packages/quantcore/data/_ohlcv.py | Fixed save_ohlcv: drop non-core columns (vwap, trade_count) before 6-column rename | Alpaca returns 8 cols, save_ohlcv hardcoded 6; silent write failure prevented data persistence | XOM/MSFT daily data never reached DuckDB |
+| 2026-03-16 | packages/quant_pod/mcp/tools/strategy.py:289 | Fixed update_strategy: `get_strategy()` → `get_strategy.fn()` | FunctionTool objects aren't directly callable; needs `.fn()` for internal calls | `update_strategy` returned "'FunctionTool' object is not callable" |

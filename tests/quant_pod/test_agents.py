@@ -32,34 +32,6 @@ class TestRegimeDetectorAgent:
         assert agent.VOL_HIGH_PCT == 75
 
 
-class TestDeprecatedFunctions:
-    """Test that deprecated functions raise errors."""
-
-    def test_create_all_pods_raises(self):
-        """Test that create_all_pods raises NotImplementedError."""
-        from quant_pod.agents import create_all_pods
-
-        with pytest.raises(NotImplementedError):
-            create_all_pods()
-
-    def test_get_super_trader_raises(self):
-        """Test that get_super_trader raises NotImplementedError."""
-        from quant_pod.agents import get_super_trader
-
-        with pytest.raises(NotImplementedError):
-            get_super_trader()
-
-    def test_super_trader_decide_raises(self):
-        """Test that SuperTrader.decide raises NotImplementedError."""
-        from quant_pod.agents import SuperTrader
-
-        with pytest.warns(DeprecationWarning):
-            trader = SuperTrader()
-
-        with pytest.raises(NotImplementedError):
-            trader.decide()
-
-
 class TestSchemaReexports:
     """Test that schemas are properly re-exported."""
 

@@ -41,6 +41,19 @@ Call `get_event_calendar(symbol, days_ahead=30)`:
 **Critical rule:** Do NOT sell premium through earnings (IV crush can be exceeded by gap).
 The exception: iron condor where breakevens are > 2× expected move — explicit risk acceptance.
 
+### Step 1.5: Earnings Press Release Analysis
+
+If earnings within 14 days (from Step 1):
+- Call `get_earnings_press_releases(symbol, limit=3)` for the 3 most recent press releases.
+- Analyze management tone: are they guiding up or down?
+  - Look for keywords: "headwinds," "challenging environment," "cautious outlook" (bearish lean)
+  - Look for keywords: "accelerating," "raised guidance," "strong demand" (bullish lean)
+- Check if recent press releases mention tailwinds/headwinds that the market hasn't priced in.
+- This informs structure selection in Step 4:
+  - Bearish tone → lean toward put-side structures (bear put spread, put credit spread)
+  - Bullish tone → lean toward call-side structures (bull call spread, call credit spread)
+  - Mixed/neutral → stick with IV-driven structure selection (iron condor, straddle)
+
 ### Step 2: Regime + Signal
 
 Call `get_regime(symbol)` → trend_regime + volatility_regime.
@@ -52,6 +65,10 @@ Call `get_signal_brief(symbol)` → market_bias, conviction.
 | trending_down | bearish | put side / bear spread |
 | ranging | any | neutral structures |
 | any | conviction < 0.5 | neutral only |
+
+Also call `get_company_news(symbol, limit=5)` for recent news that might affect IV.
+Breaking news (M&A rumors, FDA decisions, activist involvement) can cause IV to spike
+or collapse independent of regime — factor this into IV rank interpretation in Step 4.
 
 ### Step 3: Live Options Chain
 

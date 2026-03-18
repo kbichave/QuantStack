@@ -156,6 +156,23 @@ def _generate_signals_from_rules(
     zscore_sd = close.rolling(zscore_period).std()
     df["zscore"] = (close - zscore_ma) / (zscore_sd + 1e-10)
 
+    # ── Enrich with fundamental/macro/flow features on-demand ────────────
+    # Only loads the tiers referenced by entry/exit rules. A purely technical
+    # strategy pays zero overhead. A strategy with "fund_pe_ratio < 20"
+    # triggers only the fundamentals tier.
+    try:
+        from quant_pod.features.enricher import FeatureEnricher
+
+        enricher = FeatureEnricher()
+        tiers = enricher.detect_needed_tiers(entry_rules + exit_rules)
+        if tiers.any_active():
+            symbol = str(parameters.get("symbol", ""))
+            if symbol:
+                df = enricher.enrich(df, symbol=symbol, tiers=tiers)
+    except Exception as exc:
+        # Feature enrichment is best-effort — never blocks a backtest
+        logger.debug(f"Feature enrichment skipped: {exc}")
+
     # ── Evaluate entry rules with prerequisite/confirmation hierarchy ────
     prerequisite_rules = [r for r in entry_rules if r.get("type") == "prerequisite"]
     confirmation_rules = [r for r in entry_rules if r.get("type") == "confirmation"]

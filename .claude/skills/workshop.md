@@ -25,14 +25,8 @@ for strategy design. For actual trade execution, use `get_options_chain` (live d
 
 ## Workflow
 
-### Step 0: Read Context + Infrastructure Check
+### Step 0: Read Context
 Before any tool calls:
-- Run `python scripts/check_ollama_health.py` — abort if models not loaded.
-  The trading crew used in backtesting depends on local models being resident.
-- Verify AWS credentials for Bedrock (used for deep workshop reasoning):
-  `aws sts get-caller-identity` — confirm it returns an ARN without error.
-  If credentials are expired, deep hypothesis reasoning will fall back to
-  Ollama (weaker). Note this in the session if degraded mode is active.
 - Read `.claude/memory/workshop_lessons.md` — don't repeat failed hypotheses
 - Read `.claude/memory/strategy_registry.md` — what strategies exist, what gaps remain
 - Read `.claude/memory/regime_history.md` — what's the current regime?
@@ -47,6 +41,12 @@ Compare active strategies in the registry against the current regime.
 - Which regime-strategy slots are empty?
 - Which existing strategies are underperforming (check backtest_summary)?
 - Is there a new hypothesis worth testing?
+
+**If strategy-rd desk agent is available** (`.claude/agents/strategy-rd.md` exists):
+spawn strategy-rd desk for hypothesis quality evaluation before proceeding to backtest.
+The desk agent assesses: novelty vs existing strategies, regime fit plausibility,
+parameter sensitivity risk, and expected trade count. If it flags "low novelty" or
+"regime mismatch," refine the hypothesis before consuming backtest compute.
 
 ### Step 3: Hypothesize
 Define entry and exit rules as structured dicts:
@@ -99,6 +99,31 @@ Call `run_backtest(strategy_id, symbol)`.
 - Run backtest on second half
 - If Sharpe differs by more than 50%, the strategy may be regime-dependent
   (which is fine if regime_affinity reflects this)
+
+### Step 5.5: Causal Validation (MANDATORY for ML-backed strategies)
+
+Before walk-forward, validate that features causally predict returns:
+- Run CausalFilter on the strategy's feature set (see ML-Backed Strategy Path)
+- If >30% of features fail Granger causality at p<0.05 after Bonferroni: re-evaluate the hypothesis
+- Log surviving vs dropped features in workshop_lessons.md
+- This step is SKIPPED for pure rule-based strategies (RSI/SMA-only)
+
+```python
+from quantcore.validation.causal_filter import CausalFilter
+
+causal = CausalFilter(max_lag=5, significance_level=0.05)
+X_filtered = causal.fit_transform(features_df, forward_returns)
+result = causal.get_result()
+
+surviving = result.surviving_features
+dropped = result.dropped_features
+drop_rate = len(dropped) / (len(surviving) + len(dropped))
+
+if drop_rate > 0.30:
+    # >30% of features are non-causal — hypothesis needs rework
+    # Log in workshop_lessons.md and return to Step 3
+    pass
+```
 
 ### Step 6: Walk-Forward Validation (if backtest passes)
 Call `run_walkforward(strategy_id, symbol)`.

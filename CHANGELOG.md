@@ -7,6 +7,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-18
+
+### Added — Autonomous Loops (Ralph Wiggum Architecture)
+- Three perpetual Ralph loops: Strategy Factory, Live Trader, ML Research
+- `prompts/strategy_factory.md` — autonomous strategy R&D loop
+- `prompts/live_trader.md` — autonomous position monitoring + execution loop
+- `prompts/ml_research.md` — autoresearch-inspired ML experimentation loop (Karpathy)
+- `scripts/start_loops.sh` — tmux launcher (`all|factory|trader|ml|trading`)
+
+### Added — ML Pipeline (21 MCP Tools)
+- `train_ml_model` — LightGBM/XGBoost/CatBoost with CausalFilter + FeatureEnricher
+- `tune_hyperparameters` — Optuna Bayesian HPO with TimeSeriesSplit CV
+- `review_model_quality` — automated QA gate (accept/reject/retrain with feedback)
+- `train_stacking_ensemble` — meta-learner on base model predictions
+- `train_cross_sectional_model` — panel regression across stock universe
+- `train_deep_model` — TFT multi-horizon return predictor (1d/5d/20d)
+- `predict_ml_signal` — live ML inference as MCP tool
+- `register_model`, `get_model_history`, `rollback_model`, `compare_models` — versioned model registry
+- `check_concept_drift` — KS test per feature vs training distribution
+- `update_model_incremental` — LightGBM warm-start retraining
+- `compute_and_store_features`, `get_feature_lineage` — feature store with lineage
+
+### Added — Portfolio & Volatility (4 MCP Tools)
+- `optimize_portfolio` — HRP, min-variance, risk parity, max Sharpe, equal weight
+- `compute_hrp_weights` — López de Prado HRP with cluster tree + risk decomposition
+- `fit_garch_model` — GARCH/EGARCH/GJR-GARCH volatility modeling (arch library)
+- `forecast_volatility` — forward-looking conditional vol forecast + VaR
+
+### Added — Statistical Rigor (3 MCP Tools)
+- `compute_deflated_sharpe_ratio` — Bailey & López de Prado (2014) DSR
+- `run_combinatorial_purged_cv` — CPCV with purging + embargo
+- `compute_probability_of_overfitting` — matched IS/OOS rank analysis (PBO)
+
+### Added — Strategy Infrastructure
+- `get_strategy_gaps` — regime coverage gap analysis from strategy DB
+- `promote_draft_strategies` — automated draft → forward_testing promotion + stale pruning
+- `check_strategy_rules` — evaluate strategy entry/exit rules against live market data
+- Grammar-Guided GP (`grammar_gp.py`) — evolutionary alpha template discovery with crossover/mutation
+
+### Added — Data & NLP
+- `get_price_snapshot`, `list_sec_filings`, `get_company_facts`, `search_financial_statements` — 100% FD.ai endpoint coverage
+- `analyze_text_sentiment` — dual-backend NLP (Groq LLM + optional FinBERT)
+
+### Added — Feature Pipeline
+- `FeatureEnricher` — unified feature computation for backtest + live + ML (4 tiers: fundamentals, earnings, macro, flow)
+- Flow features: insider net flow (90-day rolling), institutional accumulation/distribution
+- Backtest engine enriched: strategy rules now support `fund_pe_ratio`, `yield_curve_10y2y`, `earn_days_to`, etc.
+
+### Added — Desk Agents
+- Data Scientist desk — ML training decisions, feature engineering, QA gate, SHAP interpretation, autoresearch workflow
+- Watchlist desk — systematic universe screening, candidate scoring, rotation rules
+
+### Added — Infrastructure
+- `TFTReturnPredictor` — multi-horizon return forecasting via Temporal Fusion Transformer
+- `RegimeAugmenter` — bootstrap-based synthetic data for rare regime augmentation
+- `rl_promotion_check()` — RL shadow mode → live promotion gate
+- `compute_optimal_schedule()` — Almgren-Chriss optimal execution schedule
+- Memory files: `ml_experiment_log.md`, `ml_research_program.md`
+- DuckDB tables: `model_registry`, `feature_store`
+
+## [0.6.0] - 2026-03-17
+
+### Removed
+- **CrewAI dependency** — `crewai[anthropic]` removed from `pyproject.toml`. The system no longer depends on CrewAI at runtime.
+- `TradingCrew` (`crews/trading_crew.py`) — 13 IC agents + 6 pod managers + trading assistant. Replaced by SignalEngine (7 pure-Python collectors, 2–6 sec, no LLM).
+- `run_analysis` MCP tool — deprecated since v0.3.0; use `get_signal_brief` instead.
+- `run_multi_analysis` MCP tool — use `run_multi_signal_brief` instead.
+- IC-level MCP tools: `list_ics`, `run_ic`, `run_pod`, `run_crew_subset`, `get_last_ic_output` — these instantiated TradingCrew internally.
+- `crews/tools.py`, `crews/assembler.py`, `crews/regime_config.py` — crew-only modules.
+- `crews/config/tasks.yaml`, `crews/prompts/` — CrewAI task/agent prompt configs.
+- `populate_ic_cache_from_result` from `_state.py` — depended on `IC_AGENT_ORDER` from deleted `trading_crew.py`.
+- Deprecated wrappers in `agents/__init__.py`: `SuperTrader`, `create_all_pods`, `get_super_trader`.
+
+### Changed
+- **`crewai_compat.py`** — rewritten as pure-Python stubs (no `try: import crewai` block). Only `BaseTool`, `Flow`, `start`, `listen`, `router` retained for downstream tool/flow compatibility.
+- **`TradingDayFlow`** — `run_crew_analysis` replaced with `run_signal_analysis` using `SignalEngine.run()`. All crew references removed.
+- **`TradingDayFlowAdapter`** — rewired to use `SignalEngine` instead of `TradingCrew`.
+- **`llm_config.py`** — `_build_ollama_llm` no longer attempts `from crewai import LLM`; returns plain model string.
+- **`crews/__init__.py`** — now exports only Pydantic schemas (no `TradingCrew` re-export).
+- **`flows/__init__.py`** — docstring updated to reflect SignalEngine usage.
+- **`quant_pod/__init__`** — version bumped to `0.6.0`.
+- MCP server instructions updated to reference `get_signal_brief` as primary analysis tool.
+- QuantPod MCP tool count reduced from 43 to 34 (9 tools removed).
+- Total MCP tool count reduced from 97 to 88.
+
+### Added
+- `SignalEngine` (v0.5.0) remains the primary analysis path — no changes needed.
+- `AutonomousRunner`, `AlphaDiscovery`, `CausalFilter`, `Almgren-Chriss`, `DriftDetector`, `OutcomeTracker` — added in v0.5.0, all pure Python.
+
 ## [0.2.1] - 2026-03-16
 
 ### Changed
@@ -255,7 +344,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `0.1.0` - Initial release
 
-[Unreleased]: https://github.com/kbichave/QuantStack/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/kbichave/QuantStack/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/kbichave/QuantStack/compare/v0.2.1...v0.6.0
 [0.2.1]: https://github.com/kbichave/QuantStack/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kbichave/QuantStack/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kbichave/QuantStack/releases/tag/v0.1.0

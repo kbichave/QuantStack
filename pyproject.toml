@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantcore"
-version = "0.2.1"
+version = "0.7.0"
 description = "Quantitative Trading Research Platform"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -48,6 +48,7 @@ dependencies = [
     "catboost>=1.2.0",
     "shap>=0.42.0",
     "statsmodels>=0.14.0",
+    "arch>=7.0.0",
     # RL - required because quantcore/__init__.py imports rl submodule
     # >=2.6.0: fixes CVE-2025-32434 (CRITICAL), CVE-2024-31580, CVE-2024-31583
     "torch>=2.6.0",
@@ -58,8 +59,6 @@ dependencies = [
     "plotly>=5.18.0",
     "matplotlib>=3.8.0",
     "seaborn>=0.13.0",
-    # Multi-agent framework
-    "crewai[anthropic]>=1.7.0",
     # MCP
     "fastmcp>=0.1.0",
     # API server
@@ -170,7 +169,7 @@ ignore = [
 python_version = "3.11"
 warn_unused_configs = true
 ignore_missing_imports = true
-# warn_return_any disabled: third-party libraries (crewai, fastmcp, duckdb)
+# warn_return_any disabled: third-party libraries (fastmcp, duckdb, litellm)
 # return Any in many places; enabling it generates ~125 false positives.
 
 [[tool.mypy.overrides]]

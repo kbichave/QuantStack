@@ -69,35 +69,6 @@ def ic_cache_get(symbol: str, ic_name: str) -> str | None:
     return ic_cache.get(f"{symbol}::{ic_name}")
 
 
-def populate_ic_cache_from_result(symbol: str, result: Any) -> None:
-    """Extract and cache per-IC outputs from a full crew result (best-effort).
-
-    Also runs ICOutputValidator on each IC output so /tune sessions have
-    concrete evidence of which ICs are producing malformed output.
-    """
-    try:
-        if not hasattr(result, "tasks_output") or not result.tasks_output:
-            return
-        from quant_pod.crews.trading_crew import IC_AGENT_ORDER
-        from quant_pod.guardrails.ic_output_validator import validate_all_ic_outputs
-
-        ic_outputs: dict[str, str] = {}
-        for i, ic_name in enumerate(IC_AGENT_ORDER):
-            if i >= len(result.tasks_output):
-                break
-            task_out = result.tasks_output[i]
-            raw = task_out.raw if hasattr(task_out, "raw") else str(task_out)
-            if raw:
-                ic_cache_set(symbol, ic_name, raw)
-                ic_outputs[ic_name] = raw
-
-        if ic_outputs:
-            validate_all_ic_outputs(ic_outputs)
-
-    except Exception as exc:
-        logger.debug(f"[quantpod_mcp] IC cache population failed (non-critical): {exc}")
-
-
 # =============================================================================
 # Context Guards
 # =============================================================================

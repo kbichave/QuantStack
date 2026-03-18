@@ -261,3 +261,112 @@ def calibrate_from_fills(
     eta_cal = max(float(result[1]), 0.001)
 
     return gamma_cal, eta_cal
+
+
+# ---------------------------------------------------------------------------
+# High-level convenience: compute_optimal_schedule
+# ---------------------------------------------------------------------------
+
+
+def compute_optimal_schedule(
+    total_shares: int,
+    time_horizon_minutes: int,
+    daily_volume: int,
+    daily_volatility_pct: float,
+    permanent_impact: float = 0.1,
+    temporary_impact: float = 0.01,
+    risk_aversion: float = 1e-6,
+) -> dict:
+    """
+    Almgren-Chriss optimal execution schedule with cost estimates.
+
+    Minimizes: E[cost] + risk_aversion * Var[cost]
+
+    The analytical solution uses:
+        kappa = sqrt(risk_aversion * sigma^2 / eta)
+        schedule_k = N * sinh(kappa * (T - t_k)) / sinh(kappa * T)
+
+    Higher risk_aversion front-loads execution (reduces variance at the cost
+    of higher market impact). Lower risk_aversion spreads execution uniformly
+    (TWAP-like, lower impact but higher timing risk).
+
+    Args:
+        total_shares: Total number of shares to execute.
+        time_horizon_minutes: Execution window in minutes (e.g., 60).
+        daily_volume: Average daily volume (shares).
+        daily_volatility_pct: Daily return volatility in percent (e.g., 1.5 = 1.5%).
+        permanent_impact: Gamma coefficient for permanent price impact.
+        temporary_impact: Eta coefficient for temporary price impact.
+        risk_aversion: Lambda — higher values front-load execution.
+
+    Returns:
+        {
+            "schedule": list of shares per 5-minute interval,
+            "expected_cost_bps": total expected one-way cost,
+            "expected_risk_bps": timing risk component,
+            "urgency_parameter": computed kappa value,
+            "n_intervals": number of execution intervals,
+            "interval_minutes": minutes per interval,
+        }
+    """
+    if total_shares <= 0 or daily_volume <= 0:
+        return {
+            "schedule": [],
+            "expected_cost_bps": 0.0,
+            "expected_risk_bps": 0.0,
+            "urgency_parameter": 0.0,
+            "n_intervals": 0,
+            "interval_minutes": 0,
+        }
+
+    daily_vol = daily_volatility_pct / 100.0
+    trading_day_minutes = 390  # 6.5 hours
+    horizon_fraction = time_horizon_minutes / trading_day_minutes
+
+    # Use 5-minute intervals
+    interval_minutes = 5
+    n_intervals = max(1, time_horizon_minutes // interval_minutes)
+
+    # Compute optimal trajectory
+    trajectory = optimal_trajectory(
+        total_shares=float(total_shares),
+        n_slices=n_intervals,
+        daily_volume=float(daily_volume),
+        daily_volatility=daily_vol,
+        risk_aversion=risk_aversion,
+        gamma=permanent_impact,
+        eta=temporary_impact,
+    )
+
+    # Round to integer shares, ensure sum matches
+    schedule = np.round(trajectory).astype(int)
+    remainder = total_shares - int(schedule.sum())
+    if len(schedule) > 0 and remainder != 0:
+        schedule[0] += remainder
+
+    # Cost breakdown
+    breakdown = almgren_chriss_cost_breakdown(
+        order_shares=float(total_shares),
+        daily_volume=float(daily_volume),
+        daily_volatility=daily_vol,
+        execution_horizon_days=horizon_fraction,
+        gamma=permanent_impact,
+        eta=temporary_impact,
+    )
+
+    # Urgency parameter kappa
+    tau = 1.0 / n_intervals if n_intervals > 0 else 1.0
+    vol_per_slice = daily_vol * np.sqrt(tau)
+    temp_rate = temporary_impact * daily_vol / np.sqrt(
+        max(float(daily_volume) * tau, 1.0)
+    )
+    kappa = float(np.sqrt(max(risk_aversion * vol_per_slice ** 2 / max(temp_rate, 1e-12), 1e-12)))
+
+    return {
+        "schedule": schedule.tolist(),
+        "expected_cost_bps": round(breakdown.total_bps, 4),
+        "expected_risk_bps": round(breakdown.timing_risk_bps, 4),
+        "urgency_parameter": round(kappa, 6),
+        "n_intervals": n_intervals,
+        "interval_minutes": interval_minutes,
+    }

@@ -48,6 +48,23 @@ Use the regime-strategy matrix:
   - Why this strategy fits the current regime
   - Any warnings (low confidence, forward_testing cap)
 
+### Step 4.5: Risk Desk Portfolio Assessment
+
+**If risk desk agent is available** (`.claude/agents/risk.md` exists):
+spawn risk desk agent with current portfolio state (from Step 1) + all proposed
+allocations (from Step 4). Use its output to:
+- Validate that proposed allocations don't create correlation concentration
+  (e.g., 3 tech names that all move together)
+- Check that combined factor exposure stays balanced (value/momentum/quality
+  not >60% tilted to one factor)
+- Get Kelly-criterion position sizing for each proposed trade
+  (risk desk has full portfolio context for optimal sizing)
+- Verify stress test results are within tolerance (max portfolio drawdown
+  under -2 sigma scenario should stay within daily loss limit × 3)
+
+If the risk desk flags concentration or factor tilt issues, adjust allocations
+before proceeding to Step 5. The risk desk's factor decomposition is authoritative.
+
 ### Step 5: Multi-Symbol Analysis
 For each allocated strategy, call `get_signal_brief` or `run_multi_signal_brief`
 for the relevant symbols.
@@ -70,6 +87,8 @@ Before running conflict resolution, assess portfolio-level risk from correlated 
   treat their combined exposure as a single position for risk limit purposes.
 - If two proposed trades are historically correlated > 0.7 (check sector/beta alignment):
   → Reduce both to "quarter" size, OR pick the higher-conviction signal and skip the other.
+- Use risk desk agent output if available — it provides a formal correlation matrix
+  and factor decomposition that is more precise than sector/beta heuristics.
 
 **Portfolio beta check:**
 - Estimate the portfolio beta impact of all proposed trades combined.

@@ -2,15 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Grammar-guided genetic programming for alpha discovery.
+Grammar-Guided Genetic Programming engine for alpha template discovery.
 
-Extends the AlphaDiscoveryEngine with evolutionary search over rule syntax
-trees. GP operators (crossover, mutation) recombine entry/exit rules from
-different templates — discovering strategy structures that fixed templates
-and parameter grids cannot reach.
+Unlike grid search (which permutes known templates x parameter grids),
+GP discovers novel rule COMBINATIONS through crossover and mutation:
+  - Crossover: combine entry rules from two parents (e.g., RSI entry + Bollinger exit)
+  - Mutation: swap an indicator, change a threshold, add/remove a rule
+  - Selection: tournament selection based on OOS Sharpe (not IS — prevents overfitting)
 
-Grammar constraints ensure every generated individual is a valid strategy
-spec consumable by ``_generate_signals_from_rules`` and ``BacktestEngine``.
+The grammar constrains the search space to only produce valid strategy JSON
+that ``_generate_signals_from_rules()`` can evaluate. Every individual is a
+complete strategy spec: ``{entry_rules, exit_rules, parameters}``.
+
+Integration:
+    Called by ``AlphaDiscoveryEngine._process_symbol()`` after grid search.
+    Grid survivors seed the initial population so GP starts from structurally
+    interesting candidates rather than pure random.
 
 Design reference: AlphaCFG (arxiv 2601.22119), HARLA (Frontiers CS 2025).
 """
@@ -18,13 +25,68 @@ Design reference: AlphaCFG (arxiv 2601.22119), HARLA (Frontiers CS 2025).
 from __future__ import annotations
 
 import copy
-import math
 import random
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
+import pandas as pd
 from loguru import logger
+
+from quant_pod.mcp.tools.backtesting import _generate_signals_from_rules
+
+
+# =============================================================================
+# Grammar — defines the valid search space for strategy rules
+# =============================================================================
+
+GRAMMAR: dict[str, Any] = {
+    "indicators": [
+        "rsi", "sma_fast", "sma_slow", "adx", "atr", "stoch_k",
+        "cci", "bb_pct", "zscore", "regime", "atr_percentile",
+        "fund_pe_ratio", "fund_roe", "yield_curve_10y2y",
+        "earn_days_to", "flow_insider_net_90d",
+    ],
+    "conditions": ["above", "below", "crosses_above", "crosses_below", "between"],
+    "rule_types": ["plain", "prerequisite", "confirmation"],
+    "exit_types": ["time_stop", "take_profit", "stop_loss"],
+    "regime_values": ["trending_up", "trending_down", "ranging"],
+    "value_ranges": {
+        "rsi": (10.0, 90.0),
+        "adx": (15.0, 50.0),
+        "stoch_k": (10.0, 90.0),
+        "cci": (-200.0, 200.0),
+        "bb_pct": (0.0, 1.0),
+        "zscore": (-3.0, 3.0),
+        "atr_percentile": (10.0, 90.0),
+        "fund_pe_ratio": (5.0, 50.0),
+        "fund_roe": (0.0, 0.5),
+        "yield_curve_10y2y": (-1.0, 3.0),
+        "earn_days_to": (1.0, 30.0),
+        "flow_insider_net_90d": (-1e6, 1e6),
+    },
+    "exit_params": {
+        "time_stop_days": (3, 20),
+        "take_profit_atr": (1.0, 5.0),
+        "stop_loss_atr": (0.5, 3.0),
+    },
+}
+
+# Indicators that compare against a column name rather than a numeric value
+_COLUMN_REF_INDICATORS: dict[str, str] = {"sma_fast": "sma_slow"}
+
+# Indicators where the condition must compare against a regime string
+_REGIME_INDICATORS: set[str] = {"regime"}
+
+# Special indicators with fixed value — crossover/mutation preserve the value
+_SPECIAL_INDICATORS: dict[str, dict[str, Any]] = {
+    "sma_crossover": {"conditions": ["crosses_above", "crosses_below"], "value": 0},
+    "breakout": {"conditions": ["above", "below"], "value": 0},
+}
+
+# All valid numeric conditions (subset of GRAMMAR["conditions"] excluding "between")
+_NUMERIC_CONDITIONS = ["above", "below", "crosses_above", "crosses_below"]
 
 
 # =============================================================================
@@ -34,17 +96,25 @@ from loguru import logger
 
 @dataclass
 class GPConfig:
-    """Tunable knobs for the GP evolution loop."""
+    """Hyperparameters for the GP evolution loop."""
 
-    population_size: int = 30
-    generations: int = 10
+    population_size: int = 50
+    n_generations: int = 20
+    crossover_rate: float = 0.7
     mutation_rate: float = 0.3
-    tournament_size: int = 3
-    elite_count: int = 2
+    tournament_size: int = 5
+    elite_count: int = 5
+    # Rule count bounds per individual
+    min_entry_rules: int = 2
     max_entry_rules: int = 4
-    max_exit_rules: int = 4
-    wall_clock_budget_seconds: float = 120.0
-    stagnation_limit: int = 3
+    min_exit_rules: int = 2
+    max_exit_rules: int = 3
+    # OOS split for fitness evaluation
+    oos_fraction: float = 0.3
+    # Wall-clock budget — GP aborts if exceeded (seconds)
+    wall_clock_budget_seconds: float = 180.0
+    # Early stopping: halt if best fitness stagnates for this many generations
+    stagnation_limit: int = 5
     seed: int = 42
 
     def __post_init__(self) -> None:
@@ -55,240 +125,523 @@ class GPConfig:
 
 
 # =============================================================================
-# Individual (genome)
+# GrammarGP — the evolution engine
 # =============================================================================
 
 
-@dataclass
-class Individual:
-    """A single strategy genome: entry rules + exit rules + parameters."""
+class GrammarGP:
+    """
+    Grammar-guided GP for alpha template discovery.
 
-    entry_rules: list[dict[str, Any]]
-    exit_rules: list[dict[str, Any]]
-    parameters: dict[str, Any]
-    fitness: float = float("-inf")
-    is_trades: int = 0
-    generation: int = 0
-    lineage: str = ""
+    Evolves a population of strategy individuals using crossover and mutation
+    operators constrained by ``GRAMMAR``. Fitness is OOS Sharpe ratio
+    (walk-forward 70/30 split) to prevent overfitting.
 
+    Produces valid strategy specs (entry_rules + exit_rules + parameters)
+    that ``_generate_signals_from_rules()`` can evaluate directly.
+    """
 
-# =============================================================================
-# Grammar — constrains GP operations to valid rule combinations
-# =============================================================================
+    def __init__(self, config: GPConfig | None = None) -> None:
+        self._cfg = config or GPConfig()
+        self._rng = random.Random(self._cfg.seed)
 
-# Indicators producing numeric series — used for entry and indicator-based exits.
-# Each maps to: valid conditions, numeric value range, optional parameter key + range.
-NUMERIC_INDICATORS: dict[str, dict[str, Any]] = {
-    "rsi": {
-        "conditions": ["above", "below", "crosses_above", "crosses_below"],
-        "value_range": (10.0, 90.0),
-        "param_key": "rsi_period",
-        "param_range": (7, 28),
-    },
-    "adx": {
-        "conditions": ["above", "below"],
-        "value_range": (15.0, 50.0),
-        "param_key": "adx_period",
-        "param_range": (10, 21),
-    },
-    "bb_pct": {
-        "conditions": ["above", "below", "crosses_above", "crosses_below"],
-        "value_range": (0.0, 1.0),
-        "param_key": "bb_period",
-        "param_range": (10, 30),
-    },
-    "cci": {
-        "conditions": ["above", "below", "crosses_above", "crosses_below"],
-        "value_range": (-200.0, 200.0),
-        "param_key": "cci_period",
-        "param_range": (10, 30),
-    },
-    "stoch_k": {
-        "conditions": ["above", "below", "crosses_above", "crosses_below"],
-        "value_range": (10.0, 90.0),
-        "param_key": "stoch_period",
-        "param_range": (7, 21),
-    },
-    "stoch_d": {
-        "conditions": ["above", "below", "crosses_above", "crosses_below"],
-        "value_range": (10.0, 90.0),
-    },
-    "zscore": {
-        "conditions": ["above", "below", "crosses_above", "crosses_below"],
-        "value_range": (-3.0, 3.0),
-        "param_key": "zscore_period",
-        "param_range": (10, 40),
-    },
-    "atr_percentile": {
-        "conditions": ["above", "below"],
-        "value_range": (10.0, 90.0),
-    },
-    "price_vs_sma200": {
-        "conditions": ["above", "below"],
-        "value_range": (-20.0, 20.0),
-    },
-}
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
-# Special indicators with restricted condition sets — no numeric value needed.
-SPECIAL_INDICATORS: dict[str, dict[str, Any]] = {
-    "sma_crossover": {
-        "conditions": ["crosses_above", "crosses_below"],
-        "value": 0,
-    },
-    "breakout": {
-        "conditions": ["above", "below"],
-        "value": 0,
-    },
-}
+    def evolve(
+        self,
+        seed_population: list[dict[str, Any]],
+        price_data: pd.DataFrame,
+        n_prior_trials: int,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """
+        Evolve a population of strategies over ``n_generations``.
 
-# Structural exit types with ATR / bars ranges.
-EXIT_STRUCTURES: dict[str, dict[str, Any]] = {
-    "stop_loss": {"atr_multiple_range": (0.5, 4.0)},
-    "take_profit": {"atr_multiple_range": (1.0, 6.0)},
-    "time_stop": {"bars_range": (5, 40)},
-}
+        Args:
+            seed_population: Strategy specs from grid search that had
+                sufficient trades (IS_MIN_TRADES). Used to seed the GP
+                so evolution starts from structurally interesting candidates
+                rather than pure random.
+            price_data: Full OHLCV DataFrame (must have >= 252 rows).
+            n_prior_trials: Candidates already evaluated by grid search.
+                Added to GP eval count for logging; does not affect GP
+                internals (fitness is OOS Sharpe, not deflated).
 
-# Rule type assignments for GP-generated entry rules.
-_ENTRY_RULE_TYPES = ("prerequisite", "confirmation")
+        Returns:
+            (survivors, n_evaluations) where survivors are strategy spec
+            dicts sorted by descending OOS Sharpe, each with keys
+            ``entry_rules``, ``exit_rules``, ``parameters``.
+        """
+        cfg = self._cfg
+        rng = self._rng
+        start_time = time.monotonic()
+        n_evals = 0
 
+        if len(price_data) < 100:
+            logger.warning("[GrammarGP] insufficient price data for GP evolution")
+            return [], 0
 
-class RuleGrammar:
-    """Production tables + validation for GP rule dicts."""
+        # Build initial population: seeds first, random fill for the rest
+        population = self._init_population(seed_population)
 
-    def random_entry_rule(self, rng: random.Random) -> dict[str, Any]:
-        """Generate a random valid entry rule from the grammar."""
-        rule_type = rng.choice(_ENTRY_RULE_TYPES)
+        # Evaluate initial population
+        fitnesses = []
+        for ind in population:
+            fitness = self._evaluate_fitness(ind, price_data)
+            fitnesses.append(fitness)
+            n_evals += 1
 
-        # 70% numeric, 30% special — numeric has more variety
-        if rng.random() < 0.7:
-            indicator = rng.choice(list(NUMERIC_INDICATORS))
-            spec = NUMERIC_INDICATORS[indicator]
-            lo, hi = spec["value_range"]
-            return {
-                "indicator": indicator,
-                "condition": rng.choice(spec["conditions"]),
-                "value": round(rng.uniform(lo, hi), 2),
-                "type": rule_type,
-            }
+        best_ever = max(fitnesses) if fitnesses else -1.0
+        stagnation_count = 0
 
-        indicator = rng.choice(list(SPECIAL_INDICATORS))
-        spec = SPECIAL_INDICATORS[indicator]
-        return {
-            "indicator": indicator,
-            "condition": rng.choice(spec["conditions"]),
-            "value": spec["value"],
-            "type": rule_type,
-        }
+        logger.info(
+            f"[GrammarGP] gen=0 best_fitness={best_ever:.3f} "
+            f"pop={len(population)} seeds={len(seed_population)}"
+        )
 
-    def random_indicator_exit_rule(self, rng: random.Random) -> dict[str, Any]:
-        """Generate a random indicator-based exit rule (not structural)."""
-        indicator = rng.choice(list(NUMERIC_INDICATORS))
-        spec = NUMERIC_INDICATORS[indicator]
-        lo, hi = spec["value_range"]
-        return {
-            "indicator": indicator,
-            "condition": rng.choice(spec["conditions"]),
-            "value": round(rng.uniform(lo, hi), 2),
-        }
+        # Main evolutionary loop
+        for gen in range(1, cfg.n_generations + 1):
+            # Wall-clock budget check
+            elapsed = time.monotonic() - start_time
+            if elapsed >= cfg.wall_clock_budget_seconds:
+                logger.info(
+                    f"[GrammarGP] wall-clock budget exhausted at gen={gen} "
+                    f"({elapsed:.1f}s)"
+                )
+                break
 
-    def random_structural_exit(self, rng: random.Random) -> dict[str, Any]:
-        """Generate a random structural exit (stop_loss, take_profit, or time_stop)."""
-        exit_type = rng.choice(list(EXIT_STRUCTURES))
-        spec = EXIT_STRUCTURES[exit_type]
-        if "atr_multiple_range" in spec:
-            lo, hi = spec["atr_multiple_range"]
-            return {"type": exit_type, "atr_multiple": round(rng.uniform(lo, hi), 2)}
-        lo, hi = spec["bars_range"]
-        return {"type": exit_type, "days": rng.randint(lo, hi)}
+            next_pop: list[dict] = []
 
-    def random_individual(self, rng: random.Random) -> Individual:
-        """Generate a fully random valid individual from the grammar."""
-        n_entry = rng.randint(1, 3)
-        entry_rules = [self.random_entry_rule(rng) for _ in range(n_entry)]
-        # Ensure at least one prerequisite
+            # Elitism: carry forward top individuals unchanged
+            elite_indices = np.argsort(fitnesses)[-cfg.elite_count:]
+            for idx in elite_indices:
+                next_pop.append(copy.deepcopy(population[idx]))
+
+            # Fill remaining slots with crossover + mutation
+            while len(next_pop) < cfg.population_size:
+                if rng.random() < cfg.crossover_rate:
+                    parent_a = self._tournament_select(population, fitnesses)
+                    parent_b = self._tournament_select(population, fitnesses)
+                    child = self._crossover(parent_a, parent_b)
+                else:
+                    child = copy.deepcopy(
+                        self._tournament_select(population, fitnesses)
+                    )
+
+                if rng.random() < cfg.mutation_rate:
+                    child = self._mutate(child)
+
+                next_pop.append(child)
+
+            population = next_pop
+
+            # Evaluate new population
+            fitnesses = []
+            for ind in population:
+                fitness = self._evaluate_fitness(ind, price_data)
+                fitnesses.append(fitness)
+                n_evals += 1
+
+            gen_best = max(fitnesses) if fitnesses else -1.0
+            if gen_best > best_ever:
+                best_ever = gen_best
+                stagnation_count = 0
+            else:
+                stagnation_count += 1
+
+            if gen % 5 == 0 or gen == cfg.n_generations:
+                logger.info(
+                    f"[GrammarGP] gen={gen} best_fitness={gen_best:.3f} "
+                    f"best_ever={best_ever:.3f} evals={n_evals}"
+                )
+
+            if stagnation_count >= cfg.stagnation_limit:
+                logger.info(
+                    f"[GrammarGP] early stop — stagnation for "
+                    f"{stagnation_count} generations at gen={gen}"
+                )
+                break
+
+        # Return survivors with positive OOS Sharpe, sorted descending
+        ranked = sorted(
+            zip(population, fitnesses), key=lambda x: x[1], reverse=True
+        )
+        survivors = []
+        for ind, fitness in ranked:
+            if fitness <= 0:
+                break
+            survivors.append(copy.deepcopy(ind))
+
+        elapsed = time.monotonic() - start_time
+        logger.info(
+            f"[GrammarGP] done — survivors={len(survivors)} "
+            f"total_evals={n_evals} elapsed={elapsed:.1f}s "
+            f"best_oos_sharpe={best_ever:.3f}"
+        )
+        return survivors, n_evals
+
+    # ------------------------------------------------------------------
+    # Population initialization
+    # ------------------------------------------------------------------
+
+    def _init_population(self, seeds: list[dict]) -> list[dict]:
+        """Build initial population from seeds + random individuals."""
+        population: list[dict] = []
+
+        # Seed from grid search survivors (structurally interesting)
+        for seed in seeds[: self._cfg.population_size]:
+            population.append(copy.deepcopy(seed))
+
+        # Fill remaining with random grammar individuals
+        while len(population) < self._cfg.population_size:
+            population.append(self._random_individual())
+
+        return population[: self._cfg.population_size]
+
+    def _random_individual(self) -> dict[str, Any]:
+        """Generate a random strategy from the grammar."""
+        rng = self._rng
+        n_entry = rng.randint(self._cfg.min_entry_rules, self._cfg.max_entry_rules)
+        n_exit = rng.randint(self._cfg.min_exit_rules, self._cfg.max_exit_rules)
+
+        entry_rules = [self._random_entry_rule() for _ in range(n_entry)]
+        # Ensure at least one prerequisite so the structured AND gate fires
         if not any(r.get("type") == "prerequisite" for r in entry_rules):
             entry_rules[0]["type"] = "prerequisite"
 
-        # 1-2 structural exits + 0-1 indicator exits
-        exit_rules = [self.random_structural_exit(rng)]
-        if rng.random() < 0.5:
-            exit_rules.append(self.random_structural_exit(rng))
-        if rng.random() < 0.4:
-            exit_rules.append(self.random_indicator_exit_rule(rng))
+        exit_rules = self._random_exit_rules(n_exit)
 
-        # Deduplicate structural exit types (keep last of each type)
-        exit_rules = _dedup_structural_exits(exit_rules)
+        parameters: dict[str, Any] = {
+            "sma_fast": rng.choice([5, 8, 10, 13, 20]),
+            "sma_slow": rng.choice([20, 30, 50, 100, 200]),
+            "rsi_period": rng.choice([7, 10, 14, 21]),
+            "bb_period": rng.choice([15, 20, 30]),
+            "bb_std": round(rng.uniform(1.5, 2.5), 1),
+        }
 
-        parameters = self._random_parameters(rng, entry_rules)
-        return Individual(
-            entry_rules=entry_rules,
-            exit_rules=exit_rules,
-            parameters=parameters,
-            lineage="random",
+        return {
+            "entry_rules": entry_rules,
+            "exit_rules": exit_rules,
+            "parameters": parameters,
+        }
+
+    def _random_entry_rule(self) -> dict[str, Any]:
+        """Generate a single random entry rule from the grammar."""
+        rng = self._rng
+        indicator = rng.choice(GRAMMAR["indicators"])
+        rule_type = rng.choice(GRAMMAR["rule_types"])
+
+        # Regime rules use string equality
+        if indicator in _REGIME_INDICATORS:
+            return {
+                "indicator": indicator,
+                "condition": rng.choice(["above", "below"]),
+                "value": rng.choice(GRAMMAR["regime_values"]),
+                "type": rule_type,
+            }
+
+        # Column-reference indicators (e.g., sma_fast > sma_slow)
+        if indicator in _COLUMN_REF_INDICATORS:
+            return {
+                "indicator": indicator,
+                "condition": rng.choice(_NUMERIC_CONDITIONS),
+                "value": _COLUMN_REF_INDICATORS[indicator],
+                "type": rule_type,
+            }
+
+        # Special indicators with fixed value (sma_crossover, breakout)
+        if indicator in _SPECIAL_INDICATORS:
+            spec = _SPECIAL_INDICATORS[indicator]
+            return {
+                "indicator": indicator,
+                "condition": rng.choice(spec["conditions"]),
+                "value": spec["value"],
+                "type": rule_type,
+            }
+
+        # Numeric indicators — sample from valid range
+        if indicator in GRAMMAR["value_ranges"]:
+            lo, hi = GRAMMAR["value_ranges"][indicator]
+            value = round(rng.uniform(lo, hi), 2)
+        else:
+            value = round(rng.uniform(0, 100), 2)
+
+        return {
+            "indicator": indicator,
+            "condition": rng.choice(_NUMERIC_CONDITIONS),
+            "value": value,
+            "type": rule_type,
+        }
+
+    def _random_exit_rules(self, n: int) -> list[dict[str, Any]]:
+        """Generate exit rules — always includes a stop loss."""
+        rng = self._rng
+        ep = GRAMMAR["exit_params"]
+        rules: list[dict[str, Any]] = []
+
+        # Mandatory stop loss
+        sl_lo, sl_hi = ep["stop_loss_atr"]
+        rules.append({
+            "type": "stop_loss",
+            "atr_multiple": round(rng.uniform(sl_lo, sl_hi), 1),
+        })
+
+        # Fill remaining with take_profit and/or time_stop
+        for _ in range(n - 1):
+            exit_type = rng.choice(["take_profit", "time_stop"])
+            if exit_type == "take_profit":
+                tp_lo, tp_hi = ep["take_profit_atr"]
+                rules.append({
+                    "type": "take_profit",
+                    "atr_multiple": round(rng.uniform(tp_lo, tp_hi), 1),
+                })
+            else:
+                ts_lo, ts_hi = ep["time_stop_days"]
+                rules.append({
+                    "type": "time_stop",
+                    "days": rng.randint(ts_lo, ts_hi),
+                })
+
+        return _dedup_structural_exits(rules)
+
+    # ------------------------------------------------------------------
+    # Genetic operators
+    # ------------------------------------------------------------------
+
+    def _crossover(self, parent_a: dict, parent_b: dict) -> dict:
+        """
+        Uniform crossover on rules: each entry rule drawn from either parent.
+
+        Exit rules from a randomly chosen parent. Parameters blended
+        (average of numeric values, random pick for non-numeric).
+        """
+        rng = self._rng
+        a_entry = parent_a.get("entry_rules", [])
+        b_entry = parent_b.get("entry_rules", [])
+
+        # Pool all entry rules, pick a random subset
+        pool = copy.deepcopy(a_entry) + copy.deepcopy(b_entry)
+        if not pool:
+            pool = [self._random_entry_rule()]
+
+        n_rules = rng.randint(
+            self._cfg.min_entry_rules,
+            min(self._cfg.max_entry_rules, len(pool)),
+        )
+        child_entry = rng.sample(pool, n_rules)
+
+        # Ensure at least one prerequisite
+        if not any(r.get("type") == "prerequisite" for r in child_entry):
+            child_entry[0]["type"] = "prerequisite"
+
+        # Exit rules from one parent
+        donor = parent_a if rng.random() < 0.5 else parent_b
+        child_exit = copy.deepcopy(donor.get("exit_rules", []))
+        if not child_exit:
+            child_exit = self._random_exit_rules(self._cfg.min_exit_rules)
+        child_exit = _dedup_structural_exits(child_exit)
+
+        # Blend numeric parameters
+        child_params = _blend_parameters(
+            parent_a.get("parameters", {}),
+            parent_b.get("parameters", {}),
         )
 
-    def validate_individual(self, ind: Individual) -> bool:
-        """Check that an individual satisfies grammar invariants."""
-        if not ind.entry_rules:
-            return False
-        if not ind.exit_rules:
-            return False
-
-        # Must have at least one prerequisite entry rule
-        if not any(r.get("type") == "prerequisite" for r in ind.entry_rules):
-            return False
-
-        # Must have at least one structural exit
-        structural_types = {"stop_loss", "take_profit", "time_stop"}
-        if not any(r.get("type") in structural_types for r in ind.exit_rules):
-            return False
-
-        # Validate each entry rule
-        for rule in ind.entry_rules:
-            indicator = rule.get("indicator", "")
-            if indicator in NUMERIC_INDICATORS:
-                if rule.get("condition") not in NUMERIC_INDICATORS[indicator]["conditions"]:
-                    return False
-            elif indicator in SPECIAL_INDICATORS:
-                if rule.get("condition") not in SPECIAL_INDICATORS[indicator]["conditions"]:
-                    return False
-            else:
-                return False
-
-        # Validate each exit rule
-        for rule in ind.exit_rules:
-            rule_type = rule.get("type", "")
-            if rule_type in structural_types:
-                continue  # structural exits are valid by construction
-            indicator = rule.get("indicator", "")
-            if indicator not in NUMERIC_INDICATORS and indicator not in SPECIAL_INDICATORS:
-                return False
-
-        return True
-
-    def clamp_value(self, indicator: str, value: float) -> float:
-        """Clamp a numeric value to the indicator's valid range."""
-        if indicator in NUMERIC_INDICATORS:
-            lo, hi = NUMERIC_INDICATORS[indicator]["value_range"]
-            return max(lo, min(hi, round(value, 2)))
-        return value
-
-    def _random_parameters(
-        self, rng: random.Random, entry_rules: list[dict]
-    ) -> dict[str, Any]:
-        """Build a parameter dict that covers indicators used in the rules."""
-        params: dict[str, Any] = {
-            "sma_fast_period": rng.choice([10, 20]),
-            "sma_slow_period": rng.choice([50, 100, 200]),
+        return {
+            "entry_rules": child_entry,
+            "exit_rules": child_exit,
+            "parameters": child_params,
         }
-        for rule in entry_rules:
-            indicator = rule.get("indicator", "")
-            if indicator in NUMERIC_INDICATORS:
-                spec = NUMERIC_INDICATORS[indicator]
-                if "param_key" in spec:
-                    lo, hi = spec["param_range"]
-                    params[spec["param_key"]] = rng.randint(lo, hi)
-        return params
+
+    def _mutate(self, individual: dict) -> dict:
+        """
+        Apply one random mutation:
+          0 — swap an entry rule's indicator
+          1 — perturb a numeric threshold by +/- 20%
+          2 — add a new entry rule (if below max)
+          3 — remove an entry rule (if above min)
+          4 — change an entry rule's type (plain/prerequisite/confirmation)
+          5 — perturb an exit parameter
+        """
+        rng = self._rng
+        ind = copy.deepcopy(individual)
+        entry = ind.get("entry_rules", [])
+        exits = ind.get("exit_rules", [])
+
+        mutation = rng.randint(0, 5)
+
+        if mutation == 0 and entry:
+            rule = rng.choice(entry)
+            new_indicator = rng.choice(GRAMMAR["indicators"])
+            rule["indicator"] = new_indicator
+            # Reset value to valid range for the new indicator
+            if new_indicator in _REGIME_INDICATORS:
+                rule["value"] = rng.choice(GRAMMAR["regime_values"])
+            elif new_indicator in _COLUMN_REF_INDICATORS:
+                rule["value"] = _COLUMN_REF_INDICATORS[new_indicator]
+            elif new_indicator in _SPECIAL_INDICATORS:
+                rule["value"] = _SPECIAL_INDICATORS[new_indicator]["value"]
+                conds = _SPECIAL_INDICATORS[new_indicator]["conditions"]
+                if rule.get("condition") not in conds:
+                    rule["condition"] = rng.choice(conds)
+            elif new_indicator in GRAMMAR["value_ranges"]:
+                lo, hi = GRAMMAR["value_ranges"][new_indicator]
+                rule["value"] = round(rng.uniform(lo, hi), 2)
+
+        elif mutation == 1 and entry:
+            rule = rng.choice(entry)
+            if isinstance(rule.get("value"), (int, float)):
+                factor = rng.uniform(0.8, 1.2)
+                rule["value"] = round(rule["value"] * factor, 2)
+                indicator = rule.get("indicator", "")
+                if indicator in GRAMMAR["value_ranges"]:
+                    lo, hi = GRAMMAR["value_ranges"][indicator]
+                    rule["value"] = max(lo, min(hi, rule["value"]))
+
+        elif mutation == 2 and len(entry) < self._cfg.max_entry_rules:
+            entry.append(self._random_entry_rule())
+
+        elif mutation == 3 and len(entry) > self._cfg.min_entry_rules:
+            # Never remove the last prerequisite
+            deletable = [
+                j for j, r in enumerate(entry)
+                if r.get("type") != "prerequisite"
+                or sum(1 for r2 in entry if r2.get("type") == "prerequisite") > 1
+            ]
+            if deletable:
+                entry.pop(rng.choice(deletable))
+
+        elif mutation == 4 and entry:
+            rule = rng.choice(entry)
+            rule["type"] = rng.choice(GRAMMAR["rule_types"])
+
+        elif mutation == 5 and exits:
+            rule = rng.choice(exits)
+            ep = GRAMMAR["exit_params"]
+            if "atr_multiple" in rule:
+                factor = rng.uniform(0.8, 1.2)
+                rule["atr_multiple"] = round(rule["atr_multiple"] * factor, 1)
+                if rule.get("type") == "stop_loss":
+                    lo, hi = ep["stop_loss_atr"]
+                    rule["atr_multiple"] = max(lo, min(hi, rule["atr_multiple"]))
+                elif rule.get("type") == "take_profit":
+                    lo, hi = ep["take_profit_atr"]
+                    rule["atr_multiple"] = max(lo, min(hi, rule["atr_multiple"]))
+            elif "days" in rule:
+                lo, hi = ep["time_stop_days"]
+                rule["days"] = rng.randint(lo, hi)
+
+        ind["entry_rules"] = entry
+        ind["exit_rules"] = exits
+        return ind
+
+    # ------------------------------------------------------------------
+    # Selection
+    # ------------------------------------------------------------------
+
+    def _tournament_select(
+        self, population: list[dict], fitnesses: list[float]
+    ) -> dict:
+        """Tournament selection: pick ``tournament_size`` individuals, return fittest."""
+        indices = self._rng.sample(
+            range(len(population)),
+            min(self._cfg.tournament_size, len(population)),
+        )
+        best_idx = max(indices, key=lambda i: fitnesses[i])
+        return population[best_idx]
+
+    # ------------------------------------------------------------------
+    # Fitness (OOS Sharpe via walk-forward split)
+    # ------------------------------------------------------------------
+
+    def _evaluate_fitness(
+        self, individual: dict, price_data: pd.DataFrame
+    ) -> float:
+        """
+        Backtest the individual and return OOS Sharpe ratio.
+
+        Uses a single 70/30 train/test split. Signals are generated on the
+        full history (indicators need lookback warmup from the training
+        window), then only the OOS portion is evaluated. This prevents
+        overfitting: the training window warms up indicator state, but
+        fitness is measured exclusively on unseen data.
+
+        Returns -1.0 on any failure so broken individuals are selected
+        against but not dropped (they may carry useful partial rules
+        for crossover).
+        """
+        try:
+            from quantcore.backtesting.engine import BacktestConfig, BacktestEngine
+
+            entry_rules = individual.get("entry_rules", [])
+            exit_rules = individual.get("exit_rules", [])
+            parameters = individual.get("parameters", {})
+
+            split = int(len(price_data) * (1.0 - self._cfg.oos_fraction))
+            oos_data = price_data.iloc[split:]
+
+            if len(oos_data) < 30:
+                return -1.0
+
+            # Generate signals on full history (warmup), slice to OOS
+            signals = _generate_signals_from_rules(
+                price_data, entry_rules, exit_rules, parameters
+            )
+            if signals is None or signals.empty:
+                return -1.0
+
+            oos_signals = signals.iloc[split:]
+            oos_price = price_data.iloc[split:]
+
+            engine = BacktestEngine(BacktestConfig(position_size_pct=0.10))
+            result = engine.run(signals=oos_signals, price_data=oos_price)
+
+            # Penalize strategies with very few trades — likely curve-fitted
+            if result.total_trades < 5:
+                return -1.0
+
+            return float(result.sharpe_ratio)
+
+        except Exception as exc:
+            logger.debug(f"[GrammarGP] fitness eval failed: {exc}")
+            return -1.0
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+
+def _blend_parameters(
+    params_a: dict[str, Any], params_b: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Blend two parameter dicts: average numeric values, random pick for non-numeric.
+
+    Non-overlapping keys are included from both parents.
+    """
+    merged: dict[str, Any] = {}
+    all_keys = set(params_a) | set(params_b)
+
+    for key in all_keys:
+        val_a = params_a.get(key)
+        val_b = params_b.get(key)
+
+        if val_a is None:
+            merged[key] = val_b
+        elif val_b is None:
+            merged[key] = val_a
+        elif isinstance(val_a, (int, float)) and isinstance(val_b, (int, float)):
+            avg = (val_a + val_b) / 2
+            if isinstance(val_a, int) and isinstance(val_b, int):
+                merged[key] = int(round(avg))
+            else:
+                merged[key] = round(avg, 2)
+        else:
+            merged[key] = random.choice([val_a, val_b])
+
+    return merged
 
 
 def _dedup_structural_exits(exits: list[dict]) -> list[dict]:
@@ -306,473 +659,50 @@ def _dedup_structural_exits(exits: list[dict]) -> list[dict]:
 
 
 # =============================================================================
-# GrammarGP — the evolution engine
+# Standalone smoke test
 # =============================================================================
 
-
-class GrammarGP:
-    """
-    Grammar-guided genetic programming for strategy discovery.
-
-    Evolves a population of strategy individuals using crossover and mutation
-    operators constrained by ``RuleGrammar``. Returns IS-passing candidates
-    for the caller to validate through full OOS + portfolio-fit filters.
-    """
-
-    def __init__(self, config: GPConfig | None = None) -> None:
-        self._config = config or GPConfig()
-        self._grammar = RuleGrammar()
-
-    def evolve(
-        self,
-        seed_population: list[dict[str, Any]],
-        price_data: Any,
-        n_prior_trials: int,
-    ) -> tuple[list[dict[str, Any]], int]:
-        """
-        Run GP evolution and return IS-passing strategy specs.
-
-        Args:
-            seed_population: Strategy specs from grid search that had
-                sufficient trades (IS_MIN_TRADES). Used to seed the GP.
-            price_data: Full OHLCV DataFrame (all available history).
-            n_prior_trials: Candidates already evaluated by grid search.
-                Added to GP eval count for Harvey-Liu deflation.
-
-        Returns:
-            Tuple of (list of IS-passing strategy specs, total evaluations).
-        """
-        cfg = self._config
-        rng = random.Random(cfg.seed)
-        start_time = time.monotonic()
-        total_evals = 0
-
-        # Build initial population
-        population = self._build_initial_population(seed_population, rng)
-
-        # IS data slice (75% split — same as CandidateFilter)
-        is_split = int(len(price_data) * 0.75)
-        is_data = price_data.iloc[:is_split]
-
-        if len(is_data) < 60:
-            logger.warning("[GrammarGP] insufficient IS data for GP evolution")
-            return [], 0
-
-        # Evaluate initial population
-        for ind in population:
-            self._evaluate_fitness(ind, is_data, n_prior_trials + total_evals)
-            total_evals += 1
-
-        best_fitness = max(ind.fitness for ind in population)
-        stagnation_count = 0
-
-        logger.info(
-            f"[GrammarGP] gen=0 pop={len(population)} "
-            f"best_fitness={best_fitness:.3f} evals={total_evals}"
-        )
-
-        for gen in range(1, cfg.generations + 1):
-            # Wall-clock budget check
-            elapsed = time.monotonic() - start_time
-            if elapsed >= cfg.wall_clock_budget_seconds:
-                logger.info(
-                    f"[GrammarGP] wall-clock budget exhausted at gen={gen} "
-                    f"({elapsed:.1f}s)"
-                )
-                break
-
-            new_population: list[Individual] = []
-
-            # Elitism — carry top individuals unchanged
-            ranked = sorted(population, key=lambda x: x.fitness, reverse=True)
-            for elite in ranked[: cfg.elite_count]:
-                elite_copy = _clone_individual(elite)
-                elite_copy.generation = gen
-                new_population.append(elite_copy)
-
-            # Fill rest via crossover + mutation
-            while len(new_population) < cfg.population_size:
-                parent_a = self._select_parent(population, rng)
-                parent_b = self._select_parent(population, rng)
-                child = self._crossover(parent_a, parent_b, rng)
-                child = self._mutate(child, rng)
-                child.generation = gen
-
-                if not self._grammar.validate_individual(child):
-                    # Invalid offspring — replace with random
-                    child = self._grammar.random_individual(rng)
-                    child.generation = gen
-                    child.lineage = "random_repair"
-
-                self._evaluate_fitness(child, is_data, n_prior_trials + total_evals)
-                total_evals += 1
-                new_population.append(child)
-
-            population = new_population
-
-            gen_best = max(ind.fitness for ind in population)
-            if gen_best <= best_fitness:
-                stagnation_count += 1
-            else:
-                stagnation_count = 0
-                best_fitness = gen_best
-
-            logger.debug(
-                f"[GrammarGP] gen={gen} best={gen_best:.3f} "
-                f"stagnation={stagnation_count} evals={total_evals}"
-            )
-
-            if stagnation_count >= cfg.stagnation_limit:
-                logger.info(
-                    f"[GrammarGP] early stop — stagnation for "
-                    f"{stagnation_count} generations"
-                )
-                break
-
-        # Collect IS-passing survivors
-        from quant_pod.alpha_discovery.filter import IS_MIN_SHARPE, IS_MIN_TRADES
-
-        survivors = [
-            _individual_to_spec(ind)
-            for ind in population
-            if ind.fitness >= IS_MIN_SHARPE and ind.is_trades >= IS_MIN_TRADES
-        ]
-
-        elapsed = time.monotonic() - start_time
-        logger.info(
-            f"[GrammarGP] done — survivors={len(survivors)} "
-            f"total_evals={total_evals} elapsed={elapsed:.1f}s"
-        )
-
-        return survivors, total_evals
-
-    # -------------------------------------------------------------------------
-    # Population seeding
-    # -------------------------------------------------------------------------
-
-    def _build_initial_population(
-        self,
-        seed_specs: list[dict[str, Any]],
-        rng: random.Random,
-    ) -> list[Individual]:
-        """Build initial population from seeds + random grammar individuals."""
-        cfg = self._config
-        population: list[Individual] = []
-
-        # Seed from grid search IS survivors (top by IS Sharpe proxy — those
-        # with the most trades are structurally interesting)
-        for spec in seed_specs[: cfg.population_size * 2 // 3]:
-            ind = _spec_to_individual(spec)
-            ind.lineage = "seed"
-            if self._grammar.validate_individual(ind):
-                population.append(ind)
-            if len(population) >= cfg.population_size * 2 // 3:
-                break
-
-        # Fill remaining with random grammar individuals
-        while len(population) < cfg.population_size:
-            ind = self._grammar.random_individual(rng)
-            population.append(ind)
-
-        return population[: cfg.population_size]
-
-    # -------------------------------------------------------------------------
-    # Selection
-    # -------------------------------------------------------------------------
-
-    def _select_parent(
-        self, population: list[Individual], rng: random.Random
-    ) -> Individual:
-        """Tournament selection."""
-        candidates = rng.sample(
-            population, min(self._config.tournament_size, len(population))
-        )
-        return max(candidates, key=lambda x: x.fitness)
-
-    # -------------------------------------------------------------------------
-    # Crossover
-    # -------------------------------------------------------------------------
-
-    def _crossover(
-        self,
-        parent_a: Individual,
-        parent_b: Individual,
-        rng: random.Random,
-    ) -> Individual:
-        """Recombine two parents into a child."""
-        if rng.random() < 0.5:
-            return self._crossover_rule_level(parent_a, parent_b, rng)
-        return self._crossover_entry_exit_swap(parent_a, parent_b, rng)
-
-    def _crossover_rule_level(
-        self,
-        parent_a: Individual,
-        parent_b: Individual,
-        rng: random.Random,
-    ) -> Individual:
-        """Prerequisites from A, confirmations from B. Mixed exits."""
-        prereqs_a = [
-            r for r in parent_a.entry_rules if r.get("type") == "prerequisite"
-        ]
-        confirms_b = [
-            r for r in parent_b.entry_rules if r.get("type") == "confirmation"
-        ]
-
-        entry_rules = copy.deepcopy(prereqs_a) + copy.deepcopy(confirms_b)
-        if not entry_rules:
-            entry_rules = copy.deepcopy(parent_a.entry_rules)
-
-        # Exits: structural from A, indicator-based from B
-        structural_types = {"stop_loss", "take_profit", "time_stop"}
-        struct_exits_a = [r for r in parent_a.exit_rules if r.get("type") in structural_types]
-        indicator_exits_b = [r for r in parent_b.exit_rules if r.get("type") not in structural_types]
-
-        exit_rules = copy.deepcopy(struct_exits_a) + copy.deepcopy(indicator_exits_b)
-        if not any(r.get("type") in structural_types for r in exit_rules):
-            exit_rules.insert(0, copy.deepcopy(parent_a.exit_rules[0]))
-
-        exit_rules = _dedup_structural_exits(exit_rules)
-
-        # Merge parameters — A takes precedence on conflicts
-        params = {**parent_b.parameters, **parent_a.parameters}
-
-        child = Individual(
-            entry_rules=entry_rules[: self._config.max_entry_rules],
-            exit_rules=exit_rules[: self._config.max_exit_rules],
-            parameters=params,
-            lineage="crossover_rule",
-        )
-        return child
-
-    def _crossover_entry_exit_swap(
-        self,
-        parent_a: Individual,
-        parent_b: Individual,
-        rng: random.Random,
-    ) -> Individual:
-        """All entry rules from A, all exit rules from B."""
-        entry_rules = copy.deepcopy(parent_a.entry_rules)
-        exit_rules = copy.deepcopy(parent_b.exit_rules)
-
-        # Ensure structural exit exists
-        structural_types = {"stop_loss", "take_profit", "time_stop"}
-        if not any(r.get("type") in structural_types for r in exit_rules):
-            exit_rules.insert(0, self._grammar.random_structural_exit(rng))
-
-        params = {**parent_b.parameters, **parent_a.parameters}
-
-        return Individual(
-            entry_rules=entry_rules[: self._config.max_entry_rules],
-            exit_rules=_dedup_structural_exits(exit_rules)[: self._config.max_exit_rules],
-            parameters=params,
-            lineage="crossover_swap",
-        )
-
-    # -------------------------------------------------------------------------
-    # Mutation
-    # -------------------------------------------------------------------------
-
-    def _mutate(self, ind: Individual, rng: random.Random) -> Individual:
-        """Apply mutation operators with probability mutation_rate per rule."""
-        ind = _clone_individual(ind)
-
-        for i, rule in enumerate(ind.entry_rules):
-            if rng.random() < self._config.mutation_rate:
-                operator = rng.choice([
-                    self._mutate_threshold,
-                    self._mutate_indicator_swap,
-                    self._mutate_condition_flip,
-                ])
-                ind.entry_rules[i] = operator(rule, rng)
-
-        # Possibly insert or delete a rule
-        if rng.random() < self._config.mutation_rate:
-            action = rng.choice(["insert", "delete"])
-            if action == "insert" and len(ind.entry_rules) < self._config.max_entry_rules:
-                new_rule = self._grammar.random_entry_rule(rng)
-                new_rule["type"] = "confirmation"  # additions are always confirmations
-                ind.entry_rules.append(new_rule)
-            elif action == "delete" and len(ind.entry_rules) > 1:
-                # Never delete the last prerequisite
-                deletable = [
-                    j for j, r in enumerate(ind.entry_rules)
-                    if r.get("type") != "prerequisite"
-                    or sum(1 for r2 in ind.entry_rules if r2.get("type") == "prerequisite") > 1
-                ]
-                if deletable:
-                    ind.entry_rules.pop(rng.choice(deletable))
-
-        # Mutate structural exit parameters
-        structural_types = {"stop_loss", "take_profit", "time_stop"}
-        for i, rule in enumerate(ind.exit_rules):
-            if rule.get("type") in structural_types and rng.random() < self._config.mutation_rate:
-                ind.exit_rules[i] = self._mutate_structural_exit(rule, rng)
-
-        return ind
-
-    def _mutate_threshold(
-        self, rule: dict[str, Any], rng: random.Random
-    ) -> dict[str, Any]:
-        """Perturb a numeric threshold by +/- 5-25% of the valid range."""
-        rule = dict(rule)
-        indicator = rule.get("indicator", "")
-        if indicator not in NUMERIC_INDICATORS:
-            return rule
-
-        spec = NUMERIC_INDICATORS[indicator]
-        lo, hi = spec["value_range"]
-        range_span = hi - lo
-        perturbation = rng.uniform(0.05, 0.25) * range_span * rng.choice([-1, 1])
-        old_val = float(rule.get("value", (lo + hi) / 2))
-        rule["value"] = self._grammar.clamp_value(indicator, old_val + perturbation)
-        return rule
-
-    def _mutate_indicator_swap(
-        self, rule: dict[str, Any], rng: random.Random
-    ) -> dict[str, Any]:
-        """Replace indicator with another from the same category."""
-        rule = dict(rule)
-        old_indicator = rule.get("indicator", "")
-
-        if old_indicator in NUMERIC_INDICATORS:
-            candidates = [k for k in NUMERIC_INDICATORS if k != old_indicator]
-            if not candidates:
-                return rule
-            new_indicator = rng.choice(candidates)
-            spec = NUMERIC_INDICATORS[new_indicator]
-            lo, hi = spec["value_range"]
-            rule["indicator"] = new_indicator
-            rule["value"] = round((lo + hi) / 2, 2)  # midpoint
-            # Ensure condition is valid for new indicator
-            if rule.get("condition") not in spec["conditions"]:
-                rule["condition"] = rng.choice(spec["conditions"])
-        elif old_indicator in SPECIAL_INDICATORS:
-            candidates = [k for k in SPECIAL_INDICATORS if k != old_indicator]
-            if not candidates:
-                return rule
-            new_indicator = rng.choice(candidates)
-            spec = SPECIAL_INDICATORS[new_indicator]
-            rule["indicator"] = new_indicator
-            rule["value"] = spec["value"]
-            if rule.get("condition") not in spec["conditions"]:
-                rule["condition"] = rng.choice(spec["conditions"])
-
-        return rule
-
-    def _mutate_condition_flip(
-        self, rule: dict[str, Any], rng: random.Random
-    ) -> dict[str, Any]:
-        """Flip the condition within the indicator's valid set."""
-        rule = dict(rule)
-        indicator = rule.get("indicator", "")
-
-        if indicator in NUMERIC_INDICATORS:
-            conditions = NUMERIC_INDICATORS[indicator]["conditions"]
-        elif indicator in SPECIAL_INDICATORS:
-            conditions = SPECIAL_INDICATORS[indicator]["conditions"]
-        else:
-            return rule
-
-        other_conditions = [c for c in conditions if c != rule.get("condition")]
-        if other_conditions:
-            rule["condition"] = rng.choice(other_conditions)
-        return rule
-
-    def _mutate_structural_exit(
-        self, rule: dict[str, Any], rng: random.Random
-    ) -> dict[str, Any]:
-        """Perturb a structural exit's ATR multiple or bar count."""
-        rule = dict(rule)
-        exit_type = rule.get("type", "")
-        if exit_type not in EXIT_STRUCTURES:
-            return rule
-
-        spec = EXIT_STRUCTURES[exit_type]
-        if "atr_multiple_range" in spec:
-            lo, hi = spec["atr_multiple_range"]
-            old_val = float(rule.get("atr_multiple", (lo + hi) / 2))
-            perturbation = rng.uniform(0.1, 0.5) * rng.choice([-1, 1])
-            rule["atr_multiple"] = round(max(lo, min(hi, old_val + perturbation)), 2)
-        elif "bars_range" in spec:
-            lo, hi = spec["bars_range"]
-            old_val = int(rule.get("days", (lo + hi) // 2))
-            perturbation = rng.randint(1, 5) * rng.choice([-1, 1])
-            rule["days"] = max(lo, min(hi, old_val + perturbation))
-
-        return rule
-
-    # -------------------------------------------------------------------------
-    # Fitness evaluation
-    # -------------------------------------------------------------------------
-
-    def _evaluate_fitness(
-        self, ind: Individual, is_data: Any, n_trials_so_far: int
-    ) -> None:
-        """Run IS backtest and set deflated Sharpe as fitness."""
-        try:
-            from quant_pod.alpha_discovery.filter import (
-                IS_MIN_PROFIT_FACTOR,
-                IS_MIN_TRADES,
-                _deflate_sharpe,
-                _run_backtest,
-            )
-
-            metrics = _run_backtest(
-                is_data, ind.entry_rules, ind.exit_rules, ind.parameters
-            )
-            ind.is_trades = metrics["total_trades"]
-
-            if ind.is_trades < IS_MIN_TRADES:
-                ind.fitness = float("-inf")
-                return
-
-            raw_sharpe = metrics["sharpe_ratio"]
-            # Use n_trials_so_far + 1 (this evaluation) for deflation
-            deflated = _deflate_sharpe(raw_sharpe, max(n_trials_so_far, 1), t_bars=len(is_data))
-
-            profit_factor = metrics.get("profit_factor", 0.0)
-            if profit_factor < IS_MIN_PROFIT_FACTOR:
-                ind.fitness = float("-inf")
-                return
-
-            ind.fitness = deflated
-
-        except Exception as exc:
-            logger.debug(f"[GrammarGP] fitness eval failed: {exc}")
-            ind.fitness = float("-inf")
-
-
-# =============================================================================
-# Helpers
-# =============================================================================
-
-
-def _clone_individual(ind: Individual) -> Individual:
-    """Deep-copy an individual."""
-    return Individual(
-        entry_rules=copy.deepcopy(ind.entry_rules),
-        exit_rules=copy.deepcopy(ind.exit_rules),
-        parameters=copy.deepcopy(ind.parameters),
-        fitness=ind.fitness,
-        is_trades=ind.is_trades,
-        generation=ind.generation,
-        lineage=ind.lineage,
+if __name__ == "__main__":
+    import sys
+
+    log_level = "DEBUG" if "--debug" in sys.argv else "INFO"
+    logger.remove()
+    logger.add(sys.stderr, level=log_level)
+
+    # Synthetic OHLCV for smoke testing (no network, no DB)
+    n_bars = 500
+    dates = pd.bdate_range("2022-01-01", periods=n_bars)
+    np.random.seed(42)
+    close = 100.0 + np.cumsum(np.random.randn(n_bars) * 0.5)
+    high = close + np.abs(np.random.randn(n_bars) * 0.3)
+    low = close - np.abs(np.random.randn(n_bars) * 0.3)
+    volume = np.random.randint(500_000, 5_000_000, size=n_bars)
+
+    synthetic_data = pd.DataFrame(
+        {
+            "open": close + np.random.randn(n_bars) * 0.1,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        },
+        index=dates,
     )
 
+    cfg = GPConfig(population_size=20, n_generations=5, elite_count=3)
+    gp = GrammarGP(config=cfg)
 
-def _spec_to_individual(spec: dict[str, Any]) -> Individual:
-    """Convert a strategy spec dict to an Individual."""
-    return Individual(
-        entry_rules=copy.deepcopy(spec.get("entry_rules", [])),
-        exit_rules=copy.deepcopy(spec.get("exit_rules", [])),
-        parameters=copy.deepcopy(spec.get("parameters", {})),
+    logger.info("Running GP on synthetic data ...")
+    survivors, total_evals = gp.evolve(
+        seed_population=[],
+        price_data=synthetic_data,
+        n_prior_trials=0,
     )
 
-
-def _individual_to_spec(ind: Individual) -> dict[str, Any]:
-    """Convert an Individual back to a strategy spec dict."""
-    return {
-        "entry_rules": copy.deepcopy(ind.entry_rules),
-        "exit_rules": copy.deepcopy(ind.exit_rules),
-        "parameters": copy.deepcopy(ind.parameters),
-    }
+    print(f"\nSurvivors: {len(survivors)}  |  Total evaluations: {total_evals}")
+    for i, s in enumerate(survivors[:5]):
+        print(
+            f"  #{i + 1}  "
+            f"entry_rules={len(s['entry_rules'])}  "
+            f"exit_rules={len(s['exit_rules'])}"
+        )

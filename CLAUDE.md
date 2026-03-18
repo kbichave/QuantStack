@@ -16,98 +16,165 @@ and improve your own configuration over time.
 ## 2. Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                  CLAUDE CODE (You)                   │
-│  Portfolio Manager · Strategy Researcher · Architect │
-│  Skills: /trade  /reflect  /workshop  /decode /meta  │
-│          /review  (deep_analysis — tool reference)   │
-│  Memory: .claude/memory/*.md (persistent brain)      │
-└──────────────────────┬──────────────────────────────┘
-                       │ MCP calls
-┌──────────────────────▼──────────────────────────────┐
-│            QuantPod MCP Server                       │
-│  packages/quant_pod/mcp/server.py                    │
-│  Tools: run_analysis, get_portfolio_state,           │
-│         get_regime, get_recent_decisions,             │
-│         get_system_status, + future phases            │
-└──────────────────────┬──────────────────────────────┘
+═══════════════════════════════════════════════════════════════════════
+MODE 1: INTERACTIVE (Claude Code session — Claude Opus/Sonnet quality)
+═══════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                     HEAD PM (Claude Code — You)                      │
+│  Skills: /morning /trade /review /reflect /workshop /meta /options    │
+│          /invest  /decode  /lit-review  /compact-memory               │
+│  Memory: .claude/memory/*.md (persistent brain)                      │
+│  Desk Agents: .claude/agents/*.md (spawned via Agent tool)           │
+└──────────────────────┬──────────────────────────────────────────────┘
+                       │ Agent tool (context-isolated subagents)
+         ┌─────────────┼─────────────┬──────────────────┐
+         ▼             ▼             ▼                  ▼
+┌──────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────┐
+│ MARKET INTEL │ │ ALPHA    │ │ RISK     │ │ EXECUTION      │
+│ DESK         │ │ RESEARCH │ │ DESK     │ │ DESK           │
+│ .claude/     │ │ .claude/ │ │ .claude/ │ │ .claude/       │
+│ agents/      │ │ agents/  │ │ agents/  │ │ agents/        │
+│ market-      │ │ alpha-   │ │ risk.md  │ │ execution.md   │
+│ intel.md     │ │ research │ │          │ │                │
+│              │ │ .md      │ │          │ │                │
+│ MCP tools:   │ │ MCP:     │ │ MCP:     │ │ MCP:           │
+│ regime, news │ │ signals, │ │ VaR,     │ │ liquidity,     │
+│ events, data │ │ features │ │ stress,  │ │ volume profile │
+│              │ │ backtest │ │ sizing   │ │ trade scoring  │
+│ Model: opus  │ │ M: opus  │ │ M: snnt  │ │ M: sonnet      │
+└──────────────┘ └──────────┘ └──────────┘ └────────────────┘
+  (parallel)      (parallel)   (after sigs)   (at execution)
+         │             │             │                │
+         └─────────────┼─────────────┘                │
+                       ▼                              │
+              ┌─────────────────┐                     │
+              │ STRATEGY R&D    │◄────────────────────┘
+              │ DESK            │  (TCA feeds back)
+              │ .claude/agents/ │
+              │ strategy-rd.md  │
+              │ M: opus         │
+              └─────────────────┘
                        │
-        ┌──────────────┼──────────────┐
-        ▼              ▼              ▼
-┌───────────┐  ┌───────────┐  ┌───────────────┐
-│ Trading   │  │ Decoder   │  │ QuantCore MCP │
-│ Crew      │  │ Crew      │  │ (44 tools)    │
-│           │  │ (Phase 4) │  │ quantcore/    │
-│ Layer 1:  │  └───────────┘  │ mcp/server.py │
-│  13 ICs   │                 └───────────────┘
-│ Layer 2:  │
-│  6 Pods   │
-│ Layer 3:  │
-│  Assistant │
-│ (stops     │
-│  here)     │
-└─────┬──────┘
-      │ DailyBrief returned to you
-      │
-┌─────▼────────────────────────────────────────────────┐
-│                  Execution Layer                       │
-│  risk_gate.py ──▶ broker (paper/etrade) ──▶ fill     │
-│  kill_switch.py   portfolio_state.py   audit trail    │
+         ┌─────────────┼──────────────┐
+         ▼             ▼              ▼
+┌────────────┐  ┌────────────┐  ┌───────────────┐
+│ SignalEngine│  │ QuantPod   │  │ QuantCore MCP │
+│ (2–6 sec)  │  │ MCP Server │  │ (54+ tools)   │
+│ 7 collectors│  │ 31 tools   │  │ quantcore/    │
+│ deterministic│ │ quant_pod/ │  │ mcp/server.py │
+│ no LLM      │  │ mcp/       │  └───────────────┘
+└─────┬──────┘  └─────┬──────┘
+      │               │
+┌─────▼───────────────▼───────────────────────────────┐
+│                  Execution Layer                      │
+│  risk_gate.py ──▶ SmartOrderRouter ──▶ fill          │
+│  kill_switch.py   (Alpaca / IBKR / PaperBroker)     │
+│  portfolio_state.py   audit trail   TCA engine       │
 └──────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════
+MODE 2: AUTONOMOUS (Scheduled — Groq llama-3.3-70b quality)
+═══════════════════════════════════════════════════════════════════════
+
+Cron/scheduler triggers at 09:15 ET, 12:30 ET, 15:45 ET
+         │
+┌────────▼────────────────────────────────────────────────────────────┐
+│              AutonomousRunner (packages/quant_pod/autonomous/)       │
+│  SignalEngine (deterministic, no LLM) → signals                     │
+│  GroqPM (Groq API) → trade/hold decisions                          │
+│  RiskGate → execution → broker                                     │
+│  PAPER MODE ONLY unless USE_REAL_TRADING=true                       │
+└─────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════
+MODE 3: RALPH LOOPS (Perpetual — Claude Opus quality)
+═══════════════════════════════════════════════════════════════════════
+
+Two concurrent Ralph Wiggum loops running in tmux panes.
+Each iteration is a full Claude Opus session with all MCP tools + desk agents.
+State persists via memory files, strategy DB, and git history.
+
+┌─────────────────────────────────────────────────────────────────────┐
+│ STRATEGY FACTORY (every ~60s)│ LIVE TRADER (every ~5m) │ ML RESEARCH (every ~2m) │
+│ prompts/strategy_factory.md │ prompts/live_trader.md  │ prompts/ml_research.md  │
+│                             │                         │                         │
+│ 1. get_strategy_gaps()      │ 1. get_system_status()  │ 1. Read research program│
+│ 2. Spawn strategy-rd desk   │ 2. get_portfolio_state()│ 2. Pick next experiment │
+│ 3. Hypothesize + backtest   │ 3. Market hours gate    │ 3. Spawn DS desk agent  │
+│ 4. Walk-forward validate    │ 4. Position monitoring: │    - train_ml_model()   │
+│ 5. promote_draft_strategies │    - Regime flip detect  │    - review_quality()   │
+│ 6. Validate active          │    - Stop/target checks  │    - accept/reject loop │
+│ 7. Update memory + commit   │    - Strategy breaker    │ 4. Log experiment       │
+│                             │ 5. Entry scan + desks    │ 5. Update research prog │
+│ draft → forward_testing     │ 6. Execute via risk gate │ 6. Feature engineering  │
+│ NEVER promotes to live      │ 7. Update journal        │ 7. Commit results       │
+└─────────────────────────────┴─────────────────────────┴─────────────────────────┘
+
+Start: ./scripts/start_loops.sh [all|factory|trader|ml|trading]
+Stop:  tmux kill-session -t quantpod-loops
 ```
 
-### TradingCrew Composition (`packages/quant_pod/crews/trading_crew.py`)
+### SignalEngine (`packages/quant_pod/signal_engine/`)
 
-**Layer 1 — ICs (13 agents, async):**
-| IC | Pod | Role |
-|----|-----|------|
-| `data_ingestion_ic` | data | Fetch OHLCV data |
-| `market_snapshot_ic` | market_monitor | Current price/volume snapshot |
-| `regime_detector_ic` | market_monitor | Market regime classification |
-| `trend_momentum_ic` | technicals | RSI, MACD, ADX, SMA metrics |
-| `volatility_ic` | technicals | ATR, Bollinger Bands, VaR |
-| `structure_levels_ic` | technicals | Support/resistance levels |
-| `statarb_ic` | quant | ADF test, information coefficient |
-| `options_vol_ic` | quant | IV, Greeks, skew |
-| `fundamentals_ic` | quant | Earnings, valuation, fundamental signals |
-| `news_sentiment_ic` | alpha_signals | News sentiment scoring |
-| `options_flow_ic` | alpha_signals | Unusual options activity, flow signals |
-| `risk_limits_ic` | risk | VaR, stress tests, limit checks |
-| `calendar_events_ic` | risk | Earnings, FOMC, event calendar |
+The SignalEngine replaced the old TradingCrew (13 LLM agents) in v0.6.0.
+It runs 7 deterministic Python collectors in parallel (~2–6 seconds, zero LLM calls):
 
-**Layer 2 — Pod Managers (6 agents):**
-`data_pod_manager`, `market_monitor_pod_manager`, `technicals_pod_manager`,
-`quant_pod_manager`, `risk_pod_manager`, `alpha_signals_pod_manager`
+| Collector | File | Signals |
+|-----------|------|---------|
+| `technical` | `collectors/technical.py` | RSI, MACD, ADX, SMA, Bollinger Bands |
+| `regime` | `collectors/regime.py` | WeeklyRegimeClassifier + HMM state probs |
+| `volume` | `collectors/volume.py` | OBV, VWAP deviation, volume-weighted bias |
+| `risk` | `collectors/risk.py` | VaR (historical + parametric), max DD, liquidity |
+| `sentiment` | `collectors/sentiment.py` | News headline sentiment via Groq LLM scoring |
+| `fundamentals` | `collectors/fundamentals.py` | P/E, ROE, FCF yield, debt/equity |
+| `events` | `collectors/events.py` | Earnings calendar, FOMC dates, ex-dividend |
 
-**Layer 3 — Trading Assistant (1 agent):**
-Synthesizes all pod outputs → structured JSON `DailyBrief` (Pydantic model).
-**Output contract:** assistant must produce valid JSON matching `DailyBrief` schema.
-Prose output = parse failure → falls through to `{raw_output: ...}` in the MCP response.
+**Output**: `SignalBrief` (Pydantic model, strict superset of `DailyBrief`).
+Contains `symbol_briefs[]` with `consensus_bias`, `consensus_conviction`,
+`pod_agreement`, `critical_levels`, `key_observations`, `risk_factors`.
 
-**Post-run validation:**
-`ICOutputValidator` (`packages/quant_pod/guardrails/ic_output_validator.py`) checks
-each IC output for required fields after every crew run. Failures are non-blocking
-but logged — they feed directly into `/tune` session evidence via the logs.
+**Fault tolerance**: Individual collector timeout/failure → empty dict + recorded
+in `collector_failures`. The final SignalBrief is always valid (bias=neutral if all fail).
 
-**Layer 4 — SuperTrader (REPLACED BY YOU):**
-The crew runs with `stop_at_assistant=True`. The `DailyBrief` is returned
-to you via the `run_analysis` MCP tool. You make the decision.
+### Desk Agents (`.claude/agents/`)
 
-**Context injected into every crew run (from `.claude/memory/`):**
-- `{strategy_context}` — active strategies from `strategy_registry.md` (2000 chars)
-- `{session_notes}` — recent handoff notes from `session_handoffs.md` (1000 chars)
-The assistant uses these to frame `strategic_notes` in terms of strategies you are
-currently tracking, so you don't have to re-read memory after every `run_analysis`.
+Five specialist agents spawned via the Agent tool in interactive Claude Code sessions.
+Each runs with context isolation — only its final report returns to the PM.
+
+| Agent | File | Expertise | Model |
+|-------|------|-----------|-------|
+| Market Intelligence | `.claude/agents/market-intel.md` | Macro regime, sector rotation, events, news | opus |
+| Alpha Research | `.claude/agents/alpha-research.md` | Signal validation, MTF alignment, stat tests | opus |
+| Risk | `.claude/agents/risk.md` | VaR, Kelly sizing, correlation, factor exposure | sonnet |
+| Execution | `.claude/agents/execution.md` | Algo selection, timing, TCA, slippage | sonnet |
+| Strategy R&D | `.claude/agents/strategy-rd.md` | Backtest interpretation, overfitting, lifecycle | opus |
+| Watchlist | `.claude/agents/watchlist.md` | Universe screening, candidate scoring, watchlist rotation | sonnet |
+| Data Scientist | `.claude/agents/data-scientist.md` | ML training, feature engineering, SHAP, retraining triggers | opus |
+
+**Key constraint**: Subagents cannot nest. Each desk handles its full domain in one pass.
+**Cost**: Uses your Claude Max subscription — zero additional API cost for interactive sessions.
+**Autonomous mode**: Desk agents are NOT used. AutonomousRunner uses SignalEngine + GroqPM.
+
+### Data Provider: FinancialDatasets.ai
+
+Primary data source for OHLCV and fundamentals. Full integration in
+`packages/quantcore/data/adapters/financial_datasets_client.py` with:
+- Rate limiter (sliding window, configurable RPM)
+- Retry logic (3 attempts, exponential backoff on 429/5xx)
+- DuckDB caching (eliminates repeat API calls)
+- Priority chain: `DATA_PROVIDER_PRIORITY=financial_datasets,alpaca,alpha_vantage`
 
 ---
 
 ## 3. MCP Tool Inventory
 
-### Phase 1 — Active (packages/quant_pod/mcp/server.py)
+### Phase 1 — Core Analysis (packages/quant_pod/mcp/server.py)
 
 | Tool | Description | Input | Output |
 |------|-------------|-------|--------|
-| `run_analysis` | Run TradingCrew analysis, return DailyBrief | `symbol`, `regime?`, `include_historical_context?` | `{success, daily_brief, regime_used, elapsed_seconds}` |
+| `get_signal_brief` | Run SignalEngine (7 collectors, ~2–5 sec) | `symbol`, `regime?`, `include_strategy_context?` | `{success, signal_brief, regime_used, elapsed_seconds}` |
+| `run_multi_signal_brief` | Parallel SignalEngine for up to 5 symbols | `symbols[]`, `regime?` | `{results, symbols_succeeded, symbols_failed}` |
 | `get_portfolio_state` | Current positions, cash, equity, P&L | (none) | `{snapshot, positions, context_string}` |
 | `get_regime` | ADX/ATR market regime classification | `symbol` | `{success, trend_regime, volatility_regime, confidence, adx, atr, atr_percentile}` |
 | `get_recent_decisions` | Query audit trail | `symbol?`, `limit?` | `{decisions, total}` |
@@ -154,6 +221,8 @@ currently tracking, so you don't have to re-read memory after every `run_analysi
 | `set_regime_allocation` | Set/update regime-strategy allocation matrix | `regime`, `allocations` (list) | Updated allocations |
 | `run_multi_analysis` | Run analysis for multiple symbols sequentially | `symbols` (list) | `{results, symbols_succeeded, symbols_failed}` |
 | `resolve_portfolio_conflicts` | Resolve signal conflicts across strategies | `proposed_trades` (list) | `{resolved_trades, resolutions, conflicts_count}` |
+| `get_strategy_gaps` | Analyze strategy registry for regime coverage gaps | (none) | `{gaps[], coverage_summary, trailing_sharpe}` |
+| `promote_draft_strategies` | Auto-promote drafts to forward_testing, retire stale | `min_oos_sharpe?`, `max_overfit_ratio?`, `max_age_days?` | `{promoted[], rejected[], retired[]}` |
 
 ### Phase 6 — Learning Loop (packages/quant_pod/mcp/server.py)
 
@@ -167,21 +236,6 @@ currently tracking, so you don't have to re-read memory after every `run_analysi
 | `validate_strategy` | Re-run backtest and compare to registered summary | `strategy_id` | `{still_valid, sharpe_degradation_pct}` |
 | `update_regime_matrix_from_performance` | Propose matrix updates from trade data | `lookback_days?` | `{proposals, current_matrix}` |
 
-### Enhancement 1 — Granular IC Access (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `list_ics` | Return catalog of all 13 ICs and 6 pod managers | (none) | `{ics, pods, total_ics}` |
-| `run_ic` | Run a single IC in isolation (2-agent minimal crew) | `ic_name`, `symbol`, `params?` | `{raw_output, regime_context, elapsed_seconds}` |
-| `run_pod` | Run a pod + its ICs, or pod manager over pre-computed IC outputs | `pod_name`, `symbol`, `ic_outputs?` | `{raw_output, constituent_ics, ic_outputs_preview}` |
-| `run_crew_subset` | Run custom IC subset → pod managers → assistant (partial DailyBrief) | `ic_names`, `symbol` | `{partial_daily_brief, ics_run, pods_activated}` |
-| `get_last_ic_output` | Retrieve cached IC output from last crew run (30-min TTL) | `ic_name`, `symbol` | `{raw_output}` or `{cache_miss: true}` |
-
-**IC output cache:** `run_analysis`, `run_ic`, `run_pod`, and `run_crew_subset` all
-populate a 30-minute in-memory cache keyed by (symbol, ic_name). Use
-`get_last_ic_output` in `/reflect` sessions to analyze per-IC accuracy without
-re-running the crew.
-
 ### Enhancement 5 — Execution Feedback Loop (packages/quant_pod/mcp/server.py)
 
 | Tool | Description | Input | Output |
@@ -189,71 +243,76 @@ re-running the crew.
 | `get_fill_quality` | Assess execution quality for a fill vs VWAP | `order_id` | `{fill_price, slippage_bps, vwap, fill_vs_vwap_bps, quality_note}` |
 | `get_position_monitor` | Comprehensive position status: price, P&L, stop proximity, regime | `symbol` | `{pnl_pct, days_held, current_regime, near_stop, near_target, recommended_action}` |
 
+### Enhancement 6 — Live Rule Evaluation + ML Pipeline (packages/quant_pod/mcp/server.py)
+
+| Tool | Description | Input | Output |
+|------|-------------|-------|--------|
+| `check_strategy_rules` | Evaluate strategy entry/exit rules against current market data | `symbol`, `strategy_id` | `{entry_triggered, exit_triggered, entry_rules_detail[], features_loaded[]}` |
+| `train_ml_model` | Train LightGBM/XGBoost/CatBoost with full feature pipeline | `symbol`, `model_type?`, `feature_tiers?`, `lookback_days?`, `label_method?`, `apply_causal_filter?` | `{accuracy, auc, cv_scores, features_used, model_path}` |
+| `tune_hyperparameters` | Bayesian HPO via Optuna with TimeSeriesSplit CV | `symbol`, `model_type?`, `n_trials?`, `metric?` | `{best_params, best_score, convergence[]}` |
+| `get_ml_model_status` | Check trained model status, age, staleness | `symbol?` | `{models[], stale_count}` |
+| `predict_ml_signal` | Run ML inference on current market data | `symbol` | `{probability, direction, confidence, top_features[]}` |
+| `register_model` | Version and register a trained model (champion/challenger) | `symbol`, `model_path`, `metadata?` | `{registry_id, version, promoted}` |
+| `get_model_history` | All registered versions for a symbol | `symbol` | `{versions[], total}` |
+| `rollback_model` | Revert to a previous model version | `symbol`, `version` | `{rolled_back_to}` |
+| `compare_models` | Side-by-side accuracy/feature/hyperparam diff | `symbol`, `version_a`, `version_b` | `{accuracy_diff, auc_diff, features_added[], features_removed[]}` |
+| `check_concept_drift` | KS test per feature vs training distribution | `symbol`, `window_days?` | `{drift_detected, drifted_features[], recommended_action}` |
+| `update_model_incremental` | Warm-start retrain on new data (LightGBM init_model) | `symbol`, `new_data_days?` | `{updated, old_accuracy, new_accuracy, registered_version}` |
+
+### Enhancement 7 — Portfolio Optimization (packages/quant_pod/mcp/server.py)
+
+| Tool | Description | Input | Output |
+|------|-------------|-------|--------|
+| `optimize_portfolio` | Portfolio allocation (HRP/MVO/risk parity/max Sharpe) | `symbols[]`, `method?`, `lookback_days?`, `risk_free_rate?` | `{weights, expected_return, expected_vol, sharpe, risk_contributions}` |
+| `compute_hrp_weights` | Hierarchical Risk Parity with cluster tree detail | `symbols[]`, `lookback_days?` | `{weights, cluster_tree, risk_contributions}` |
+
+### Enhancement 8 — Volatility Modeling (packages/quantcore/mcp/tools/research.py)
+
+| Tool | Description | Input | Output |
+|------|-------------|-------|--------|
+| `fit_garch_model` | Fit GARCH/EGARCH/GJR-GARCH model | `symbol`, `model_type?`, `p?`, `q?` | `{params, aic, bic, persistence, annualized_vol}` |
+| `forecast_volatility` | Forward-looking vol forecast from GARCH | `symbol`, `horizon_days?` | `{forecast_vol_daily[], forecast_vol_annualized, vol_regime, var_95}` |
+
 ---
 
 ## 4. LLM Configuration
 
-LLM routing lives in `packages/quant_pod/llm_config.py`. CrewAI uses LiteLLM;
-all model strings follow the `provider/model_id` format.
+### Architecture Overview
 
-### Supported providers
+The system uses TWO LLM paths:
+1. **Interactive (Claude Code sessions)**: Claude Opus/Sonnet via Max subscription.
+   Desk agents (`.claude/agents/*.md`) spawned via Agent tool — zero additional cost.
+2. **Autonomous (AutonomousRunner, sentiment)**: Groq API (`llama-3.3-70b-versatile`).
+   Free tier, used for GroqPM decisions and sentiment scoring.
 
-| Tier | Provider | Key env var | Notes |
-|------|----------|-------------|-------|
-| 1 | `bedrock` | `AWS_PROFILE` / boto3 chain | Default. Haiku for ICs, Sonnet for pods |
-| 1 | `anthropic` | `ANTHROPIC_API_KEY` | Claude direct API |
-| 1 | `openai` | `OPENAI_API_KEY` | GPT-4o etc. |
-| 1 | `vertex_ai` | `VERTEX_PROJECT` + gcloud auth | Gemini on GCP |
-| 1 | `gemini` | `GEMINI_API_KEY` | Google AI Studio (free tier) |
-| 2 | `azure` | `AZURE_API_KEY` + `AZURE_API_BASE` | OpenAI via Azure |
-| 2 | `groq` | `GROQ_API_KEY` | Fastest inference, free tier |
-| 2 | `together_ai` | `TOGETHER_API_KEY` | OSS models hosted |
-| 2 | `fireworks_ai` | `FIREWORKS_API_KEY` | Fast OSS inference |
-| 2 | `mistral` | `MISTRAL_API_KEY` | Mistral direct |
-| 3 | `ollama` | `OLLAMA_BASE_URL` reachable | Local models |
-| 3 | `custom_openai` | `CUSTOM_OPENAI_BASE_URL` reachable | vLLM / LM Studio |
+LLM routing for legacy components lives in `packages/quant_pod/llm_config.py`.
+Uses LiteLLM; all model strings follow the `provider/model_id` format.
 
-### Resolution order per agent
+### Active Configuration
 
-```
-1. LLM_MODEL_{TIER} env override  (e.g. LLM_MODEL_IC=groq/llama-3.3-70b-versatile)
-2. LLM_PROVIDER default            (e.g. LLM_PROVIDER=bedrock)
-3. LLM_FALLBACK_CHAIN              (e.g. LLM_FALLBACK_CHAIN=anthropic,openai)
-4. ProviderConfigError if all fail
-```
-
-### Active Configuration (Ollama — Local)
-
-All crew agents run on local Ollama. No API cost, no rate limits.
-
-| Tier | Agents | Model | Env override |
-|------|--------|-------|-------------|
-| `ic` | all 13 `*_ic` | `ollama/qwen3.5:9b` | `LLM_MODEL_IC` |
-| `pod` | all 6 `*_pod_manager` | `ollama/qwen3.5:9b` | `LLM_MODEL_POD` |
-| `assistant` | `trading_assistant` | `ollama/qwen3.5:9b` | `LLM_MODEL_ASSISTANT` |
-| `decoder` | decoder crew agents | `ollama/qwen3.5:9b` | `LLM_MODEL_DECODER` |
-| `workshop` | deep reasoning (not CrewAI) | `bedrock/us.anthropic.claude-sonnet-4-20250514` | `LLM_MODEL_WORKSHOP` |
-
-Required: `ollama pull qwen3.5:9b` (~6.3 GB). Verify: `ollama list`
-
-### Fallback Chain
-
-Bedrock (Claude Sonnet) activates if Ollama is unreachable.
-Workshop always uses Bedrock regardless of provider setting.
+| Component | Provider | Model | Notes |
+|-----------|----------|-------|-------|
+| Desk agents (interactive) | Claude Max | opus / sonnet | Via `.claude/agents/*.md`, zero extra cost |
+| GroqPM (autonomous runner) | Groq | `groq/llama-3.3-70b-versatile` | Free tier, fast inference |
+| Sentiment collector | Groq | `groq/llama-3.3-70b-versatile` | Headlines → sentiment score |
+| SignalEngine | None | N/A | Pure Python, deterministic, no LLM |
 
 ### Key env vars
 
 ```bash
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-LLM_MODEL_IC=ollama/qwen3.5:9b
-LLM_MODEL_POD=ollama/qwen3.5:9b
-LLM_MODEL_ASSISTANT=ollama/qwen3.5:9b
-LLM_MODEL_DECODER=ollama/qwen3.5:9b
-LLM_MODEL_WORKSHOP=bedrock/us.anthropic.claude-sonnet-4-20250514
-LLM_FALLBACK_CHAIN=bedrock,openai
-BEDROCK_REGION=us-east-1
-BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514
+GROQ_API_KEY=gsk_...            # Required for autonomous mode + sentiment
+LLM_PROVIDER=groq               # Default for LiteLLM calls
+LLM_FALLBACK_CHAIN=groq         # Single provider chain
+```
+
+### Data provider env vars
+
+```bash
+FINANCIAL_DATASETS_API_KEY=...    # FinancialDatasets.ai — primary data source
+DATA_PROVIDER_PRIORITY=financial_datasets,alpaca,alpha_vantage
+ALPACA_API_KEY=...                # Alpaca — streaming + execution
+ALPACA_SECRET_KEY=...
+ALPACA_PAPER=true
 ```
 
 ---
@@ -263,24 +322,21 @@ BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514
 ### Active (packages/quant_pod/mcp/models.py)
 | Model | Description |
 |-------|-------------|
-| `RunAnalysisInput` | Input for run_analysis tool |
-| `RunAnalysisOutput` | Output with DailyBrief and metadata |
+| `RunAnalysisInput` | Input for get_signal_brief tool (legacy name, still used internally) |
+| `RunAnalysisOutput` | Output with SignalBrief and metadata |
 | `PortfolioStateOutput` | Snapshot + positions + context string |
 | `GetRegimeOutput` | Regime classification result |
 | `RecentDecisionSummary` | Summary of a single audit event |
 | `RecentDecisionsOutput` | List of audit events |
 | `SystemStatusOutput` | Kill switch + risk halt + broker mode |
 
-### Crew Output Schemas (packages/quant_pod/crews/schemas.py)
+### Signal Output Schemas (packages/quant_pod/crews/schemas.py + signal_engine/brief.py)
 | Model | Description |
 |-------|-------------|
-| `TaskEnvelope` | Task + asset metadata for crew routing |
 | `KeyLevel` | Support/resistance/pivot level with strength |
-| `AnalysisNote` | Raw IC analysis output |
-| `PodResearchNote` | Pod manager synthesis |
-| `SymbolBrief` | Per-symbol consolidated brief |
-| `DailyBrief` | Trading Assistant's full synthesis — YOUR primary input |
-| `TradeDecision` | SuperTrader output (legacy — you produce this reasoning yourself) |
+| `SymbolBrief` | Per-symbol consolidated brief (consensus_bias, conviction, levels) |
+| `DailyBrief` | Base synthesis schema — 12 fields including market_bias, risk_environment |
+| `SignalBrief` | Superset of DailyBrief — adds engine_version, collector_failures, sentiment_score, regime_detail |
 | `RiskVerdict` | Risk gate verdict (APPROVE/SCALE/VETO) |
 
 ### Phase 2 Models (packages/quant_pod/mcp/models.py)
@@ -317,7 +373,7 @@ BEDROCK_MODEL_ID=us.anthropic.claude-sonnet-4-20250514
 ## 5.5 ML Integration (`packages/quantcore/`)
 
 The system includes a production-grade ML stack alongside rule-based strategies.
-These run **outside** the CrewAI crew — they are Python modules callable directly
+These run outside the SignalEngine — they are Python modules callable directly
 or via QuantCore MCP tools.
 
 ### Supervised Learning (`packages/quantcore/models/`)
@@ -441,7 +497,7 @@ All files in `.claude/memory/`. Git-tracked. These ARE your persistent brain.
 | `strategy_registry.md` | All strategies with status, regime fit, stats | /workshop, /decode, /meta, /trade, /reflect | /workshop, /decode, /reflect |
 | `trade_journal.md` | Every trade decision with reasoning and outcome | /trade, /review, /reflect | /trade, /meta |
 | `regime_history.md` | Regime transitions and duration stats | /trade, /meta, /workshop, /reflect | Any session where regime change detected |
-| `agent_performance.md` | IC/Pod signal quality and known biases | /reflect, /meta | /reflect |
+| `agent_performance.md` | Collector + desk agent accuracy and known biases | /reflect, /meta | /reflect |
 | `session_handoffs.md` | Cross-session context + self-modification log | Every session | When context transfers needed, when config/skill files modified |
 | `workshop_lessons.md` | Accumulated R&D learnings | /workshop, /reflect | /workshop, /reflect |
 | `ml_model_registry.md` | Trained ML models: type, features, OOS accuracy, last validated | /workshop, /reflect | /workshop when a model is trained or evaluated |
@@ -498,15 +554,27 @@ You have permission and are expected to update your own configuration.
 ### Active
 | Skill | File | Purpose |
 |-------|------|---------|
-| `/trade` | `.claude/skills/trade.md` | Run analysis, reason through DailyBrief, make trade decisions |
-| `/reflect` | `.claude/skills/reflect.md` | Review outcomes, update memory, fix skills. Flags ICs for /tune. |
-| `/workshop` | `.claude/skills/workshop.md` | Strategy R&D — hypothesize, backtest, validate, register |
-| `/decode` | `.claude/skills/decode.md` | Reverse-engineer strategies from trade history |
+| `/morning` | `.claude/skills/morning.md` | Pre-market scan — macro context, watchlist signal scan, ranked opportunity table |
+| `/trade` | `.claude/skills/trade.md` | Run SignalBrief analysis, reason through signals, delegate to desk agents, execute |
+| `/review` | `.claude/skills/review.md` | Position review, strategy lifecycle, promotion/retirement, TCA audit |
+| `/reflect` | `.claude/skills/reflect.md` | Review outcomes, update memory, fix collectors, evaluate desk agent accuracy |
+| `/workshop` | `.claude/skills/workshop.md` | Strategy R&D — hypothesize, backtest, validate, register. Causal validation mandatory for ML. |
 | `/meta` | `.claude/skills/meta.md` | Portfolio-level orchestration across symbols and strategies |
-| `/review` | `.claude/skills/review.md` | Position review, strategy lifecycle, promotion/retirement |
-| `/invest` | `.claude/skills/invest.md` | Long-term fundamental investing — weekly cadence, DCF + quality scoring |
-| `/options` | `.claude/skills/options.md` | Short-term options trading — event-driven, Greeks/IV-based, expiry cadence |
+| `/decode` | `.claude/skills/decode.md` | Reverse-engineer strategies from trade history |
+| `/invest` | `.claude/skills/invest.md` | Long-term fundamental investing — weekly cadence, DCF + quality + SEC filing analysis |
+| `/options` | `.claude/skills/options.md` | Short-term options trading — event-driven, Greeks/IV-based, earnings playbook |
+| `/earnings` | `.claude/skills/earnings.md` | Earnings event playbook — pre/post-earnings IV analysis, historical moves, structure selection |
+| `/lit-review` | `.claude/skills/lit_review.md` | Research-to-product gap analysis — find techniques to improve alpha, risk, execution |
 | `/compact-memory` | `.claude/skills/compact_memory.md` | Distill memory files to remove stale/redundant entries. Run when any file exceeds 200 lines or after 5+ sessions. |
+
+### Ralph Loops (autonomous, not user-invocable)
+| Prompt | Purpose |
+|--------|---------|
+| `prompts/strategy_factory.md` | Autonomous strategy R&D — gap analysis, hypothesis, backtest, validate, promote |
+| `prompts/live_trader.md` | Autonomous trading — position monitoring, entry scanning, execution via desk agents |
+| `prompts/ml_research.md` | Autonomous ML research (autoresearch-inspired) — train, QA gate, feature engineering, experiment log |
+
+Start with `./scripts/start_loops.sh [all|factory|trader|ml|trading]`. Runs in tmux.
 
 ### Reference (not user-invocable)
 | File | Purpose |

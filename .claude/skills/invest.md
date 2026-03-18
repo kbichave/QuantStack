@@ -58,6 +58,8 @@ For each candidate, call these **in parallel**:
 - `get_earnings_data(symbol)` → EPS trend, surprise history, next earnings date
 - `get_insider_trades(symbol, days=90)` → net buy/sell directional signal
 - `get_analyst_estimates(symbol)` → consensus direction, revision trend (up/down/flat)
+- `get_segmented_revenues(symbol)` → revenue diversification, segment growth trends
+- `get_institutional_ownership(symbol)` → institutional flow direction (compare 2 most recent quarters)
 
 Score each dimension on a 0–10 scale:
 
@@ -67,8 +69,29 @@ Score each dimension on a 0–10 scale:
 | **Value** | P/FCF, EV/EBITDA | Expensive (P/FCF>30) | Fair (15–30) | Cheap (<15) |
 | **Momentum** | EPS trend, surprise history | Misses, declining | Flat | Beats, accelerating |
 | **Insider Signal** | Net 90-day buy/sell | Net selling | Neutral | Net buying |
+| **Institutional Flow** | 13F quarterly changes | Net selling 2 quarters | Flat | Net buying 2 quarters |
 
-**Composite score** = (Quality × 0.35) + (Value × 0.30) + (Momentum × 0.20) + (Insider × 0.15)
+**Composite score** = (Quality × 0.30) + (Value × 0.25) + (Momentum × 0.20) + (Insider × 0.10) + (Institutional × 0.15)
+
+### Step 3.5: SEC Filing Deep Dive (for High-Conviction Candidates)
+
+For candidates scoring >= 7 composite:
+- Call `get_sec_filing_items(symbol, filing_type="10-K", section="risk_factors")` for risk factor text
+- Call `get_sec_filing_items(symbol, filing_type="10-K", section="mda")` for MD&A (Management Discussion & Analysis)
+
+Summarize:
+- **Key risks:** What could go wrong? Are risks generic boilerplate or specific to this company?
+- **Management outlook:** Is the tone cautious or optimistic? Are they investing or retrenching?
+- **Red flags:** Related-party transactions, going-concern language, material weakness disclosures,
+  significant customer concentration (>20% revenue from one customer)
+
+Adjust composite score +/-1 based on qualitative findings:
+- **+1** if: management tone is forward-looking, risks are well-managed, no red flags
+- **-1** if: any red flag present, management tone is defensive, or risk factors are
+  materially worse than peers in the same sector
+- **0** if: standard/neutral findings, nothing remarkable
+
+Log the SEC filing assessment in the trade_journal.md fundamental scorecard.
 
 ### Step 4: Simple Valuation (DCF Shortcut)
 
@@ -170,7 +193,7 @@ Long-term positions are NOT stopped out by ATR. Exit when:
 
 ## What This Skill Does NOT Do
 
-- No `run_analysis` or `get_signal_brief` — no technical IC crew
+- No `run_analysis` or `get_signal_brief` — purely fundamental, no technical signals
 - No ATR-based stop loss (exit by fundamental review)
 - No intraday or daily price-action decisions — weekly cadence only
 - No speculative growth names without FCF (pre-profit companies → skip)

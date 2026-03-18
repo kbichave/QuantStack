@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-QuantPod: Multi-Agent Trading System
+QuantPod: Autonomous Trading Intelligence System
 
-A CrewAI-based system for 24/7 market monitoring and intelligent trade execution.
+Pure-Python analysis via SignalEngine, execution via risk gate + broker layer.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.6.0"

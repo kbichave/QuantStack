@@ -11,8 +11,8 @@
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-0.5.0-green.svg" alt="v0.5.0">
-  <img src="https://img.shields.io/badge/MCP%20tools-97-purple.svg" alt="97 MCP Tools">
+  <img src="https://img.shields.io/badge/version-0.7.0-green.svg" alt="v0.7.0">
+  <img src="https://img.shields.io/badge/MCP%20tools-120+-purple.svg" alt="120+ MCP Tools">
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@ Three trading styles, one system:
 | **Long-term investing** | `/invest` | Weekly | DCF, quality scorecard, insider flow |
 | **Options** | `/options` | Per-event | IV rank, event calendar, Greeks |
 
-The system runs **unattended** via `AutonomousRunner`, discovers new strategies overnight via `AlphaDiscoveryEngine`, and tracks signal quality with IC/ICIR metrics that alert on Discord when an agent degrades.
+The system runs **three autonomous Ralph Wiggum loops** in tmux — Strategy Factory discovers strategies, Live Trader executes them, and ML Research trains models — all with Claude Opus quality, zero human intervention. Start with `./scripts/start_loops.sh all`.
 
 ---
 
@@ -60,12 +60,23 @@ Claude Code (Portfolio Brain)
 ├── execute_trade()
 │   └── RiskGate → SmartOrderRouter → Alpaca / IBKR / eTrade / PaperBroker
 │
-└── AutonomousRunner (unattended)
-    └── Overnight: AlphaDiscoveryEngine discovers draft strategies
+├── Desk Agents (.claude/agents/)
+│   ├── Market Intel   — macro regime, sector rotation, events
+│   ├── Alpha Research — signal validation, statistical tests
+│   ├── Risk           — VaR, Kelly sizing, correlation, factor exposure
+│   ├── Execution      — algo selection, TCA, slippage estimation
+│   ├── Strategy R&D   — backtest interpretation, overfitting detection
+│   ├── Data Scientist — ML training, feature engineering, SHAP, QA gate
+│   └── Watchlist      — universe screening, candidate scoring
+│
+└── Three Autonomous Loops (Ralph Wiggum architecture)
+    ├── Strategy Factory  — gap analysis → hypothesize → backtest → promote
+    ├── Live Trader       — position monitoring → entry scan → execute
+    └── ML Research       — train → QA gate → accept/reject/retrain (autoresearch-inspired)
 ```
 
-**Previous approach (TradingCrew):** 13 LLM agents → 3–5 minutes per symbol.
-**Current approach (SignalEngine):** 7 pure-Python collectors → 2–6 seconds. TradingCrew is still available as a fallback for cases that benefit from LLM synthesis.
+**v0.6.0:** Replaced 13 LLM agents with 14 pure-Python collectors (2–6 sec, no LLM).
+**v0.7.0:** Added 7 desk agents, 3 autonomous loops, 30+ ML/portfolio/NLP tools, full feature pipeline.
 
 ---
 
@@ -126,24 +137,27 @@ QuantStack/
 ├── packages/
 │   ├── quantcore/          # Research library (200+ indicators, ML, options, RL)
 │   ├── quant_pod/          # Execution system (signal engine, strategies, agents)
-│   │   ├── signal_engine/  # 7 concurrent Python collectors
-│   │   ├── autonomous/     # Unattended trading loop
-│   │   ├── alpha_discovery/# Overnight strategy generation
+│   │   ├── signal_engine/  # 14 concurrent Python collectors
+│   │   ├── autonomous/     # Unattended trading loop (AutonomousRunner + GroqPM)
+│   │   ├── alpha_discovery/# Strategy generation (grid search + Grammar GP)
+│   │   ├── features/       # FeatureEnricher (fundamentals, macro, flow, earnings)
 │   │   ├── execution/      # Risk gate, order lifecycle, broker routers
-│   │   ├── learning/       # IC/ICIR tracking, calibration, expectancy
+│   │   ├── learning/       # IC/ICIR tracking, drift detection, prompt tuner
 │   │   ├── monitoring/     # AlphaMonitor, DegradationDetector, Prometheus
 │   │   ├── flows/          # TradingDayFlow, IntradayMonitorFlow, ValidationFlow
 │   │   ├── guardrails/     # Signal plausibility, TradeTrap defense
-│   │   ├── audit/          # Immutable decision log (DuckDB)
-│   │   ├── crews/          # TradingCrew (LLM fallback, 13 ICs + 6 pods)
+│   │   ├── risk/           # Portfolio risk analyzer, correlation, factor exposure
+│   │   ├── crews/          # Pydantic schemas, decoder, registry (pure Python)
 │   │   └── api/            # FastAPI REST server (28 endpoints)
 │   ├── alpaca_mcp/         # Alpaca broker MCP (11 tools)
 │   ├── ibkr_mcp/           # Interactive Brokers MCP (11 tools)
 │   └── etrade_mcp/         # eTrade MCP (OAuth 1.0a)
 ├── .claude/
 │   ├── skills/             # Session type definitions (trade, invest, options, etc.)
-│   └── memory/             # Persistent brain (git-ignored, local only)
-├── scripts/                # Scheduler, health checks, pipeline runners
+│   ├── agents/             # Desk agent prompts (market-intel, risk, DS, etc.)
+│   └── memory/             # Persistent brain (strategy registry, trade journal, ML experiments)
+├── prompts/                # Ralph loop prompts (strategy_factory, live_trader, ml_research)
+├── scripts/                # Scheduler, start_loops.sh, health checks
 ├── tests/
 ├── docs/
 ├── pyproject.toml          # Unified workspace (uv)
@@ -153,41 +167,45 @@ QuantStack/
 
 ---
 
-## MCP Tool Surface (97 tools)
+## MCP Tool Surface (120+ tools)
 
 QuantStack exposes its entire research and execution stack as MCP tools — callable directly from Claude Code without writing scripts.
 
-### QuantCore (54 tools)
+### QuantCore (60+ tools)
 
 | Category | Tools |
 |----------|-------|
-| **Market data** | `fetch_market_data`, `load_market_data`, `list_stored_symbols`, `get_symbol_snapshot`, `get_market_regime_snapshot` |
-| **Fundamentals** | `get_financial_statements`, `get_financial_metrics`, `get_earnings_data`, `get_insider_trades`, `get_institutional_ownership`, `get_analyst_estimates`, `get_company_news`, `screen_stocks` |
+| **Market data** | `fetch_market_data`, `load_market_data`, `list_stored_symbols`, `get_symbol_snapshot`, `get_market_regime_snapshot`, `get_price_snapshot` |
+| **Fundamentals** | `get_financial_statements`, `get_financial_metrics`, `get_earnings_data`, `get_insider_trades`, `get_institutional_ownership`, `get_analyst_estimates`, `get_company_news`, `screen_stocks`, `get_segmented_revenues`, `get_earnings_press_releases`, `list_sec_filings`, `get_sec_filing_items`, `get_company_facts`, `search_financial_statements`, `get_interest_rates`, `get_crypto_prices` |
 | **Technical analysis** | `compute_technical_indicators`, `compute_all_features`, `compute_feature_matrix`, `compute_quantagent_features`, `list_available_indicators` |
 | **Backtesting** | `run_backtest`, `get_backtest_metrics`, `run_walkforward`, `run_purged_cv`, `run_monte_carlo`, `run_adf_test` |
 | **Signal research** | `validate_signal`, `diagnose_signal`, `detect_leakage`, `check_lookahead_bias`, `compute_alpha_decay`, `compute_information_coefficient` |
-| **Options** | `price_option`, `price_american_option`, `compute_greeks`, `compute_implied_vol`, `compute_option_chain`, `analyze_option_structure`, `compute_multi_leg_price`, `score_trade_structure`, `simulate_trade_outcome`, `get_options_chain`*, `get_iv_surface`* |
+| **Statistical rigor** | `compute_deflated_sharpe_ratio`, `run_combinatorial_purged_cv`, `compute_probability_of_overfitting` |
+| **Volatility** | `fit_garch_model`, `forecast_volatility` |
+| **Options** | `price_option`, `price_american_option`, `compute_greeks`, `compute_implied_vol`, `compute_option_chain`, `analyze_option_structure`, `compute_multi_leg_price`, `score_trade_structure`, `simulate_trade_outcome`, `get_options_chain`, `get_iv_surface` |
 | **Risk & portfolio** | `compute_position_size`, `compute_portfolio_stats`, `compute_var`, `compute_max_drawdown`, `check_risk_limits`, `stress_test_portfolio` |
 | **Market microstructure** | `analyze_liquidity`, `analyze_volume_profile` |
 | **Calendar & events** | `get_trading_calendar`, `get_event_calendar` |
 | **Trade generation** | `generate_trade_template`, `validate_trade`, `run_screener` |
 
-*\* New in v0.5.0 — live broker chain with Alpaca → Polygon → synthetic fallback*
-
-### QuantPod (43 tools)
+### QuantPod (60+ tools)
 
 | Category | Tools |
 |----------|-------|
-| **Analysis** | `get_signal_brief`, `run_multi_signal_brief`, `run_analysis` (TradingCrew fallback), `get_regime` |
+| **Analysis** | `get_signal_brief`, `run_multi_signal_brief`, `get_regime` |
 | **Portfolio** | `get_portfolio_state`, `get_recent_decisions`, `get_system_status`, `get_risk_metrics` |
-| **Strategy** | `register_strategy`, `list_strategies`, `get_strategy`, `update_strategy` |
+| **Strategy** | `register_strategy`, `list_strategies`, `get_strategy`, `update_strategy`, `get_strategy_gaps`, `promote_draft_strategies`, `check_strategy_rules` |
 | **Backtesting** | `run_backtest`, `run_backtest_mtf`, `run_backtest_options`, `run_walkforward`, `run_walkforward_mtf`, `walk_forward_sparse_signal` |
 | **Execution** | `execute_trade`, `close_position`, `cancel_order`, `get_fills`, `get_fill_quality`, `get_position_monitor` |
+| **ML pipeline** | `train_ml_model`, `tune_hyperparameters`, `review_model_quality`, `predict_ml_signal`, `train_stacking_ensemble`, `train_cross_sectional_model`, `train_deep_model`, `update_model_incremental`, `check_concept_drift` |
+| **Model registry** | `register_model`, `get_model_history`, `rollback_model`, `compare_models`, `get_ml_model_status` |
+| **Feature store** | `compute_and_store_features`, `get_feature_lineage` |
+| **Portfolio optimization** | `optimize_portfolio`, `compute_hrp_weights` |
+| **NLP** | `analyze_text_sentiment` |
 | **Audit** | `get_audit_trail` |
 | **Learning** | `get_strategy_performance`, `validate_strategy`, `promote_strategy`, `retire_strategy`, `get_rl_status`, `get_rl_recommendation`, `update_regime_matrix_from_performance` |
-| **Orchestration** | `run_multi_analysis`, `resolve_portfolio_conflicts`, `get_regime_strategies`, `set_regime_allocation` |
+| **Orchestration** | `resolve_portfolio_conflicts`, `get_regime_strategies`, `set_regime_allocation` |
 | **Decode** | `decode_strategy`, `decode_from_trades` |
-| **IC-level** | `list_ics`, `run_ic`, `run_pod`, `run_crew_subset`, `get_last_ic_output` |
 
 ---
 
@@ -217,7 +235,7 @@ ALPACA_API_KEY=...
 ALPACA_SECRET_KEY=...
 ALPACA_PAPER=true        # safe default
 
-# LLM (for AlphaDiscovery and TradingCrew fallback; not needed for SignalEngine)
+# LLM (for AlphaDiscovery and GroqPM; not needed for SignalEngine)
 LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
 ```
@@ -226,49 +244,19 @@ OLLAMA_BASE_URL=http://localhost:11434
 
 ## LLM Configuration
 
-The **Signal Engine** (primary analysis path) requires **no LLM**. LLMs are used for:
-- TradingCrew (optional fallback for deep synthesis)
+The **Signal Engine** (primary analysis path) requires **no LLM**. LLMs are used only for:
 - AlphaDiscoveryEngine (hypothesis generation)
 - AutonomousRunner's GroqPM (non-routine decisions)
 - `/workshop` deep reasoning
 
-### Option A — Local Ollama (free)
-
 ```bash
-brew install ollama
-ollama serve
-ollama pull qwen3.5:9b   # ~6.6 GB
-```
-
-```bash
-# .env
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-LLM_MODEL_IC=ollama/qwen3.5:9b
-LLM_MODEL_POD=ollama/qwen3.5:9b
-LLM_MODEL_ASSISTANT=ollama/qwen3.5:9b
-```
-
-### Option B — Cloud
-
-```bash
+# .env — needed for AlphaDiscovery, GroqPM, sentiment scoring
 LLM_PROVIDER=groq
-LLM_MODEL_IC=groq/llama-3.3-70b-versatile   # free tier, fast
-```
+GROQ_API_KEY=...
 
-| Provider | Key | Est. cost per TradingCrew run |
-|----------|-----|-------------------------------|
-| Local Ollama | — | $0.00 |
-| Groq (free tier) | `GROQ_API_KEY` | $0.00 |
-| Bedrock Haiku ICs + Sonnet pods | AWS credentials | ~$0.02 |
-| OpenAI GPT-4o (all agents) | `OPENAI_API_KEY` | ~$0.12 |
-
-Mix tiers freely — e.g., free local ICs + stronger cloud model for pod synthesis:
-
-```bash
-LLM_MODEL_IC=ollama/qwen3.5:9b
-LLM_MODEL_POD=bedrock/us.anthropic.claude-sonnet-4-6
-LLM_MODEL_ASSISTANT=bedrock/us.anthropic.claude-sonnet-4-6
+# Data provider (primary source for fundamentals + OHLCV)
+FINANCIAL_DATASETS_API_KEY=...
+DATA_PROVIDER_PRIORITY=financial_datasets,alpaca,alpha_vantage
 ```
 
 ---
@@ -376,7 +364,7 @@ python scripts/scheduler.py --run-now morning_routine
 | `portfolio` (optimization) | Stable | Mean-variance, Ledoit-Wolf shrinkage |
 | `microstructure` | Stable | OFI, VPIN, Kyle's lambda |
 | `rl` (reinforcement learning) | Experimental | PPO/DQN, shadow mode |
-| `crews` (TradingCrew) | Maintenance | LLM fallback; primary path is SignalEngine |
+| `crews` (schemas/decoder) | Stable | Pydantic schemas + decoder (pure Python; TradingCrew removed in v0.6.0) |
 
 ---
 
@@ -407,7 +395,7 @@ python -c "from quant_pod.flows.intraday_monitor_flow import IntradayMonitorFlow
 | Command | Description |
 |---------|-------------|
 | `quantcore-mcp` | QuantCore MCP server (54 tools) |
-| `quantpod-mcp` | QuantPod MCP server (43 tools) |
+| `quantpod-mcp` | QuantPod MCP server (34 tools) |
 | `alpaca-mcp` | Alpaca broker MCP server |
 | `ibkr-mcp` | Interactive Brokers MCP server |
 | `quantpod-api` | FastAPI REST server (28 endpoints) |

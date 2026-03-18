@@ -62,7 +62,7 @@ mcp = FastMCP(
     name="QuantPod Trading Intelligence",
     instructions=(
         "QuantPod MCP server — the operational interface for the autonomous "
-        "trading intelligence system.  Use run_analysis to commission crew "
+        "trading intelligence system.  Use get_signal_brief for fast deterministic "
         "analysis, get_portfolio_state to inspect holdings, and get_regime "
         "to classify current market conditions."
     ),
@@ -75,7 +75,7 @@ mcp = FastMCP(
 # =============================================================================
 
 from quant_pod.mcp.tools.analysis import (  # noqa: E402, F401
-    run_analysis, get_portfolio_state, get_regime,
+    get_portfolio_state, get_regime,
     get_recent_decisions, get_system_status,
 )
 from quant_pod.mcp.tools.strategy import (  # noqa: E402, F401
@@ -95,15 +95,17 @@ from quant_pod.mcp.tools.decoder import (  # noqa: E402, F401
 )
 from quant_pod.mcp.tools.meta import (  # noqa: E402, F401
     get_regime_strategies, set_regime_allocation,
-    run_multi_analysis, resolve_portfolio_conflicts,
+    resolve_portfolio_conflicts,
+    get_strategy_gaps, promote_draft_strategies,
+    check_strategy_rules,
+)
+from quant_pod.mcp.tools.ml import (  # noqa: E402, F401
+    train_ml_model, get_ml_model_status, predict_ml_signal,
 )
 from quant_pod.mcp.tools.learning import (  # noqa: E402, F401
     get_rl_status, get_rl_recommendation, promote_strategy,
     retire_strategy, get_strategy_performance, validate_strategy,
     update_regime_matrix_from_performance,
-)
-from quant_pod.mcp.tools.ic_access import (  # noqa: E402, F401
-    list_ics, run_ic, run_pod, run_crew_subset, get_last_ic_output,
 )
 from quant_pod.mcp.tools.feedback import (  # noqa: E402, F401
     get_fill_quality, get_position_monitor,
@@ -111,6 +113,13 @@ from quant_pod.mcp.tools.feedback import (  # noqa: E402, F401
 from quant_pod.mcp.tools.signal import (  # noqa: E402, F401
     get_signal_brief, run_multi_signal_brief,
 )
+from quant_pod.mcp.tools.intraday import (  # noqa: E402, F401
+    get_intraday_status, get_tca_report, get_algo_recommendation,
+)
+from quant_pod.mcp.tools.portfolio import (  # noqa: E402, F401
+    optimize_portfolio, compute_hrp_weights,
+)
+from quant_pod.mcp.tools.nlp import analyze_text_sentiment  # noqa: E402, F401
 
 
 # =============================================================================

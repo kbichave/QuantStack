@@ -2,15 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Trading Day Flow - CrewAI Flow Orchestrator.
+Trading Day Flow — orchestrates the full trading pipeline.
 
-Orchestrates the hierarchical trading system using CrewAI TradingCrew.
-NO FALLBACKS - The system uses TradingCrew exclusively.
+Uses SignalEngine (pure-Python collectors, no LLM) for analysis.
 
 Flow Structure:
     @start(): detect_regime
          │
-    @listen(): run_crew_analysis
+    @listen(): run_signal_analysis
          │
     @router(): route_execution
          │
@@ -18,8 +17,6 @@ Flow Structure:
     @listen("hold"): log_hold_decision
          │
     finalize_day
-
-All agents have reasoning enabled. If an agent fails, the flow fails.
 """
 
 from __future__ import annotations
@@ -46,14 +43,10 @@ from quant_pod.agents.regime_detector import RegimeDetectorAgent
 # Import audit trail
 from quant_pod.audit.decision_log import get_decision_log, make_trade_event
 from quant_pod.crewai_compat import Flow, listen, router, start
-
-# Import CrewAI-native TradingCrew
-from quant_pod.crews import TradingCrew
-from quant_pod.crews.regime_config import apply_regime_config_to_inputs, get_regime_crew_config
-from quant_pod.crews.registry import PROFILE_DEFAULTS
 from quant_pod.crews.schemas import (
     DailyBrief,
 )
+from quant_pod.signal_engine import SignalEngine
 from quant_pod.execution.broker_factory import get_broker, get_broker_mode
 from quant_pod.execution.kill_switch import get_kill_switch
 from quant_pod.execution.paper_broker import OrderRequest
@@ -91,7 +84,7 @@ class TradingDayState(BaseModel):
     # Phase 1: Regime Detection
     regimes: dict[str, dict] = Field(default_factory=dict)
 
-    # Phase 2-4: Crew Analysis (handled by TradingCrew)
+    # Phase 2-4: Signal Analysis (handled by SignalEngine)
     daily_briefs: dict[str, DailyBrief] = Field(default_factory=dict)
     trade_decisions: list[dict] = Field(default_factory=list)
 
@@ -155,7 +148,7 @@ class TradingDayFlow(Flow[TradingDayState]):
             signal_ttl_seconds: How long published signals remain valid (default 15 min).
         """
         self._regime_detector = None
-        self._trading_crew = None
+        self._signal_engine = None
         self._session_id = str(uuid.uuid4())
         self._audit_log = get_decision_log()
         self._portfolio = get_portfolio_state()
@@ -204,11 +197,11 @@ class TradingDayFlow(Flow[TradingDayState]):
         return self._regime_detector
 
     @property
-    def trading_crew(self) -> TradingCrew:
-        """Get or create TradingCrew instance."""
-        if self._trading_crew is None:
-            self._trading_crew = TradingCrew()
-        return self._trading_crew
+    def signal_engine(self) -> SignalEngine:
+        """Get or create SignalEngine instance."""
+        if self._signal_engine is None:
+            self._signal_engine = SignalEngine()
+        return self._signal_engine
 
     def _build_sor(self) -> SmartOrderRouter | None:
         """Build SmartOrderRouter if Alpaca or IBKR env vars are present.
@@ -352,101 +345,77 @@ class TradingDayFlow(Flow[TradingDayState]):
     # =========================================================================
 
     @listen(detect_regime)
-    def run_crew_analysis(self, regime_result: dict) -> dict[str, Any]:
+    def run_signal_analysis(self, regime_result: dict) -> dict[str, Any]:
         """
-        Run TradingCrew for full analysis.
+        Run SignalEngine for each symbol and extract trade decisions.
 
-        The crew handles:
-        - IC tasks: Raw data gathering
-        - Pod Manager tasks: Compilation
-        - Assistant task: Synthesis into 1-pager
-        - SuperTrader task: Final decision
+        SignalEngine replaces TradingCrew: pure-Python collectors, no LLM,
+        2-6 seconds per symbol vs 3-5 minutes.
         """
-        logger.info("═══ PHASE 2-4: TRADING CREW ANALYSIS ═══")
+        logger.info("═══ PHASE 2-4: SIGNAL ENGINE ANALYSIS ═══")
 
-        for symbol in self.state.symbols:
-            market_data = self.state.market_data.get(symbol, {})
-            features = self.state.features.get(symbol, {})
-            regime = self.state.regimes.get(symbol, {})
-            historical_context = self.state.historical_context.get(symbol, "")
+        loop = asyncio.new_event_loop()
+        try:
+            for symbol in self.state.symbols:
+                regime = self.state.regimes.get(symbol, {})
 
-            # Skip if regime detection failed completely
-            if regime.get("error") and regime.get("confidence", 0) == 0:
-                logger.warning(f"Skipping {symbol} due to regime detection failure")
-                continue
+                # Skip if regime detection failed completely
+                if regime.get("error") and regime.get("confidence", 0) == 0:
+                    logger.warning(f"Skipping {symbol} due to regime detection failure")
+                    continue
 
-            try:
-                # Derive regime-adaptive crew config (IC selection, size, threshold)
-                regime_config = get_regime_crew_config(
-                    trend_regime=regime.get("trend", "unknown"),
-                    volatility_regime=regime.get("volatility", "normal"),
-                )
-                base_ics = PROFILE_DEFAULTS.get("equities", {}).get("ics", [])
+                try:
+                    logger.info(
+                        f"[SignalEngine] Analyzing {symbol} "
+                        f"[{regime.get('trend', 'unknown')}/{regime.get('volatility', 'normal')}]"
+                    )
 
-                # Prepare inputs for crew kickoff
-                inputs = {
-                    "symbol": symbol,
-                    "current_date": self.state.current_date,
-                    "regime": regime,
-                    "market_data": market_data,
-                    "features": features,
-                    "portfolio": self.state.portfolio,
-                    "historical_context": historical_context,
-                }
+                    brief = loop.run_until_complete(
+                        self.signal_engine.run(symbol, regime=regime)
+                    )
 
-                # Merge regime config: adds regime_guidance, size_multiplier,
-                # confidence_threshold, and active_ics to inputs
-                inputs = apply_regime_config_to_inputs(inputs, regime_config, base_ics)
+                    # Map SignalBrief to a decision dict compatible with downstream
+                    sym_brief = brief.symbol_briefs[0] if brief.symbol_briefs else None
+                    if sym_brief is None:
+                        continue
 
-                logger.info(
-                    f"[CREW] Running TradingCrew for {symbol} "
-                    f"[{regime_config.trend_regime}/{regime_config.volatility_regime} "
-                    f"size×{regime_config.size_multiplier} "
-                    f"conf≥{regime_config.confidence_threshold}]"
-                )
+                    bias = sym_brief.consensus_bias
+                    confidence = sym_brief.consensus_conviction
+                    action = "hold"
+                    if bias in ("bullish", "strong_bullish") and confidence >= 0.6:
+                        action = "buy"
+                    elif bias in ("bearish", "strong_bearish") and confidence >= 0.6:
+                        action = "sell"
 
-                # Kickoff the crew - NO FALLBACK
-                result = self.trading_crew.crew().kickoff(inputs=inputs)
+                    reasoning = sym_brief.market_summary or brief.market_overview
 
-                # Extract decision
-                if hasattr(result, "pydantic"):
-                    decision = result.pydantic
-                elif hasattr(result, "raw"):
-                    decision = result.raw
-                else:
-                    decision = result
+                    decision_dict = {
+                        "symbol": symbol,
+                        "action": action,
+                        "confidence": confidence,
+                        "reasoning": reasoning,
+                        "bias": bias,
+                        "risk_factors": sym_brief.risk_factors,
+                        "position_size": "quarter" if confidence < 0.75 else "half",
+                    }
 
-                # Log the decision
-                decision_summary = str(decision)[:300] if decision else "No decision"
-                logger.info(f"[CREW] {symbol}: {decision_summary}")
+                    decision_summary = f"{action.upper()} conf={confidence:.0%} bias={bias}"
+                    logger.info(f"[SignalEngine] {symbol}: {decision_summary}")
 
-                self._log_agent(
-                    agent="TradingCrew",
-                    symbol=symbol,
-                    message=f"Analysis complete: {decision_summary}",
-                    role="analysis",
-                )
+                    self._log_agent(
+                        agent="SignalEngine",
+                        symbol=symbol,
+                        message=f"Analysis complete: {decision_summary}",
+                        role="analysis",
+                    )
 
-                # Store decision
-                if decision:
-                    if hasattr(decision, "model_dump"):
-                        decision_dict = decision.model_dump()
-                    elif hasattr(decision, "dict"):
-                        decision_dict = decision.dict()
-                    else:
-                        decision_dict = {"raw": str(decision)}
-
-                    decision_dict["symbol"] = symbol
                     self.state.trade_decisions.append(decision_dict)
 
-                    # Audit log: record the SuperTrader decision
-                    action = decision_dict.get("action", "hold")
-                    confidence = decision_dict.get("confidence", 0.0)
-                    reasoning = decision_dict.get("reasoning", "")
+                    # Audit log
                     audit_event = make_trade_event(
                         session_id=self._session_id,
-                        agent_name="SuperTrader",
-                        agent_role="super_trader",
+                        agent_name="SignalEngine",
+                        agent_role="analysis",
                         symbol=symbol,
                         action=action,
                         confidence=confidence,
@@ -456,7 +425,6 @@ class TradingDayFlow(Flow[TradingDayState]):
                         if hasattr(self._portfolio.get_snapshot(), "model_dump")
                         else {},
                     )
-                    # Inject portfolio snapshot into audit event
                     snapshot = self._portfolio.get_snapshot()
                     audit_event.portfolio_snapshot = snapshot.model_dump()
                     self._audit_log.record(audit_event)
@@ -468,10 +436,12 @@ class TradingDayFlow(Flow[TradingDayState]):
                     if action in ["buy", "sell"]:
                         self.state.approved_trades.append(decision_dict)
 
-            except Exception as e:
-                # NO FALLBACK - log error and continue
-                logger.error(f"Crew analysis failed for {symbol}: {e}")
-                self.state.errors.append(f"Crew {symbol}: {str(e)}")
+                except Exception as e:
+                    logger.error(f"SignalEngine analysis failed for {symbol}: {e}")
+                    self.state.errors.append(f"SignalEngine {symbol}: {str(e)}")
+
+        finally:
+            loop.close()
 
         # Update metrics
         self.state.signal_funnel["symbols_analyzed"] = len(self.state.symbols)
@@ -486,7 +456,7 @@ class TradingDayFlow(Flow[TradingDayState]):
     # ROUTER: EXECUTE OR HOLD
     # =========================================================================
 
-    @router(run_crew_analysis)
+    @router(run_signal_analysis)
     def route_execution(self, analysis_result: dict) -> str:
         """Route to execute or hold based on approved trades."""
         if self.state.approved_trades:
@@ -1078,110 +1048,97 @@ class TradingDayFlow(Flow[TradingDayState]):
 
 
 class TradingDayFlowAdapter:
-    """
-    Adapter to integrate TradingDayFlow with the simulation engine.
-
-    NO FALLBACKS - uses TradingCrew exclusively.
-    """
+    """Adapter to integrate TradingDayFlow with the simulation engine."""
 
     def __init__(
         self,
         config: Any | None = None,
         **kwargs,
     ):
-        """Initialize the adapter."""
         self.config = config
-        logger.info("TradingDayFlowAdapter initialized (TradingCrew mode)")
+        self._engine = SignalEngine()
+        logger.info("TradingDayFlowAdapter initialized (SignalEngine mode)")
 
     async def run_day(self, context: Any) -> dict[str, Any]:
-        """
-        Run the trading day using TradingCrew.
-        """
-        crew = TradingCrew()
-        agent_logs = []
-        trades = []
+        """Run the trading day using SignalEngine."""
+        agent_logs: list[dict] = []
+        trades: list[dict] = []
 
         for symbol in context.market_data.keys():
             try:
-                inputs = {
+                regime = context.regimes.get(
+                    symbol, {"trend": "unknown", "volatility": "normal"}
+                )
+
+                logger.info(f"[SignalEngine] Analyzing {symbol}...")
+                brief = await self._engine.run(symbol, regime=regime)
+
+                sym_brief = brief.symbol_briefs[0] if brief.symbol_briefs else None
+                if sym_brief is None:
+                    continue
+
+                bias = sym_brief.consensus_bias
+                confidence = sym_brief.consensus_conviction
+                action = "hold"
+                if bias in ("bullish", "strong_bullish") and confidence >= 0.6:
+                    action = "buy"
+                elif bias in ("bearish", "strong_bearish") and confidence >= 0.6:
+                    action = "sell"
+
+                reasoning = sym_brief.market_summary or brief.market_overview
+
+                write_to_blackboard(
+                    agent="SignalEngine",
+                    symbol=symbol,
+                    message=f"**DECISION:** {action.upper()}\n"
+                            f"**Confidence:** {confidence:.0%}\n"
+                            f"**Reasoning:** {reasoning}",
+                    sim_date=context.date,
+                )
+
+                if action in ["buy", "sell"]:
+                    decision_dict = {
+                        "action": action,
+                        "confidence": confidence,
+                        "position_size": "quarter" if confidence < 0.75 else "half",
+                    }
+                    # Surface stop/take-profit from critical_levels if available
+                    stop_loss = next(
+                        (lvl.price for lvl in (sym_brief.critical_levels or [])
+                         if getattr(lvl, "level_type", "") == "stop"),
+                        None,
+                    )
+                    take_profit = next(
+                        (lvl.price for lvl in (sym_brief.critical_levels or [])
+                         if getattr(lvl, "level_type", "") in ("target", "resistance")),
+                        None,
+                    )
+                    trade = {
+                        "symbol": symbol,
+                        "action": action,
+                        "quantity": self._calculate_quantity(context, symbol, decision_dict),
+                        "confidence": confidence,
+                        "reasoning": reasoning,
+                        "stop_loss": stop_loss,
+                        "take_profit": take_profit,
+                    }
+                    trades.append(trade)
+
+                agent_logs.append({
+                    "agent_name": "SignalEngine",
                     "symbol": symbol,
-                    "current_date": context.date,
-                    "regime": context.regimes.get(
-                        symbol, {"trend": "unknown", "volatility": "normal"}
-                    ),
-                    "market_data": context.market_data.get(symbol, {}),
-                    "features": context.features.get(symbol, {}),
-                    "portfolio": (context.portfolio if hasattr(context, "portfolio") else {}),
-                    "historical_context": "",
-                }
-
-                logger.info(f"[CREW] Running TradingCrew for {symbol}...")
-
-                # Run crew in thread pool for async context
-                import concurrent.futures
-
-                loop = asyncio.get_event_loop()
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    result = await loop.run_in_executor(
-                        pool,
-                        lambda: crew.crew().kickoff(inputs=inputs),  # noqa: B023
-                    )
-
-                # Extract decision
-                if hasattr(result, "pydantic"):
-                    decision = result.pydantic
-                elif hasattr(result, "raw"):
-                    decision = result.raw
-                else:
-                    decision = result
-
-                if decision:
-                    decision_dict = self._extract_decision_dict(decision)
-                    action = decision_dict.get("action", "hold")
-                    reasoning = decision_dict.get("reasoning", str(decision)[:500])
-                    confidence = decision_dict.get("confidence", 0.5)
-
-                    write_to_blackboard(
-                        agent="TradingCrew",
-                        symbol=symbol,
-                        message=f"""**DECISION:** {action.upper()}
-**Confidence:** {confidence:.0%}
-**Reasoning:** {reasoning}""",
-                        sim_date=context.date,
-                    )
-
-                    if action in ["buy", "sell"]:
-                        trade = {
-                            "symbol": symbol,
-                            "action": action,
-                            "quantity": self._calculate_quantity(context, symbol, decision_dict),
-                            "confidence": confidence,
-                            "reasoning": reasoning,
-                            "stop_loss": decision_dict.get("stop_loss"),
-                            "take_profit": decision_dict.get("take_profit"),
-                        }
-                        trades.append(trade)
-
-                    agent_logs.append(
-                        {
-                            "agent_name": "TradingCrew",
-                            "symbol": symbol,
-                            "message": reasoning,
-                            "role": "execution",
-                        }
-                    )
+                    "message": reasoning,
+                    "role": "execution",
+                })
 
             except Exception as e:
-                # NO FALLBACK - log error
-                logger.error(f"TradingCrew error for {symbol}: {e}")
-                agent_logs.append(
-                    {
-                        "agent_name": "TradingCrew",
-                        "symbol": symbol,
-                        "message": f"Error: {str(e)}",
-                        "role": "error",
-                    }
-                )
+                logger.error(f"SignalEngine error for {symbol}: {e}")
+                agent_logs.append({
+                    "agent_name": "SignalEngine",
+                    "symbol": symbol,
+                    "message": f"Error: {str(e)}",
+                    "role": "error",
+                })
 
         return {
             "trades": trades,
@@ -1194,24 +1151,12 @@ class TradingDayFlowAdapter:
             },
         }
 
-    def _extract_decision_dict(self, decision: Any) -> dict[str, Any]:
-        """Extract decision as dict from various formats."""
-        if hasattr(decision, "model_dump"):
-            return decision.model_dump()
-        elif hasattr(decision, "dict"):
-            return decision.dict()
-        elif isinstance(decision, dict):
-            return decision
-        else:
-            return {"raw": str(decision)}
-
     def _calculate_quantity(
         self,
         context: Any,
         symbol: str,
         decision: dict[str, Any],
     ) -> int:
-        """Calculate trade quantity."""
         portfolio = context.portfolio if hasattr(context, "portfolio") else {}
         equity = portfolio.get("equity", 100000)
 

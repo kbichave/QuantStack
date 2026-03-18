@@ -395,34 +395,14 @@ def _is_ollama_model(model_str: str) -> bool:
     return model_str.startswith("ollama/")
 
 
-def _build_ollama_llm(model_str: str, disable_thinking: bool = True) -> Any:
+def _build_ollama_llm(model_str: str, disable_thinking: bool = True) -> str:
+    """Return a LiteLLM-compatible model string for a local Ollama model.
+
+    Sets OLLAMA_BASE_URL in the environment so LiteLLM routes correctly.
     """
-    Return a crewai.LLM object pre-configured for a local Ollama model.
-
-    This is necessary (not just a model string) for two reasons:
-    1. api_base must be passed so LiteLLM routes to the local server rather
-       than a hardcoded default.
-    2. extra_body={"think": False} disables Qwen 3.5 extended-thinking mode,
-       which wastes tokens and adds latency for focused IC/pod work.
-
-    The crewai.LLM object is accepted anywhere a model string is accepted
-    in Agent(llm=...) calls.
-    """
-    try:
-        from crewai import LLM
-    except ImportError:
-        # crewai not installed (test env) — fall back to plain string
-        logger.warning("[llm_config] crewai not importable, returning plain Ollama model string")
-        return model_str
-
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    kwargs: dict = {"api_base": base_url}
-    if disable_thinking:
-        # Qwen 3.5 interprets "think": false in the request body to skip
-        # the <think>...</think> reasoning block before the response.
-        kwargs["extra_body"] = {"think": False}
-
-    return LLM(model=model_str, **kwargs)
+    os.environ.setdefault("OLLAMA_BASE_URL", base_url)
+    return model_str
 
 
 # ---------------------------------------------------------------------------

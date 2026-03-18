@@ -16,7 +16,7 @@ Run weekly, after 10+ trades, or when prompted.
 ### Step 1: Gather Data
 - Read `.claude/memory/trade_journal.md` — all trades since last /reflect
 - Read `.claude/memory/strategy_registry.md` — all active strategies
-- Read `.claude/memory/agent_performance.md` — current IC ratings
+- Read `.claude/memory/agent_performance.md` — current collector accuracy ratings
 - Read `.claude/memory/workshop_lessons.md` — current learnings
 - Check: when was the last /reflect? (look for last `reflect:` git commit)
 
@@ -37,8 +37,8 @@ Compute:
 ### Step 3: Pattern Identification
 - Strategies underperforming in their regime_fit → flag for matrix update
 - Strategies outperforming outside their regime_fit → flag for matrix expansion
-- ICs consistently right in specific regimes → increase trust
-- ICs consistently wrong in specific regimes → add to Known Biases
+- Collectors consistently right in specific regimes → increase weight in synthesis
+- Collectors consistently wrong in specific regimes → add to Known Biases
 - Common failure modes → add to `workshop_lessons.md`
 - Missing workflow steps → candidates for skill edits
 
@@ -46,8 +46,8 @@ Compute:
 
 **AlphaMonitor Discord alerts (check first):**
 - Review Discord for `[ALPHA CRITICAL]` or `[ALPHA WARNING]` alerts since last /reflect.
-- CRITICAL = rolling_ic_30 < 0 for an IC → that IC's signals are losing money.
-  Action: reduce conviction weight on that IC, flag for retraining in `agent_performance.md`.
+- CRITICAL = rolling_ic_30 < 0 for a collector → that collector's signals are losing money.
+  Action: reduce conviction weight for that collector, flag for code fix in `agent_performance.md`.
 - WARNING = IC decaying toward 0 → watch closely, one more declining session → treat as CRITICAL.
 
 **DegradationDetector (for active strategies):**
@@ -68,26 +68,53 @@ Compute:
   has changed materially (>30% different features), the causal structure has shifted —
   this is stronger evidence of regime change than SHAP drift alone. Log in `agent_performance.md`.
 
+### Step 3.7: Desk Agent Performance (if desk agents were used)
+
+For each desk agent invoked since last /reflect:
+- Did market-intel's regime classification match the realized outcome?
+- Did alpha-research's signal quality assessment predict win/loss correctly?
+- Did risk desk's position sizing prevent outsized losses?
+- Did execution desk's algo recommendation reduce slippage?
+
+Scoring per desk agent:
+- **Correct**: desk output aligned with realized outcome → +1
+- **Neutral**: desk output was inconclusive or not actionable → 0
+- **Wrong**: desk output contradicted realized outcome → -1
+
+Log accuracy per desk in `agent_performance.md` under a "Desk Agent Accuracy" section:
+```
+## Desk Agent Accuracy
+| Desk Agent | Sessions | Correct | Neutral | Wrong | Accuracy |
+|------------|----------|---------|---------|-------|----------|
+| market-intel | ... | ... | ... | ... | ...% |
+| alpha-research | ... | ... | ... | ... | ...% |
+| risk | ... | ... | ... | ... | ...% |
+| execution | ... | ... | ... | ... | ...% |
+```
+
 ### Step 4: Update Memory Files
 - `trade_journal.md`: add weekly summary section
-- `agent_performance.md`: update IC accuracy, Known Biases
+- `agent_performance.md`: update collector accuracy, Known Biases
 - `workshop_lessons.md`: add new findings
 - `regime_history.md`: update duration stats if enough transitions
 - `strategy_registry.md`: update live stats for active strategies
 
 ### Step 4.5: Signal Quality Check
-For each IC in `.claude/memory/agent_performance.md`:
+For each SignalEngine collector in `.claude/memory/agent_performance.md`:
 - Is rolling accuracy < 50% for 2+ consecutive sessions?
 - Does Known Biases list have 3+ items?
-- Did any IC output contribute to a trade loss or missed signal?
+- Did any collector output contribute to a trade loss or missed signal?
 
-If YES for any IC: identify which SignalEngine collector corresponds to it
-(e.g., `trend_momentum_ic` → `signal_engine/collectors/technical.py`).
-Fix the collector code — not agent prompts.
+If YES for any collector: identify the source file in `packages/quant_pod/signal_engine/collectors/`:
+- `technical.py` — trend, momentum, RSI, MACD, ADX
+- `regime.py` — regime classification
+- `volume.py` — OBV, VWAP deviation
+- `risk.py` — VaR, drawdown, liquidity
+- `sentiment.py` — news sentiment scoring
+- `fundamentals.py` — P/E, ROE, FCF yield
+- `events.py` — earnings calendar, FOMC dates
 
-> **Note:** The CrewAI prompt tuning workflow (`/tune`) is deprecated as of v0.3.0.
-> SignalEngine (deterministic Python collectors in `packages/quant_pod/signal_engine/collectors/`)
-> is the production analysis path. Signal quality issues → fix the collector code, not Ollama agent prompts.
+Fix the collector code directly. Signal quality issues are code bugs, not prompt problems.
 
 Add to `session_handoffs.md`: "Collector [name] needs fix — evidence: [what you found], file: [path]"
 
@@ -97,6 +124,9 @@ For each skill in `.claude/skills/`:
 2. Step I always skip? → Remove from skill
 3. Thresholds still correct? → Adjust with evidence
 4. Missing memory file reads? → Add them
+
+5. Collector source code still correct? → Fix in `packages/quant_pod/signal_engine/collectors/`
+6. Desk agent prompts still relevant? → Update `.claude/agents/*.md` if systematic errors found
 
 ONLY edit skills with evidence from 3+ sessions. Log EVERY change in
 `session_handoffs.md`.

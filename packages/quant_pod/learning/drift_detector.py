@@ -39,7 +39,6 @@ from loguru import logger
 
 PSI_WARNING = 0.10
 PSI_CRITICAL = 0.25
-DEFAULT_BINS = 10
 BASELINE_DIR = Path.home() / ".quant_pod" / "drift_baselines"
 
 # Features to track — all computed by SignalEngine collectors every run
@@ -88,7 +87,6 @@ class DriftReport:
 def compute_psi(
     expected: np.ndarray,
     actual: np.ndarray,
-    bins: int = DEFAULT_BINS,
 ) -> float:
     """
     Distribution divergence score between two 1-D samples.
@@ -109,7 +107,6 @@ def compute_psi(
     Args:
         expected: Baseline distribution samples (1-D array).
         actual: Current distribution samples (1-D array).
-        bins: Ignored (kept for API compatibility).
 
     Returns:
         Drift score (>= 0). 0 = identical distributions.
@@ -318,6 +315,129 @@ class DriftDetector:
         """
         features = _extract_features_from_brief(brief)
         return self.check_drift(strategy_id, features)
+
+
+# ---------------------------------------------------------------------------
+# Feature extraction from SignalBrief
+# ---------------------------------------------------------------------------
+
+
+class StrategyDriftMonitor:
+    """Strategy-level drift triggers — sits above DriftDetector.
+
+    Combines DriftDetector (feature distribution shift) with performance
+    degradation signals to produce actionable strategy lifecycle decisions.
+
+    Triggers:
+      - OOS Sharpe drops below 50% of IS Sharpe → alert
+      - Regime changed and strategy has no regime_affinity match → quarantine
+      - 3 consecutive losses → scale to 50% size
+      - Feature drift CRITICAL → quarantine
+
+    Usage:
+        monitor = StrategyDriftMonitor()
+        action = monitor.evaluate("strat_abc", live_sharpe=0.3, is_sharpe=1.2,
+                                   current_regime="trending_down",
+                                   regime_affinity=["ranging"],
+                                   consecutive_losses=3,
+                                   drift_report=detector.check_drift(...))
+    """
+
+    @staticmethod
+    def evaluate(
+        strategy_id: str,
+        live_sharpe: float | None = None,
+        is_sharpe: float | None = None,
+        current_regime: str | None = None,
+        regime_affinity: list[str] | None = None,
+        consecutive_losses: int = 0,
+        drift_report: DriftReport | None = None,
+    ) -> StrategyAction:
+        """Evaluate a strategy and recommend an action.
+
+        Returns StrategyAction with recommended_action and reasoning.
+        """
+        warnings: list[str] = []
+        action = "active"
+        scale_factor = 1.0
+
+        # 1. Sharpe degradation
+        if live_sharpe is not None and is_sharpe is not None and is_sharpe > 0:
+            degradation = 1.0 - (live_sharpe / is_sharpe)
+            if live_sharpe <= 0:
+                action = "quarantine"
+                warnings.append(
+                    f"Live Sharpe {live_sharpe:.2f} is non-positive "
+                    f"(IS was {is_sharpe:.2f})"
+                )
+            elif degradation > 0.5:
+                action = "alert"
+                scale_factor = 0.5
+                warnings.append(
+                    f"Live Sharpe degraded {degradation:.0%} from IS "
+                    f"({live_sharpe:.2f} vs {is_sharpe:.2f})"
+                )
+
+        # 2. Regime mismatch
+        if (
+            current_regime
+            and regime_affinity
+            and current_regime not in regime_affinity
+        ):
+            if action != "quarantine":
+                action = "alert"
+                scale_factor = min(scale_factor, 0.5)
+            warnings.append(
+                f"Current regime '{current_regime}' not in affinity {regime_affinity}"
+            )
+
+        # 3. Consecutive losses
+        if consecutive_losses >= 3:
+            action = "quarantine"
+            scale_factor = 0.0
+            warnings.append(f"{consecutive_losses} consecutive losses — circuit breaker")
+        elif consecutive_losses >= 2:
+            scale_factor = min(scale_factor, 0.5)
+            warnings.append(f"{consecutive_losses} consecutive losses — scaling down")
+
+        # 4. Feature drift
+        if drift_report and drift_report.severity == "CRITICAL":
+            action = "quarantine"
+            scale_factor = 0.0
+            warnings.append(
+                f"Feature drift CRITICAL (PSI={drift_report.overall_psi:.3f}): "
+                f"{drift_report.drifted_features}"
+            )
+        elif drift_report and drift_report.severity == "WARNING":
+            scale_factor = min(scale_factor, 0.7)
+            warnings.append(
+                f"Feature drift WARNING (PSI={drift_report.overall_psi:.3f})"
+            )
+
+        return StrategyAction(
+            strategy_id=strategy_id,
+            recommended_action=action,
+            scale_factor=scale_factor,
+            warnings=warnings,
+        )
+
+
+@dataclass
+class StrategyAction:
+    """Recommended action for a strategy based on drift/performance signals."""
+
+    strategy_id: str
+    recommended_action: str  # "active", "alert", "quarantine"
+    scale_factor: float  # 1.0 = full, 0.5 = half, 0.0 = halt
+    warnings: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "strategy_id": self.strategy_id,
+            "recommended_action": self.recommended_action,
+            "scale_factor": self.scale_factor,
+            "warnings": self.warnings,
+        }
 
 
 # ---------------------------------------------------------------------------

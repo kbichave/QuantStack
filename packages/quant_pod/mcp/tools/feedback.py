@@ -20,9 +20,6 @@ from quant_pod.mcp._state import (
     require_live_db,
     live_db_or_error,
     _serialize,
-    ic_cache_set,
-    ic_cache_get,
-    populate_ic_cache_from_result,
 )
 
 

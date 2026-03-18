@@ -88,6 +88,14 @@ class RiskLimits:
     min_dte_entry: int = 7    # No entries with < 7 DTE (gamma pins, binary outcomes)
     max_dte_entry: int = 60   # No far-dated speculative entries
 
+    # ── Intraday limits (v0.6.0) ─────────────────────────────────────────────
+    # TODO(strategy_breaker): enforcement lives in strategy_breaker.py, not check().
+    # These fields are loaded from env and read by StrategyBreaker.should_halt().
+    # Do not add enforcement here — check() is called per-trade; daily counters
+    # belong in the StrategyBreaker which has session-level state.
+    max_trades_per_day: int = 0  # 0 = unlimited; >0 = hard cap on daily orders
+    entry_cutoff_minutes_before_close: int = 0  # 0 = disabled; >0 = no entries N min before close
+
     @classmethod
     def from_env(cls) -> RiskLimits:
         """Load limits from environment variables (override defaults)."""
@@ -111,6 +119,11 @@ class RiskLimits:
             limits.min_dte_entry = int(v)
         if v := os.getenv("RISK_MAX_DTE_ENTRY"):
             limits.max_dte_entry = int(v)
+        # Intraday limits
+        if v := os.getenv("RISK_MAX_TRADES_PER_DAY"):
+            limits.max_trades_per_day = int(v)
+        if v := os.getenv("RISK_ENTRY_CUTOFF_MINUTES"):
+            limits.entry_cutoff_minutes_before_close = int(v)
         return limits
 
     @classmethod

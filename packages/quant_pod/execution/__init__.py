@@ -33,6 +33,7 @@ from quant_pod.execution.portfolio_state import (
     get_portfolio_state,
 )
 from quant_pod.execution.risk_gate import RiskGate, RiskViolation, get_risk_gate
+from quant_pod.execution.strategy_breaker import BreakerConfig, BreakerState, StrategyBreaker
 
 __all__ = [
     "PortfolioState",
@@ -57,4 +58,8 @@ __all__ = [
     "OrderStatus",
     "ExecAlgoOMS",
     "get_order_lifecycle",
+    # Strategy breakers
+    "StrategyBreaker",
+    "BreakerConfig",
+    "BreakerState",
 ]

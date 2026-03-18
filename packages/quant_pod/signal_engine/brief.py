@@ -70,6 +70,37 @@ class SignalBrief(BaseModel):
     sentiment_score: float = Field(ge=0.0, le=1.0, default=0.5)
     dominant_sentiment: str = "neutral"  # "positive" | "negative" | "neutral"
 
+    # ── Phase 3 additions (v1.0) ─────────────────────────────────────
+    # All optional — missing collectors return {} and these stay at defaults.
+
+    # Macro: yield curve + rate momentum (macro collector)
+    macro_rate_regime: str = "unknown"         # "rising" | "falling" | "stable" | "unknown"
+    yield_curve_slope: float | None = None     # 10Y - 2Y spread
+
+    # Sector: relative strength + rotation (sector collector)
+    sector_signal: str = "unknown"             # "leading" | "lagging" | "inline" | "unknown"
+    rotation_signal: str = "unknown"           # "growth_to_value" | "defensive_shift" | "broad_rally" | etc.
+    breadth_positive_sectors: int | None = None
+
+    # Flow: institutional + insider (flow collector)
+    flow_signal: float | None = None           # -1 (distributing) to +1 (accumulating)
+    insider_direction: str = "unknown"         # "buying" | "selling" | "neutral" | "unknown"
+
+    # Cross-asset: risk-on/off (cross_asset collector)
+    cross_asset_regime: str = "unknown"        # "risk_on" | "risk_off" | "mixed" | "unknown"
+    risk_on_score: float | None = None         # 0-1
+
+    # Quality: earnings quality (quality collector)
+    quality_score: float | None = None         # 0-1 composite
+
+    # ML: trained model predictions (ml_signal collector)
+    ml_prediction: float | None = None         # 0-1 probability
+    ml_direction: str = "unknown"              # "bullish" | "bearish" | "neutral" | "unknown"
+
+    # StatArb: pairs signals (statarb collector)
+    statarb_signal: str = "unknown"            # "long_spread" | "short_spread" | "neutral" | "unknown"
+    spread_zscore: float | None = None
+
     def to_daily_brief(self) -> DailyBrief:
         """Return a DailyBrief-compatible view of this brief (drops extra fields)."""
         return DailyBrief.model_validate(self.model_dump())

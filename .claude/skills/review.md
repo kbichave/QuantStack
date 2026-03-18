@@ -54,7 +54,16 @@ For each open position:
 - Is the current regime still within the strategy's `regime_affinity`?
 - If regime shifted since entry, flag the mismatch.
 
-**e) RL Check (if available):**
+**e) Regime-Change Thesis Invalidation:**
+- If current_regime differs from entry regime AND strategy's regime_affinity
+  does NOT include current_regime → this is a thesis-invalidating regime change.
+- Action: move immediately to CLOSE unless the position is profitable (>5% P&L)
+  in which case move to TIGHTEN with a trailing stop at 50% of current profit.
+- Example: entered in `trending_up`, now `trending_down`, strategy affinity is
+  `["trending_up", "ranging"]` → current regime not in affinity → thesis invalidated.
+- Log the regime-change exit in `trade_journal.md` with tag `exit_reason: regime_invalidation`.
+
+**f) RL Check (if available):**
 - Call `get_rl_recommendation` for position size adjustment signal.
 - Note: this is advisory only (shadow mode).
 
@@ -128,6 +137,21 @@ For the last 20 fills, call `get_fill_quality(order_id)` for each:
 - Investigate: time-of-day pattern (avoid market open/close 5 minutes)?
   Illiquid symbols? Position sizes too large vs ADV?
 - Log findings in `.claude/memory/agent_performance.md` under "Execution Quality".
+
+### Step 9.5: Execution Desk TCA (if execution desk agent available)
+
+If `.claude/agents/execution.md` exists:
+- Spawn execution desk agent with the last 20 fill order_ids for batch TCA
+  (Transaction Cost Analysis).
+- The desk agent computes: arrival price slippage, implementation shortfall,
+  VWAP deviation, and time-of-day patterns across all fills.
+- Compare its slippage assessment with your own from Step 9:
+  - If the desk finds systematic patterns you missed (e.g., consistently worse
+    fills in the first 15 minutes), log in `agent_performance.md` under
+    "Execution Quality" and update `/trade` skill timing guidance.
+  - If your Step 9 analysis and the desk agree: good — no action needed.
+  - If they disagree: trust the desk's formal TCA over the per-fill spot check
+    (it has broader statistical context).
 
 ### Step 10: Update Memory
 - `.claude/memory/trade_journal.md` — closed positions, performance notes

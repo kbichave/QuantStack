@@ -307,6 +307,102 @@ class FundamentalsProvider:
         logger.debug(f"[Fundamentals] interest rates: {len(df)} rows")
         return df
 
+    # ── Segmented revenues ─────────────────────────────────────────────────
+
+    def fetch_segmented_revenues(
+        self,
+        ticker: str,
+        period: str = "annual",
+        limit: int = 10,
+    ) -> pd.DataFrame:
+        """Fetch segmented revenue data (business segments, geographic breakdown)."""
+        resp = self._client.get_segmented_revenues(ticker, period, limit)
+        records = (resp or {}).get("segmented_revenues", [])
+        df = _records_to_df(records, date_columns=["report_period", "period"])
+        if not df.empty:
+            df["ticker"] = ticker
+        logger.debug(f"[Fundamentals] {ticker} segmented revenues: {len(df)} rows")
+        return df
+
+    # ── Earnings press releases ─────────────────────────────────────────────
+
+    def fetch_earnings_press_releases(
+        self,
+        ticker: str,
+        limit: int = 10,
+    ) -> pd.DataFrame:
+        """Fetch earnings press releases with management commentary."""
+        resp = self._client.get_earnings_press_releases(ticker, limit)
+        records = (resp or {}).get("press_releases", [])
+        df = _records_to_df(
+            records,
+            date_columns=["report_date", "date", "published_at"],
+        )
+        if not df.empty:
+            df["ticker"] = ticker
+        logger.debug(f"[Fundamentals] {ticker} earnings press releases: {len(df)} rows")
+        return df
+
+    # ── SEC filing items ────────────────────────────────────────────────────
+
+    def fetch_sec_filing_items(
+        self,
+        accession_number: str,
+        section: str | None = None,
+    ) -> dict[str, Any]:
+        """Fetch SEC filing content at section level.
+
+        Returns a dict (not a DataFrame) because the response contains
+        section text rather than tabular records.
+        """
+        resp = self._client.get_sec_filing_items(accession_number, section)
+        items = (resp or {}).get("items", {})
+        logger.debug(
+            f"[Fundamentals] SEC filing {accession_number} items: "
+            f"{len(items) if isinstance(items, (list, dict)) else 'N/A'} sections"
+        )
+        return items
+
+    # ── Interest rates snapshot ─────────────────────────────────────────────
+
+    def fetch_interest_rates_snapshot(self) -> dict[str, Any]:
+        """Fetch current interest rate snapshot (Fed Funds, Treasury yields, etc.)."""
+        resp = self._client.get_interest_rates_snapshot()
+        snapshot = (resp or {}).get("snapshot", {})
+        logger.debug(f"[Fundamentals] interest rates snapshot: {len(snapshot)} fields")
+        return snapshot
+
+    # ── Crypto prices ───────────────────────────────────────────────────────
+
+    def fetch_crypto_prices(
+        self,
+        ticker: str,
+        interval: str = "day",
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        """Fetch cryptocurrency OHLCV price data."""
+        resp = self._client.get_crypto_prices(ticker, interval, 1, start_date, end_date)
+        records = (resp or {}).get("prices", [])
+        df = _records_to_df(records, date_columns=["time", "date"])
+        if not df.empty:
+            df["ticker"] = ticker
+        logger.debug(f"[Fundamentals] {ticker} crypto prices: {len(df)} rows")
+        return df
+
+    # ── Price snapshot ──────────────────────────────────────────────────────
+
+    def fetch_price_snapshot(self, ticker: str) -> dict[str, Any]:
+        """Fetch latest price snapshot (last price, change, volume, bid, ask).
+
+        Returns the snapshot dict directly (not a DataFrame) because it is
+        a single point-in-time observation, not a time series.
+        """
+        resp = self._client.get_price_snapshot(ticker)
+        snapshot = (resp or {}).get("snapshot", resp or {})
+        logger.debug(f"[Fundamentals] {ticker} price snapshot: {bool(snapshot)}")
+        return snapshot
+
     # ── Search / screening ─────────────────────────────────────────────────
 
     def search_financials(self, filters: dict[str, Any]) -> pd.DataFrame:

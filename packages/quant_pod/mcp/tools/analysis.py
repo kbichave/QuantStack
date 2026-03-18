@@ -5,15 +5,16 @@
 Phase 1 MCP tools — read-only analysis and system introspection.
 
 Tools:
-  - run_analysis       — run TradingCrew, return DailyBrief
   - get_portfolio_state — positions, cash, equity, P&L
   - get_regime         — ADX/ATR regime classification
   - get_recent_decisions — audit trail query
   - get_system_status  — kill switch, risk halt, broker mode
+
+Note: run_analysis (CrewAI-based) was removed in v0.6.0.
+      Use ``get_signal_brief`` (SignalEngine) instead.
 """
 
 import asyncio
-import time
 from typing import Any
 
 from loguru import logger
@@ -21,135 +22,10 @@ from loguru import logger
 from quant_pod.mcp.server import mcp
 from quant_pod.mcp._state import (
     require_ctx,
-    require_live_db,
     live_db_or_error,
     _serialize,
-    _read_memory_file,
-    populate_ic_cache_from_result,
-    is_degraded,
-    get_degraded_reason,
 )
 from quant_pod.execution.broker_factory import get_broker_mode
-
-
-# =============================================================================
-# TOOL 1: run_analysis
-# =============================================================================
-
-
-@mcp.tool()
-async def run_analysis(
-    symbol: str,
-    regime: dict[str, Any] | None = None,
-    include_historical_context: bool = True,
-) -> dict[str, Any]:
-    """
-    Run TradingCrew analysis for a symbol and return a DailyBrief.
-
-    .. deprecated:: v0.3.0
-        Use ``get_signal_brief`` instead.  run_analysis calls CrewAI and Ollama
-        (3–5 min, schema-failure-prone).  get_signal_brief uses the SignalEngine
-        (~4 sec, deterministic, no LLM in analysis path).
-        run_analysis will be removed in v0.4.0.
-
-    The crew runs all ICs (data, technicals, quant, risk, market monitor),
-    Pod Managers compile their findings, and the Trading Assistant synthesizes
-    a structured DailyBrief.  The SuperTrader is NOT invoked — Claude Code
-    acts as the decision maker.
-
-    Args:
-        symbol: Ticker symbol (e.g., "SPY", "AAPL").
-        regime: Pre-computed regime dict.  If None, regime is detected
-                automatically using ADX/ATR indicators.
-        include_historical_context: Whether to load blackboard history
-                                    as context for the crew.
-
-    Returns:
-        Dict with keys: success, daily_brief, regime_used, elapsed_seconds, error.
-    """
-    ctx = require_ctx()
-    start = time.monotonic()
-
-    try:
-        # 1. Detect regime if not provided
-        if regime is None:
-            from quant_pod.agents.regime_detector import RegimeDetectorAgent
-
-            detector = RegimeDetectorAgent(symbols=[symbol])
-            regime_result = await asyncio.get_event_loop().run_in_executor(
-                None, detector.detect_regime, symbol
-            )
-            if regime_result.get("success"):
-                regime = {
-                    "trend": regime_result.get("trend_regime", "unknown"),
-                    "volatility": regime_result.get("volatility_regime", "normal"),
-                    "confidence": regime_result.get("confidence", 0.5),
-                }
-            else:
-                regime = {"trend": "unknown", "volatility": "normal", "confidence": 0.5}
-
-        # 2. Build portfolio context
-        portfolio = _serialize(ctx.portfolio.get_snapshot())
-
-        # 3. Load historical context from blackboard
-        historical_context = ""
-        if include_historical_context:
-            historical_context = ctx.blackboard.read_as_context(symbol=symbol, limit=10)
-
-        # 3b. Inject cross-session context from .claude/memory files.
-        #     strategy_context tells the crew which strategies are active and
-        #     what regimes they target — so the assistant can frame its synthesis
-        #     in terms of the strategies Claude Code is actually considering.
-        #     session_notes carries recent handoff findings (IC biases, alerts).
-        strategy_context = _read_memory_file("strategy_registry.md", max_chars=2000)
-        session_notes = _read_memory_file("session_handoffs.md", max_chars=1000)
-
-        # 4. Run crew in stop-at-assistant mode (sync call in thread pool)
-        from quant_pod.crews.trading_crew import run_analysis_only
-
-        result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: run_analysis_only(
-                symbol=symbol,
-                regime=regime,
-                portfolio=portfolio,
-                historical_context=historical_context,
-                strategy_context=strategy_context,
-                session_notes=session_notes,
-            ),
-        )
-
-        # 5. Extract DailyBrief from crew result
-        brief = None
-        if hasattr(result, "pydantic") and result.pydantic is not None:
-            brief = _serialize(result.pydantic)
-        elif hasattr(result, "json_dict") and result.json_dict is not None:
-            brief = result.json_dict
-        elif isinstance(result, dict):
-            brief = result
-        else:
-            brief = {"raw_output": str(result)}
-
-        # 6. Populate per-IC output cache (non-blocking best-effort)
-        populate_ic_cache_from_result(symbol, result)
-
-        elapsed = time.monotonic() - start
-        return {
-            "success": True,
-            "daily_brief": brief,
-            "regime_used": regime,
-            "elapsed_seconds": round(elapsed, 2),
-        }
-
-    except Exception as e:
-        elapsed = time.monotonic() - start
-        logger.error(f"[quantpod_mcp] run_analysis({symbol}) failed: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "regime_used": regime or {},
-            "elapsed_seconds": round(elapsed, 2),
-        }
 
 
 # =============================================================================

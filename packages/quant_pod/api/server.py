@@ -147,7 +147,7 @@ def analyze(symbol: str, req: AnalyzeRequest | None = None) -> dict[str, Any]:
     """
     Run regime detection + TradingDayFlow for a symbol.
 
-    This kicks off the full agent stack (RegimeDetector → TradingCrew →
+    This kicks off the full pipeline (RegimeDetector → SignalEngine →
     RiskGate → PaperBroker) and returns the result.
     """
     kill = get_kill_switch()

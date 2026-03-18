@@ -26,11 +26,18 @@ from typing import Any
 from loguru import logger
 
 from quant_pod.signal_engine.brief import SignalBrief
+from quant_pod.signal_engine.collectors.cross_asset import collect_cross_asset
 from quant_pod.signal_engine.collectors.events import collect_events
+from quant_pod.signal_engine.collectors.flow import collect_flow
 from quant_pod.signal_engine.collectors.fundamentals import collect_fundamentals
+from quant_pod.signal_engine.collectors.macro import collect_macro
+from quant_pod.signal_engine.collectors.ml_signal import collect_ml_signal
+from quant_pod.signal_engine.collectors.quality import collect_quality
 from quant_pod.signal_engine.collectors.regime import collect_regime
 from quant_pod.signal_engine.collectors.risk import collect_risk
+from quant_pod.signal_engine.collectors.sector import collect_sector
 from quant_pod.signal_engine.collectors.sentiment import collect_sentiment
+from quant_pod.signal_engine.collectors.statarb import collect_statarb
 from quant_pod.signal_engine.collectors.technical import collect_technical
 from quant_pod.signal_engine.collectors.volume import collect_volume
 from quant_pod.signal_engine.synthesis import (
@@ -131,6 +138,7 @@ class SignalEngine:
     ) -> tuple[dict[str, Any], list[str]]:
         """Run all collectors concurrently; isolate failures."""
         collector_map = {
+            # Core collectors (v0.6.0)
             "technical":    collect_technical(symbol, self._store),
             "regime":       collect_regime(symbol, self._store),
             "volume":       collect_volume(symbol, self._store),
@@ -138,6 +146,14 @@ class SignalEngine:
             "events":       collect_events(symbol, self._store),
             "fundamentals": collect_fundamentals(symbol, self._store),
             "sentiment":    collect_sentiment(symbol, self._store),
+            # Phase 3 collectors (v1.0) — all optional, graceful {} on failure
+            "macro":        collect_macro(symbol, self._store),
+            "sector":       collect_sector(symbol, self._store),
+            "flow":         collect_flow(symbol, self._store),
+            "cross_asset":  collect_cross_asset(symbol, self._store),
+            "quality":      collect_quality(symbol, self._store),
+            "ml_signal":    collect_ml_signal(symbol, self._store),
+            "statarb":      collect_statarb(symbol, self._store),
         }
 
         names = list(collector_map.keys())
@@ -175,6 +191,13 @@ class SignalEngine:
         events       = outputs.get("events", {})
         fundamentals = outputs.get("fundamentals", {})
         sentiment    = outputs.get("sentiment", {})
+        macro        = outputs.get("macro", {})
+        sector       = outputs.get("sector", {})
+        flow         = outputs.get("flow", {})
+        cross_asset  = outputs.get("cross_asset", {})
+        quality      = outputs.get("quality", {})
+        ml_signal    = outputs.get("ml_signal", {})
+        statarb      = outputs.get("statarb", {})
 
         # Inject strategy context from memory (same as run_analysis).
         strategy_context = _read_strategy_context()
@@ -225,6 +248,21 @@ class SignalEngine:
             regime_detail=regime or None,
             sentiment_score=sentiment.get("sentiment_score", 0.5),
             dominant_sentiment=sentiment.get("dominant_sentiment", "neutral"),
+            # Phase 3 fields — all default to "unknown"/None if collector returned {}
+            macro_rate_regime=macro.get("rate_regime", "unknown"),
+            yield_curve_slope=macro.get("yield_curve_slope"),
+            sector_signal=sector.get("sector_trend", "unknown"),
+            rotation_signal=sector.get("rotation_signal", "unknown"),
+            breadth_positive_sectors=sector.get("breadth_positive_sectors"),
+            flow_signal=flow.get("flow_signal"),
+            insider_direction=flow.get("insider_direction", "unknown"),
+            cross_asset_regime=cross_asset.get("cross_asset_regime", "unknown"),
+            risk_on_score=cross_asset.get("risk_on_score"),
+            quality_score=quality.get("quality_score"),
+            ml_prediction=ml_signal.get("ml_prediction"),
+            ml_direction=ml_signal.get("ml_direction", "unknown"),
+            statarb_signal=statarb.get("statarb_signal", "unknown"),
+            spread_zscore=statarb.get("spread_zscore"),
         )
 
 
@@ -241,9 +279,14 @@ def _read_strategy_context() -> str:
         return ""
 
 
+_ALL_COLLECTORS = (
+    "technical", "regime", "volume", "risk", "events", "fundamentals", "sentiment",
+    "macro", "sector", "flow", "cross_asset", "quality", "ml_signal", "statarb",
+)
+
+
 def _active_pods(failures: list[str]) -> list[str]:
-    return [p for p in ("technical", "regime", "volume", "risk", "events", "fundamentals", "sentiment")
-            if p not in failures]
+    return [p for p in _ALL_COLLECTORS if p not in failures]
 
 
 def _empty_brief(symbol: str) -> SignalBrief:

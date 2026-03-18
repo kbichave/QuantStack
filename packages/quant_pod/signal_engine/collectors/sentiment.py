@@ -75,12 +75,29 @@ def _collect_sentiment_sync(symbol: str) -> dict[str, Any]:
 
 
 def _fetch_headlines(symbol: str) -> list[str]:
-    """Fetch recent news headlines. Returns empty list on failure."""
+    """Fetch recent news headlines via FinancialDatasets.ai.
+
+    Falls back to empty list if the API key is missing or the call fails.
+    """
     try:
-        from quantcore.data.news import get_company_news
-        news_items = get_company_news(symbol, days=_NEWS_LOOKBACK_DAYS)
-        return [item.get("headline", item.get("title", "")) for item in (news_items or [])
-                if item.get("headline") or item.get("title")]
+        import os
+
+        from quantcore.data.adapters.financial_datasets_client import FinancialDatasetsClient
+
+        api_key = os.environ.get("FINANCIAL_DATASETS_API_KEY", "")
+        if not api_key:
+            logger.debug("[sentiment] FINANCIAL_DATASETS_API_KEY not set, skipping news fetch")
+            return []
+
+        with FinancialDatasetsClient(api_key=api_key) as client:
+            resp = client.get_company_news(symbol, limit=_MAX_HEADLINES)
+
+        news_items = (resp or {}).get("news", [])
+        return [
+            item.get("title", item.get("headline", ""))
+            for item in news_items
+            if item.get("title") or item.get("headline")
+        ]
     except Exception as exc:
         logger.debug(f"[sentiment] headline fetch failed for {symbol}: {exc}")
         return []

@@ -2,7 +2,9 @@
 
 from quant_pod.learning.drift_detector import DriftDetector, DriftReport
 from quant_pod.learning.expectancy_engine import ExpectancyEngine, ExpectancyResult
+from quant_pod.learning.ic_attribution import ICAttributionReport, ICAttributionTracker
 from quant_pod.learning.outcome_tracker import OutcomeTracker
+from quant_pod.learning.prompt_tuner import PromptRecommendation, PromptTuner
 from quant_pod.learning.skill_tracker import AgentSkill, SkillTracker
 from quant_pod.learning.structure_stats import StructureStats, StructureStatsSummary
 
@@ -10,10 +12,14 @@ __all__ = [
     "AgentSkill",
     "DriftDetector",
     "DriftReport",
+    "ExpectancyEngine",
+    "ExpectancyResult",
+    "ICAttributionReport",
+    "ICAttributionTracker",
     "OutcomeTracker",
+    "PromptRecommendation",
+    "PromptTuner",
     "SkillTracker",
     "StructureStats",
     "StructureStatsSummary",
-    "ExpectancyEngine",
-    "ExpectancyResult",
 ]

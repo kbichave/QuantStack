@@ -20,6 +20,13 @@ Three signal families — all pure computation (no API calls):
    Non-commercial (speculative) net positioning as % of open interest.
    Extreme long → contrarian bearish; extreme short → contrarian bullish.
    The CFTC releases this data freely every Friday as a public CSV.
+
+4. **CTAPositioningModel** — inferred CTA (commodity trading advisor) net
+   exposure from COT non-commercial data + price momentum. CTAs are
+   systematic trend-followers. When price is above its MA and COT specs
+   are net long, CTA exposure is estimated to be high (crowding risk).
+   When both signals align bearishly, CTA exposure is estimated short.
+   Useful as a crowding/derisking regime signal.
 """
 
 from __future__ import annotations
@@ -266,4 +273,112 @@ class COTSignals:
                 "cot_sentiment":    cot_sentiment,
             },
             index=cot.index,
+        )
+
+
+# ---------------------------------------------------------------------------
+# CTA Positioning Model
+# ---------------------------------------------------------------------------
+
+
+class CTAPositioningModel:
+    """
+    Inferred CTA (commodity trading advisor) net exposure from COT + momentum.
+
+    CTAs are systematic trend-followers. This model estimates their aggregate
+    exposure from two inputs:
+    1. COT non-commercial z-score — how crowded the speculative long/short is
+    2. Price momentum — direction CTAs are typically positioned toward
+
+    The composite CTA score captures regime transitions before they show up in
+    price (CTAs derisking → crowded → reversal risk).
+
+    Interpretation
+    --------------
+    cta_score > 0.5 : CTAs estimated heavily long — crowding risk, watch for
+                      stop-loss cascades on negative news
+    cta_score < -0.5: CTAs estimated heavily short — squeeze risk on positive
+                      catalyst
+    |cta_score| < 0.2: Neutral positioning — no directional CTA crowding
+
+    Parameters
+    ----------
+    momentum_window : int
+        Price momentum lookback for CTA trend-following signal. Default 63
+        bars (≈ 3 months), matching typical CTA medium-term model lookback.
+    cot_weight : float
+        Weight for COT z-score component vs. momentum component. Default 0.5
+        (equal blend).
+    """
+
+    def __init__(self, momentum_window: int = 63, cot_weight: float = 0.5) -> None:
+        self.momentum_window = momentum_window
+        self.cot_weight = cot_weight
+
+    def compute(
+        self,
+        close: pd.Series,
+        nc_zscore: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Parameters
+        ----------
+        close : pd.Series
+            Daily close prices. DatetimeIndex; resampled from COT weekly if
+            needed (use `close.resample('W-FRI').last()` to align).
+        nc_zscore : pd.Series
+            Non-commercial z-score from COTSignals.compute(). Must be indexed
+            compatibly with close (weekly or daily).
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            momentum_signal     – price momentum direction (+1, 0, -1) based on
+                                  momentum_window return sign
+            cot_direction       – direction implied by COT z-score (+1 long,
+                                  -1 short, 0 neutral); nc_zscore > 0.5 → long
+            cta_score           – composite [-1, +1] blending momentum +
+                                  cot_direction; positive = estimated net long
+            cta_crowded_long    – 1 when cta_score > 0.5 (crowding risk)
+            cta_crowded_short   – 1 when cta_score < -0.5 (squeeze risk)
+            cta_derisking       – 1 when cta_score declines from >0.3 → <0 within
+                                  4 bars (momentum reversal + COT unwind)
+        """
+        mom_ret = close.pct_change(self.momentum_window)
+        # Momentum direction: +1 up, -1 down, 0 flat (within 0.5% noise band)
+        mom_signal = np.sign(mom_ret).where(mom_ret.abs() > 0.005, 0)
+
+        # COT direction: clip z-score to [-3, 3] then normalise to [-1, 1]
+        cot_dir = nc_zscore.clip(-3, 3) / 3.0
+
+        # Align index: if cot_dir is weekly but close is daily, forward-fill
+        if not cot_dir.index.equals(mom_signal.index):
+            cot_dir = cot_dir.reindex(mom_signal.index, method="ffill")
+
+        # Composite: blend momentum direction with COT direction
+        mom_weight = 1.0 - self.cot_weight
+        cta_score = (mom_signal * mom_weight + cot_dir * self.cot_weight).clip(-1, 1)
+
+        crowded_long  = (cta_score > 0.5).astype(int)
+        crowded_short = (cta_score < -0.5).astype(int)
+
+        # Derisking: score was above +0.3 in any of last 4 bars and is now < 0
+        score_shifted = pd.concat(
+            [cta_score.shift(i) for i in range(1, 5)], axis=1
+        ).max(axis=1)
+        derisking = ((score_shifted > 0.3) & (cta_score < 0.0)).astype(int)
+
+        # COT direction as integer for output readability
+        cot_direction = cot_dir.apply(lambda x: 1 if x > 0.1 else (-1 if x < -0.1 else 0))
+
+        return pd.DataFrame(
+            {
+                "momentum_signal":  mom_signal,
+                "cot_direction":    cot_direction,
+                "cta_score":        cta_score.round(3),
+                "cta_crowded_long": crowded_long,
+                "cta_crowded_short": crowded_short,
+                "cta_derisking":    derisking,
+            },
+            index=close.index,
         )

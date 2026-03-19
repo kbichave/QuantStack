@@ -309,26 +309,62 @@ class OvernightGapPersistence:
     trading or structural news. A gap that fills (price reverts) suggests
     an overreaction or liquidity grab.
 
+    When volume is provided, identifies gaps accompanied by abnormal auction
+    volume — the primary institutional intent signal. A gap-up on 2× average
+    volume that persists is a strong institutional accumulation signal; a
+    gap-down on high volume that persists is institutional distribution.
+
     Parameters
     ----------
     min_gap_pct : float
         Minimum gap size (as % of prior close) to count as a gap. Default 0.2%.
+    volume_spike_mult : float
+        Volume multiple above rolling average to classify as a spike. Default 2.0.
+    volume_avg_window : int
+        Rolling window for average volume computation. Default 20.
     """
 
-    def __init__(self, min_gap_pct: float = 0.2) -> None:
+    def __init__(
+        self,
+        min_gap_pct: float = 0.2,
+        volume_spike_mult: float = 2.0,
+        volume_avg_window: int = 20,
+    ) -> None:
         self.min_gap_pct = min_gap_pct
+        self.volume_spike_mult = volume_spike_mult
+        self.volume_avg_window = volume_avg_window
 
-    def compute(self, open_: pd.Series, close: pd.Series) -> pd.DataFrame:
+    def compute(
+        self,
+        open_: pd.Series,
+        close: pd.Series,
+        volume: pd.Series | None = None,
+    ) -> pd.DataFrame:
         """
+        Parameters
+        ----------
+        open_ : pd.Series
+            Daily open prices.
+        close : pd.Series
+            Daily close prices.
+        volume : pd.Series | None
+            Daily volume. When provided, adds volume_spike and
+            institutional_gap columns.
+
         Returns
         -------
         pd.DataFrame with columns:
-            gap_pct         – overnight gap as % of prior close (+up, -down)
-            gap_up          – 1 if gap > min_gap_pct
-            gap_down        – 1 if gap < -min_gap_pct
-            gap_filled      – 1 if close moved against gap direction
-            gap_persisted   – 1 if close confirmed gap direction
-            gap_filled_pct  – rolling fraction of gaps that filled (22-bar)
+            gap_pct             – overnight gap as % of prior close (+up, -down)
+            gap_up              – 1 if gap > min_gap_pct
+            gap_down            – 1 if gap < -min_gap_pct
+            gap_filled          – 1 if close moved against gap direction
+            gap_persisted       – 1 if close confirmed gap direction
+            gap_filled_pct      – rolling fraction of gaps that filled (22-bar)
+            volume_spike        – 1 if volume > volume_spike_mult × rolling_avg
+                                  (only present when volume provided)
+            institutional_gap   – 1 when gap persisted AND volume_spike occurred;
+                                  primary institutional-intent signal
+                                  (only present when volume provided)
         """
         prev_close = close.shift(1)
         gap_pct = (open_ - prev_close) / prev_close.replace(0, np.nan) * 100
@@ -349,7 +385,7 @@ class OvernightGapPersistence:
         # Rolling fill rate (meaningful only when gaps occur)
         gap_filled_pct = gap_filled.rolling(22).mean() * 100
 
-        return pd.DataFrame(
+        out = pd.DataFrame(
             {
                 "gap_pct": gap_pct,
                 "gap_up": gap_up,
@@ -360,3 +396,13 @@ class OvernightGapPersistence:
             },
             index=close.index,
         )
+
+        # Volume spike and institutional gap (require volume)
+        if volume is not None:
+            vol_avg = volume.rolling(self.volume_avg_window, min_periods=5).mean()
+            volume_spike = (volume > self.volume_spike_mult * vol_avg).astype(int)
+            institutional_gap = ((gap_persisted == 1) & (volume_spike == 1)).astype(int)
+            out["volume_spike"] = volume_spike
+            out["institutional_gap"] = institutional_gap
+
+        return out

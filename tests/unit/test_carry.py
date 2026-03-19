@@ -258,3 +258,88 @@ class TestCOTSignals:
     def test_warmup_bars_nan(self, cot_data):
         result = COTSignals(roll_window=52).compute(cot_data)
         assert result["nc_zscore"].iloc[:51].isna().all()
+
+
+# ---------------------------------------------------------------------------
+# CTAPositioningModel
+# ---------------------------------------------------------------------------
+
+
+from quantcore.features.carry import CTAPositioningModel
+
+
+@pytest.fixture
+def cta_inputs():
+    """300 daily close bars + 300 weekly COT nc_zscore values on same index."""
+    dates = pd.date_range("2021-01-01", periods=300, freq="D")
+    np.random.seed(11)
+    close = pd.Series(100 + np.cumsum(np.random.randn(300) * 0.8), index=dates)
+    # Synthetic nc_zscore on same daily index (in practice weekly, but same API)
+    nc_zscore = pd.Series(np.random.randn(300) * 1.5, index=dates)
+    return close, nc_zscore
+
+
+class TestCTAPositioningModel:
+    def test_returns_dataframe(self, cta_inputs):
+        close, nc_zscore = cta_inputs
+        result = CTAPositioningModel().compute(close, nc_zscore)
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self, cta_inputs):
+        close, nc_zscore = cta_inputs
+        result = CTAPositioningModel().compute(close, nc_zscore)
+        for col in ("momentum_signal", "cot_direction", "cta_score",
+                    "cta_crowded_long", "cta_crowded_short", "cta_derisking"):
+            assert col in result.columns
+
+    def test_cta_score_bounded(self, cta_inputs):
+        """cta_score must be in [-1, 1]."""
+        close, nc_zscore = cta_inputs
+        result = CTAPositioningModel().compute(close, nc_zscore)
+        score = result["cta_score"].dropna()
+        assert (score >= -1.0).all() and (score <= 1.0).all()
+
+    def test_crowded_long_binary(self, cta_inputs):
+        close, nc_zscore = cta_inputs
+        result = CTAPositioningModel().compute(close, nc_zscore)
+        assert set(result["cta_crowded_long"].unique()).issubset({0, 1})
+
+    def test_crowded_short_binary(self, cta_inputs):
+        close, nc_zscore = cta_inputs
+        result = CTAPositioningModel().compute(close, nc_zscore)
+        assert set(result["cta_crowded_short"].unique()).issubset({0, 1})
+
+    def test_derisking_binary(self, cta_inputs):
+        close, nc_zscore = cta_inputs
+        result = CTAPositioningModel().compute(close, nc_zscore)
+        assert set(result["cta_derisking"].dropna().unique()).issubset({0, 1})
+
+    def test_crowded_long_fires_when_both_bullish(self):
+        """With strong uptrend + heavy spec long, crowded_long should fire."""
+        dates = pd.date_range("2021-01-01", periods=200, freq="D")
+        close = pd.Series(100 + np.arange(200) * 0.5, index=dates)   # monotone up
+        nc_zscore = pd.Series(np.full(200, 2.5), index=dates)           # extreme long
+        result = CTAPositioningModel(momentum_window=63).compute(close, nc_zscore)
+        # After warmup period, crowded_long should be 1
+        assert result["cta_crowded_long"].iloc[70:].mean() > 0.5
+
+    def test_crowded_short_fires_when_both_bearish(self):
+        """With downtrend + heavy spec short, crowded_short should fire."""
+        dates = pd.date_range("2021-01-01", periods=200, freq="D")
+        close = pd.Series(100 - np.arange(200) * 0.5, index=dates)   # monotone down
+        nc_zscore = pd.Series(np.full(200, -2.5), index=dates)          # extreme short
+        result = CTAPositioningModel(momentum_window=63).compute(close, nc_zscore)
+        assert result["cta_crowded_short"].iloc[70:].mean() > 0.5
+
+    def test_momentum_signal_uptrend(self):
+        """In a strong uptrend, momentum_signal should be +1."""
+        dates = pd.date_range("2021-01-01", periods=150, freq="D")
+        close = pd.Series(100 + np.arange(150) * 1.0, index=dates)
+        nc_zscore = pd.Series(np.zeros(150), index=dates)
+        result = CTAPositioningModel(momentum_window=63).compute(close, nc_zscore)
+        assert (result["momentum_signal"].iloc[70:] > 0).all()
+
+    def test_preserves_index(self, cta_inputs):
+        close, nc_zscore = cta_inputs
+        result = CTAPositioningModel().compute(close, nc_zscore)
+        pd.testing.assert_index_equal(result.index, close.index)

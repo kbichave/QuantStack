@@ -316,3 +316,78 @@ class TestImpactModels:
 
         # Should be roughly correct
         assert estimated_lambda > 0
+
+
+# ---------------------------------------------------------------------------
+# OvernightGapPersistence — volume spike and institutional gap extensions
+# ---------------------------------------------------------------------------
+
+import pandas as pd
+from quantcore.features.microstructure import OvernightGapPersistence
+
+
+class TestOvernightGapPersistenceVolume:
+    @pytest.fixture
+    def gap_data(self):
+        """50 bars with synthetic gaps and matching volume."""
+        np.random.seed(19)
+        dates = pd.date_range("2023-01-01", periods=50, freq="D")
+        close = pd.Series(100 + np.cumsum(np.random.randn(50) * 0.5), index=dates)
+        # Open with gap: alternate gaps up and down
+        open_ = close.shift(1) * (1 + np.where(np.arange(50) % 5 == 0, 0.015, 0.001))
+        open_ = pd.Series(open_, index=dates)
+        volume = pd.Series(1_000_000 + np.random.randint(0, 200_000, 50).astype(float), index=dates)
+        return open_, close, volume
+
+    def test_volume_spike_column_present_when_volume_given(self, gap_data):
+        open_, close, volume = gap_data
+        result = OvernightGapPersistence().compute(open_, close, volume)
+        assert "volume_spike" in result.columns
+
+    def test_institutional_gap_column_present_when_volume_given(self, gap_data):
+        open_, close, volume = gap_data
+        result = OvernightGapPersistence().compute(open_, close, volume)
+        assert "institutional_gap" in result.columns
+
+    def test_volume_spike_absent_without_volume(self, gap_data):
+        open_, close, _ = gap_data
+        result = OvernightGapPersistence().compute(open_, close)
+        assert "volume_spike" not in result.columns
+        assert "institutional_gap" not in result.columns
+
+    def test_volume_spike_binary(self, gap_data):
+        open_, close, volume = gap_data
+        result = OvernightGapPersistence().compute(open_, close, volume)
+        assert set(result["volume_spike"].unique()).issubset({0, 1})
+
+    def test_institutional_gap_binary(self, gap_data):
+        open_, close, volume = gap_data
+        result = OvernightGapPersistence().compute(open_, close, volume)
+        assert set(result["institutional_gap"].unique()).issubset({0, 1})
+
+    def test_institutional_gap_implies_gap_persisted(self, gap_data):
+        """institutional_gap = 1 should only occur when gap_persisted = 1."""
+        open_, close, volume = gap_data
+        result = OvernightGapPersistence().compute(open_, close, volume)
+        inst = result[result["institutional_gap"] == 1]
+        assert (inst["gap_persisted"] == 1).all()
+
+    def test_volume_spike_fires_on_high_volume(self):
+        """Construct explicit high-volume bar and assert spike fires."""
+        dates = pd.date_range("2023-01-01", periods=25, freq="D")
+        close = pd.Series([100.0] * 25, index=dates)
+        open_ = pd.Series([100.5] * 25, index=dates)  # gap up every bar
+        # Normal volume = 1M; spike on bar 22 = 3M (> 2× 20-bar avg)
+        vol = [1_000_000.0] * 25
+        vol[22] = 3_000_000.0
+        volume = pd.Series(vol, index=dates)
+        result = OvernightGapPersistence(volume_spike_mult=2.0).compute(open_, close, volume)
+        assert result["volume_spike"].iloc[22] == 1
+
+    def test_existing_columns_unchanged_with_volume(self, gap_data):
+        """Adding volume must not change gap_pct, gap_up, gap_down, etc."""
+        open_, close, volume = gap_data
+        without = OvernightGapPersistence().compute(open_, close)
+        with_vol = OvernightGapPersistence().compute(open_, close, volume)
+        for col in ("gap_pct", "gap_up", "gap_down", "gap_filled", "gap_persisted"):
+            pd.testing.assert_series_equal(without[col], with_vol[col], check_names=False)

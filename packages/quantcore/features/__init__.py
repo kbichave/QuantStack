@@ -27,7 +27,7 @@ from quantcore.features.microstructure import (
     VWAPSessionDeviation,
 )
 from quantcore.features.momentum import LaguerreRSI, MomentumFeatures, PercentRExhaustion
-from quantcore.features.carry import COTSignals, EquityCarry, FuturesBasis
+from quantcore.features.carry import COTSignals, CTAPositioningModel, EquityCarry, FuturesBasis
 from quantcore.features.rates import DualMomentum, SpreadSignals, YieldCurveFeatures
 from quantcore.features.sec_nlp import EightKClassifier, MDADeltaAnalyzer, RiskFactorDeltaAnalyzer
 from quantcore.features.smart_money import (
@@ -114,6 +114,7 @@ __all__ = [
     "EquityCarry",
     "FuturesBasis",
     "COTSignals",
+    "CTAPositioningModel",
     # SEC NLP Signals
     "EightKClassifier",
     "MDADeltaAnalyzer",

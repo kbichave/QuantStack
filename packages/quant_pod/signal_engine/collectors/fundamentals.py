@@ -50,6 +50,15 @@ async def collect_fundamentals(symbol: str, store: DataStore) -> dict[str, Any]:
         inst_herding_measure    : float | None — LSV herding H
         inst_herding_buy_bias   : int | None — 1 buying, -1 selling, 0 neutral
         inst_herding_high       : int | None — 1 when H > 0.05
+        piotroski_f_score       : float | None — Piotroski 9-point score
+        piotroski_strong_buy    : int | None — 1 when f_score >= 8
+        piotroski_short_signal  : int | None — 1 when f_score <= 2
+        beneish_m_score         : float | None — manipulation probability score
+        beneish_manipulation    : int | None — 1 when M > -1.78
+        sue                     : float | None — standardized unexpected earnings
+        sue_positive            : int | None — 1 when sue > 1 (strong beat)
+        sue_negative            : int | None — 1 when sue < -1 (strong miss)
+        beat_streak             : int | None — consecutive quarters beating consensus
     """
     try:
         return await asyncio.to_thread(_collect_fundamentals_sync, symbol, store)
@@ -102,6 +111,9 @@ def _collect_fundamentals_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 
     # --- Institutional herding signals ---
     _add_herding_signals(symbol, store, result)
+
+    # --- Earnings surprise (SUE / PEAD) signals ---
+    _add_earnings_surprise_signals(symbol, store, result)
 
     return result
 
@@ -219,6 +231,44 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
                     result["fcf_positive"] = int(fcf_df["fcf_positive"].iloc[-1])
             except Exception as exc:
                 logger.debug(f"[fundamentals] {symbol}: FCFYield failed: {exc}")
+
+        # PiotroskiFScore: 9-point financial strength (Piotroski 2000)
+        # Score 8-9 = strong long; 0-2 = short candidate
+        _piotroski_cols = (
+            "total_assets", "net_income", "operating_cash_flow",
+            "long_term_debt", "current_assets", "current_liabilities",
+            "shares_outstanding", "revenue",
+        )
+        if all(c in df.columns for c in _piotroski_cols) and len(df) >= 2:
+            try:
+                from quantcore.features.fundamental import PiotroskiFScore
+                pio_input = df.copy()
+                if "cost_of_revenue" not in pio_input.columns and "gross_profit" in pio_input.columns and "revenue" in pio_input.columns:
+                    pio_input["cost_of_revenue"] = pio_input["revenue"] - pio_input["gross_profit"]
+                if "cost_of_revenue" in pio_input.columns:
+                    pio_df = PiotroskiFScore().compute(pio_input)
+                    result["piotroski_f_score"] = _sf(pio_df["f_score"].iloc[-1])
+                    result["piotroski_strong_buy"] = int(pio_df["strong_buy"].iloc[-1])
+                    result["piotroski_short_signal"] = int(pio_df["short_signal"].iloc[-1])
+            except Exception as exc:
+                logger.debug(f"[fundamentals] {symbol}: PiotroskiFScore failed: {exc}")
+
+        # BeneishMScore: 8-variable earnings manipulation detection (Beneish 1999)
+        # M > -1.78 = high manipulation probability; M < -2.22 = clean
+        _beneish_cols = (
+            "revenue", "cost_of_revenue", "total_assets", "current_assets",
+            "current_liabilities", "net_income", "total_liabilities",
+            "operating_cash_flow", "accounts_receivable", "depreciation",
+            "sga_expenses", "property_plant_equipment",
+        )
+        if all(c in df.columns for c in _beneish_cols) and len(df) >= 5:
+            try:
+                from quantcore.features.fundamental import BeneishMScore
+                ben_df = BeneishMScore().compute(df)
+                result["beneish_m_score"] = _sf(ben_df["m_score"].iloc[-1])
+                result["beneish_manipulation"] = int(ben_df["manipulation_risk"].iloc[-1])
+            except Exception as exc:
+                logger.debug(f"[fundamentals] {symbol}: BeneishMScore failed: {exc}")
 
     except Exception as exc:
         logger.debug(f"[fundamentals] {symbol}: statement signals failed: {exc}")
@@ -388,6 +438,60 @@ def _add_herding_signals(symbol: str, store: DataStore, result: dict) -> None:
 
     except Exception as exc:
         logger.debug(f"[fundamentals] {symbol}: herding signals failed: {exc}")
+
+
+def _add_earnings_surprise_signals(symbol: str, store: DataStore, result: dict) -> None:
+    """Add SUE (Standardized Unexpected Earnings) and PEAD signals.
+
+    Reads from earnings_calendar table (report_date, reported_eps, estimate).
+    PEAD is one of the most persistent anomalies in empirical finance:
+    high-SUE stocks drift upward 60+ days post-earnings.
+    """
+    try:
+        if not hasattr(store, "conn"):
+            return
+
+        try:
+            earnings_df = store.conn.execute(
+                """SELECT report_date, reported_eps, estimate
+                   FROM earnings_calendar
+                   WHERE symbol = ?
+                   ORDER BY report_date ASC
+                   LIMIT 20""",
+                [symbol],
+            ).fetchdf()
+        except Exception:
+            return
+
+        if earnings_df is None or earnings_df.empty or len(earnings_df) < 4:
+            return
+
+        # Rename to EarningsSurpriseSignals expected schema
+        earnings_df = earnings_df.rename(columns={
+            "report_date": "report_date",
+            "reported_eps": "actual_eps",
+            "estimate": "estimated_eps",
+        })
+
+        # Drop rows where both values are null
+        earnings_df = earnings_df.dropna(subset=["actual_eps", "estimated_eps"])
+        if len(earnings_df) < 4:
+            return
+
+        from quantcore.features.earnings_signals import EarningsSurpriseSignals
+        sue_df = EarningsSurpriseSignals().compute(earnings_df)
+
+        last = sue_df.iloc[-1]
+        result["sue"] = _sf(last.get("sue"))
+        sue_pos = last.get("sue_positive")
+        result["sue_positive"] = int(sue_pos) if pd.notna(sue_pos) else None
+        sue_neg = last.get("sue_negative")
+        result["sue_negative"] = int(sue_neg) if pd.notna(sue_neg) else None
+        beat = last.get("beat_streak")
+        result["beat_streak"] = int(beat) if pd.notna(beat) else None
+
+    except Exception as exc:
+        logger.debug(f"[fundamentals] {symbol}: earnings surprise signals failed: {exc}")
 
 
 # ---------------------------------------------------------------------------

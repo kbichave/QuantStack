@@ -339,3 +339,99 @@ class PercentRExhaustion:
             },
             index=close.index,
         )
+
+
+# ---------------------------------------------------------------------------
+# Laguerre RSI + Laguerre Moving Average
+# ---------------------------------------------------------------------------
+
+
+class LaguerreRSI:
+    """
+    Laguerre RSI and Laguerre Moving Average.
+
+    4-stage recursive Laguerre filter that dramatically reduces lag while
+    preserving responsiveness. The RSI variant uses L0/L1 crossings to compute
+    cumulative up/down components — resulting in a lower-whipsaw RSI proxy that
+    is especially effective on daily timeframes.
+
+    Mathematics
+    -----------
+    L0[i] = (1 - γ) × src[i] + γ × L0[i-1]
+    L1[i] = -γ × L0[i] + L0[i-1] + γ × L1[i-1]
+    L2[i] = -γ × L1[i] + L1[i-1] + γ × L2[i-1]
+    L3[i] = -γ × L2[i] + L2[i-1] + γ × L3[i-1]
+
+    cu = max(L0 - L1, 0) + max(L1 - L2, 0) + max(L2 - L3, 0)
+    cd = max(L1 - L0, 0) + max(L2 - L1, 0) + max(L3 - L2, 0)
+    lrsi = cu / (cu + cd)   [undefined when cu + cd = 0 → 0.5]
+
+    lma = (L0 + 2*L1 + 2*L2 + L3) / 6   (weighted average of filter stages)
+
+    Parameters
+    ----------
+    gamma : float
+        Damping factor 0 < γ < 1. Higher = more smoothing, more lag.
+        Default 0.5 (recommended by Ehlers).
+    """
+
+    def __init__(self, gamma: float = 0.5) -> None:
+        if not (0.0 < gamma < 1.0):
+            raise ValueError(f"gamma must be in (0, 1), got {gamma}")
+        self.gamma = gamma
+
+    def compute(self, close: pd.Series) -> pd.DataFrame:
+        """
+        Parameters
+        ----------
+        close : pd.Series
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            lrsi        – Laguerre RSI [0, 1]
+            lma         – Laguerre Moving Average
+            lrsi_ob     – 1 when lrsi > 0.8 (overbought)
+            lrsi_os     – 1 when lrsi < 0.2 (oversold)
+        """
+        import numpy as np
+
+        src = close.values.astype(float)
+        n = len(src)
+        g = self.gamma
+
+        l0 = np.zeros(n)
+        l1 = np.zeros(n)
+        l2 = np.zeros(n)
+        l3 = np.zeros(n)
+
+        # Warm-start all stages to first price so filter begins at steady state
+        # (avoids ~10-bar transient where L1/L2/L3 climb from 0 and distort RSI)
+        s0 = float(src[0]) if not (src[0] != src[0]) else 0.0
+        for i in range(n):
+            s = src[i] if not (src[i] != src[i]) else (src[i - 1] if i > 0 else s0)
+            l0_prev = l0[i - 1] if i > 0 else s0
+            l1_prev = l1[i - 1] if i > 0 else s0
+            l2_prev = l2[i - 1] if i > 0 else s0
+            l3_prev = l3[i - 1] if i > 0 else s0
+            l0[i] = (1 - g) * s + g * l0_prev
+            l1[i] = -g * l0[i] + l0_prev + g * l1_prev
+            l2[i] = -g * l1[i] + l1_prev + g * l2_prev
+            l3[i] = -g * l2[i] + l2_prev + g * l3_prev
+
+        cu = np.maximum(l0 - l1, 0) + np.maximum(l1 - l2, 0) + np.maximum(l2 - l3, 0)
+        cd = np.maximum(l1 - l0, 0) + np.maximum(l2 - l1, 0) + np.maximum(l3 - l2, 0)
+        denom = cu + cd
+        lrsi = np.where(denom > 0, cu / denom, 0.5)
+
+        lma = (l0 + 2 * l1 + 2 * l2 + l3) / 6.0
+
+        idx = close.index
+        return pd.DataFrame(
+            {
+                "lrsi": pd.Series(lrsi, index=idx),
+                "lma": pd.Series(lma, index=idx),
+                "lrsi_ob": pd.Series((lrsi > 0.8).astype(int), index=idx),
+                "lrsi_os": pd.Series((lrsi < 0.2).astype(int), index=idx),
+            }
+        )

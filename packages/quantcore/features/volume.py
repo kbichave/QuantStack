@@ -259,3 +259,198 @@ class VolumeFeatures(FeatureBase):
             "force_index_ma",
             "volume_trend",
         ]
+
+
+# ---------------------------------------------------------------------------
+# VPOC / VAH / VAL — Volume Point of Control and Value Area
+# ---------------------------------------------------------------------------
+
+
+class VolumePointOfControl:
+    """
+    Volume Point of Control (VPOC), Value Area High (VAH), and Value Area Low (VAL).
+
+    The VPOC is the single price bin with the highest volume over the lookback
+    window — the "fairest" price where the most trading occurred.
+
+    VAH/VAL mark the upper and lower edges of the 68.2% value area (by default):
+    the range containing 68.2% of total volume centred on the VPOC.
+
+    These are often magnets when price deviates far from VPOC (mean-reversion
+    signal) and act as invisible support/resistance on re-tests.
+
+    Parameters
+    ----------
+    lookback : int
+        Bars to include in the volume profile. Default 20.
+    n_bins : int
+        Price bins for the profile. Default 20.
+    value_area_pct : float
+        Fraction of total volume defining the value area. Default 0.682 (1σ).
+    """
+
+    def __init__(self, lookback: int = 20, n_bins: int = 20, value_area_pct: float = 0.682) -> None:
+        self.lookback = lookback
+        self.n_bins = n_bins
+        self.value_area_pct = value_area_pct
+
+    def compute(
+        self,
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+        volume: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Returns
+        -------
+        pd.DataFrame with columns:
+            vpoc        – price level of maximum volume
+            vah         – value area high
+            val         – value area low
+            above_vah   – 1 if close > vah
+            below_val   – 1 if close < val
+            in_value    – 1 if close within [val, vah]
+        """
+        n = len(close)
+        vpoc_arr = np.full(n, np.nan)
+        vah_arr  = np.full(n, np.nan)
+        val_arr  = np.full(n, np.nan)
+
+        for i in range(self.lookback - 1, n):
+            start = max(0, i - self.lookback + 1)
+            h_win = high.iloc[start:i + 1].values
+            l_win = low.iloc[start:i + 1].values
+            v_win = volume.iloc[start:i + 1].values
+
+            price_low  = l_win.min()
+            price_high = h_win.max()
+            if price_high <= price_low:
+                continue
+
+            edges = np.linspace(price_low, price_high, self.n_bins + 1)
+            bin_vol = np.zeros(self.n_bins)
+            bin_mid = (edges[:-1] + edges[1:]) / 2
+
+            for j in range(len(h_win)):
+                # Distribute bar's volume across bins it spans
+                bar_lo, bar_hi = l_win[j], h_win[j]
+                if bar_hi <= bar_lo:
+                    bar_hi = bar_lo + 1e-9
+                bar_span = bar_hi - bar_lo
+                for b in range(self.n_bins):
+                    overlap = min(bar_hi, edges[b + 1]) - max(bar_lo, edges[b])
+                    if overlap > 0:
+                        bin_vol[b] += v_win[j] * overlap / bar_span
+
+            vpoc_bin = int(np.argmax(bin_vol))
+            vpoc_arr[i] = bin_mid[vpoc_bin]
+
+            # Value area: expand from VPOC until value_area_pct of total volume captured
+            total_vol = bin_vol.sum()
+            target_vol = total_vol * self.value_area_pct
+            lo_idx = hi_idx = vpoc_bin
+            captured = bin_vol[vpoc_bin]
+            while captured < target_vol:
+                can_up = hi_idx + 1 < self.n_bins
+                can_dn = lo_idx - 1 >= 0
+                if not can_up and not can_dn:
+                    break
+                up_vol = bin_vol[hi_idx + 1] if can_up else -1
+                dn_vol = bin_vol[lo_idx - 1] if can_dn else -1
+                if up_vol >= dn_vol:
+                    hi_idx += 1
+                    captured += bin_vol[hi_idx]
+                else:
+                    lo_idx -= 1
+                    captured += bin_vol[lo_idx]
+
+            vah_arr[i] = edges[hi_idx + 1]
+            val_arr[i] = edges[lo_idx]
+
+        vpoc = pd.Series(vpoc_arr, index=close.index)
+        vah  = pd.Series(vah_arr, index=close.index)
+        val  = pd.Series(val_arr, index=close.index)
+
+        above_vah = ((close > vah) & vah.notna()).astype(int)
+        below_val = ((close < val) & val.notna()).astype(int)
+        in_value  = ((close >= val) & (close <= vah) & vah.notna()).astype(int)
+
+        return pd.DataFrame(
+            {"vpoc": vpoc, "vah": vah, "val": val,
+             "above_vah": above_vah, "below_val": below_val, "in_value": in_value},
+            index=close.index,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Anchored VWAP
+# ---------------------------------------------------------------------------
+
+
+class AnchoredVWAP:
+    """
+    Anchored VWAP — VWAP computed from a specific anchor bar.
+
+    Unlike rolling VWAP, the anchor accumulates from a chosen starting bar
+    (e.g. a swing low, earnings gap, or structural event). Price returning
+    to anchored VWAP after deviation is a high-probability mean-reversion setup.
+
+    Anchors can be:
+    - A specific integer index into the series
+    - A pandas Timestamp / datetime-like matched against the series index
+
+    Parameters
+    ----------
+    anchor : int or datetime-like
+        Starting bar. int = positional index; datetime = matched to series index.
+    """
+
+    def __init__(self, anchor: int | object = 0) -> None:
+        self.anchor = anchor
+
+    def compute(
+        self,
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+        volume: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Returns
+        -------
+        pd.DataFrame with columns:
+            avwap           – Anchored VWAP value
+            avwap_deviation – (close - avwap) / avwap × 100
+            above_avwap     – 1 if close > avwap
+        """
+        # Resolve anchor to positional index
+        if isinstance(self.anchor, int):
+            anchor_idx = self.anchor
+        else:
+            try:
+                loc = close.index.get_loc(self.anchor)
+                anchor_idx = int(loc) if not hasattr(loc, "__len__") else int(loc[0])
+            except KeyError:
+                anchor_idx = 0
+
+        anchor_idx = max(0, min(anchor_idx, len(close) - 1))
+        typical = (high + low + close) / 3.0
+
+        avwap_vals = np.full(len(close), np.nan)
+        cum_tpv = 0.0
+        cum_vol = 0.0
+        for i in range(len(close)):
+            if i >= anchor_idx:
+                cum_tpv += typical.iloc[i] * volume.iloc[i]
+                cum_vol += volume.iloc[i]
+                avwap_vals[i] = cum_tpv / cum_vol if cum_vol > 0 else np.nan
+
+        avwap = pd.Series(avwap_vals, index=close.index)
+        deviation = ((close - avwap) / avwap * 100).where(avwap.notna())
+        above = (close > avwap).astype(int).where(avwap.notna()).fillna(0).astype(int)
+
+        return pd.DataFrame(
+            {"avwap": avwap, "avwap_deviation": deviation, "above_avwap": above},
+            index=close.index,
+        )

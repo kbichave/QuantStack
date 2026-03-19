@@ -24,7 +24,7 @@ from quantcore.features.microstructure import (
     RollImpliedSpread,
     VWAPSessionDeviation,
 )
-from quantcore.features.momentum import MomentumFeatures, PercentRExhaustion
+from quantcore.features.momentum import LaguerreRSI, MomentumFeatures, PercentRExhaustion
 from quantcore.features.rates import DualMomentum, YieldCurveFeatures
 from quantcore.features.smart_money import (
     EqualHighsLows,
@@ -38,7 +38,7 @@ from quantcore.features.smart_money import (
 from quantcore.features.rrg import RRGFeatures
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator, TrendFeatures
 from quantcore.features.volatility import VolatilityFeatures, WilliamsVIXFix
-from quantcore.features.volume import VolumeFeatures
+from quantcore.features.volume import AnchoredVWAP, VolumeFeatures, VolumePointOfControl
 from quantcore.features.waves import (
     SwingDetector,
     WaveConfig,
@@ -57,11 +57,14 @@ __all__ = [
     # Momentum
     "MomentumFeatures",
     "PercentRExhaustion",
+    "LaguerreRSI",
     # Volatility
     "VolatilityFeatures",
     "WilliamsVIXFix",
     # Volume / Market Structure
     "VolumeFeatures",
+    "VolumePointOfControl",
+    "AnchoredVWAP",
     "MarketStructureFeatures",
     # Earnings / Fundamental (quantamental)
     "EarningsSurpriseSignals",

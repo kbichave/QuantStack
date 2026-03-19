@@ -18,6 +18,7 @@ from loguru import logger
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
 from quantcore.features.carry import FuturesBasis
+from quantcore.features.rrg import RRGFeatures
 from quantcore.features.smart_money import SMTDivergence
 
 
@@ -122,6 +123,34 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["smt_strength"] = _safe_float(smt_df["smt_strength"].iloc[-1])
     except Exception as exc:
         logger.debug(f"[cross_asset] {symbol}: SMTDivergence failed: {exc}")
+
+    # --- RRG (Relative Rotation Graph): symbol's relative strength vs SPY ---
+    try:
+        sym_df_rrg = (
+            store.load_ohlcv(symbol, Timeframe.D1)
+            if symbol.upper() != "SPY"
+            else store.load_ohlcv("QQQ", Timeframe.D1)
+        )
+        if sym_df_rrg is not None and len(sym_df_rrg) >= 20 and len(spy_df) >= 20:
+            import pandas as pd
+            n_rrg = min(len(sym_df_rrg), len(spy_df))
+            sym_slice = sym_df_rrg.iloc[-n_rrg:].copy()
+            spy_slice = spy_df.iloc[-n_rrg:].copy()
+            # Reset index to align positions
+            sym_slice.index = pd.RangeIndex(n_rrg)
+            spy_slice.index = pd.RangeIndex(n_rrg)
+            rrg_df = RRGFeatures(Timeframe.D1).compute(sym_slice, spy_slice)
+            last_rrg = rrg_df.iloc[-1]
+            result["rrg_quadrant"] = _safe_float(last_rrg.get("rrg_quadrant"))
+            result["rrg_leading"] = int(last_rrg.get("rrg_leading", 0))
+            result["rrg_improving"] = int(last_rrg.get("rrg_improving", 0))
+            result["rrg_weakening"] = int(last_rrg.get("rrg_weakening", 0))
+            result["rrg_lagging"] = int(last_rrg.get("rrg_lagging", 0))
+            result["rrg_long_favorable"] = int(last_rrg.get("rrg_long_favorable", 0))
+            result["rrg_rs_ratio"] = _safe_float(last_rrg.get("rs_ratio"))
+            result["rrg_rs_momentum"] = _safe_float(last_rrg.get("rs_momentum"))
+    except Exception as exc:
+        logger.debug(f"[cross_asset] {symbol}: RRGFeatures failed: {exc}")
 
     return result
 

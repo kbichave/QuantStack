@@ -115,6 +115,9 @@ def _collect_fundamentals_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     # --- Earnings surprise (SUE / PEAD) signals ---
     _add_earnings_surprise_signals(symbol, store, result)
 
+    # --- Composite signals (built on top of the signals computed above) ---
+    _add_composite_signals(symbol, store, result)
+
     return result
 
 
@@ -492,6 +495,71 @@ def _add_earnings_surprise_signals(symbol: str, store: DataStore, result: dict) 
 
     except Exception as exc:
         logger.debug(f"[fundamentals] {symbol}: earnings surprise signals failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# Composite signals (require individual signals to be already computed)
+# ---------------------------------------------------------------------------
+
+def _add_composite_signals(symbol: str, store: DataStore, result: dict) -> None:
+    """Add QualityMomentumComposite and EarningsMomentumComposite.
+
+    These are dual-confirmation composites that combine Piotroski / SUE with
+    price momentum.  They require both financial statement data and a price
+    series; both degrade gracefully when inputs are missing.
+    """
+    # --- QualityMomentumComposite: Piotroski × price momentum ---
+    try:
+        if not hasattr(store, "load_financial_statements"):
+            return
+        df = store.load_financial_statements(symbol)
+        if df is None or df.empty or len(df) < 2:
+            return
+        df = _expand_json_blob(df)
+
+        from quantcore.config.timeframes import Timeframe
+        price_df = store.load_ohlcv(symbol, Timeframe.D1)
+        if price_df is None or price_df.empty:
+            return
+        price_series = price_df["close"]
+
+        from quantcore.features.fundamental import QualityMomentumComposite
+        qm_df = QualityMomentumComposite().compute(df, price_series)
+        if not qm_df.empty:
+            last = qm_df.iloc[-1]
+            result["quality_momentum_score"] = _sf(last.get("quality_momentum_score"))
+            qm_long = last.get("quality_momentum_long")
+            result["quality_momentum_long"] = int(qm_long) if pd.notna(qm_long) else None
+            qm_short = last.get("quality_momentum_short")
+            result["quality_momentum_short"] = int(qm_short) if pd.notna(qm_short) else None
+    except Exception as exc:
+        logger.debug(f"[fundamentals] {symbol}: QualityMomentumComposite failed: {exc}")
+
+    # --- EarningsMomentumComposite: SUE × price momentum ---
+    try:
+        if not hasattr(store, "load_earnings"):
+            return
+        earnings_df = store.load_earnings(symbol)
+        if earnings_df is None or earnings_df.empty or len(earnings_df) < 2:
+            return
+
+        from quantcore.config.timeframes import Timeframe
+        price_df = store.load_ohlcv(symbol, Timeframe.D1)
+        if price_df is None or price_df.empty:
+            return
+        price_series = price_df["close"]
+
+        from quantcore.features.fundamental import EarningsMomentumComposite
+        em_df = EarningsMomentumComposite().compute(earnings_df, price_series)
+        if not em_df.empty:
+            last = em_df.iloc[-1]
+            result["earnings_momentum_score"] = _sf(last.get("earnings_momentum_score"))
+            em_long = last.get("earnings_momentum_long")
+            result["earnings_momentum_long"] = int(em_long) if pd.notna(em_long) else None
+            em_short = last.get("earnings_momentum_short")
+            result["earnings_momentum_short"] = int(em_short) if pd.notna(em_short) else None
+    except Exception as exc:
+        logger.debug(f"[fundamentals] {symbol}: EarningsMomentumComposite failed: {exc}")
 
 
 # ---------------------------------------------------------------------------

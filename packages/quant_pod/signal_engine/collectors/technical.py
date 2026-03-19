@@ -30,6 +30,7 @@ from quantcore.features.smart_money import (
     MMXMCycle,
     OrderBlockDetector,
     OTELevels,
+    SilverBullet,
     StructureAnalysis,
 )
 from quantcore.features.microstructure import OvernightGapPersistence
@@ -210,6 +211,15 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["in_retracement"] = int(mmxm_df["in_retracement"].iloc[-1])
     except Exception as exc:
         logger.debug(f"[technical] {symbol}: MMXM Cycle failed: {exc}")
+
+    try:
+        sb_df = SilverBullet().compute(hi, lo, cl)
+        result["sb_bullish"] = int(sb_df["sb_bullish"].iloc[-1])
+        result["sb_bearish"] = int(sb_df["sb_bearish"].iloc[-1])
+        result["sb_fvg_top"] = _safe_float(sb_df["sb_fvg_top"].iloc[-1])
+        result["sb_fvg_bot"] = _safe_float(sb_df["sb_fvg_bot"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: SilverBullet failed: {exc}")
 
     try:
         lrsi_df = LaguerreRSI(gamma=0.5).compute(cl)

@@ -18,7 +18,7 @@ import pandas as pd
 from loguru import logger
 
 from quantcore.data.storage import DataStore
-from quantcore.features.rates import YieldCurveFeatures
+from quantcore.features.rates import SpreadSignals, YieldCurveFeatures
 
 
 _TIMEOUT_SECONDS = 10.0
@@ -114,6 +114,23 @@ def _collect_macro_sync(symbol: str, store: DataStore) -> dict[str, Any]:
                 result["yc_slope_smooth"] = _safe_float(ycf_df["slope_smooth"].iloc[-1])
         except Exception as exc:
             logger.debug(f"[macro] YieldCurveFeatures failed: {exc}")
+
+        # SpreadSignals — TED spread proxy (3M T-bill vs fed funds / overnight rate)
+        # Uses 3M Treasury as the "risky" short rate and the 1-month or fed-funds
+        # equivalent as overnight.  If the 1M series is available use it; else fall
+        # back to the 2Y as a conservative short-term proxy.
+        try:
+            s1m_vals = [_safe_float(r.get("one_month") or r.get("1_month")) for r in rates]
+            s1m = pd.Series(s1m_vals, index=idx, dtype=float)
+            overnight_proxy = s1m if s1m.notna().sum() >= 5 else s2y
+            if s3m.notna().sum() >= 5 and overnight_proxy.notna().sum() >= 5:
+                sp_df = SpreadSignals(smooth_period=5).compute(s3m, overnight_proxy)
+                result["ted_spread"] = _safe_float(sp_df["ted_spread"].iloc[-1])
+                result["ted_spread_zscore"] = _safe_float(sp_df["ted_spread_zscore"].iloc[-1])
+                result["credit_stress"] = int(sp_df["credit_stress"].iloc[-1])
+                result["spread_widening"] = int(sp_df["spread_widening"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[macro] SpreadSignals failed: {exc}")
     else:
         result["yield_curve_slope"] = None
         result["rate_momentum_5d"] = None

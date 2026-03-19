@@ -26,6 +26,7 @@ from quantcore.features.microstructure import (
     OvernightGapPersistence,
     RealizedVarianceDecomposition,
     RollImpliedSpread,
+    VWAPSessionDeviation,
 )
 from quantcore.features.volume import AnchoredVWAP, VolumePointOfControl
 
@@ -166,6 +167,15 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["cs_spread_pct"] = _sfloat(cs_df["cs_spread_pct"].iloc[-1])
     except Exception as exc:
         logger.debug(f"[volume] {symbol}: Corwin-Schultz failed: {exc}")
+
+    try:
+        vwap_dev_df = VWAPSessionDeviation(period=20).compute(
+            df["high"], df["low"], df["close"], df["volume"]
+        )
+        result["vwap_deviation"] = _sfloat(vwap_dev_df["vwap_deviation"].iloc[-1])
+        result["vwap_deviation_zscore"] = _sfloat(vwap_dev_df["vwap_deviation_zscore"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[volume] {symbol}: VWAPSessionDeviation failed: {exc}")
 
     if "open" in df.columns:
         try:

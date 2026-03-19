@@ -105,11 +105,12 @@ Design and validate strategies with a full research toolkit:
 - **ML integration** — LightGBM/XGBoost/CatBoost with SHAP explainability
 
 ### Options Trading
-Full options workflow in `/options`:
+Full options workflow with `execute_options_trade()` MCP tool:
 - Live chain fetching via Alpaca → Polygon fallback → synthetic fallback
 - IV surface: `iv_rank`, `atm_iv_30d`, `skew_25d`, term structure
 - Structure analysis: iron condors, credit spreads, debit spreads, straddles
 - Built-in decision matrix: IV rank × regime × event → structure
+- Options execution: Black-Scholes paper fills, Alpaca REST API for live
 - Options-specific risk gate: premium at risk ≤ 2% equity, DTE 7–60 days
 
 ### Long-Term Investing
@@ -128,7 +129,10 @@ Runs unattended across SP500 + NASDAQ-100 + ETFs (~700 symbols):
 - **Auto-Promotion** — evidence-based `forward_testing → live` with 4-week position ramp (25% → 100%)
 - **Portfolio Orchestration** — correlation check, sector cap (30%), position limit gating before execution
 - **Loop Supervisor** — heartbeat monitoring, crash detection, auto-restart with exponential backoff
-- Every decision (including skips) logged to DuckDB audit trail
+- **Slack Integration** — 7 channels (#agent-activity, #trades, #portfolio, #signals, #alerts, #system, #strategies) for real-time monitoring; Slack MCP for read-back and prompt optimization
+- **Preflight Gate** — 11-point production readiness check (`run_preflight_check()`) validates DB, kill switch, cash, universe, strategies, risk limits, broker, and options execution before trading starts
+- **Trading Operator** — single unified Ralph loop that autonomously handles strategy discovery, execution, position management, review, and ML research
+- Every decision (including skips) logged to DuckDB audit trail + Slack
 - `paper_mode=True` hard default; live requires explicit env var
 - All coordination gated behind feature flags (`USE_TIERED_WATCHLIST`, `AUTO_PROMOTE_ENABLED`)
 
@@ -226,6 +230,40 @@ QuantStack exposes its entire research and execution stack as MCP tools — call
 | **Orchestration** | `resolve_portfolio_conflicts`, `get_regime_strategies`, `set_regime_allocation` |
 | **Decode** | `decode_strategy`, `decode_from_trades` |
 | **Coordination** | `publish_event`, `poll_events`, `record_heartbeat`, `get_loop_health`, `auto_promote_eligible`, `generate_daily_digest` |
+
+---
+
+## Quick Start: SPY Paper Trading
+
+Get from zero to paper trading SPY options in 5 steps:
+
+```bash
+# 1. Install
+git clone https://github.com/kbichave/QuantStack.git && cd QuantStack
+uv sync --all-extras
+
+# 2. Configure (copy .env.example, fill in keys)
+cp .env.example .env
+# Required: FINANCIAL_DATASETS_API_KEY, ALPACA_API_KEY, ALPACA_SECRET_KEY
+# Optional: SLACK_BOT_TOKEN (for monitoring), GROQ_API_KEY (for autonomous mode)
+
+# 3. Set up Claude Code settings
+cp .claude/settings.json.example .claude/settings.json
+# Fill in SLACK_BOT_TOKEN and SLACK_TEAM_ID if using Slack
+
+# 4. Run preflight check
+source .env
+python scripts/validate_coordination.py   # populates universe + screener
+python -m quant_pod.coordination.preflight SPY  # shows what's ready / blocking
+
+# 5. Start the Trading Operator (autonomous loop)
+./scripts/start_supervised_loops.sh operator
+# Monitor in Slack or: tmux attach -t quantpod-loops
+```
+
+The operator will: discover strategies via backtesting → validate via walk-forward → paper trade SPY options → monitor positions → learn from outcomes. All autonomously.
+
+**Preflight check** (`run_preflight_check(["SPY"], 5000)`) must show READY before the operator will trade. Common blockers: missing API key, no cash balance, no validated strategies.
 
 ---
 

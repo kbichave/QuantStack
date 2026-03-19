@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Options Execution & Trading Operator
+- `execute_options_trade()` MCP tool — Black-Scholes paper fills with Greeks snapshot, Alpaca REST API for live options orders, premium-at-risk risk gate check, DTE bounds enforcement
+- Trading Operator prompt (`prompts/trading_operator.md`) — unified Ralph loop that autonomously handles strategy discovery, execution, position management, review, and ML research via priority-based decision tree
+- Production preflight gate (`packages/quant_pod/coordination/preflight.py`) — 11-point readiness check (DB, kill switch, cash, universe, strategies, risk limits, data provider, broker, paper mode, options execution)
+
+### Added — Slack Integration
+- `SlackClient` (`packages/quant_pod/coordination/slack_client.py`) — Bot Token API client with Block Kit formatting for 7 channels (#agent-activity, #trades, #portfolio, #signals, #alerts, #system, #strategies)
+- `ConversationLogger` (`packages/quant_pod/coordination/conversation_logger.py`) — dual-write to DuckDB + Slack for desk agent reports, PM decisions, signal snapshots, trades, alerts
+- 2 new DuckDB tables: `agent_conversations` (full agent reports), `signal_snapshots` (raw collector outputs)
+- 3 new MCP tools: `log_agent_conversation`, `log_signal_snapshot`, `post_slack_message`
+- Slack MCP server (`@anthropic/slack-mcp`) configured for read-back — enables `/reflect` to search Slack history for prompt optimization
+- DegradationEnforcer and DailyDigest now post to Slack channels
+
+### Changed
+- `start_supervised_loops.sh` — added `operator` mode for unified Trading Operator loop
+- `.claude/settings.json` removed from git tracking (contains credentials); `.claude/settings.json.example` added as template
+
 ## [0.8.0] - 2026-03-18
 
 ### Added — Autonomous Coordination Layer

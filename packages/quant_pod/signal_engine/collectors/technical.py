@@ -18,7 +18,7 @@ from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
-from quantcore.features.flow import CumulativeVolumeDelta, FootprintApproximation, HawkesIntensity
+from quantcore.features.flow import CumulativeVolumeDelta, FootprintApproximation, HawkesIntensity, VPIN
 from quantcore.features.koncorde import Koncorde
 from quantcore.features.momentum import LaguerreRSI, MomentumFeatures, PercentRExhaustion
 from quantcore.features.smart_money import (
@@ -268,6 +268,13 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["fp_poc_price"] = _safe_float(fp_df["poc_price"].iloc[-1])
         except Exception as exc:
             logger.debug(f"[technical] {symbol}: FootprintApproximation failed: {exc}")
+
+        try:
+            vpin_df = VPIN(n_buckets=50, window=50).compute(hi, lo, cl, vol)
+            result["vpin"] = _safe_float(vpin_df["vpin"].iloc[-1])
+            result["vpin_high"] = int(vpin_df["vpin_high"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[technical] {symbol}: VPIN failed: {exc}")
 
     # Weekly MTF alignment
     weekly_df = store.load_ohlcv(symbol, Timeframe.W1)

@@ -203,6 +203,7 @@ def run_migrations(conn: duckdb.DuckDBPyConnection) -> None:
         _migrate_universe(conn)
         _migrate_screener(conn)
         _migrate_coordination(conn)
+        _migrate_conversations(conn)
         conn.execute("COMMIT")
         logger.info("[DB] Migrations complete")
     except Exception:
@@ -614,4 +615,62 @@ def _migrate_coordination(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS heartbeats_loop_idx
         ON loop_heartbeats (loop_name, started_at DESC)
+    """)
+
+
+def _migrate_conversations(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Agent conversation log and signal snapshots.
+
+    agent_conversations: Full desk agent reports with reasoning, persisted for
+    Slack posting, debugging, and prompt optimization during /reflect sessions.
+
+    signal_snapshots: Raw SignalEngine collector outputs per symbol, enabling
+    analysis of which collectors drove which decisions.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_conversations (
+            conversation_id  VARCHAR PRIMARY KEY,
+            session_id       VARCHAR NOT NULL,
+            loop_name        VARCHAR DEFAULT 'trading_operator',
+            iteration        INTEGER,
+            agent_name       VARCHAR NOT NULL,
+            role             VARCHAR NOT NULL,
+            symbol           VARCHAR,
+            strategy_id      VARCHAR,
+            content          TEXT NOT NULL,
+            summary          VARCHAR,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            metadata         JSON
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS conv_agent_idx
+        ON agent_conversations (agent_name, created_at DESC)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS conv_symbol_idx
+        ON agent_conversations (symbol, created_at DESC)
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS signal_snapshots (
+            snapshot_id          VARCHAR PRIMARY KEY,
+            symbol               VARCHAR NOT NULL,
+            created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            technical            JSON,
+            regime               JSON,
+            volume               JSON,
+            risk                 JSON,
+            sentiment            JSON,
+            fundamentals         JSON,
+            events               JSON,
+            consensus_bias       VARCHAR,
+            consensus_conviction DOUBLE,
+            collector_failures   JSON
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS snap_symbol_idx
+        ON signal_snapshots (symbol, created_at DESC)
     """)

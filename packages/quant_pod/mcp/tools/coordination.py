@@ -380,3 +380,120 @@ def run_preflight_check(
     except Exception as exc:
         logger.error(f"[MCP:run_preflight_check] {exc}")
         return {"success": False, "error": str(exc)}
+
+
+# ── Conversation Logging Tools ───────────────────────────────────────────────
+
+
+def _get_conversation_logger():
+    """Lazy-init ConversationLogger."""
+    from quant_pod.coordination.conversation_logger import ConversationLogger
+
+    return ConversationLogger(conn=_get_conn())
+
+
+def log_agent_conversation(
+    agent_name: str,
+    content: str,
+    summary: str = "",
+    symbol: str | None = None,
+    strategy_id: str | None = None,
+    iteration: int | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Log a desk agent's report to DuckDB and post to Slack #agent-activity.
+
+    Call this after every desk agent interaction in the Trading Operator loop.
+
+    Args:
+        agent_name: Agent identifier (market_intel, alpha_research, risk,
+                    execution, strategy_rd, data_scientist, watchlist, pm).
+        content: Full report text from the agent.
+        summary: 1-line summary for Slack. Auto-generated if empty.
+        symbol: Ticker symbol the report is about.
+        strategy_id: Strategy this report relates to.
+        iteration: Loop iteration number.
+        metadata: Extra context (model used, tokens, duration_ms).
+
+    Returns:
+        {"success": True, "conversation_id": "..."}
+    """
+    try:
+        clogger = _get_conversation_logger()
+        cid = clogger.log_agent_report(
+            agent_name=agent_name,
+            symbol=symbol,
+            content=content,
+            summary=summary,
+            strategy_id=strategy_id,
+            iteration=iteration,
+            metadata=metadata,
+        )
+        return {"success": True, "conversation_id": cid}
+    except Exception as exc:
+        logger.error(f"[MCP:log_agent_conversation] {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+def log_signal_snapshot(
+    symbol: str,
+    collectors: dict[str, Any],
+    bias: str = "neutral",
+    conviction: float = 0.0,
+    failures: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Log raw SignalEngine collector outputs to DuckDB and post summary to Slack.
+
+    Call this after every get_signal_brief() in the Trading Operator loop.
+
+    Args:
+        symbol: Ticker symbol.
+        collectors: Dict of {collector_name: raw_output_dict} from SignalEngine.
+        bias: Consensus bias (bullish/bearish/neutral).
+        conviction: Consensus conviction (0-1).
+        failures: List of collector names that failed.
+
+    Returns:
+        {"success": True, "snapshot_id": "..."}
+    """
+    try:
+        clogger = _get_conversation_logger()
+        sid = clogger.log_signal_snapshot(
+            symbol=symbol,
+            collectors=collectors,
+            bias=bias,
+            conviction=conviction,
+            failures=failures,
+        )
+        return {"success": True, "snapshot_id": sid}
+    except Exception as exc:
+        logger.error(f"[MCP:log_signal_snapshot] {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+def post_slack_message(
+    channel: str,
+    text: str,
+) -> dict[str, Any]:
+    """
+    Post a message to a Slack channel.
+
+    Args:
+        channel: Channel key ("agents", "trades", "alerts", "system", etc.)
+                 or a channel name ("#my-channel").
+        text: Message text (supports Slack mrkdwn formatting).
+
+    Returns:
+        {"success": True, "ts": "..."} or {"success": False, "error": "..."}
+    """
+    try:
+        from quant_pod.coordination.slack_client import SlackClient
+
+        client = SlackClient()
+        ts = client.post(channel, text)
+        return {"success": ts is not None, "ts": ts}
+    except Exception as exc:
+        logger.error(f"[MCP:post_slack_message] {exc}")
+        return {"success": False, "error": str(exc)}

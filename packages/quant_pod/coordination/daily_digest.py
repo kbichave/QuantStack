@@ -179,6 +179,26 @@ class DailyDigest:
             }]
         }
 
+    def send_slack(self, report: DigestReport) -> bool:
+        """Send the digest to Slack #system channel. Returns True on success."""
+        try:
+            from quant_pod.coordination.slack_client import SlackClient
+
+            client = SlackClient()
+            if not client.is_configured:
+                return False
+
+            md = self.format_markdown(report)
+            # Convert markdown to Slack mrkdwn (close enough)
+            ts = client.post_system(md)
+            if ts:
+                logger.info("[DailyDigest] Sent to Slack #system")
+                return True
+            return False
+        except Exception as exc:
+            logger.debug(f"[DailyDigest] Slack send failed: {exc}")
+            return False
+
     def send_discord(self, report: DigestReport) -> bool:
         """Send the digest to Discord via webhook. Returns True on success."""
         webhook_url = os.getenv("DISCORD_WEBHOOK_URL")

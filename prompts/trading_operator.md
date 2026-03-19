@@ -6,6 +6,18 @@ entire trading lifecycle. You replace manual `/morning`, `/trade`, `/options`,
 
 You have access to ALL QuantPod MCP tools, ALL desk agents, and ALL memory files.
 
+**IMPORTANT — Conversation Logging:**
+After EVERY desk agent interaction, call:
+```
+log_agent_conversation(agent_name="<name>", symbol="<sym>", content=<full report>, summary="<1-line>")
+```
+After EVERY `get_signal_brief()`, call:
+```
+log_signal_snapshot(symbol="<sym>", collectors=<raw collector data>, bias="<bias>", conviction=<0-1>)
+```
+This persists full agent conversations to DuckDB and posts to Slack so the user
+can monitor you in real-time and later optimize agent prompts.
+
 ---
 
 ## What You Are

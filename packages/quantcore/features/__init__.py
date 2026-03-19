@@ -29,12 +29,15 @@ from quantcore.features.carry import COTSignals, EquityCarry, FuturesBasis
 from quantcore.features.rates import DualMomentum, YieldCurveFeatures
 from quantcore.features.sec_nlp import EightKClassifier, MDADeltaAnalyzer, RiskFactorDeltaAnalyzer
 from quantcore.features.smart_money import (
+    BreakerBlockDetector,
     EqualHighsLows,
     FairValueGapDetector,
     ICTKillZones,
     ICTPowerOfThree,
+    MMXMCycle,
     OrderBlockDetector,
     OTELevels,
+    SilverBullet,
     StructureAnalysis,
 )
 from quantcore.features.rrg import RRGFeatures
@@ -103,11 +106,14 @@ __all__ = [
     # ICT Smart Money Concepts
     "FairValueGapDetector",
     "OrderBlockDetector",
+    "BreakerBlockDetector",
     "StructureAnalysis",
     "EqualHighsLows",
     "OTELevels",
     "ICTKillZones",
     "ICTPowerOfThree",
+    "SilverBullet",
+    "MMXMCycle",
     # Other
     "RRGFeatures",
     "WaveFeatures",

@@ -314,3 +314,225 @@ class TestICTPowerOfThree:
         low = close - 1.0
         result = ICTPowerOfThree().compute(close, high, low, close)
         assert result["distribution_up"].sum() > 0
+
+
+# ---------------------------------------------------------------------------
+# BreakerBlockDetector
+# ---------------------------------------------------------------------------
+
+
+from quantcore.features.smart_money import BreakerBlockDetector, SilverBullet, MMXMCycle
+
+
+class TestBreakerBlockDetector:
+    def test_returns_dataframe(self, ohlcv):
+        result = BreakerBlockDetector().compute(
+            ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self, ohlcv):
+        result = BreakerBlockDetector().compute(
+            ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
+        assert {"bullish_breaker", "bearish_breaker", "breaker_high", "breaker_low"}.issubset(
+            set(result.columns)
+        )
+
+    def test_binary_breaker_columns(self, ohlcv):
+        result = BreakerBlockDetector().compute(
+            ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
+        for col in ("bullish_breaker", "bearish_breaker"):
+            vals = result[col].unique()
+            assert set(vals).issubset({0, 1})
+
+    def test_same_length_as_input(self, ohlcv):
+        result = BreakerBlockDetector().compute(
+            ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
+        assert len(result) == len(ohlcv)
+
+    def test_bearish_breaker_fires_after_bullish_ob_violated(self):
+        """Construct explicit OB then price drops through it."""
+        # Bar 15 is a bearish candle; bar 16 is a large bullish impulse body
+        # → bullish OB registered at bar 16 with zone from bar 15.
+        # Then bars 26+ close below ob_low (95.5) → bearish breaker fires.
+        n = 40
+        dates = pd.date_range(start="2023-01-01", periods=n, freq="D")
+        close = np.full(n, 100.0)
+        high  = np.full(n, 101.0)
+        low   = np.full(n, 99.0)
+        open_ = np.full(n, 100.0)
+
+        # Bar 15: bearish candle (OB candidate)
+        open_[15] = 101.0; close[15] = 96.0; high[15] = 102.0; low[15] = 95.5
+        # Bar 16: large bullish impulse body (close - open_ >> ATR * 0.5)
+        open_[16] = 96.5; close[16] = 110.0; high[16] = 111.0; low[16] = 96.0
+        # Bars 17-25: hold high level
+        for k in range(17, 26):
+            open_[k] = 109.0; close[k] = 110.0; high[k] = 111.0; low[k] = 108.5
+        # Bars 26-39: crash below OB low (95.5)
+        for k in range(26, n):
+            open_[k] = 95.0; close[k] = 93.0; high[k] = 95.5; low[k] = 92.5
+
+        result = BreakerBlockDetector(impulse_atr_multiple=0.5).compute(
+            pd.Series(open_, index=dates),
+            pd.Series(high, index=dates),
+            pd.Series(low, index=dates),
+            pd.Series(close, index=dates),
+        )
+        # After the OB is violated, at least one bearish breaker should fire
+        assert result["bearish_breaker"].sum() > 0
+
+    def test_breaker_zones_not_nan_when_breaker_fires(self, ohlcv):
+        result = BreakerBlockDetector().compute(
+            ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
+        breaker_bars = result[(result["bullish_breaker"] == 1) | (result["bearish_breaker"] == 1)]
+        if len(breaker_bars) > 0:
+            assert not breaker_bars["breaker_high"].isna().any()
+            assert not breaker_bars["breaker_low"].isna().any()
+
+    def test_no_crash_single_bar(self):
+        dates = pd.date_range(start="2023-01-01", periods=1, freq="D")
+        result = BreakerBlockDetector().compute(
+            pd.Series([100.0], index=dates),
+            pd.Series([101.0], index=dates),
+            pd.Series([99.0], index=dates),
+            pd.Series([100.0], index=dates),
+        )
+        assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# SilverBullet
+# ---------------------------------------------------------------------------
+
+
+class TestSilverBullet:
+    def _make_intraday(self, start="2023-01-02 09:00", periods=120, freq="1min"):
+        """1-minute intraday bars covering the 10–11 AM NY window."""
+        dates = pd.date_range(start=start, periods=periods, freq=freq)
+        np.random.seed(99)
+        close = 100 + np.cumsum(np.random.randn(periods) * 0.05)
+        high  = close + np.abs(np.random.randn(periods) * 0.05) + 0.1
+        low   = close - np.abs(np.random.randn(periods) * 0.05) - 0.1
+        return pd.Series(high, index=dates), pd.Series(low, index=dates), pd.Series(close, index=dates)
+
+    def test_returns_dataframe(self):
+        high, low, close = self._make_intraday()
+        result = SilverBullet().compute(high, low, close)
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self):
+        high, low, close = self._make_intraday()
+        result = SilverBullet().compute(high, low, close)
+        assert {"sb_bullish", "sb_bearish", "sb_fvg_top", "sb_fvg_bot"}.issubset(
+            set(result.columns)
+        )
+
+    def test_binary_signal_columns(self):
+        high, low, close = self._make_intraday()
+        result = SilverBullet().compute(high, low, close)
+        for col in ("sb_bullish", "sb_bearish"):
+            vals = result[col].unique()
+            assert set(vals).issubset({0, 1})
+
+    def test_same_length_as_input(self):
+        high, low, close = self._make_intraday()
+        result = SilverBullet().compute(high, low, close)
+        assert len(result) == len(close)
+
+    def test_no_signal_outside_window(self):
+        """Bars from 15:00–16:00 are outside the 10–11 AM window — no Silver Bullet."""
+        dates = pd.date_range(start="2023-01-02 15:00", periods=60, freq="1min")
+        np.random.seed(7)
+        close = pd.Series(100 + np.cumsum(np.random.randn(60) * 0.05), index=dates)
+        high  = close + 0.1
+        low   = close - 0.1
+        result = SilverBullet().compute(high, low, close)
+        assert result["sb_bullish"].sum() == 0
+        assert result["sb_bearish"].sum() == 0
+
+    def test_no_crash_daily_data(self, ohlcv):
+        """Daily data has no intraday timestamps → window check should safely return zeros."""
+        result = SilverBullet().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == len(ohlcv)
+
+
+# ---------------------------------------------------------------------------
+# MMXMCycle
+# ---------------------------------------------------------------------------
+
+
+class TestMMXMCycle:
+    def test_returns_dataframe(self, ohlcv):
+        result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self, ohlcv):
+        result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        assert {
+            "mmxm_phase", "mmxm_label", "in_consolidation",
+            "in_manipulation", "in_expansion", "in_retracement",
+        }.issubset(set(result.columns))
+
+    def test_phase_values_in_range(self, ohlcv):
+        result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        assert result["mmxm_phase"].isin([0, 1, 2, 3]).all()
+
+    def test_binary_indicator_columns(self, ohlcv):
+        result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        for col in ("in_consolidation", "in_manipulation", "in_expansion", "in_retracement"):
+            vals = result[col].unique()
+            assert set(vals).issubset({0, 1})
+
+    def test_labels_consistent_with_phase(self, ohlcv):
+        result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        label_map = {0: "consolidation", 1: "manipulation", 2: "expansion", 3: "retracement"}
+        for phase_val, label_val in label_map.items():
+            mask = result["mmxm_phase"] == phase_val
+            if mask.any():
+                assert (result.loc[mask, "mmxm_label"] == label_val).all()
+
+    def test_expansion_detected_on_large_candle(self):
+        """Explicitly construct a large candle that should trigger expansion."""
+        n = 50
+        dates = pd.date_range(start="2023-01-01", periods=n, freq="D")
+        # First 30 bars: moderate noise
+        close = np.full(n, 100.0)
+        high  = np.full(n, 101.0)
+        low   = np.full(n, 99.0)
+        # Bar 35: huge expansion candle (range = 20 vs ATR ~2)
+        high[35] = 120.0; low[35] = 100.0; close[35] = 119.0
+        result = MMXMCycle(expansion_multiple=1.5).compute(
+            pd.Series(high, index=dates),
+            pd.Series(low, index=dates),
+            pd.Series(close, index=dates),
+        )
+        assert result["in_expansion"].iloc[35] == 1
+
+    def test_consolidation_on_tight_range(self):
+        """Constant price produces low ATR → consolidation phase."""
+        n = 60
+        dates = pd.date_range(start="2023-01-01", periods=n, freq="D")
+        close = pd.Series(np.full(n, 100.0), index=dates)
+        high  = pd.Series(np.full(n, 100.01), index=dates)
+        low   = pd.Series(np.full(n, 99.99), index=dates)
+        result = MMXMCycle(atr_contraction_threshold=1.5).compute(high, low, close)
+        # Later bars (past warmup) should be consolidation
+        assert result["in_consolidation"].iloc[40:].sum() > 0
+
+    def test_same_length_as_input(self, ohlcv):
+        result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        assert len(result) == len(ohlcv)
+
+    def test_no_crash_short_series(self):
+        dates = pd.date_range(start="2023-01-01", periods=5, freq="D")
+        c = pd.Series([100.0, 101.0, 99.5, 102.0, 98.0], index=dates)
+        h = c + 0.5
+        lo = c - 0.5
+        result = MMXMCycle().compute(h, lo, c)
+        assert len(result) == 5

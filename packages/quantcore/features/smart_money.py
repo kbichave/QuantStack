@@ -9,11 +9,14 @@ Concepts
 --------
 FairValueGapDetector    – 3-candle FVG detection (bullish and bearish)
 OrderBlockDetector      – last opposing candle before an impulse move
+BreakerBlockDetector    – OB that price has since violated (flipped polarity)
 StructureAnalysis       – BOS (Break of Structure) and CHoCH (Change of Character)
 EqualHighsLows          – liquidity cluster detection
 OTELevels               – Optimal Trade Entry (61.8-79% Fibonacci retracement)
 ICTKillZones            – session-based time windows (London, NY AM, NY PM)
 ICTPowerOfThree         – PO3 session phase identification (accumulation/manipulation/distribution)
+SilverBullet            – FVG formed in 10:00-11:00 AM NY window (highest-probability setup)
+MMXMCycle               – Market Maker eXpansion Model cycle labeling
 """
 
 import numpy as np
@@ -546,6 +549,399 @@ class ICTPowerOfThree:
                 "manipulation_down": manipulation_down,
                 "distribution_up": distribution_up,
                 "distribution_down": distribution_down,
+            },
+            index=close.index,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Breaker Block Detector
+# ---------------------------------------------------------------------------
+
+
+class BreakerBlockDetector:
+    """
+    Breaker Block — an Order Block that price has subsequently violated.
+
+    When price closes through an existing OB zone (through ob_high for bullish OB,
+    through ob_low for bearish OB), that OB *flips polarity*:
+    - Violated bullish OB → becomes resistance (bearish breaker)
+    - Violated bearish OB → becomes support (bullish breaker)
+
+    This flip is the most reliable ICT re-test pattern because institutions
+    that originally placed orders in the OB zone are now trapped and will
+    defend the level from the other side.
+
+    Operational definitions
+    -----------------------
+    1. Detect OBs using the same logic as OrderBlockDetector.
+    2. Track each OB until price closes beyond its zone.
+    3. At the bar where the violation occurs, flag it as a breaker.
+    4. Mark the polarity: bullish_breaker (from violated bearish OB),
+       bearish_breaker (from violated bullish OB).
+
+    Parameters
+    ----------
+    impulse_atr_multiple : float
+        Minimum impulse size to qualify as an OB (in ATR multiples). Default 1.5.
+    atr_period : int
+        ATR lookback. Default 14.
+    """
+
+    def __init__(self, impulse_atr_multiple: float = 1.5, atr_period: int = 14) -> None:
+        self.impulse_atr_multiple = impulse_atr_multiple
+        self.atr_period = atr_period
+
+    def compute(
+        self,
+        open_: pd.Series,
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Returns
+        -------
+        pd.DataFrame with columns:
+            bullish_breaker – 1 on bar where a bearish OB is violated (bullish reversal)
+            bearish_breaker – 1 on bar where a bullish OB is violated (bearish reversal)
+            breaker_high    – top of the violated OB zone
+            breaker_low     – bottom of the violated OB zone
+        """
+        # First, get the base OBs from OrderBlockDetector
+        ob_detector = OrderBlockDetector(
+            impulse_atr_multiple=self.impulse_atr_multiple,
+            atr_period=self.atr_period,
+        )
+        ob_df = ob_detector.compute(open_, high, low, close)
+
+        n = len(close)
+        bullish_breaker = np.zeros(n, dtype=int)
+        bearish_breaker = np.zeros(n, dtype=int)
+        breaker_high = np.full(n, np.nan)
+        breaker_low  = np.full(n, np.nan)
+
+        # Track active OBs: list of (ob_bar, ob_high, ob_low, ob_type)
+        # ob_type: 'bullish' = expect price to stay above ob_low,
+        #          'bearish' = expect price to stay below ob_high
+        active_obs: list[tuple[int, float, float, str]] = []
+
+        for i in range(n):
+            # Register new OBs formed at this bar
+            if ob_df["bullish_ob"].iloc[i] == 1:
+                oh = ob_df["ob_high"].iloc[i]
+                ol = ob_df["ob_low"].iloc[i]
+                if not (np.isnan(oh) or np.isnan(ol)):
+                    active_obs.append((i, oh, ol, "bullish"))
+
+            if ob_df["bearish_ob"].iloc[i] == 1:
+                oh = ob_df["ob_high"].iloc[i]
+                ol = ob_df["ob_low"].iloc[i]
+                if not (np.isnan(oh) or np.isnan(ol)):
+                    active_obs.append((i, oh, ol, "bearish"))
+
+            # Check existing OBs for violations at current bar
+            still_active = []
+            for ob_bar, oh, ol, ob_type in active_obs:
+                if ob_bar == i:  # just created — skip violation check this bar
+                    still_active.append((ob_bar, oh, ol, ob_type))
+                    continue
+
+                cl = close.iloc[i]
+                if ob_type == "bullish" and cl < ol:
+                    # Price closed below bullish OB low → OB violated → bearish breaker
+                    bearish_breaker[i] = 1
+                    breaker_high[i] = oh
+                    breaker_low[i] = ol
+                    # OB consumed — do NOT append to still_active
+                elif ob_type == "bearish" and cl > oh:
+                    # Price closed above bearish OB high → OB violated → bullish breaker
+                    bullish_breaker[i] = 1
+                    breaker_high[i] = oh
+                    breaker_low[i] = ol
+                else:
+                    still_active.append((ob_bar, oh, ol, ob_type))
+
+            active_obs = still_active
+
+        return pd.DataFrame(
+            {
+                "bullish_breaker": bullish_breaker,
+                "bearish_breaker": bearish_breaker,
+                "breaker_high":    pd.Series(breaker_high, index=close.index),
+                "breaker_low":     pd.Series(breaker_low,  index=close.index),
+            },
+            index=close.index,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Silver Bullet
+# ---------------------------------------------------------------------------
+
+
+class SilverBullet:
+    """
+    ICT Silver Bullet — FVG formed during the 10:00–11:00 AM New York window.
+
+    This is the highest-probability ICT setup because:
+    1. It occurs after the initial NY AM opening volatility (first hour).
+    2. The 10:00 AM economic data releases often create a directional expansion.
+    3. Any FVG formed in this window is treated as a true institution entry signal.
+
+    The setup requires:
+    - A Fair Value Gap (bullish or bearish) at bar i
+    - Bar i's timestamp falls in the 10:00–11:00 AM New York (ET) window
+    - New York ET = UTC - 5h (standard) or UTC - 4h (DST)
+
+    The class auto-detects DST via the `index.tz` attribute when the index
+    is timezone-aware; falls back to UTC-5 for naive indices.
+
+    Parameters
+    ----------
+    min_gap_atr_multiple : float
+        Minimum FVG size in ATR multiples. Default 0.1.
+    atr_period : int
+        ATR period. Default 14.
+    ny_window_start : int
+        NY ET hour for window open. Default 10.
+    ny_window_end : int
+        NY ET hour for window close (exclusive). Default 11.
+    """
+
+    def __init__(
+        self,
+        min_gap_atr_multiple: float = 0.1,
+        atr_period: int = 14,
+        ny_window_start: int = 10,
+        ny_window_end: int = 11,
+    ) -> None:
+        self.min_gap_atr_multiple = min_gap_atr_multiple
+        self.atr_period = atr_period
+        self.ny_window_start = ny_window_start
+        self.ny_window_end = ny_window_end
+
+    def _in_silver_bullet_window(self, index: pd.DatetimeIndex) -> pd.Series:
+        """Return boolean Series: True when bar is in 10–11 AM NY ET."""
+        if index.tz is not None:
+            import pytz
+            ny_tz = pytz.timezone("America/New_York")
+            local_hours = index.tz_convert(ny_tz).hour
+        else:
+            # Assume UTC input → NY ET ≈ UTC-5 (ignore DST for naive index)
+            local_hours = (index.hour - 5) % 24
+
+        return pd.Series(
+            (local_hours >= self.ny_window_start) & (local_hours < self.ny_window_end),
+            index=index,
+        )
+
+    def compute(
+        self,
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Parameters
+        ----------
+        high, low, close : pd.Series
+            Intraday OHLCV data. Should be 1m–15m for meaningful results.
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            sb_bullish   – 1 when bullish FVG occurs in 10–11 AM NY window
+            sb_bearish   – 1 when bearish FVG occurs in 10–11 AM NY window
+            sb_fvg_top   – top of the Silver Bullet FVG
+            sb_fvg_bot   – bottom of the Silver Bullet FVG
+        """
+        fvg_df = FairValueGapDetector(
+            min_gap_atr_multiple=self.min_gap_atr_multiple,
+            atr_period=self.atr_period,
+        ).compute(high, low, close)
+
+        in_window = self._in_silver_bullet_window(close.index)
+
+        sb_bullish = (fvg_df["bullish_fvg"] == 1) & in_window
+        sb_bearish = (fvg_df["bearish_fvg"] == 1) & in_window
+
+        fvg_top = fvg_df["fvg_top"].where(sb_bullish | sb_bearish)
+        fvg_bot = fvg_df["fvg_bottom"].where(sb_bullish | sb_bearish)
+
+        return pd.DataFrame(
+            {
+                "sb_bullish": sb_bullish.astype(int),
+                "sb_bearish": sb_bearish.astype(int),
+                "sb_fvg_top": fvg_top,
+                "sb_fvg_bot": fvg_bot,
+            },
+            index=close.index,
+        )
+
+
+# ---------------------------------------------------------------------------
+# MMXM Cycle
+# ---------------------------------------------------------------------------
+
+
+class MMXMCycle:
+    """
+    Market Maker eXpansion Model (MMXM) — 4-phase market cycle labeling.
+
+    The MMXM describes how market makers accumulate, sweep, expand, and
+    distribute positions. Each bar is labeled with its current phase:
+
+    Phase 0 — CONSOLIDATION (Accumulation)
+        Price is ranging with tight ATR; market makers are accumulating
+        positions below (bullish) or above (bearish) a known liquidity level.
+        Detected as: ATR < rolling_avg_atr × atr_contraction_threshold
+
+    Phase 1 — MANIPULATION (Liquidity Sweep)
+        Price sweeps beyond a prior swing level (equal highs/lows or recent
+        high/low) to trigger retail stops before reversing. This is the trap.
+        Detected as: high > rolling_max(high, swing_period) then close reverses,
+        OR low < rolling_min(low, swing_period) then close reverses.
+
+    Phase 2 — EXPANSION (Trending Move / True Range)
+        After the manipulation sweep, price expands in the opposite direction
+        with above-average range. The true institutional move.
+        Detected as: large candle range (> ATR × expansion_multiple) following
+        a manipulation bar, moving opposite to the sweep direction.
+
+    Phase 3 — RETRACEMENT / DISTRIBUTION
+        Price pulls back (partially), creating entry opportunities for traders
+        who missed the expansion. Often retraces to a FVG or OB.
+        Detected as: smaller range bars following expansion, with close
+        approaching midpoint of the expansion range.
+
+    Parameters
+    ----------
+    swing_period : int
+        Lookback for swing high/low detection. Default 10.
+    atr_period : int
+        ATR calculation period. Default 14.
+    atr_contraction_threshold : float
+        ATR ratio below which consolidation is flagged (< 0.8 = 20% below avg). Default 0.8.
+    expansion_multiple : float
+        Minimum range / ATR ratio for expansion detection. Default 1.5.
+    """
+
+    CONSOLIDATION  = 0
+    MANIPULATION   = 1
+    EXPANSION      = 2
+    RETRACEMENT    = 3
+    _LABELS = {0: "consolidation", 1: "manipulation", 2: "expansion", 3: "retracement"}
+
+    def __init__(
+        self,
+        swing_period: int = 10,
+        atr_period: int = 14,
+        atr_contraction_threshold: float = 0.8,
+        expansion_multiple: float = 1.5,
+    ) -> None:
+        self.swing_period = swing_period
+        self.atr_period = atr_period
+        self.atr_contraction_threshold = atr_contraction_threshold
+        self.expansion_multiple = expansion_multiple
+
+    def compute(
+        self,
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Returns
+        -------
+        pd.DataFrame with columns:
+            mmxm_phase    – integer phase label (0/1/2/3)
+            mmxm_label    – string label ("consolidation"/"manipulation"/"expansion"/"retracement")
+            in_consolidation  – 1 when phase == 0
+            in_manipulation   – 1 when phase == 1
+            in_expansion      – 1 when phase == 2
+            in_retracement    – 1 when phase == 3
+        """
+        # ATR for range context
+        prev_close = close.shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ], axis=1).max(axis=1)
+        atr = tr.ewm(span=self.atr_period, adjust=False).mean()
+        atr_avg = atr.rolling(self.swing_period * 2).mean()
+
+        candle_range = high - low
+
+        # Rolling swing levels for manipulation detection
+        roll_high = high.rolling(self.swing_period).max()
+        roll_low  = low.rolling(self.swing_period).min()
+
+        # --- Phase detection ---
+        n = len(close)
+        phase = np.full(n, self.CONSOLIDATION, dtype=int)
+
+        for i in range(1, n):
+            h_i = high.iloc[i]
+            l_i = low.iloc[i]
+            cl_i = close.iloc[i]
+            cl_prev = close.iloc[i - 1]
+            atr_i = atr.iloc[i]
+            atr_avg_i = atr_avg.iloc[i]
+            rng_i = candle_range.iloc[i]
+
+            if np.isnan(atr_i) or np.isnan(atr_avg_i):
+                continue
+
+            rh = roll_high.iloc[i - 1] if i > 0 else np.nan
+            rl = roll_low.iloc[i - 1] if i > 0 else np.nan
+
+            # Phase 1 — Manipulation: sweep prior extreme then close back inside
+            manipulation = False
+            if not np.isnan(rh) and not np.isnan(rl):
+                sweep_up   = (h_i > rh) and (cl_i < rh)  # false breakout above
+                sweep_down = (l_i < rl) and (cl_i > rl)  # false breakdown below
+                manipulation = sweep_up or sweep_down
+
+            # Phase 2 — Expansion: large candle (> expansion_multiple × ATR)
+            expansion = (rng_i > atr_i * self.expansion_multiple) and not manipulation
+
+            # Phase 3 — Retracement: prior phase was expansion, current range is smaller
+            if i >= 2:
+                prior_phase = phase[i - 1]
+                prior_range = candle_range.iloc[i - 1]
+                retracement = (
+                    prior_phase == self.EXPANSION and
+                    rng_i < prior_range * 0.7
+                )
+            else:
+                retracement = False
+
+            # Phase 0 — Consolidation: ATR well below average
+            consolidation = (atr_i < atr_avg_i * self.atr_contraction_threshold)
+
+            # Priority: manipulation > expansion > retracement > consolidation
+            if manipulation:
+                phase[i] = self.MANIPULATION
+            elif expansion:
+                phase[i] = self.EXPANSION
+            elif retracement:
+                phase[i] = self.RETRACEMENT
+            else:
+                phase[i] = self.CONSOLIDATION  # default
+
+        phase_series = pd.Series(phase, index=close.index)
+        labels = phase_series.map(self._LABELS)
+
+        return pd.DataFrame(
+            {
+                "mmxm_phase":       phase_series,
+                "mmxm_label":       labels,
+                "in_consolidation": (phase_series == self.CONSOLIDATION).astype(int),
+                "in_manipulation":  (phase_series == self.MANIPULATION).astype(int),
+                "in_expansion":     (phase_series == self.EXPANSION).astype(int),
+                "in_retracement":   (phase_series == self.RETRACEMENT).astype(int),
             },
             index=close.index,
         )

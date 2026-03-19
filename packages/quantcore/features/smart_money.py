@@ -17,6 +17,7 @@ ICTKillZones            – session-based time windows (London, NY AM, NY PM)
 ICTPowerOfThree         – PO3 session phase identification (accumulation/manipulation/distribution)
 SilverBullet            – FVG formed in 10:00-11:00 AM NY window (highest-probability setup)
 MMXMCycle               – Market Maker eXpansion Model cycle labeling
+SMTDivergence           – Smart Money Technique divergence between two correlated instruments
 """
 
 import numpy as np
@@ -944,4 +945,157 @@ class MMXMCycle:
                 "in_retracement":   (phase_series == self.RETRACEMENT).astype(int),
             },
             index=close.index,
+        )
+
+
+# ---------------------------------------------------------------------------
+# SMT Divergence
+# ---------------------------------------------------------------------------
+
+
+class SMTDivergence:
+    """
+    Smart Money Technique (SMT) Divergence between two correlated instruments.
+
+    SMT divergence occurs when two correlated instruments (e.g., ES/NQ, SPY/QQQ,
+    DXY/Gold) make divergent swing highs or lows. One instrument sweeps the
+    liquidity level (makes a new extreme) while the other fails to confirm —
+    indicating institutional distribution/accumulation rather than genuine
+    price discovery.
+
+    Operational definitions
+    -----------------------
+    Bearish SMT: instrument_A makes a new swing HIGH but instrument_B does NOT
+                 confirm the high (B's high is below its prior swing high).
+                 → A is sweeping liquidity above; B is failing → reversal signal.
+
+    Bullish SMT: instrument_A makes a new swing LOW but instrument_B does NOT
+                 confirm the low (B's low is above its prior swing low).
+                 → A is sweeping liquidity below; B is failing → bullish reversal.
+
+    Divergence is detected on aligned bars when BOTH conditions hold simultaneously.
+
+    Parameters
+    ----------
+    swing_period : int
+        Bars on each side to qualify a local swing high/low. Default 5.
+    atr_tolerance : float
+        Minimum percentage difference between A and B swings to count as
+        meaningful divergence (filters near-identical moves). Default 0.001 (0.1%).
+    """
+
+    def __init__(self, swing_period: int = 5, atr_tolerance: float = 0.001) -> None:
+        self.swing_period = swing_period
+        self.atr_tolerance = atr_tolerance
+
+    @staticmethod
+    def _rolling_swing_high(high: pd.Series, period: int) -> pd.Series:
+        """1 if bar is a local swing high (highest in ±period bars), else 0."""
+        n = len(high)
+        sh = np.zeros(n, dtype=int)
+        for i in range(period, n - period):
+            window = high.iloc[i - period: i + period + 1]
+            if high.iloc[i] == window.max() and (window == high.iloc[i]).sum() == 1:
+                sh[i] = 1
+        return pd.Series(sh, index=high.index)
+
+    @staticmethod
+    def _rolling_swing_low(low: pd.Series, period: int) -> pd.Series:
+        """1 if bar is a local swing low (lowest in ±period bars), else 0."""
+        n = len(low)
+        sl = np.zeros(n, dtype=int)
+        for i in range(period, n - period):
+            window = low.iloc[i - period: i + period + 1]
+            if low.iloc[i] == window.min() and (window == low.iloc[i]).sum() == 1:
+                sl[i] = 1
+        return pd.Series(sl, index=low.index)
+
+    def compute(
+        self,
+        high_a: pd.Series,
+        low_a: pd.Series,
+        high_b: pd.Series,
+        low_b: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Parameters
+        ----------
+        high_a, low_a : pd.Series
+            High/low for the primary instrument (e.g., ES or SPY).
+        high_b, low_b : pd.Series
+            High/low for the correlated instrument (e.g., NQ or QQQ).
+            Must share the same DatetimeIndex as A (align externally if needed).
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            bearish_smt   – 1 when A makes new swing high but B fails to confirm
+            bullish_smt   – 1 when A makes new swing low but B fails to confirm
+            smt_strength  – absolute % divergence between A and B at the swing
+                            (larger = stronger institutional signal)
+            divergence_direction – 'bearish', 'bullish', or '' (no signal)
+        """
+        n = len(high_a)
+        p = self.swing_period
+
+        sh_a = self._rolling_swing_high(high_a, p)
+        sl_a = self._rolling_swing_low(low_a, p)
+        sh_b = self._rolling_swing_high(high_b, p)
+        sl_b = self._rolling_swing_low(low_b, p)
+
+        bearish_smt = np.zeros(n, dtype=int)
+        bullish_smt = np.zeros(n, dtype=int)
+        smt_strength = np.zeros(n, dtype=float)
+
+        # Track the most recent confirmed swing high/low for each instrument
+        last_sh_a = np.nan
+        last_sh_b = np.nan
+        last_sl_a = np.nan
+        last_sl_b = np.nan
+
+        for i in range(n):
+            h_a = high_a.iloc[i]
+            l_a = low_a.iloc[i]
+            h_b = high_b.iloc[i]
+            l_b = low_b.iloc[i]
+
+            # Bearish SMT: A makes swing high, B's concurrent high is BELOW prior swing high of B
+            # Operationally: sh_a==1 at bar i, and high_b[i] < last_sh_b (B fails to confirm)
+            if sh_a.iloc[i] == 1 and not np.isnan(last_sh_b):
+                # Normalize B's high relative to last B swing (percentage basis)
+                b_pct_diff = (last_sh_b - h_b) / last_sh_b
+                if b_pct_diff > self.atr_tolerance:
+                    bearish_smt[i] = 1
+                    smt_strength[i] = round(b_pct_diff * 100, 4)
+
+            # Bullish SMT: A makes swing low, B's concurrent low is ABOVE prior swing low of B
+            if sl_a.iloc[i] == 1 and not np.isnan(last_sl_b):
+                b_pct_diff = (l_b - last_sl_b) / last_sl_b
+                if b_pct_diff > self.atr_tolerance:
+                    bullish_smt[i] = 1
+                    smt_strength[i] = round(b_pct_diff * 100, 4)
+
+            # Update last confirmed swings
+            if sh_a.iloc[i] == 1:
+                last_sh_a = h_a
+            if sh_b.iloc[i] == 1:
+                last_sh_b = h_b
+            if sl_a.iloc[i] == 1:
+                last_sl_a = l_a
+            if sl_b.iloc[i] == 1:
+                last_sl_b = l_b
+
+        direction = np.where(
+            bearish_smt == 1, "bearish",
+            np.where(bullish_smt == 1, "bullish", "")
+        )
+
+        return pd.DataFrame(
+            {
+                "bearish_smt":           bearish_smt,
+                "bullish_smt":           bullish_smt,
+                "smt_strength":          smt_strength,
+                "divergence_direction":  direction,
+            },
+            index=high_a.index,
         )

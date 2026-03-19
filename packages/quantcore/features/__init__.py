@@ -38,6 +38,7 @@ from quantcore.features.smart_money import (
     OrderBlockDetector,
     OTELevels,
     SilverBullet,
+    SMTDivergence,
     StructureAnalysis,
 )
 from quantcore.features.rrg import RRGFeatures
@@ -114,6 +115,7 @@ __all__ = [
     "ICTPowerOfThree",
     "SilverBullet",
     "MMXMCycle",
+    "SMTDivergence",
     # Other
     "RRGFeatures",
     "WaveFeatures",

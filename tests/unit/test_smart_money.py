@@ -536,3 +536,97 @@ class TestMMXMCycle:
         lo = c - 0.5
         result = MMXMCycle().compute(h, lo, c)
         assert len(result) == 5
+
+
+# ---------------------------------------------------------------------------
+# SMTDivergence
+# ---------------------------------------------------------------------------
+
+
+from quantcore.features.smart_money import SMTDivergence
+
+
+class TestSMTDivergence:
+    @pytest.fixture
+    def dual_ohlcv(self):
+        """Two correlated 100-bar instruments slightly offset."""
+        dates = pd.date_range(start="2023-01-01", periods=100, freq="D")
+        np.random.seed(1)
+        base = 100 + np.cumsum(np.random.randn(100) * 0.5)
+        high_a = pd.Series(base + 1.0, index=dates)
+        low_a  = pd.Series(base - 1.0, index=dates)
+        high_b = pd.Series(base * 1.005 + 1.0, index=dates)   # slightly different scale
+        low_b  = pd.Series(base * 1.005 - 1.0, index=dates)
+        return high_a, low_a, high_b, low_b
+
+    def test_returns_dataframe(self, dual_ohlcv):
+        ha, la, hb, lb = dual_ohlcv
+        result = SMTDivergence().compute(ha, la, hb, lb)
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self, dual_ohlcv):
+        ha, la, hb, lb = dual_ohlcv
+        result = SMTDivergence().compute(ha, la, hb, lb)
+        assert {"bearish_smt", "bullish_smt", "smt_strength", "divergence_direction"}.issubset(
+            set(result.columns)
+        )
+
+    def test_binary_signal_columns(self, dual_ohlcv):
+        ha, la, hb, lb = dual_ohlcv
+        result = SMTDivergence().compute(ha, la, hb, lb)
+        for col in ("bearish_smt", "bullish_smt"):
+            vals = result[col].unique()
+            assert set(vals).issubset({0, 1})
+
+    def test_same_length_as_input(self, dual_ohlcv):
+        ha, la, hb, lb = dual_ohlcv
+        result = SMTDivergence().compute(ha, la, hb, lb)
+        assert len(result) == 100
+
+    def test_smt_strength_nonnegative(self, dual_ohlcv):
+        ha, la, hb, lb = dual_ohlcv
+        result = SMTDivergence().compute(ha, la, hb, lb)
+        assert (result["smt_strength"] >= 0).all()
+
+    def test_bearish_smt_detected_on_synthetic_divergence(self):
+        """A makes new swing high; B fails to confirm — bearish SMT fires."""
+        # Use explicit arrays to avoid linspace endpoint ties that break swing detection.
+        # Pattern: B has a clear swing high at bar 10, then declines.
+        #          A then makes a new swing high at bar 20; B's high at bar 20 is well below bar 10's high.
+        n = 40
+        dates = pd.date_range(start="2023-01-01", periods=n, freq="D")
+
+        # Instrument A: steady rise to swing high at bar 20, then decline
+        h_a = [100 + i for i in range(20)] + [119.5] + [118 - i * 0.5 for i in range(19)]
+        high_a = pd.Series(h_a, index=dates)
+        low_a  = pd.Series([v - 1.0 for v in h_a], index=dates)
+
+        # Instrument B: rises to swing high of 115 at bar 10, then drops to ~108 and stays
+        h_b = ([100 + i for i in range(10)] + [114.5] +
+               [113 - i for i in range(8)] + [105.5] + [105.0] * 20)
+        high_b = pd.Series(h_b, index=dates)
+        low_b  = pd.Series([v - 1.0 for v in h_b], index=dates)
+
+        result = SMTDivergence(swing_period=3, atr_tolerance=0.0001).compute(high_a, low_a, high_b, low_b)
+        assert result["bearish_smt"].sum() > 0
+
+    def test_direction_column_matches_signals(self, dual_ohlcv):
+        ha, la, hb, lb = dual_ohlcv
+        result = SMTDivergence().compute(ha, la, hb, lb)
+        # Where bearish_smt==1, direction should be 'bearish'
+        if result["bearish_smt"].sum() > 0:
+            bear_bars = result[result["bearish_smt"] == 1]
+            assert (bear_bars["divergence_direction"] == "bearish").all()
+        # Where bullish_smt==1, direction should be 'bullish'
+        if result["bullish_smt"].sum() > 0:
+            bull_bars = result[result["bullish_smt"] == 1]
+            assert (bull_bars["divergence_direction"] == "bullish").all()
+
+    def test_no_crash_short_series(self):
+        dates = pd.date_range(start="2023-01-01", periods=5, freq="D")
+        ha = pd.Series([100.0, 101.0, 102.0, 101.5, 100.5], index=dates)
+        la = pd.Series([99.0, 100.0, 101.0, 100.5, 99.5], index=dates)
+        hb = pd.Series([200.0, 201.0, 202.0, 201.5, 200.5], index=dates)
+        lb = pd.Series([199.0, 200.0, 201.0, 200.5, 199.5], index=dates)
+        result = SMTDivergence().compute(ha, la, hb, lb)
+        assert len(result) == 5

@@ -41,6 +41,7 @@ from quantcore.features.smart_money import (
     SMTDivergence,
     StructureAnalysis,
 )
+from quantcore.features.flow import CumulativeVolumeDelta, VPIN, HawkesIntensity
 from quantcore.features.rrg import RRGFeatures
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator, TrendFeatures
 from quantcore.features.volatility import VolatilityFeatures, WilliamsVIXFix
@@ -116,6 +117,10 @@ __all__ = [
     "SilverBullet",
     "MMXMCycle",
     "SMTDivergence",
+    # Order Flow Approximations
+    "CumulativeVolumeDelta",
+    "VPIN",
+    "HawkesIntensity",
     # Other
     "RRGFeatures",
     "WaveFeatures",

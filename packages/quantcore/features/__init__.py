@@ -5,6 +5,8 @@ from quantcore.features.factory import MultiTimeframeFeatureFactory
 from quantcore.features.market_structure import MarketStructureFeatures
 from quantcore.features.earnings_signals import AnalystRevisionSignals, EarningsSurpriseSignals
 from quantcore.features.fundamental import (
+    BeneishMScore,
+    PiotroskiFScore,
     AssetGrowthAnomaly,
     FCFYield,
     NovyMarxGP,
@@ -12,6 +14,8 @@ from quantcore.features.fundamental import (
     RevenueAcceleration,
     SloanAccruals,
 )
+from quantcore.features.insider_signals import InsiderSignals
+from quantcore.features.institutional_signals import InstitutionalConcentration, LSVHerding
 from quantcore.features.microstructure import (
     AmihudIlliquidity,
     CorwinSchultzSpread,
@@ -59,6 +63,12 @@ __all__ = [
     "FCFYield",
     "RevenueAcceleration",
     "OperatingLeverage",
+    "PiotroskiFScore",
+    "BeneishMScore",
+    # Insider / Institutional
+    "InsiderSignals",
+    "LSVHerding",
+    "InstitutionalConcentration",
     # Microstructure (OHLCV-derived)
     "AmihudIlliquidity",
     "RollImpliedSpread",

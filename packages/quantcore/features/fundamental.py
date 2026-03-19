@@ -12,6 +12,8 @@ AssetGrowthAnomaly  – high asset growth → future underperformance
 FCFYield            – free cash flow yield (harder to manipulate than P/E)
 RevenueAcceleration – QoQ revenue acceleration = bullish EPS momentum signal
 OperatingLeverage   – DOL = %Δ EBITDA / %Δ Revenue; earnings convexity proxy
+PiotroskiFScore     – 9-point financial strength score (Piotroski 2000)
+BeneishMScore       – 8-variable accounting manipulation detection (Beneish 1999)
 """
 
 import numpy as np
@@ -300,3 +302,225 @@ class OperatingLeverage:
         df["high_leverage"] = (df["dol"].abs() > 3).astype(int)
 
         return df
+
+
+class PiotroskiFScore:
+    """
+    Piotroski (2000) F-Score — 9-point financial strength composite.
+
+    Combines 9 binary signals across three dimensions:
+      Profitability (4): ROA, CFO, ΔROA, accruals
+      Leverage/Liquidity (3): ΔLeverage, ΔLiquidity, share issuance
+      Operating Efficiency (2): ΔGross Margin, ΔAsset Turnover
+
+    Score 8-9 = strong long candidate; 0-2 = short candidate.
+    Particularly effective for value screens (high B/M universe).
+    """
+
+    def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Parameters
+        ----------
+        financials_df : pd.DataFrame
+            Must contain columns:
+            - period_end (datetime)
+            - total_assets (float)
+            - net_income (float)
+            - operating_cash_flow (float)
+            - long_term_debt (float)
+            - current_assets (float)
+            - current_liabilities (float)
+            - shares_outstanding (float)
+            - revenue (float)
+            - cost_of_revenue (float)
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            f_roa, f_cfo, f_delta_roa, f_accrual,         (profitability)
+            f_delta_leverage, f_delta_liquidity, f_no_dilution, (leverage)
+            f_delta_gross_margin, f_delta_asset_turnover,  (efficiency)
+            f_score                                         (0-9 composite)
+        """
+        df = financials_df.copy()
+        df["period_end"] = pd.to_datetime(df["period_end"])
+        df = df.sort_values("period_end").reset_index(drop=True)
+
+        assets_avg = (df["total_assets"] + df["total_assets"].shift(1)) / 2
+        assets_avg_safe = assets_avg.replace(0, np.nan)
+
+        roa = df["net_income"] / assets_avg_safe
+        cfo_over_assets = df["operating_cash_flow"] / assets_avg_safe
+
+        leverage = df["long_term_debt"] / assets_avg_safe
+        current_ratio = df["current_assets"] / df["current_liabilities"].replace(0, np.nan)
+        gross_margin = (df["revenue"] - df["cost_of_revenue"]) / df["revenue"].replace(0, np.nan)
+        asset_turnover = df["revenue"] / assets_avg_safe
+
+        # Profitability signals
+        f_roa = (roa > 0).astype(int)
+        f_cfo = (cfo_over_assets > 0).astype(int)
+        f_delta_roa = (roa > roa.shift(4)).astype(int)      # vs same quarter prior year
+        f_accrual = (cfo_over_assets > roa).astype(int)      # cash earnings > accrual earnings
+
+        # Leverage/Liquidity signals
+        f_delta_leverage = (leverage < leverage.shift(4)).astype(int)   # debt decreased
+        f_delta_liquidity = (current_ratio > current_ratio.shift(4)).astype(int)
+        f_no_dilution = (df["shares_outstanding"] <= df["shares_outstanding"].shift(4)).astype(int)
+
+        # Efficiency signals
+        f_delta_gm = (gross_margin > gross_margin.shift(4)).astype(int)
+        f_delta_at = (asset_turnover > asset_turnover.shift(4)).astype(int)
+
+        f_score = (
+            f_roa + f_cfo + f_delta_roa + f_accrual
+            + f_delta_leverage + f_delta_liquidity + f_no_dilution
+            + f_delta_gm + f_delta_at
+        )
+
+        return df.assign(
+            f_roa=f_roa,
+            f_cfo=f_cfo,
+            f_delta_roa=f_delta_roa,
+            f_accrual=f_accrual,
+            f_delta_leverage=f_delta_leverage,
+            f_delta_liquidity=f_delta_liquidity,
+            f_no_dilution=f_no_dilution,
+            f_delta_gross_margin=f_delta_gm,
+            f_delta_asset_turnover=f_delta_at,
+            f_score=f_score,
+        )
+
+
+class BeneishMScore:
+    """
+    Beneish (1999) M-Score — earnings manipulation detection.
+
+    8-variable model trained to detect earnings manipulation:
+    M = -4.84 + 0.920*DSRI + 0.528*GMI + 0.404*AQI + 0.892*SGI
+         + 0.115*DEPI - 0.172*SGAI + 4.679*TATA - 0.327*LVGI
+
+    M > -1.78: high manipulation probability (short signal)
+    M < -2.22: low manipulation probability (clean)
+
+    DSRI = Days Sales in Receivables Index
+    GMI  = Gross Margin Index
+    AQI  = Asset Quality Index
+    SGI  = Sales Growth Index
+    DEPI = Depreciation Index
+    SGAI = Sales, General & Admin expenses Index
+    TATA = Total Accruals to Total Assets
+    LVGI = Leverage Index
+    """
+
+    def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Parameters
+        ----------
+        financials_df : pd.DataFrame
+            Must contain columns:
+            - period_end (datetime)
+            - revenue (float)
+            - accounts_receivable (float)
+            - cost_of_revenue (float)
+            - total_assets (float)
+            - current_assets (float)
+            - property_plant_equipment (float)   — net PP&E
+            - depreciation (float)
+            - sga_expenses (float)               — SG&A
+            - net_income (float)
+            - operating_cash_flow (float)
+            - long_term_debt (float)
+            - current_liabilities (float)
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            DSRI, GMI, AQI, SGI, DEPI, SGAI, TATA, LVGI,
+            m_score          – Beneish M-Score
+            manipulation_risk – 1 if m_score > -1.78
+        """
+        df = financials_df.copy()
+        df["period_end"] = pd.to_datetime(df["period_end"])
+        df = df.sort_values("period_end").reset_index(drop=True)
+
+        rev = df["revenue"]
+        rev_prior = rev.shift(4)
+        rev_safe = rev.replace(0, np.nan)
+        rev_prior_safe = rev_prior.replace(0, np.nan)
+
+        ar = df["accounts_receivable"]
+        ar_prior = ar.shift(4)
+
+        cogs = df["cost_of_revenue"]
+        cogs_prior = cogs.shift(4)
+
+        assets = df["total_assets"]
+        assets_prior = assets.shift(4)
+        assets_safe = assets.replace(0, np.nan)
+        assets_prior_safe = assets_prior.replace(0, np.nan)
+
+        # DSRI: (AR_t / Sales_t) / (AR_{t-1} / Sales_{t-1})
+        dsri = (ar / rev_safe) / ((ar_prior / rev_prior_safe).replace(0, np.nan))
+
+        # GMI: ((Sales_{t-1} - COGS_{t-1}) / Sales_{t-1}) / ((Sales_t - COGS_t) / Sales_t)
+        gm_t = (rev - cogs) / rev_safe
+        gm_prior = (rev_prior - cogs_prior) / rev_prior_safe
+        gmi = gm_prior / gm_t.replace(0, np.nan)
+
+        # AQI: (1 - (CA_t + PP&E_t) / TA_t) / (1 - (CA_{t-1} + PP&E_{t-1}) / TA_{t-1})
+        ca = df["current_assets"]
+        ppe = df["property_plant_equipment"]
+        aqi_t = 1 - (ca + ppe) / assets_safe
+        aqi_prior = 1 - (ca.shift(4) + ppe.shift(4)) / assets_prior_safe
+        aqi = aqi_t / aqi_prior.replace(0, np.nan)
+
+        # SGI: Sales_t / Sales_{t-1}
+        sgi = rev / rev_prior_safe
+
+        # DEPI: (Depr_{t-1} / (PP&E_{t-1} + Depr_{t-1})) / (Depr_t / (PP&E_t + Depr_t))
+        dep = df["depreciation"]
+        dep_prior = dep.shift(4)
+        depi_t = dep / (ppe + dep).replace(0, np.nan)
+        depi_prior = dep_prior / (ppe.shift(4) + dep_prior).replace(0, np.nan)
+        depi = depi_prior / depi_t.replace(0, np.nan)
+
+        # SGAI: (SGA_t / Sales_t) / (SGA_{t-1} / Sales_{t-1})
+        sga = df["sga_expenses"]
+        sgai = (sga / rev_safe) / ((sga.shift(4) / rev_prior_safe).replace(0, np.nan))
+
+        # TATA: (NI - CFO) / TA
+        tata = (df["net_income"] - df["operating_cash_flow"]) / assets_safe
+
+        # LVGI: ((LTD_t + CL_t) / TA_t) / ((LTD_{t-1} + CL_{t-1}) / TA_{t-1})
+        ltd = df["long_term_debt"]
+        cl = df["current_liabilities"]
+        lvgi_t = (ltd + cl) / assets_safe
+        lvgi_prior = (ltd.shift(4) + cl.shift(4)) / assets_prior_safe
+        lvgi = lvgi_t / lvgi_prior.replace(0, np.nan)
+
+        # Beneish regression coefficients
+        m_score = (
+            -4.84
+            + 0.920 * dsri
+            + 0.528 * gmi
+            + 0.404 * aqi
+            + 0.892 * sgi
+            + 0.115 * depi
+            - 0.172 * sgai
+            + 4.679 * tata
+            - 0.327 * lvgi
+        )
+
+        return df.assign(
+            DSRI=dsri,
+            GMI=gmi,
+            AQI=aqi,
+            SGI=sgi,
+            DEPI=depi,
+            SGAI=sgai,
+            TATA=tata,
+            LVGI=lvgi,
+            m_score=m_score,
+            manipulation_risk=(m_score > -1.78).astype(int),
+        )

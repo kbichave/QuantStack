@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-0.7.0-green.svg" alt="v0.7.0">
+  <img src="https://img.shields.io/badge/version-0.8.0-green.svg" alt="v0.8.0">
   <img src="https://img.shields.io/badge/MCP%20tools-120+-purple.svg" alt="120+ MCP Tools">
 </p>
 
@@ -33,7 +33,7 @@ Three trading styles, one system:
 | **Long-term investing** | `/invest` | Weekly | DCF, quality scorecard, insider flow |
 | **Options** | `/options` | Per-event | IV rank, event calendar, Greeks |
 
-The system runs **three autonomous Ralph Wiggum loops** in tmux — Strategy Factory discovers strategies, Live Trader executes them, and ML Research trains models — all with Claude Opus quality, zero human intervention. Start with `./scripts/start_loops.sh all`.
+The system runs **three autonomous Ralph Wiggum loops** in tmux — Strategy Factory discovers strategies, Live Trader executes them, and ML Research trains models — all with Claude Opus quality, zero human intervention. **v0.8.0** adds a coordination layer for HITL-free operation across SP500 + NASDAQ-100 + ETFs (~700 symbols). Start with `./scripts/start_supervised_loops.sh all`.
 
 ---
 
@@ -69,6 +69,16 @@ Claude Code (Portfolio Brain)
 │   ├── Data Scientist — ML training, feature engineering, SHAP, QA gate
 │   └── Watchlist      — universe screening, candidate scoring
 │
+├── Coordination Layer (v0.8.0)
+│   ├── UniverseRegistry    — SP500 + NASDAQ-100 + 50 ETFs (~700 symbols)
+│   ├── AutonomousScreener  — daily scoring → tiered watchlist (T1/T2/T3)
+│   ├── EventBus            — DuckDB pub/sub for inter-loop communication
+│   ├── StrategyStatusLock  — atomic CAS transitions (no race conditions)
+│   ├── AutoPromoter        — evidence-based forward_testing → live + 4-week ramp
+│   ├── DegradationEnforcer — bridges detector → breaker (auto-scales/trips)
+│   ├── PortfolioOrchestrator — correlation, sector cap, position limit gating
+│   └── LoopSupervisor      — heartbeat monitoring, crash recovery, daily digest
+│
 └── Three Autonomous Loops (Ralph Wiggum architecture)
     ├── Strategy Factory  — gap analysis → hypothesize → backtest → promote
     ├── Live Trader       — position monitoring → entry scan → execute
@@ -77,6 +87,7 @@ Claude Code (Portfolio Brain)
 
 **v0.6.0:** Replaced 13 LLM agents with 14 pure-Python collectors (2–6 sec, no LLM).
 **v0.7.0:** Added 7 desk agents, 3 autonomous loops, 30+ ML/portfolio/NLP tools, full feature pipeline.
+**v0.8.0:** Coordination layer — 700-symbol universe, tiered screening, event bus, auto-promotion, loop supervisor.
 
 ---
 
@@ -108,11 +119,18 @@ Fundamental investing workflow in `/invest`:
 - Conviction tiers: High → 5% equity, Moderate → 2.5%, Low → 1.25%
 - Weekly review cadence — not daily signal chasing
 
-### Autonomous Runner
-Runs unattended without a Claude Code session:
-- Checks kill switch → loads active strategies → runs SignalEngine per symbol → routes to execution
+### Autonomous Runner + Coordination (v0.8.0)
+Runs unattended across SP500 + NASDAQ-100 + ETFs (~700 symbols):
+- **Universe Registry** — weekly refresh from FD.ai stock screener + 50 hardcoded liquid ETFs
+- **Cache Warmer** — nightly batch OHLCV fetch (delta-only, ~70s for 700 symbols)
+- **Tiered Scanning** — Tier 1 (15): full SignalEngine + ML + Groq; Tier 2 (20): SignalEngine only; Tier 3 (15): monitored
+- **Event Bus** — DuckDB-based pub/sub so Factory, Trader, and ML loops react to each other's changes
+- **Auto-Promotion** — evidence-based `forward_testing → live` with 4-week position ramp (25% → 100%)
+- **Portfolio Orchestration** — correlation check, sector cap (30%), position limit gating before execution
+- **Loop Supervisor** — heartbeat monitoring, crash detection, auto-restart with exponential backoff
 - Every decision (including skips) logged to DuckDB audit trail
 - `paper_mode=True` hard default; live requires explicit env var
+- All coordination gated behind feature flags (`USE_TIERED_WATCHLIST`, `AUTO_PROMOTE_ENABLED`)
 
 ### Alpha Discovery
 Overnight strategy generation (60-minute budget):
@@ -138,7 +156,8 @@ QuantStack/
 │   ├── quantcore/          # Research library (200+ indicators, ML, options, RL)
 │   ├── quant_pod/          # Execution system (signal engine, strategies, agents)
 │   │   ├── signal_engine/  # 14 concurrent Python collectors
-│   │   ├── autonomous/     # Unattended trading loop (AutonomousRunner + GroqPM)
+│   │   ├── autonomous/     # Unattended trading loop (AutonomousRunner + GroqPM + Screener)
+│   │   ├── coordination/   # Inter-loop coordination (event bus, locks, promoter, supervisor)
 │   │   ├── alpha_discovery/# Strategy generation (grid search + Grammar GP)
 │   │   ├── features/       # FeatureEnricher (fundamentals, macro, flow, earnings)
 │   │   ├── execution/      # Risk gate, order lifecycle, broker routers
@@ -206,6 +225,7 @@ QuantStack exposes its entire research and execution stack as MCP tools — call
 | **Learning** | `get_strategy_performance`, `validate_strategy`, `promote_strategy`, `retire_strategy`, `get_rl_status`, `get_rl_recommendation`, `update_regime_matrix_from_performance` |
 | **Orchestration** | `resolve_portfolio_conflicts`, `get_regime_strategies`, `set_regime_allocation` |
 | **Decode** | `decode_strategy`, `decode_from_trades` |
+| **Coordination** | `publish_event`, `poll_events`, `record_heartbeat`, `get_loop_health`, `auto_promote_eligible`, `generate_daily_digest` |
 
 ---
 
@@ -294,7 +314,7 @@ Daily halt state persists via sentinel file — survives process restarts.
 
 ---
 
-## Persistent State (DuckDB, 12 tables)
+## Persistent State (DuckDB, 18 tables)
 
 All decisions, trades, signals, and audit events are persisted locally.
 
@@ -309,7 +329,11 @@ All decisions, trades, signals, and audit events are persisted locally.
 | `outcomes` | Closed trade outcomes for learning loop |
 | `options_chains` | Live options snapshots (populated by `get_options_chain`) |
 | `calibration` | Confidence calibration data |
-| `waves_regime` | Wave analysis + regime switching states |
+| `universe` | SP500 + NASDAQ-100 + ETF constituents (~700 symbols) |
+| `screener_results` | Daily tiered watchlist scores |
+| `loop_events` | Inter-loop event bus (pub/sub) |
+| `loop_cursors` | Per-consumer event cursor tracking |
+| `loop_heartbeats` | Loop health monitoring |
 
 ---
 
@@ -334,8 +358,14 @@ Claude Code uses skill files to run structured sessions. Each skill is a step-by
 ## Automated Scheduling
 
 ```bash
+# Interactive sessions (scheduler)
 python scripts/scheduler.py          # start scheduled sessions
 python scripts/scheduler.py --run-now morning_routine
+
+# Autonomous loops (supervised tmux)
+./scripts/start_supervised_loops.sh all   # Factory + Trader + ML + Supervisor + git auto-commit
+tmux attach -t quantpod-loops             # watch the loops
+tmux kill-session -t quantpod-loops       # stop everything
 ```
 
 | Time (ET) | Days | Session |
@@ -344,6 +374,8 @@ python scripts/scheduler.py --run-now morning_routine
 | 12:30 | Mon–Fri | /review (mid-day) |
 | 15:45 | Mon–Fri | /review (pre-close) |
 | 17:00 | Friday | /reflect (weekly) |
+
+The supervised loops add: health monitoring via heartbeats, crash detection with exponential backoff restart, and automatic git commits of memory files every 5 minutes.
 
 ---
 
@@ -357,7 +389,8 @@ python scripts/scheduler.py --run-now morning_routine
 | `models` (ML) | Stable | LightGBM, XGBoost, CatBoost + SHAP |
 | `options` | Stable | Live chain fetching + Greeks + structure scoring |
 | `execution` | Stable | Risk gate, SmartOrderRouter, TCA, kill switch |
-| `autonomous` | Stable | Unattended loop, GroqPM |
+| `autonomous` | Stable | Unattended loop, GroqPM, tiered screener |
+| `coordination` | Stable | Event bus, status lock, auto-promoter, supervisor, digest |
 | `alpha_discovery` | Stable | Overnight discovery, 60-min budget |
 | `learning` | Stable | IC/ICIR tracking, calibration, AlphaMonitor |
 | `monitoring` | Stable | Degradation detection, Discord alerts |

@@ -291,6 +291,80 @@ class StrategyBreaker:
             )
             return self._copy_state(state)
 
+    def force_trip(self, strategy_id: str, reason: str) -> BreakerState:
+        """
+        Force-trip a strategy breaker regardless of consecutive losses or drawdown.
+
+        Used by DegradationEnforcer when IS/OOS degradation is CRITICAL.
+        This only escalates — it cannot de-escalate (a tripped breaker stays tripped
+        until manually reset).
+
+        Args:
+            strategy_id: Strategy to trip.
+            reason: Explanation (logged + persisted).
+
+        Returns:
+            Updated BreakerState.
+        """
+        with self._lock:
+            state = self._get_or_create(strategy_id)
+            state.status = STATUS_TRIPPED
+            state.scale_factor = 0.0
+            state.tripped_at = datetime.now()
+            state.reason = reason
+            self._persist()
+            logger.warning(
+                f"[BREAKER] {strategy_id} FORCE TRIPPED | reason={reason}"
+            )
+            return self._copy_state(state)
+
+    def force_scale(
+        self, strategy_id: str, scale_factor: float, reason: str
+    ) -> BreakerState:
+        """
+        Force-scale a strategy's position size to a specific factor.
+
+        Used by DegradationEnforcer when IS/OOS degradation is WARNING.
+        Only escalates: if already TRIPPED, this is a no-op. If already SCALED
+        at a lower factor, keeps the lower factor.
+
+        Args:
+            strategy_id: Strategy to scale.
+            scale_factor: Target scale factor (e.g., 0.25 for 25% size).
+            reason: Explanation (logged + persisted).
+
+        Returns:
+            Updated BreakerState.
+        """
+        with self._lock:
+            state = self._get_or_create(strategy_id)
+
+            # Never de-escalate: TRIPPED stays TRIPPED
+            if state.status == STATUS_TRIPPED:
+                logger.debug(
+                    f"[BREAKER] {strategy_id} already TRIPPED — "
+                    f"force_scale({scale_factor}) is a no-op"
+                )
+                return self._copy_state(state)
+
+            # Only apply if the new factor is more restrictive
+            if scale_factor < state.scale_factor:
+                state.status = STATUS_SCALED
+                state.scale_factor = scale_factor
+                state.reason = reason
+                self._persist()
+                logger.info(
+                    f"[BREAKER] {strategy_id} FORCE SCALED to {scale_factor:.0%} "
+                    f"| reason={reason}"
+                )
+            else:
+                logger.debug(
+                    f"[BREAKER] {strategy_id} force_scale({scale_factor:.0%}) "
+                    f"not applied — current factor {state.scale_factor:.0%} is already lower"
+                )
+
+            return self._copy_state(state)
+
     def get_all_states(self) -> dict[str, BreakerState]:
         """Return a copy of all tracked strategy states."""
         with self._lock:

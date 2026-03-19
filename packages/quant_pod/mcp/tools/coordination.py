@@ -1,0 +1,333 @@
+# Copyright 2024 QuantPod Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+MCP tool wrappers for the coordination layer.
+
+These tools expose the event bus, heartbeats, auto-promotion, and daily
+digest to Claude Code sessions and Ralph loop prompts.
+
+All writes go through the MCP server's single DuckDB connection (the only
+write owner).  The coordination modules are instantiated lazily on first use.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from typing import Any
+
+from loguru import logger
+
+
+def _get_conn():
+    """Get the MCP server's DuckDB write connection."""
+    from quant_pod.db import open_db
+    return open_db()
+
+
+def _get_event_bus():
+    """Lazy-init EventBus singleton."""
+    from quant_pod.coordination.event_bus import EventBus
+    return EventBus(_get_conn())
+
+
+def _get_strategy_lock():
+    """Lazy-init StrategyStatusLock singleton."""
+    from quant_pod.coordination.strategy_lock import StrategyStatusLock
+    return StrategyStatusLock(_get_conn(), _get_event_bus())
+
+
+# ── Event Bus Tools ──────────────────────────────────────────────────────────
+
+
+def publish_event(
+    event_type: str,
+    source: str,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Publish an event to the inter-loop event bus.
+
+    Args:
+        event_type: Event type (e.g., "strategy_promoted", "model_trained",
+                    "loop_heartbeat", "loop_error").
+        source: Source loop name (e.g., "strategy_factory", "live_trader").
+        payload: Optional JSON-serializable payload.
+
+    Returns:
+        {"success": True, "event_id": "..."}
+    """
+    try:
+        from quant_pod.coordination.event_bus import Event, EventType
+
+        try:
+            etype = EventType(event_type)
+        except ValueError:
+            etype = event_type  # type: ignore[assignment]
+
+        event = Event(
+            event_type=etype,
+            source_loop=source,
+            payload=payload or {},
+        )
+        bus = _get_event_bus()
+        eid = bus.publish(event)
+        return {"success": True, "event_id": eid}
+    except Exception as exc:
+        logger.error(f"[MCP:publish_event] {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+def poll_events(
+    consumer_id: str,
+    event_types: list[str] | None = None,
+    since_minutes: int = 60,
+) -> dict[str, Any]:
+    """
+    Poll the event bus for new events since the consumer's last cursor.
+
+    Args:
+        consumer_id: Unique consumer name (e.g., "factory_loop", "trader_loop").
+        event_types: Optional filter — only return these event types.
+        since_minutes: Ignored (cursor-based), kept for API compatibility.
+
+    Returns:
+        {"success": True, "events": [...], "count": N}
+    """
+    try:
+        from quant_pod.coordination.event_bus import EventType
+
+        types = None
+        if event_types:
+            types = []
+            for et in event_types:
+                try:
+                    types.append(EventType(et))
+                except ValueError:
+                    types.append(et)  # type: ignore[arg-type]
+
+        bus = _get_event_bus()
+        events = bus.poll(consumer_id, event_types=types)
+
+        return {
+            "success": True,
+            "events": [
+                {
+                    "event_id": e.event_id,
+                    "event_type": e.event_type.value if hasattr(e.event_type, "value") else e.event_type,
+                    "source_loop": e.source_loop,
+                    "payload": e.payload,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in events
+            ],
+            "count": len(events),
+        }
+    except Exception as exc:
+        logger.error(f"[MCP:poll_events] {exc}")
+        return {"success": False, "error": str(exc), "events": [], "count": 0}
+
+
+# ── Heartbeat Tools ──────────────────────────────────────────────────────────
+
+
+def record_heartbeat(
+    loop_name: str,
+    iteration: int,
+    symbols_processed: int = 0,
+    errors: int = 0,
+    status: str = "completed",
+) -> dict[str, Any]:
+    """
+    Record a loop heartbeat in the loop_heartbeats table.
+
+    Called at the start (status="running") and end (status="completed")
+    of each Ralph loop iteration.
+
+    Args:
+        loop_name: Loop identifier ("strategy_factory", "live_trader", "ml_research").
+        iteration: Monotonically increasing iteration counter.
+        symbols_processed: Number of symbols processed in this iteration.
+        errors: Number of errors encountered.
+        status: "running" or "completed" or "failed".
+
+    Returns:
+        {"success": True}
+    """
+    try:
+        conn = _get_conn()
+        now = datetime.now(timezone.utc)
+
+        if status == "running":
+            conn.execute(
+                """
+                INSERT INTO loop_heartbeats (loop_name, iteration, started_at, status)
+                VALUES (?, ?, ?, 'running')
+                ON CONFLICT (loop_name, iteration)
+                DO UPDATE SET started_at = EXCLUDED.started_at, status = 'running'
+                """,
+                [loop_name, iteration, now],
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO loop_heartbeats
+                    (loop_name, iteration, started_at, finished_at,
+                     symbols_processed, errors, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (loop_name, iteration)
+                DO UPDATE SET finished_at = EXCLUDED.finished_at,
+                              symbols_processed = EXCLUDED.symbols_processed,
+                              errors = EXCLUDED.errors,
+                              status = EXCLUDED.status
+                """,
+                [loop_name, iteration, now, now, symbols_processed, errors, status],
+            )
+
+        # Also publish heartbeat event for the supervisor
+        bus = _get_event_bus()
+        from quant_pod.coordination.event_bus import Event, EventType
+
+        bus.publish(Event(
+            event_type=EventType.LOOP_HEARTBEAT,
+            source_loop=loop_name,
+            payload={
+                "iteration": iteration,
+                "symbols_processed": symbols_processed,
+                "errors": errors,
+                "status": status,
+            },
+        ))
+
+        return {"success": True}
+    except Exception as exc:
+        logger.error(f"[MCP:record_heartbeat] {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+# ── Health Tools ─────────────────────────────────────────────────────────────
+
+
+def get_loop_health() -> dict[str, Any]:
+    """
+    Get health status of all monitored loops.
+
+    Returns:
+        {"success": True, "loops": [...], "all_healthy": bool}
+    """
+    try:
+        from quant_pod.coordination.supervisor import LoopSupervisor
+
+        supervisor = LoopSupervisor(_get_conn())
+        results = supervisor.check_health()
+
+        loops = [
+            {
+                "loop_name": h.loop_name,
+                "status": h.status,
+                "last_heartbeat": h.last_heartbeat.isoformat() if h.last_heartbeat else None,
+                "staleness_seconds": round(h.staleness_seconds, 1),
+                "last_iteration": h.last_iteration,
+                "consecutive_errors": h.consecutive_errors,
+            }
+            for h in results
+        ]
+
+        all_healthy = all(h.status in ("healthy", "unknown") for h in results)
+
+        return {"success": True, "loops": loops, "all_healthy": all_healthy}
+    except Exception as exc:
+        logger.error(f"[MCP:get_loop_health] {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+# ── Auto-Promotion Tools ────────────────────────────────────────────────────
+
+
+def auto_promote_eligible() -> dict[str, Any]:
+    """
+    Evaluate all forward_testing strategies for promotion to live.
+
+    Requires AUTO_PROMOTE_ENABLED=true env var.
+
+    Returns:
+        {"success": True, "decisions": [...], "promoted_count": N}
+    """
+    try:
+        from quant_pod.coordination.auto_promoter import AutoPromoter
+
+        promoter = AutoPromoter(
+            conn=_get_conn(),
+            event_bus=_get_event_bus(),
+            strategy_lock=_get_strategy_lock(),
+        )
+        decisions = promoter.evaluate_all()
+
+        return {
+            "success": True,
+            "decisions": [
+                {
+                    "strategy_id": d.strategy_id,
+                    "name": d.name,
+                    "decision": d.decision,
+                    "reason": d.reason,
+                    "evidence": d.evidence,
+                }
+                for d in decisions
+            ],
+            "promoted_count": sum(1 for d in decisions if d.decision == "promote"),
+            "enabled": promoter.is_enabled(),
+        }
+    except Exception as exc:
+        logger.error(f"[MCP:auto_promote_eligible] {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+# ── Daily Digest Tools ───────────────────────────────────────────────────────
+
+
+def generate_daily_digest(target_date: str | None = None) -> dict[str, Any]:
+    """
+    Generate a daily digest report.
+
+    Args:
+        target_date: ISO date string (YYYY-MM-DD). Defaults to today.
+
+    Returns:
+        {"success": True, "report": {...}, "markdown": "..."}
+    """
+    try:
+        from datetime import date
+
+        from quant_pod.coordination.daily_digest import DailyDigest
+
+        digest = DailyDigest(_get_conn())
+        td = date.fromisoformat(target_date) if target_date else None
+        report = digest.generate(td)
+        md = digest.format_markdown(report)
+
+        # Try to send to Discord
+        digest.send_discord(report)
+
+        return {
+            "success": True,
+            "report": {
+                "report_date": report.report_date.isoformat(),
+                "open_positions": report.open_positions,
+                "trades_today": report.trades_today,
+                "total_realized_pnl": report.total_realized_pnl,
+                "total_live": report.total_live,
+                "total_forward_testing": report.total_forward_testing,
+                "factory_iterations": report.factory_iterations,
+                "trader_iterations": report.trader_iterations,
+                "ml_iterations": report.ml_iterations,
+                "total_loop_errors": report.total_loop_errors,
+                "universe_size": report.universe_size,
+                "watchlist_size": report.watchlist_size,
+            },
+            "markdown": md,
+        }
+    except Exception as exc:
+        logger.error(f"[MCP:generate_daily_digest] {exc}")
+        return {"success": False, "error": str(exc)}

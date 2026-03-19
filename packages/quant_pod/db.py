@@ -200,6 +200,9 @@ def run_migrations(conn: duckdb.DuckDBPyConnection) -> None:
         _migrate_strategies(conn)
         _migrate_regime_matrix(conn)
         _migrate_strategy_outcomes(conn)
+        _migrate_universe(conn)
+        _migrate_screener(conn)
+        _migrate_coordination(conn)
         conn.execute("COMMIT")
         logger.info("[DB] Migrations complete")
     except Exception:
@@ -504,4 +507,111 @@ def _migrate_strategy_outcomes(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS so_open_idx
         ON strategy_outcomes (strategy_id, symbol, closed_at)
+    """)
+
+
+def _migrate_universe(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Symbol universe — SP500, NASDAQ-100, and liquid ETF constituents.
+
+    Populated by UniverseRegistry.refresh_constituents() (weekly).
+    Read by AutonomousScreener to score and rank tradeable symbols.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS universe (
+            symbol              VARCHAR PRIMARY KEY,
+            name                VARCHAR NOT NULL,
+            sector              VARCHAR DEFAULT 'Unknown',
+            source              VARCHAR NOT NULL,
+            market_cap          DOUBLE,
+            avg_daily_volume    DOUBLE,
+            is_active           BOOLEAN DEFAULT TRUE,
+            added_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_refreshed      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deactivated_reason  VARCHAR
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS universe_source_idx
+        ON universe (source, is_active)
+    """)
+
+
+def _migrate_screener(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Screener results — daily scored and tiered watchlist.
+
+    Written by AutonomousScreener.screen() each morning.
+    Read by WatchlistLoader.load_tiered() to feed the runner.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS screener_results (
+            symbol              VARCHAR NOT NULL,
+            screened_at         TIMESTAMP NOT NULL,
+            regime_used         VARCHAR,
+            tier                INTEGER NOT NULL,
+            composite_score     DOUBLE NOT NULL,
+            momentum_score      DOUBLE,
+            volatility_rank     DOUBLE,
+            volume_surge        DOUBLE,
+            regime_fit          DOUBLE,
+            catalyst_proximity  DOUBLE,
+            PRIMARY KEY (symbol, screened_at)
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS screener_latest_idx
+        ON screener_results (screened_at DESC, tier)
+    """)
+
+
+def _migrate_coordination(conn: duckdb.DuckDBPyConnection) -> None:
+    """
+    Inter-loop coordination tables — event bus, cursors, and heartbeats.
+
+    The event bus is an append-only log that loops poll at iteration start.
+    Cursors track each consumer's high-water mark.
+    Heartbeats track loop health for the supervisor.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS loop_events (
+            event_id    VARCHAR PRIMARY KEY,
+            event_type  VARCHAR NOT NULL,
+            source_loop VARCHAR NOT NULL,
+            payload     JSON,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS loop_events_type_idx
+        ON loop_events (event_type, created_at)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS loop_events_created_idx
+        ON loop_events (created_at)
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS loop_cursors (
+            consumer_id     VARCHAR PRIMARY KEY,
+            last_event_id   VARCHAR,
+            last_polled_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS loop_heartbeats (
+            loop_name           VARCHAR NOT NULL,
+            iteration           INTEGER NOT NULL,
+            started_at          TIMESTAMP NOT NULL,
+            finished_at         TIMESTAMP,
+            symbols_processed   INTEGER DEFAULT 0,
+            errors              INTEGER DEFAULT 0,
+            status              VARCHAR DEFAULT 'running',
+            PRIMARY KEY (loop_name, iteration)
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS heartbeats_loop_idx
+        ON loop_heartbeats (loop_name, started_at DESC)
     """)

@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-18
+
+### Added — Autonomous Coordination Layer
+
+The coordination layer enables the three Ralph loops (Strategy Factory, Live Trader, ML Research) to operate across ~700 symbols without human-in-the-loop intervention.
+
+#### Universe & Screening
+- `UniverseRegistry` (`packages/quant_pod/coordination/universe_registry.py`) — DuckDB-backed universe of SP500 + NASDAQ-100 + 50 liquid ETFs, weekly refresh via FD.ai `stock_screener` endpoint
+- `CacheWarmer` (`packages/quantcore/data/cache_warmer.py`) — nightly batch OHLCV delta-fetch for the full universe with configurable concurrency (default 10 parallel, within 1000 req/min rate limit)
+- `AutonomousScreener` (`packages/quant_pod/autonomous/screener.py`) — daily scoring of all universe symbols using 5-dimension weighted scoring (momentum 25%, volatility 20%, catalyst 20%, regime fit 20%, volume 15%), outputs tiered watchlist: Tier 1 (15 symbols, full treatment), Tier 2 (20, SignalEngine only), Tier 3 (15, monitored)
+- `WatchlistLoader` v2 — tiered loading from `screener_results` table, gated behind `USE_TIERED_WATCHLIST` env var
+
+#### Inter-Loop Coordination
+- `EventBus` (`packages/quant_pod/coordination/event_bus.py`) — DuckDB append-only event log with per-consumer cursors, 7-day TTL pruning; event types: `strategy_promoted`, `strategy_retired`, `model_trained`, `degradation_detected`, `screener_completed`, `loop_heartbeat`, `loop_error`
+- `StrategyStatusLock` (`packages/quant_pod/coordination/strategy_lock.py`) — atomic compare-and-swap strategy status transitions preventing TOCTOU race conditions between concurrent loops
+- MCP tools: `publish_event`, `poll_events`, `record_heartbeat`, `get_loop_health`, `auto_promote_eligible`, `generate_daily_digest`
+
+#### Auto-Promotion & Degradation Enforcement
+- `AutoPromoter` (`packages/quant_pod/coordination/auto_promoter.py`) — evidence-based `forward_testing → live` promotion with configurable criteria (21d min age, 15 trades, Sharpe ≥ 0.5, DD ≤ 8%, win rate ≥ 40%), 4-week graduated position ramp (25% → 50% → 75% → 100%), max 8 concurrent live strategies cap; gated behind `AUTO_PROMOTE_ENABLED`
+- `DegradationEnforcer` (`packages/quant_pod/coordination/degradation_enforcer.py`) — bridges DegradationDetector (advisory) to StrategyBreaker (enforced): CRITICAL → `force_trip()`, WARNING → `force_scale()`
+- `StrategyBreaker` extensions: `force_trip(strategy_id, reason)` and `force_scale(strategy_id, scale_factor, reason)` for external degradation enforcement
+
+#### Health Monitoring & Observability
+- `LoopSupervisor` (`packages/quant_pod/coordination/supervisor.py`) — monitors loop heartbeats, detects stale (3× expected interval) and dead (10×) loops, auto-restarts via tmux with exponential backoff (max 5 attempts)
+- `DailyDigest` (`packages/quant_pod/coordination/daily_digest.py`) — aggregated daily report (positions, P&L, strategy lifecycle, loop health, ML models, risk events) → Discord embed + markdown
+- `PortfolioOrchestrator` (`packages/quant_pod/coordination/portfolio_orchestrator.py`) — portfolio-level entry gating: no doubling, confidence ranking, correlation check (> 0.85 rejected), sector concentration cap (30%), position count cap
+- `scripts/start_supervised_loops.sh` — 5-pane tmux: Factory + Trader + ML + Supervisor + git auto-commit (every 5 min)
+
+#### Database
+- 6 new DuckDB tables: `universe`, `screener_results`, `loop_events`, `loop_cursors`, `loop_heartbeats`, `strategy_outcomes`
+- Total: 18 tables (up from 12)
+
+### Removed
+- `scripts/bootstrap_rl_training.py` — RL is experimental/shadow-mode only, bootstrap script was unused
+- `scripts/check_ollama_health.py` — system uses Groq, not Ollama
+- `scripts/run_trading_pipeline.py` — superseded by SignalEngine + AutonomousRunner in v0.6.0
+- `scripts/run_intraday.py` — referenced non-existent `LiveIntradayLoop` class
+- `scripts/run_historical_quant_arena.sh` — standalone shell script; use `run_backtest` MCP tool instead
+
+### Changed
+- `WatchlistLoader` — now reads from `screener_results` table (tiered) when `USE_TIERED_WATCHLIST=true`, falls back to existing behavior when off
+- `StrategyBreaker` — added `force_trip()` and `force_scale()` methods for external degradation enforcement (only escalates, never de-escalates)
+- `db.py` — 3 new migration functions (`_migrate_universe`, `_migrate_screener`, `_migrate_coordination`); all idempotent
+
 ## [0.7.0] - 2026-03-18
 
 ### Added — Autonomous Loops (Ralph Wiggum Architecture)
@@ -344,7 +388,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `0.1.0` - Initial release
 
-[Unreleased]: https://github.com/kbichave/QuantStack/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/kbichave/QuantStack/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/kbichave/QuantStack/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/kbichave/QuantStack/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kbichave/QuantStack/compare/v0.2.1...v0.6.0
 [0.2.1]: https://github.com/kbichave/QuantStack/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kbichave/QuantStack/compare/v0.1.0...v0.2.0

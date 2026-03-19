@@ -32,6 +32,7 @@ from quantcore.features.smart_money import (
     OTELevels,
     StructureAnalysis,
 )
+from quantcore.features.microstructure import OvernightGapPersistence
 from quantcore.features.rates import DualMomentum
 from quantcore.features.technical_indicators import TechnicalIndicators
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator
@@ -275,6 +276,25 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["vpin_high"] = int(vpin_df["vpin_high"].iloc[-1])
         except Exception as exc:
             logger.debug(f"[technical] {symbol}: VPIN failed: {exc}")
+
+    # --- Overnight gap + volume spike (institutional intent signal) ---
+    if "open" in df.columns:
+        op_series = df["open"]
+        try:
+            vol_series = df["volume"] if "volume" in df.columns else None
+            gap_df = OvernightGapPersistence(min_gap_pct=0.2, volume_spike_mult=2.0).compute(
+                op_series, cl, volume=vol_series
+            )
+            result["gap_pct"] = _safe_float(gap_df["gap_pct"].iloc[-1])
+            result["gap_up"] = int(gap_df["gap_up"].iloc[-1])
+            result["gap_down"] = int(gap_df["gap_down"].iloc[-1])
+            result["gap_persisted"] = int(gap_df["gap_persisted"].iloc[-1])
+            result["gap_filled_pct"] = _safe_float(gap_df["gap_filled_pct"].iloc[-1])
+            if "institutional_gap" in gap_df.columns:
+                result["volume_spike"] = int(gap_df["volume_spike"].iloc[-1])
+                result["institutional_gap"] = int(gap_df["institutional_gap"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[technical] {symbol}: OvernightGapPersistence failed: {exc}")
 
     # Weekly MTF alignment
     weekly_df = store.load_ohlcv(symbol, Timeframe.W1)

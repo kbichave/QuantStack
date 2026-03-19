@@ -17,6 +17,7 @@ from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
+from quantcore.features.carry import FuturesBasis
 from quantcore.features.smart_money import SMTDivergence
 
 
@@ -73,6 +74,32 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     result["cross_asset_regime"] = _classify_regime(
         spy_ret_5d, tlt_ret, gld_ret
     )
+
+    # --- Futures basis: ES=F (S&P 500 continuous) vs SPY ---
+    try:
+        es_df = store.load_ohlcv("ES=F", Timeframe.D1)
+        if es_df is not None and len(es_df) >= _MIN_BARS:
+            import pandas as pd
+            fb_df = FuturesBasis(roll_period=20).compute(
+                futures=es_df["close"].rename("ES"),
+                spot=spy_df["close"].rename("SPY"),
+            )
+            result["es_basis_pct"] = _safe_float(fb_df["basis_pct"].iloc[-1])
+            result["es_basis_zscore"] = _safe_float(fb_df["basis_zscore"].iloc[-1])
+            result["es_contango"] = int(fb_df["contango"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[cross_asset] {symbol}: FuturesBasis (ES) failed: {exc}")
+
+    # --- VVIX: volatility-of-VIX as fear amplifier ---
+    try:
+        vvix_df = store.load_ohlcv("VVIX", Timeframe.D1)
+        if vvix_df is not None and len(vvix_df) >= 20:
+            vvix_close = vvix_df["close"].iloc[-1]
+            vvix_sma20 = float(vvix_df["close"].iloc[-20:].mean())
+            result["vvix"] = _safe_float(vvix_close)
+            result["vvix_above_sma20"] = int(float(vvix_close) > vvix_sma20)
+    except Exception as exc:
+        logger.debug(f"[cross_asset] {symbol}: VVIX failed: {exc}")
 
     # --- SMT Divergence: symbol vs SPY (or SPY vs QQQ when symbol IS SPY) ---
     try:

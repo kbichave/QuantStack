@@ -6,7 +6,9 @@ from quantcore.features.market_structure import MarketStructureFeatures
 from quantcore.features.earnings_signals import AnalystRevisionSignals, EarningsSurpriseSignals
 from quantcore.features.fundamental import (
     BeneishMScore,
+    EarningsMomentumComposite,
     PiotroskiFScore,
+    QualityMomentumComposite,
     AssetGrowthAnomaly,
     FCFYield,
     NovyMarxGP,
@@ -91,6 +93,8 @@ __all__ = [
     "OperatingLeverage",
     "PiotroskiFScore",
     "BeneishMScore",
+    "QualityMomentumComposite",
+    "EarningsMomentumComposite",
     # Insider / Institutional
     "InsiderSignals",
     "LSVHerding",

@@ -10,9 +10,11 @@ import pytest
 from quantcore.features.earnings_signals import AnalystRevisionSignals, EarningsSurpriseSignals
 from quantcore.features.fundamental import (
     AssetGrowthAnomaly,
+    EarningsMomentumComposite,
     FCFYield,
     NovyMarxGP,
     OperatingLeverage,
+    QualityMomentumComposite,
     RevenueAcceleration,
     SloanAccruals,
 )
@@ -350,3 +352,176 @@ class TestOperatingLeverage:
         result = OperatingLeverage().compute(_make_financials())
         vals = result["high_leverage"].dropna().unique()
         assert set(vals).issubset({0, 1})
+
+
+# ---------------------------------------------------------------------------
+# QualityMomentumComposite
+# ---------------------------------------------------------------------------
+
+
+def _make_piotroski_financials(n: int = 16) -> pd.DataFrame:
+    """Quarterly financial data suitable for PiotroskiFScore."""
+    dates = pd.date_range("2020-01-01", periods=n, freq="QS")
+    np.random.seed(55)
+    revenue = 1000 + np.cumsum(np.abs(np.random.randn(n) * 30))
+    cost_of_revenue = revenue * 0.6
+    net_income = revenue * 0.1 + np.abs(np.random.randn(n) * 5)
+    total_assets = 5000 + np.cumsum(np.abs(np.random.randn(n) * 20))
+    operating_cash_flow = net_income * 1.1
+    total_liabilities = total_assets * 0.4
+    current_assets = total_assets * 0.3
+    current_liabilities = total_liabilities * 0.3
+    return pd.DataFrame({
+        "period_end": dates,
+        "revenue": revenue,
+        "cost_of_revenue": cost_of_revenue,
+        "net_income": net_income,
+        "total_assets": total_assets,
+        "operating_cash_flow": operating_cash_flow,
+        "total_liabilities": total_liabilities,
+        "current_assets": current_assets,
+        "current_liabilities": current_liabilities,
+        "shares_outstanding": np.ones(n) * 100_000_000,
+        "long_term_debt": total_liabilities * 0.5,
+    })
+
+
+def _make_price_series(n_days: int = 800, start: float = 100.0, seed: int = 42) -> pd.Series:
+    """Daily close price series."""
+    np.random.seed(seed)
+    dates = pd.date_range("2018-01-01", periods=n_days, freq="B")
+    prices = start + np.cumsum(np.random.randn(n_days) * 0.8)
+    return pd.Series(np.maximum(prices, 1.0), index=dates)
+
+
+class TestQualityMomentumComposite:
+    def test_returns_dataframe(self):
+        result = QualityMomentumComposite().compute(
+            _make_piotroski_financials(), _make_price_series()
+        )
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self):
+        result = QualityMomentumComposite().compute(
+            _make_piotroski_financials(), _make_price_series()
+        )
+        for col in ("f_score", "price_momentum", "momentum_rank",
+                    "quality_momentum", "qm_long_signal", "qm_short_signal"):
+            assert col in result.columns, f"missing: {col}"
+
+    def test_same_length_as_input(self):
+        fin = _make_piotroski_financials(12)
+        result = QualityMomentumComposite().compute(fin, _make_price_series())
+        assert len(result) == 12
+
+    def test_f_score_in_0_9(self):
+        result = QualityMomentumComposite().compute(
+            _make_piotroski_financials(), _make_price_series()
+        )
+        valid = result["f_score"].dropna()
+        assert (valid >= 0).all() and (valid <= 9).all()
+
+    def test_momentum_rank_in_0_1(self):
+        result = QualityMomentumComposite().compute(
+            _make_piotroski_financials(), _make_price_series()
+        )
+        valid = result["momentum_rank"].dropna()
+        assert (valid >= 0.0).all() and (valid <= 1.0).all()
+
+    def test_binary_signal_columns(self):
+        result = QualityMomentumComposite().compute(
+            _make_piotroski_financials(), _make_price_series()
+        )
+        for col in ("qm_long_signal", "qm_short_signal"):
+            assert result[col].isin([0, 1]).all(), f"{col} has non-binary values"
+
+    def test_long_and_short_cannot_both_fire(self):
+        """When quality_long_threshold > quality_short_threshold, both cannot fire
+        at the same time for the same row."""
+        result = QualityMomentumComposite(
+            quality_long_threshold=7, quality_short_threshold=2
+        ).compute(_make_piotroski_financials(), _make_price_series())
+        both = (result["qm_long_signal"] == 1) & (result["qm_short_signal"] == 1)
+        assert not both.any()
+
+    def test_no_crash_with_short_price_series(self):
+        fin = _make_piotroski_financials(8)
+        short_prices = _make_price_series(n_days=100)
+        result = QualityMomentumComposite().compute(fin, short_prices)
+        assert isinstance(result, pd.DataFrame)
+
+
+# ---------------------------------------------------------------------------
+# EarningsMomentumComposite
+# ---------------------------------------------------------------------------
+
+
+def _make_em_earnings(n: int = 16, beat_all: bool = False) -> pd.DataFrame:
+    dates = pd.date_range("2020-01-01", periods=n, freq="QS")
+    np.random.seed(13)
+    consensus = 1.0 + np.random.randn(n) * 0.05
+    surprise_base = np.random.randn(n) * 0.05
+    if beat_all:
+        surprise_base = np.abs(surprise_base) + 0.1
+    actual = consensus + surprise_base
+    return pd.DataFrame({
+        "period_end": dates,
+        "actual_eps": actual,
+        "consensus_eps": consensus,
+    })
+
+
+class TestEarningsMomentumComposite:
+    def test_returns_dataframe(self):
+        result = EarningsMomentumComposite().compute(
+            _make_em_earnings(), _make_price_series()
+        )
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self):
+        result = EarningsMomentumComposite().compute(
+            _make_em_earnings(), _make_price_series()
+        )
+        for col in ("sue", "sue_signal", "price_momentum", "price_mom_zscore",
+                    "em_composite", "dual_confirmation", "em_long", "em_short"):
+            assert col in result.columns, f"missing: {col}"
+
+    def test_same_length_as_input(self):
+        df = _make_em_earnings(12)
+        result = EarningsMomentumComposite().compute(df, _make_price_series())
+        assert len(result) == 12
+
+    def test_sue_signal_clipped_to_minus1_1(self):
+        result = EarningsMomentumComposite().compute(
+            _make_em_earnings(), _make_price_series()
+        )
+        valid = result["sue_signal"].dropna()
+        assert (valid >= -1.0).all() and (valid <= 1.0).all()
+
+    def test_binary_signal_columns(self):
+        result = EarningsMomentumComposite().compute(
+            _make_em_earnings(), _make_price_series()
+        )
+        for col in ("dual_confirmation", "em_long", "em_short"):
+            assert result[col].isin([0, 1]).all()
+
+    def test_long_and_short_do_not_overlap(self):
+        result = EarningsMomentumComposite().compute(
+            _make_em_earnings(), _make_price_series()
+        )
+        both = (result["em_long"] == 1) & (result["em_short"] == 1)
+        assert not both.any()
+
+    def test_consistent_beats_give_positive_sue(self):
+        result = EarningsMomentumComposite().compute(
+            _make_em_earnings(beat_all=True), _make_price_series()
+        )
+        sue_valid = result["sue"].dropna()
+        # With consistent beats, the majority of SUE values should be positive
+        assert (sue_valid > 0).sum() > len(sue_valid) // 2
+
+    def test_no_crash_with_short_price_series(self):
+        df = _make_em_earnings(8)
+        short_prices = _make_price_series(n_days=50)
+        result = EarningsMomentumComposite().compute(df, short_prices)
+        assert isinstance(result, pd.DataFrame)

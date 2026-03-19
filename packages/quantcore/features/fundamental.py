@@ -6,14 +6,16 @@ as returned by FD.ai's financial statement endpoints. No network calls here.
 
 Factors
 -------
-SloanAccruals       – earnings quality; high accruals = mean reversion candidate
-NovyMarxGP          – gross profitability factor (Novy-Marx 2013)
-AssetGrowthAnomaly  – high asset growth → future underperformance
-FCFYield            – free cash flow yield (harder to manipulate than P/E)
-RevenueAcceleration – QoQ revenue acceleration = bullish EPS momentum signal
-OperatingLeverage   – DOL = %Δ EBITDA / %Δ Revenue; earnings convexity proxy
-PiotroskiFScore     – 9-point financial strength score (Piotroski 2000)
-BeneishMScore       – 8-variable accounting manipulation detection (Beneish 1999)
+SloanAccruals           – earnings quality; high accruals = mean reversion candidate
+NovyMarxGP              – gross profitability factor (Novy-Marx 2013)
+AssetGrowthAnomaly      – high asset growth → future underperformance
+FCFYield                – free cash flow yield (harder to manipulate than P/E)
+RevenueAcceleration     – QoQ revenue acceleration = bullish EPS momentum signal
+OperatingLeverage       – DOL = %Δ EBITDA / %Δ Revenue; earnings convexity proxy
+PiotroskiFScore         – 9-point financial strength score (Piotroski 2000)
+BeneishMScore           – 8-variable accounting manipulation detection (Beneish 1999)
+QualityMomentumComposite – Piotroski quality score × price momentum rank
+EarningsMomentumComposite – weighted SUE signal + price momentum (dual confirmation)
 """
 
 import numpy as np
@@ -523,4 +525,193 @@ class BeneishMScore:
             LVGI=lvgi,
             m_score=m_score,
             manipulation_risk=(m_score > -1.78).astype(int),
+        )
+
+
+class QualityMomentumComposite:
+    """
+    Quality × Momentum composite factor.
+
+    Combines Piotroski F-Score (accounting quality) with price momentum to
+    produce a single conviction score. Combined factor has lower drawdown than
+    either factor alone (Asness et al. 2013 — quality and momentum are negatively
+    correlated, so blending them diversifies).
+
+    Score = piotroski_score × price_momentum_rank
+      where price_momentum_rank ∈ [0, 1] is the percentile rank of
+      momentum_12m1m (12-month return minus most recent month) within the
+      cross-section, or a simple normalisation if only one symbol is present.
+
+    Columns returned
+    ----------------
+    piotroski_score   : int (0-9) — from PiotroskiFScore
+    price_momentum    : float     — 12m-1m return
+    momentum_rank     : float     — percentile rank of price_momentum (0-1)
+    quality_momentum  : float     — product score; higher = more conviction long
+    qm_long_signal    : int       — 1 if piotroski_score >= 7 AND momentum_rank >= 0.6
+    qm_short_signal   : int       — 1 if piotroski_score <= 2 AND momentum_rank <= 0.4
+    """
+
+    def __init__(self, quality_long_threshold: int = 7, quality_short_threshold: int = 2,
+                 momentum_long_pct: float = 0.6, momentum_short_pct: float = 0.4) -> None:
+        self.quality_long_threshold = quality_long_threshold
+        self.quality_short_threshold = quality_short_threshold
+        self.momentum_long_pct = momentum_long_pct
+        self.momentum_short_pct = momentum_short_pct
+
+    def compute(self, financials_df: pd.DataFrame, price_series: pd.Series) -> pd.DataFrame:
+        """
+        Parameters
+        ----------
+        financials_df : pd.DataFrame
+            Same schema as PiotroskiFScore.compute() — quarterly financial data
+            aligned on period_end.
+        price_series : pd.Series
+            Daily (or any frequency) closing prices with a DatetimeIndex.
+            Used to compute 12m-1m price momentum.
+
+        Returns
+        -------
+        pd.DataFrame indexed by period_end with quality-momentum signals.
+        """
+        # --- Piotroski quality score ---
+        f_df = PiotroskiFScore().compute(financials_df)
+
+        # --- Price momentum: 12m-1m return anchored to each period_end ---
+        prices = price_series.sort_index()
+        mom_values: list[float] = []
+        for period in f_df["period_end"]:
+            period = pd.Timestamp(period)
+            # 12m return: price at period_end vs price ~252 trading days prior
+            # 1m return: price at period_end vs price ~21 trading days prior
+            try:
+                p_now = prices.asof(period)
+                p_12m = prices.asof(period - pd.DateOffset(months=12))
+                p_1m = prices.asof(period - pd.DateOffset(months=1))
+                if pd.notna(p_now) and pd.notna(p_12m) and p_12m > 0 and pd.notna(p_1m) and p_1m > 0:
+                    mom = (p_now / p_12m - 1) - (p_now / p_1m - 1)
+                else:
+                    mom = np.nan
+            except Exception:
+                mom = np.nan
+            mom_values.append(mom)
+
+        mom_series = pd.Series(mom_values, index=f_df.index)
+        valid = mom_series.dropna()
+        # Rank within available history (percentile rank)
+        if len(valid) > 1:
+            rank_series = mom_series.rank(pct=True, na_option="keep")
+        else:
+            rank_series = pd.Series(0.5, index=f_df.index)
+
+        quality_momentum = f_df["f_score"] * rank_series
+
+        return f_df.assign(
+            price_momentum=mom_series,
+            momentum_rank=rank_series,
+            quality_momentum=quality_momentum,
+            qm_long_signal=(
+                (f_df["f_score"] >= self.quality_long_threshold) &
+                (rank_series >= self.momentum_long_pct)
+            ).astype(int),
+            qm_short_signal=(
+                (f_df["f_score"] <= self.quality_short_threshold) &
+                (rank_series <= self.momentum_short_pct)
+            ).astype(int),
+        )
+
+
+class EarningsMomentumComposite:
+    """
+    Earnings × Price Momentum dual-confirmation signal.
+
+    Combines Standardised Unexpected Earnings (SUE) with price momentum.
+    Both signals pointing in the same direction produces higher-conviction,
+    lower-turnover trades versus using either signal alone.
+
+    Combined score = alpha_sue × sue_signal + alpha_price × price_momentum_zscore
+      Default: alpha_sue=0.5, alpha_price=0.5
+
+    A positive score indicates both earnings and price momentum are favourable.
+    Dual confirmation is considered when both components have the same sign.
+
+    Columns returned
+    ----------------
+    sue              : float  — standardised unexpected earnings
+    sue_signal       : float  — normalised sue (z-score, clipped to [-3, 3])
+    price_momentum   : float  — 3-month price return
+    price_mom_zscore : float  — rolling z-score of price_momentum (window=12)
+    em_composite     : float  — alpha-weighted sum
+    dual_confirmation: int    — 1 when sue_signal and price_mom_zscore share sign
+    em_long          : int    — 1 when em_composite > long_threshold
+    em_short         : int    — 1 when em_composite < -long_threshold
+    """
+
+    def __init__(self, alpha_sue: float = 0.5, alpha_price: float = 0.5,
+                 long_threshold: float = 0.5, sue_window: int = 8) -> None:
+        self.alpha_sue = alpha_sue
+        self.alpha_price = alpha_price
+        self.long_threshold = long_threshold
+        self.sue_window = sue_window
+
+    def compute(self, earnings_df: pd.DataFrame, price_series: pd.Series) -> pd.DataFrame:
+        """
+        Parameters
+        ----------
+        earnings_df : pd.DataFrame
+            Must contain:
+            - period_end (datetime)   — fiscal period end
+            - actual_eps (float)      — reported EPS
+            - consensus_eps (float)   — analyst consensus estimate
+        price_series : pd.Series
+            Daily close prices with DatetimeIndex.
+
+        Returns
+        -------
+        pd.DataFrame indexed by period_end with earnings-momentum signals.
+        """
+        df = earnings_df.copy()
+        df["period_end"] = pd.to_datetime(df["period_end"])
+        df = df.sort_values("period_end").reset_index(drop=True)
+
+        # --- SUE: (actual - consensus) / rolling_std(surprises) ---
+        surprise = df["actual_eps"] - df["consensus_eps"]
+        rolling_std = surprise.rolling(self.sue_window, min_periods=2).std()
+        sue = surprise / rolling_std.replace(0, np.nan)
+        sue_signal = sue.clip(-3, 3) / 3.0  # normalise to [-1, 1]
+
+        # --- 3-month price momentum at each period_end ---
+        prices = price_series.sort_index()
+        mom_3m: list[float] = []
+        for period in df["period_end"]:
+            try:
+                p_now = prices.asof(pd.Timestamp(period))
+                p_3m = prices.asof(pd.Timestamp(period) - pd.DateOffset(months=3))
+                if pd.notna(p_now) and pd.notna(p_3m) and p_3m > 0:
+                    mom_3m.append(float(p_now / p_3m - 1))
+                else:
+                    mom_3m.append(np.nan)
+            except Exception:
+                mom_3m.append(np.nan)
+
+        mom_series = pd.Series(mom_3m, index=df.index)
+        mom_mean = mom_series.rolling(self.sue_window, min_periods=2).mean()
+        mom_std = mom_series.rolling(self.sue_window, min_periods=2).std()
+        mom_zscore = (mom_series - mom_mean) / mom_std.replace(0, np.nan)
+
+        composite = self.alpha_sue * sue_signal + self.alpha_price * mom_zscore
+        dual_confirmation = (
+            (sue_signal > 0) & (mom_zscore > 0) |
+            (sue_signal < 0) & (mom_zscore < 0)
+        ).astype(int)
+
+        return df.assign(
+            sue=sue,
+            sue_signal=sue_signal,
+            price_momentum=mom_series,
+            price_mom_zscore=mom_zscore,
+            em_composite=composite,
+            dual_confirmation=dual_confirmation,
+            em_long=(composite > self.long_threshold).astype(int),
+            em_short=(composite < -self.long_threshold).astype(int),
         )

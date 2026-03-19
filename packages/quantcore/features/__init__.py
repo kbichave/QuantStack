@@ -3,6 +3,15 @@
 from quantcore.features.base import FeatureBase
 from quantcore.features.factory import MultiTimeframeFeatureFactory
 from quantcore.features.market_structure import MarketStructureFeatures
+from quantcore.features.earnings_signals import AnalystRevisionSignals, EarningsSurpriseSignals
+from quantcore.features.fundamental import (
+    AssetGrowthAnomaly,
+    FCFYield,
+    NovyMarxGP,
+    OperatingLeverage,
+    RevenueAcceleration,
+    SloanAccruals,
+)
 from quantcore.features.microstructure import (
     AmihudIlliquidity,
     CorwinSchultzSpread,
@@ -41,6 +50,15 @@ __all__ = [
     # Volume / Market Structure
     "VolumeFeatures",
     "MarketStructureFeatures",
+    # Earnings / Fundamental (quantamental)
+    "EarningsSurpriseSignals",
+    "AnalystRevisionSignals",
+    "SloanAccruals",
+    "NovyMarxGP",
+    "AssetGrowthAnomaly",
+    "FCFYield",
+    "RevenueAcceleration",
+    "OperatingLeverage",
     # Microstructure (OHLCV-derived)
     "AmihudIlliquidity",
     "RollImpliedSpread",

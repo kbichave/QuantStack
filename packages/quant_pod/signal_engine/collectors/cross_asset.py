@@ -17,6 +17,7 @@ from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
+from quantcore.features.smart_money import SMTDivergence
 
 
 _MIN_BARS = 10  # need at least 5 + buffer for return computation
@@ -72,6 +73,28 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     result["cross_asset_regime"] = _classify_regime(
         spy_ret_5d, tlt_ret, gld_ret
     )
+
+    # --- SMT Divergence: symbol vs SPY (or SPY vs QQQ when symbol IS SPY) ---
+    try:
+        if symbol.upper() != "SPY":
+            sym_df = store.load_ohlcv(symbol, Timeframe.D1)
+        else:
+            sym_df = store.load_ohlcv("QQQ", Timeframe.D1)
+
+        if sym_df is not None and len(sym_df) >= 20 and len(spy_df) >= 20:
+            # Align on common index (inner join by position — both are daily)
+            n = min(len(sym_df), len(spy_df))
+            smt_df = SMTDivergence(swing_period=5).compute(
+                high_a=sym_df["high"].iloc[-n:].reset_index(drop=True),
+                low_a=sym_df["low"].iloc[-n:].reset_index(drop=True),
+                high_b=spy_df["high"].iloc[-n:].reset_index(drop=True),
+                low_b=spy_df["low"].iloc[-n:].reset_index(drop=True),
+            )
+            result["smt_bearish"] = int(smt_df["bearish_smt"].iloc[-1])
+            result["smt_bullish"] = int(smt_df["bullish_smt"].iloc[-1])
+            result["smt_strength"] = _safe_float(smt_df["smt_strength"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[cross_asset] {symbol}: SMTDivergence failed: {exc}")
 
     return result
 

@@ -102,7 +102,7 @@ def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 
     direction = "bullish" if prob > 0.55 else ("bearish" if prob < 0.45 else "neutral")
 
-    return {
+    result: dict[str, Any] = {
         "ml_prediction": round(prob, 4),
         "ml_direction": direction,
         "ml_confidence": round(abs(prob - 0.5) * 2, 4),
@@ -113,12 +113,53 @@ def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         "ml_model_age_days": getattr(training_result, "age_days", None),
     }
 
+    # --- Lorentzian KNN inference (if a pre-trained model file exists) ---
+    try:
+        lknn = _load_lorentzian_model(symbol)
+        if lknn is not None:
+            X_last = features_df.dropna(axis=1).iloc[[-1]]
+            lknn_prob = float(lknn.predict_proba(X_last)[0])
+            result["lknn_prediction"] = round(lknn_prob, 4)
+            result["lknn_direction"] = (
+                "bullish" if lknn_prob > 0.55 else ("bearish" if lknn_prob < 0.45 else "neutral")
+            )
+    except Exception as exc:
+        logger.debug(f"[ml_signal] {symbol}: LorentzianKNN inference failed: {exc}")
+
+    return result
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
 _MODEL_DIR = "models"  # relative to project data dir
+
+
+def _load_lorentzian_model(symbol: str) -> Any | None:
+    """Attempt to load a saved LorentzianKNN model for *symbol*.
+
+    Looks for ``models/{symbol}_lorentzian.joblib`` or ``.pkl``.
+    Returns None if no artifact exists (expected until the model is trained).
+    """
+    import pathlib
+
+    try:
+        import joblib
+    except ImportError:
+        import pickle as joblib  # type: ignore[no-redef]
+
+    candidates = [
+        pathlib.Path(_MODEL_DIR) / f"{symbol}_lorentzian.joblib",
+        pathlib.Path(_MODEL_DIR) / f"{symbol.lower()}_lorentzian.joblib",
+        pathlib.Path(_MODEL_DIR) / f"{symbol}_lorentzian.pkl",
+    ]
+
+    for path in candidates:
+        if path.exists():
+            return joblib.load(path)
+
+    return None
 
 
 def _load_latest_training_result(symbol: str) -> Any | None:

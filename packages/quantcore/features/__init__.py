@@ -41,6 +41,12 @@ from quantcore.features.smart_money import (
     SMTDivergence,
     StructureAnalysis,
 )
+from quantcore.features.alternative_data import (
+    BorrowRateSignals,
+    DarkPoolSignals,
+    EarningsTranscriptNLP,
+    ShortInterestSignals,
+)
 from quantcore.features.flow import CumulativeVolumeDelta, VPIN, HawkesIntensity
 from quantcore.features.koncorde import Koncorde
 from quantcore.features.rrg import RRGFeatures
@@ -124,6 +130,11 @@ __all__ = [
     "HawkesIntensity",
     # Koncorde composite
     "Koncorde",
+    # Alternative Data Framework Stubs
+    "DarkPoolSignals",
+    "BorrowRateSignals",
+    "ShortInterestSignals",
+    "EarningsTranscriptNLP",
     # Other
     "RRGFeatures",
     "WaveFeatures",

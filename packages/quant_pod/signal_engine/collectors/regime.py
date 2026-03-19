@@ -41,7 +41,7 @@ async def collect_regime(symbol: str, store: DataStore) -> dict[str, Any]:
 
 
 def _collect_regime_sync(symbol: str, store: DataStore) -> dict[str, Any]:
-    df = store.load_ohlcv(symbol, Timeframe.DAILY)
+    df = store.load_ohlcv(symbol, Timeframe.D1)
     if df is None or len(df) < _MIN_BARS:
         return {"trend_regime": "unknown", "volatility_regime": "normal", "confidence": 0.0}
 

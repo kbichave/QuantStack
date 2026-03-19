@@ -70,8 +70,8 @@ def _collect_statarb_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         return {}
 
     # Load OHLCV for both legs
-    df_a = store.load_ohlcv(symbol, Timeframe.DAILY)
-    df_b = store.load_ohlcv(pair, Timeframe.DAILY)
+    df_a = store.load_ohlcv(symbol, Timeframe.D1)
+    df_b = store.load_ohlcv(pair, Timeframe.D1)
 
     if df_a is None or df_b is None:
         return {}

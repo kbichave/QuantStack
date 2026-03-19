@@ -65,7 +65,7 @@ async def collect_sector(symbol: str, store: DataStore) -> dict[str, Any]:
 
 def _collect_sector_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     # SPY is the required baseline — without it, nothing is meaningful.
-    spy_df = store.load_ohlcv("SPY", Timeframe.DAILY)
+    spy_df = store.load_ohlcv("SPY", Timeframe.D1)
     if spy_df is None or len(spy_df) < _MIN_BARS:
         logger.debug("[sector] SPY data missing or insufficient — skipping")
         return {}
@@ -85,7 +85,7 @@ def _collect_sector_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 
     # Sector relative strength for the symbol's own sector
     if sector_etf:
-        etf_df = store.load_ohlcv(sector_etf, Timeframe.DAILY)
+        etf_df = store.load_ohlcv(sector_etf, Timeframe.D1)
         if etf_df is not None and len(etf_df) >= _MIN_BARS:
             etf_close = etf_df["close"].values
             etf_ret_5d = _return_nday(etf_close, 5)
@@ -108,7 +108,7 @@ def _collect_sector_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     positive_count = 0
     sector_returns_5d: dict[str, float | None] = {}
     for etf in SECTOR_ETFS:
-        etf_df = store.load_ohlcv(etf, Timeframe.DAILY)
+        etf_df = store.load_ohlcv(etf, Timeframe.D1)
         if etf_df is not None and len(etf_df) >= _MIN_BARS:
             ret = _return_nday(etf_df["close"].values, 5)
             sector_returns_5d[etf] = ret

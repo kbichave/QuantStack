@@ -5,17 +5,29 @@
 Volume collector — replaces structure_levels_ic.
 
 Computes volume profile in-process: identifies High Volume Nodes (HVN) and
-Low Volume Nodes (LVN) relative to current price. No network call.
+Low Volume Nodes (LVN) relative to current price. Also computes VPOC/VAH/VAL
+(Volume Point of Control + Value Area), Anchored VWAP from the recent swing
+low, and microstructure liquidity estimates (Amihud, Roll, Corwin-Schultz,
+realized variance decomposition, overnight gap persistence). No network call.
 """
 
 import asyncio
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
+from quantcore.features.microstructure import (
+    AmihudIlliquidity,
+    CorwinSchultzSpread,
+    OvernightGapPersistence,
+    RealizedVarianceDecomposition,
+    RollImpliedSpread,
+)
+from quantcore.features.volume import AnchoredVWAP, VolumePointOfControl
 
 _LOOKBACK_DAYS = 60   # volume profile window
 _MIN_BARS = 20
@@ -44,7 +56,7 @@ async def collect_volume(symbol: str, store: DataStore) -> dict[str, Any]:
 
 
 def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
-    df = store.load_ohlcv(symbol, Timeframe.DAILY)
+    df = store.load_ohlcv(symbol, Timeframe.D1)
     if df is None or len(df) < _MIN_BARS:
         return {}
 
@@ -99,7 +111,7 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     at_hvn = any(abs(p - current_price) / current_price <= proximity_pct for p in hvn_levels)
     at_lvn = any(abs(p - current_price) / current_price <= proximity_pct for p in lvn_levels)
 
-    return {
+    result: dict[str, Any] = {
         "vwap":              round(vwap, 4),
         "volume_trend":      volume_trend,
         "adv_20":            round(adv_20, 0),
@@ -109,3 +121,79 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         "lvn_levels":        [round(p, 4) for p in lvn_levels],
         "vol_confirms_move": float(df["volume"].iloc[-1]) > adv_20 * 1.5,
     }
+
+    # --- VPOC / VAH / VAL ---
+    try:
+        vpoc_df = VolumePointOfControl(lookback=_LOOKBACK_DAYS, n_bins=_N_BINS).compute(
+            df["high"], df["low"], df["close"], df["volume"]
+        )
+        result["vpoc"] = _sfloat(vpoc_df["vpoc"].iloc[-1])
+        result["vah"] = _sfloat(vpoc_df["vah"].iloc[-1])
+        result["val"] = _sfloat(vpoc_df["val"].iloc[-1])
+        result["price_in_value_area"] = int(vpoc_df["in_value_area"].iloc[-1])
+        result["price_above_vpoc"] = int(current_price > result["vpoc"]) if result["vpoc"] else None
+    except Exception as exc:
+        logger.debug(f"[volume] {symbol}: VPOC failed: {exc}")
+
+    # --- Anchored VWAP (anchored to the bar with the lowest close in the lookback window) ---
+    try:
+        anchor_pos = int(df["close"].values.argmin())
+        avwap_df = AnchoredVWAP(anchor=anchor_pos).compute(
+            df["high"], df["low"], df["close"], df["volume"]
+        )
+        result["avwap"] = _sfloat(avwap_df["avwap"].iloc[-1])
+        result["avwap_deviation"] = _sfloat(avwap_df["avwap_deviation"].iloc[-1])
+        result["above_avwap"] = int(avwap_df["above_avwap"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[volume] {symbol}: AnchoredVWAP failed: {exc}")
+
+    # --- Microstructure liquidity signals ---
+    try:
+        amihud_df = AmihudIlliquidity(period=22).compute(df["close"], df["volume"])
+        result["amihud"] = _sfloat(amihud_df["amihud"].iloc[-1])
+        result["amihud_zscore"] = _sfloat(amihud_df["amihud_zscore"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[volume] {symbol}: Amihud failed: {exc}")
+
+    try:
+        roll_df = RollImpliedSpread(period=22).compute(df["close"])
+        result["roll_spread_pct"] = _sfloat(roll_df["roll_spread_pct"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[volume] {symbol}: Roll spread failed: {exc}")
+
+    try:
+        cs_df = CorwinSchultzSpread(period=22).compute(df["high"], df["low"], df["close"])
+        result["cs_spread_pct"] = _sfloat(cs_df["cs_spread_pct"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[volume] {symbol}: Corwin-Schultz failed: {exc}")
+
+    if "open" in df.columns:
+        try:
+            rv_df = RealizedVarianceDecomposition(period=22).compute(
+                df["open"], df["high"], df["low"], df["close"]
+            )
+            result["rv_overnight_ratio"] = _sfloat(rv_df["overnight_var_ratio"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[volume] {symbol}: RV decomp failed: {exc}")
+
+        try:
+            gap_df = OvernightGapPersistence(min_gap_pct=0.2).compute(df["open"], df["close"])
+            result["gap_filled_pct"] = _sfloat(gap_df["gap_filled_pct"].iloc[-1])
+            result["gap_up"] = int(gap_df["gap_up"].iloc[-1])
+            result["gap_down"] = int(gap_df["gap_down"].iloc[-1])
+            result["gap_persisted"] = int(gap_df["gap_persisted"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[volume] {symbol}: Overnight gap failed: {exc}")
+
+    return result
+
+
+def _sfloat(v: Any) -> float | None:
+    """Return float or None — never NaN (breaks JSON serialisation)."""
+    if v is None:
+        return None
+    try:
+        f = float(v)
+        return None if (f != f) else round(f, 6)  # NaN check
+    except (TypeError, ValueError):
+        return None

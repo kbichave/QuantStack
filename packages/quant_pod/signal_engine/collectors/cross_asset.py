@@ -34,7 +34,7 @@ async def collect_cross_asset(symbol: str, store: DataStore) -> dict[str, Any]:
 
 def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     # SPY is the required baseline — without it we cannot compute anything.
-    spy_df = store.load_ohlcv("SPY", Timeframe.DAILY)
+    spy_df = store.load_ohlcv("SPY", Timeframe.D1)
     if spy_df is None or len(spy_df) < _MIN_BARS:
         logger.debug("[cross_asset] SPY data missing or insufficient — skipping")
         return {}
@@ -78,7 +78,7 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 
 def _load_return(store: DataStore, ticker: str, n: int) -> float | None:
     """Load OHLCV and compute n-day return. None if data unavailable."""
-    df = store.load_ohlcv(ticker, Timeframe.DAILY)
+    df = store.load_ohlcv(ticker, Timeframe.D1)
     if df is None or len(df) < n + 1:
         return None
     return _return_nday(df["close"].values, n)

@@ -71,14 +71,14 @@ def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         logger.debug("[ml_signal] quantcore.features not importable — skipping")
         return {}
 
-    daily_df = store.load_ohlcv(symbol, Timeframe.DAILY)
+    daily_df = store.load_ohlcv(symbol, Timeframe.D1)
     if daily_df is None or len(daily_df) < 60:
         return {}
 
     try:
-        ti = TechnicalIndicators(Timeframe.DAILY, enable_hilbert=False)
-        mf = MomentumFeatures(Timeframe.DAILY)
-        vf = VolatilityFeatures(Timeframe.DAILY)
+        ti = TechnicalIndicators(Timeframe.D1, enable_hilbert=False)
+        mf = MomentumFeatures(Timeframe.D1)
+        vf = VolatilityFeatures(Timeframe.D1)
 
         features_df = ti.compute(daily_df)
         features_df = mf.compute(features_df)

@@ -43,7 +43,7 @@ async def collect_risk(symbol: str, store: DataStore) -> dict[str, Any]:
 
 
 def _collect_risk_sync(symbol: str, store: DataStore) -> dict[str, Any]:
-    df = store.load_ohlcv(symbol, Timeframe.DAILY)
+    df = store.load_ohlcv(symbol, Timeframe.D1)
     if df is None or len(df) < _MIN_BARS:
         return {}
 

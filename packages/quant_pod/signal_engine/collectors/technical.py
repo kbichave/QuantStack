@@ -57,7 +57,7 @@ async def collect_technical(symbol: str, store: DataStore) -> dict[str, Any]:
 
 
 def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
-    daily_df = store.load_ohlcv(symbol, Timeframe.DAILY)
+    daily_df = store.load_ohlcv(symbol, Timeframe.D1)
     if daily_df is None or len(daily_df) < _MIN_DAILY_BARS:
         logger.warning(
             f"[technical] {symbol}: insufficient daily bars "
@@ -69,9 +69,9 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     daily_df = daily_df.iloc[-_DAILY_LOOKBACK:]
 
     # Run feature classes — each returns a DataFrame with indicators added as columns.
-    ti = TechnicalIndicators(Timeframe.DAILY, enable_hilbert=False)
-    mf = MomentumFeatures(Timeframe.DAILY)
-    vf = VolatilityFeatures(Timeframe.DAILY)
+    ti = TechnicalIndicators(Timeframe.D1, enable_hilbert=False)
+    mf = MomentumFeatures(Timeframe.D1)
+    vf = VolatilityFeatures(Timeframe.D1)
 
     df = ti.compute(daily_df)
     df = mf.compute(df)
@@ -260,9 +260,9 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             logger.debug(f"[technical] {symbol}: FootprintApproximation failed: {exc}")
 
     # Weekly MTF alignment
-    weekly_df = store.load_ohlcv(symbol, Timeframe.WEEKLY)
+    weekly_df = store.load_ohlcv(symbol, Timeframe.W1)
     if weekly_df is not None and len(weekly_df) >= _MIN_WEEKLY_BARS:
-        wti = TechnicalIndicators(Timeframe.WEEKLY, enable_hilbert=False)
+        wti = TechnicalIndicators(Timeframe.W1, enable_hilbert=False)
         wdf = wti.compute(weekly_df)
         wlast = wdf.iloc[-1].to_dict()
         result["weekly_rsi"] = _safe_float(wlast.get("rsi_14") or wlast.get("RSI"))

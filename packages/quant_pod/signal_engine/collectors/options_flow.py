@@ -67,6 +67,38 @@ def _bs_delta(spot: float, strike: float, dte_years: float, iv: float, r: float,
     return _norm_cdf(d1) - 1.0
 
 
+def _bs_charm(spot: float, strike: float, dte_years: float, iv: float, r: float, is_call: bool) -> float:
+    """dDelta/dt — rate of delta decay per unit time.
+
+    Charm = -phi(d1) × [2(r - q)t - d2 × iv × sqrt(t)] / (2t × iv × sqrt(t))
+    where phi is the standard normal PDF and q=0 (no dividend yield assumed).
+    Returned value is per-year; multiply by (dte_years / 365) for daily decay.
+    """
+    if dte_years <= 0 or iv <= 0 or spot <= 0 or strike <= 0:
+        return 0.0
+    sqt = math.sqrt(dte_years)
+    d1 = (math.log(spot / strike) + (r + 0.5 * iv**2) * dte_years) / (iv * sqt)
+    d2 = d1 - iv * sqt
+    phi_d1 = math.exp(-0.5 * d1**2) / math.sqrt(2 * math.pi)
+    charm_raw = -phi_d1 * (2 * r * dte_years - d2 * iv * sqt) / (2 * dte_years * iv * sqt)
+    return charm_raw if is_call else charm_raw
+
+
+def _bs_vanna(spot: float, strike: float, dte_years: float, iv: float, r: float) -> float:
+    """dDelta/dVol (= dVega/dSpot).
+
+    Vanna = -phi(d1) × d2 / iv
+    Sign: negative vanna means delta rises when vol rises (typical for OTM puts).
+    """
+    if dte_years <= 0 or iv <= 0 or spot <= 0 or strike <= 0:
+        return 0.0
+    sqt = math.sqrt(dte_years)
+    d1 = (math.log(spot / strike) + (r + 0.5 * iv**2) * dte_years) / (iv * sqt)
+    d2 = d1 - iv * sqt
+    phi_d1 = math.exp(-0.5 * d1**2) / math.sqrt(2 * math.pi)
+    return -phi_d1 * d2 / iv
+
+
 # ---------------------------------------------------------------------------
 # Core signal computation
 # ---------------------------------------------------------------------------
@@ -96,7 +128,22 @@ def compute_options_flow_signals(
     Returns
     -------
     dict with keys: gex, gamma_flip, above_gamma_flip, dex, max_pain,
-                    iv_skew, vrp, n_contracts, call_oi, put_oi
+                    iv_skew, vrp, charm, vanna, ehd, os_ratio, avemoney,
+                    n_contracts, call_oi, put_oi
+
+    Definitions
+    -----------
+    charm    : Aggregate dDelta/dt × OI (scaled). Near-expiry positions decay
+               fastest; large charm predicts mechanical delta re-hedging into close.
+    vanna    : Aggregate dDelta/dVol × OI (scaled). When vol rises, vanna forces
+               dealers to buy (negative vanna) or sell (positive vanna) the underlying.
+    ehd      : Expected Hedging Demand = Σ |delta × OI × 100|. Larger EHD indicates
+               more mechanical hedging activity from the options book.
+    os_ratio : Options volume / total OI proxy (call_vol + put_vol) / (call_oi + put_oi).
+               High ratio = elevated options activity relative to open interest (informed
+               flow signal).
+    avemoney : Dollar-volume-weighted average moneyness = Σ(volume × (strike/spot)) /
+               Σ(volume). >1 = call-skewed activity; <1 = put-skewed.
     """
     result: dict[str, Any] = {
         "gex": None,
@@ -106,6 +153,11 @@ def compute_options_flow_signals(
         "max_pain": None,
         "iv_skew": None,
         "vrp": None,
+        "charm": None,
+        "vanna": None,
+        "ehd": None,
+        "os_ratio": None,
+        "avemoney": None,
         "n_contracts": len(contracts),
         "call_oi": None,
         "put_oi": None,
@@ -132,6 +184,12 @@ def compute_options_flow_signals(
     net_gex_by_strike: dict[float, float] = {}
     net_dex_total = 0.0
     gex_total = 0.0
+    charm_total = 0.0
+    vanna_total = 0.0
+    ehd_total = 0.0
+    # For O/S ratio and AveMoney
+    total_volume = 0.0
+    volume_weighted_moneyness = 0.0
 
     for c in valid:
         strike = c["strike"]
@@ -175,6 +233,24 @@ def compute_options_flow_signals(
         if delta is not None and oi is not None:
             sign = 1 if is_call else -1
             net_dex_total += sign * delta * oi * 100
+            # EHD: |delta| × OI × 100 — mechanical hedging demand regardless of direction
+            ehd_total += abs(delta) * oi * 100
+
+        if iv is not None and dte_years > 0:
+            charm_val = _bs_charm(spot, strike, dte_years, iv, r, is_call)
+            vanna_val = _bs_vanna(spot, strike, dte_years, iv, r)
+            contract_multiplier = 100
+            # Charm: dealer perspective — short calls (positive charm) means delta falls
+            sign_charm = 1 if is_call else -1
+            charm_total += sign_charm * charm_val * oi * contract_multiplier
+            vanna_total += vanna_val * oi * contract_multiplier
+
+        # O/S ratio and AveMoney from volume if available
+        vol = c.get("volume") or 0.0
+        if vol > 0 and spot > 0:
+            moneyness = (c["strike"] / spot)
+            total_volume += vol
+            volume_weighted_moneyness += vol * moneyness
 
     if net_gex_by_strike:
         result["gex"] = round(gex_total, 0)
@@ -261,6 +337,29 @@ def compute_options_flow_signals(
         if atm_calls:
             atm_iv = atm_calls[0]["implied_volatility"]
             result["vrp"] = round(atm_iv - realized_vol_30d, 4)
+
+    # -----------------------------------------------------------------------
+    # Charm, Vanna, EHD
+    # -----------------------------------------------------------------------
+    if charm_total != 0.0:
+        result["charm"] = round(charm_total, 2)
+    if vanna_total != 0.0:
+        result["vanna"] = round(vanna_total, 2)
+    if ehd_total > 0.0:
+        result["ehd"] = round(ehd_total, 0)
+
+    # -----------------------------------------------------------------------
+    # O/S ratio (options activity / open interest proxy)
+    # -----------------------------------------------------------------------
+    total_oi = (result["call_oi"] or 0) + (result["put_oi"] or 0)
+    if total_volume > 0 and total_oi > 0:
+        result["os_ratio"] = round(total_volume / total_oi, 4)
+
+    # -----------------------------------------------------------------------
+    # AveMoney: dollar-volume-weighted average moneyness
+    # -----------------------------------------------------------------------
+    if total_volume > 0:
+        result["avemoney"] = round(volume_weighted_moneyness / total_volume, 4)
 
     return result
 

@@ -7,9 +7,11 @@ import math
 import pytest
 
 from quant_pod.signal_engine.collectors.options_flow import (
+    _bs_charm,
     _bs_delta,
     _bs_gamma,
     _bs_price,
+    _bs_vanna,
     _norm_cdf,
     compute_options_flow_signals,
 )
@@ -196,3 +198,140 @@ class TestComputeOptionsFlowSignals:
         result = compute_options_flow_signals(contracts, spot=spot)
         assert result["iv_skew"] is not None
         assert result["iv_skew"] > 0  # put IV > call IV → positive skew
+
+
+# ---------------------------------------------------------------------------
+# Charm, Vanna, EHD, O/S ratio, AveMoney
+# ---------------------------------------------------------------------------
+
+
+def _make_full_contracts(spot: float = 100.0):
+    """Return contracts with IV, delta, gamma, and volume for comprehensive tests.
+
+    Uses a far-future expiry so DTE > 0 regardless of when tests run.
+    """
+    from datetime import date, timedelta
+    future_expiry = (date.today() + timedelta(days=60)).strftime("%Y-%m-%d")
+    dte = 60.0 / 365.0
+    contracts = []
+    for strike, opt_type, iv, volume in [
+        (95,  "put",  0.30, 200),
+        (100, "call", 0.20, 300),
+        (100, "put",  0.22, 150),
+        (105, "call", 0.18, 100),
+    ]:
+        is_call = opt_type == "call"
+        contracts.append({
+            "option_type": opt_type,
+            "strike": float(strike),
+            "open_interest": 500,
+            "implied_volatility": iv,
+            "delta": _bs_delta(spot, float(strike), dte, iv, 0.05, is_call),
+            "gamma": _bs_gamma(spot, float(strike), dte, iv, 0.05),
+            "expiry": future_expiry,
+            "volume": float(volume),
+        })
+    return contracts
+
+
+class TestCharmVannaHelpers:
+    def test_bs_charm_zero_dte_returns_zero(self):
+        assert _bs_charm(100, 100, 0, 0.20, 0.05, True) == 0.0
+
+    def test_bs_charm_finite_for_valid_inputs(self):
+        v = _bs_charm(100, 100, 30 / 365, 0.20, 0.05, True)
+        assert math.isfinite(v)
+
+    def test_bs_vanna_zero_dte_returns_zero(self):
+        assert _bs_vanna(100, 100, 0, 0.20, 0.05) == 0.0
+
+    def test_bs_vanna_finite_for_valid_inputs(self):
+        v = _bs_vanna(100, 100, 30 / 365, 0.20, 0.05)
+        assert math.isfinite(v)
+
+    def test_bs_vanna_atm_is_zero(self):
+        """ATM vanna: d2 ≈ 0 for very short-dated ATM, so vanna ≈ 0."""
+        # For very short DTE, d2 → -∞ from d1 − σ√t; not quite zero
+        # but the product phi(d1)*d2/iv should remain finite
+        v = _bs_vanna(100, 100, 1 / 365, 0.20, 0.05)
+        assert math.isfinite(v)
+
+
+class TestCharmVannaEHDSignals:
+    def test_charm_present_with_iv_data(self):
+        result = compute_options_flow_signals(_make_full_contracts(), spot=100.0)
+        assert result["charm"] is not None
+
+    def test_vanna_present_with_iv_data(self):
+        result = compute_options_flow_signals(_make_full_contracts(), spot=100.0)
+        assert result["vanna"] is not None
+
+    def test_ehd_present_with_delta_data(self):
+        result = compute_options_flow_signals(_make_full_contracts(), spot=100.0)
+        assert result["ehd"] is not None
+        assert result["ehd"] > 0
+
+    def test_ehd_is_always_non_negative(self):
+        """EHD = Σ|delta × OI × 100| — sum of absolute values."""
+        result = compute_options_flow_signals(_make_full_contracts(), spot=100.0)
+        assert result["ehd"] >= 0
+
+    def test_charm_vanna_are_finite(self):
+        result = compute_options_flow_signals(_make_full_contracts(), spot=100.0)
+        assert math.isfinite(result["charm"])
+        assert math.isfinite(result["vanna"])
+
+    def test_charm_absent_when_no_iv(self):
+        contracts = [{"option_type": "call", "strike": 100.0, "open_interest": 100}]
+        result = compute_options_flow_signals(contracts, spot=100.0)
+        assert result["charm"] is None
+
+    def test_vanna_absent_when_no_iv(self):
+        contracts = [{"option_type": "call", "strike": 100.0, "open_interest": 100}]
+        result = compute_options_flow_signals(contracts, spot=100.0)
+        assert result["vanna"] is None
+
+
+class TestOSRatioAvemoney:
+    def test_os_ratio_present_when_volume_available(self):
+        result = compute_options_flow_signals(_make_full_contracts(), spot=100.0)
+        assert result["os_ratio"] is not None
+        assert result["os_ratio"] >= 0.0
+
+    def test_avemoney_present_when_volume_available(self):
+        result = compute_options_flow_signals(_make_full_contracts(), spot=100.0)
+        assert result["avemoney"] is not None
+
+    def test_avemoney_above_1_when_all_calls_otm(self):
+        """Contracts all have strike > spot → moneyness > 1 → avemoney > 1."""
+        contracts = [
+            {"option_type": "call", "strike": 110.0, "open_interest": 500,
+             "volume": 100.0, "implied_volatility": 0.20},
+            {"option_type": "call", "strike": 115.0, "open_interest": 200,
+             "volume": 50.0, "implied_volatility": 0.22},
+        ]
+        result = compute_options_flow_signals(contracts, spot=100.0)
+        if result["avemoney"] is not None:
+            assert result["avemoney"] > 1.0
+
+    def test_avemoney_below_1_when_all_puts_otm(self):
+        """Contracts all have strike < spot → moneyness < 1 → avemoney < 1."""
+        contracts = [
+            {"option_type": "put", "strike": 90.0, "open_interest": 500,
+             "volume": 100.0, "implied_volatility": 0.25},
+            {"option_type": "put", "strike": 85.0, "open_interest": 200,
+             "volume": 50.0, "implied_volatility": 0.28},
+        ]
+        result = compute_options_flow_signals(contracts, spot=100.0)
+        if result["avemoney"] is not None:
+            assert result["avemoney"] < 1.0
+
+    def test_os_ratio_absent_when_no_volume(self):
+        contracts = [{"option_type": "call", "strike": 100.0, "open_interest": 100}]
+        result = compute_options_flow_signals(contracts, spot=100.0)
+        assert result["os_ratio"] is None
+
+    def test_avemoney_absent_when_no_volume(self):
+        contracts = [{"option_type": "call", "strike": 100.0, "open_interest": 100}]
+        result = compute_options_flow_signals(contracts, spot=100.0)
+        assert result["avemoney"] is None

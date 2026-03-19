@@ -42,6 +42,7 @@ from quantcore.features.smart_money import (
     StructureAnalysis,
 )
 from quantcore.features.flow import CumulativeVolumeDelta, VPIN, HawkesIntensity
+from quantcore.features.koncorde import Koncorde
 from quantcore.features.rrg import RRGFeatures
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator, TrendFeatures
 from quantcore.features.volatility import VolatilityFeatures, WilliamsVIXFix
@@ -121,6 +122,8 @@ __all__ = [
     "CumulativeVolumeDelta",
     "VPIN",
     "HawkesIntensity",
+    # Koncorde composite
+    "Koncorde",
     # Other
     "RRGFeatures",
     "WaveFeatures",

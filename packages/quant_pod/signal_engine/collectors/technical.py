@@ -18,9 +18,10 @@ from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
-from quantcore.features.momentum import MomentumFeatures
+from quantcore.features.momentum import MomentumFeatures, PercentRExhaustion
 from quantcore.features.technical_indicators import TechnicalIndicators
-from quantcore.features.volatility import VolatilityFeatures
+from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator
+from quantcore.features.volatility import VolatilityFeatures, WilliamsVIXFix
 
 # Minimum bars required — indicators need lookback; 252 = 1 year daily, 60 = ~1 year weekly.
 _MIN_DAILY_BARS = 60
@@ -65,6 +66,53 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 
     last = df.iloc[-1].to_dict()
     result = _extract_key_indicators(last)
+
+    # Phase 1 advanced indicators — computed on the full daily window.
+    # These are standalone (not FeatureBase subclasses) so we call them directly
+    # and extract the last-row value.
+    hi, lo, cl = df["high"], df["low"], df["close"]
+
+    try:
+        st_df = SupertrendIndicator(atr_length=10, multiplier=3.0).compute(hi, lo, cl)
+        result["supertrend"] = _safe_float(st_df["supertrend"].iloc[-1])
+        result["st_direction"] = int(st_df["st_direction"].iloc[-1])
+        result["st_uptrend"] = bool(st_df["st_uptrend"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Supertrend failed: {exc}")
+
+    try:
+        ichi_df = IchimokuCloud().compute(hi, lo, cl)
+        result["tenkan_sen"] = _safe_float(ichi_df["tenkan_sen"].iloc[-1])
+        result["kijun_sen"] = _safe_float(ichi_df["kijun_sen"].iloc[-1])
+        result["cloud_bullish"] = int(ichi_df["cloud_bullish"].iloc[-1])
+        result["price_above_cloud"] = int(ichi_df["price_above_cloud"].iloc[-1])
+        result["price_below_cloud"] = int(ichi_df["price_below_cloud"].iloc[-1])
+        result["tenkan_above_kijun"] = int(ichi_df["tenkan_above_kijun"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Ichimoku failed: {exc}")
+
+    try:
+        hma_df = HullMovingAverage(period=20).compute(cl)
+        result["hma"] = _safe_float(hma_df["hma"].iloc[-1])
+        result["hma_uptrend"] = int(hma_df["hma_uptrend"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: HMA failed: {exc}")
+
+    try:
+        pct_r_df = PercentRExhaustion(short=14, long=112).compute(hi, lo, cl)
+        result["pct_r_short"] = _safe_float(pct_r_df["pct_r_short"].iloc[-1])
+        result["pct_r_long"] = _safe_float(pct_r_df["pct_r_long"].iloc[-1])
+        result["exhaustion_top"] = int(pct_r_df["exhaustion_top"].iloc[-1])
+        result["exhaustion_bottom"] = int(pct_r_df["exhaustion_bottom"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: %R Exhaustion failed: {exc}")
+
+    try:
+        wvf_df = WilliamsVIXFix(lookback=22, bb_period=20, bb_dev=2.0).compute(hi, lo, cl)
+        result["wvf"] = _safe_float(wvf_df["wvf"].iloc[-1])
+        result["wvf_extreme"] = int(wvf_df["wvf_extreme"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Williams VIX Fix failed: {exc}")
 
     # Weekly MTF alignment
     weekly_df = store.load_ohlcv(symbol, Timeframe.WEEKLY)

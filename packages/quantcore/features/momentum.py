@@ -259,3 +259,83 @@ class MomentumFeatures(FeatureBase):
             "rsi_roc",
             "momentum_score",
         ]
+
+
+# ---------------------------------------------------------------------------
+# %R Trend Exhaustion (dual-period)
+# ---------------------------------------------------------------------------
+
+
+class PercentRExhaustion:
+    """
+    Dual-period Williams %R exhaustion detector.
+
+    Fires when both a short-period and a long-period %R simultaneously
+    enter overbought or oversold territory. Simultaneous extremes across
+    timeframes indicate trend exhaustion — a counter-trend signal.
+
+    Parameters
+    ----------
+    short : int
+        Short lookback (default 14, ~3 weeks daily, ~14 bars hourly).
+    long : int
+        Long lookback (default 112, ~22 weeks daily — equivalent to a
+        traditional 20-week cycle period).
+    ob_threshold : float
+        Overbought threshold in %R space. %R > ob_threshold (closer to 0)
+        signals overbought. Default -20.
+    os_threshold : float
+        Oversold threshold. %R < os_threshold (closer to -100) signals
+        oversold. Default -80.
+    """
+
+    def __init__(
+        self,
+        short: int = 14,
+        long: int = 112,
+        ob_threshold: float = -20.0,
+        os_threshold: float = -80.0,
+    ) -> None:
+        self.short = short
+        self.long = long
+        self.ob_threshold = ob_threshold
+        self.os_threshold = os_threshold
+
+    @staticmethod
+    def _williams_r(high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
+        highest_high = high.rolling(window=period).max()
+        lowest_low = low.rolling(window=period).min()
+        range_val = (highest_high - lowest_low).replace(0, np.nan)
+        return ((highest_high - close) / range_val) * -100
+
+    def compute(self, high: pd.Series, low: pd.Series, close: pd.Series) -> pd.DataFrame:
+        """
+        Compute dual-period %R and exhaustion signals.
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            pct_r_short      – Williams %R at short period
+            pct_r_long       – Williams %R at long period
+            exhaustion_top   – 1 when both periods overbought (trend top)
+            exhaustion_bottom– 1 when both periods oversold (trend bottom)
+        """
+        r_short = self._williams_r(high, low, close, self.short)
+        r_long = self._williams_r(high, low, close, self.long)
+
+        exhaustion_top = (
+            (r_short > self.ob_threshold) & (r_long > self.ob_threshold)
+        ).astype(int)
+        exhaustion_bottom = (
+            (r_short < self.os_threshold) & (r_long < self.os_threshold)
+        ).astype(int)
+
+        return pd.DataFrame(
+            {
+                "pct_r_short": r_short,
+                "pct_r_long": r_long,
+                "exhaustion_top": exhaustion_top,
+                "exhaustion_bottom": exhaustion_bottom,
+            },
+            index=close.index,
+        )

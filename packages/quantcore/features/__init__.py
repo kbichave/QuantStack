@@ -3,10 +3,10 @@
 from quantcore.features.base import FeatureBase
 from quantcore.features.factory import MultiTimeframeFeatureFactory
 from quantcore.features.market_structure import MarketStructureFeatures
-from quantcore.features.momentum import MomentumFeatures
+from quantcore.features.momentum import MomentumFeatures, PercentRExhaustion
 from quantcore.features.rrg import RRGFeatures
-from quantcore.features.trend import TrendFeatures
-from quantcore.features.volatility import VolatilityFeatures
+from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator, TrendFeatures
+from quantcore.features.volatility import VolatilityFeatures, WilliamsVIXFix
 from quantcore.features.volume import VolumeFeatures
 from quantcore.features.waves import (
     SwingDetector,
@@ -19,8 +19,13 @@ from quantcore.features.waves import (
 __all__ = [
     "FeatureBase",
     "TrendFeatures",
+    "SupertrendIndicator",
+    "IchimokuCloud",
+    "HullMovingAverage",
     "MomentumFeatures",
+    "PercentRExhaustion",
     "VolatilityFeatures",
+    "WilliamsVIXFix",
     "VolumeFeatures",
     "MarketStructureFeatures",
     "RRGFeatures",

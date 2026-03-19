@@ -209,3 +209,77 @@ class VolatilityFeatures(FeatureBase):
             "range_ma",
             "range_expansion",
         ]
+
+
+# ---------------------------------------------------------------------------
+# Williams VIX Fix (CM_Williams_Vix_Fix)
+# ---------------------------------------------------------------------------
+
+
+class WilliamsVIXFix:
+    """
+    Synthetic VIX proxy from OHLCV data (no options required).
+
+    Algorithm
+    ---------
+    wvf = (rolling_max(close, lookback) - current_low) / rolling_max(close, lookback) * 100
+
+    This measures how far the current low is from the recent peak close —
+    a proxy for fear/downside vol. When wvf spikes above its own Bollinger
+    upper band, it signals an extreme vol expansion event (potential bottom).
+
+    Parameters
+    ----------
+    lookback : int
+        Period for the rolling maximum of close. Default 22 (~1 month).
+    bb_period : int
+        Period for the Bollinger Band on wvf itself. Default 20.
+    bb_dev : float
+        Number of standard deviations for Bollinger Band. Default 2.0.
+    """
+
+    def __init__(self, lookback: int = 22, bb_period: int = 20, bb_dev: float = 2.0) -> None:
+        self.lookback = lookback
+        self.bb_period = bb_period
+        self.bb_dev = bb_dev
+
+    def compute(self, high: pd.Series, low: pd.Series, close: pd.Series) -> pd.DataFrame:
+        """
+        Compute Williams VIX Fix and derived signals.
+
+        Parameters
+        ----------
+        high, low, close : pd.Series
+            OHLCV price series with a shared DatetimeIndex.
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            wvf          – Williams VIX Fix value (0-100)
+            wvf_bb_upper – Upper Bollinger Band on wvf
+            wvf_bb_lower – Lower Bollinger Band on wvf
+            wvf_extreme  – 1 when wvf is above its upper Bollinger Band
+                           (vol expansion extreme = potential reversal bottom)
+        """
+        highest_close = close.rolling(window=self.lookback).max()
+        # Guard against zero denominator at start of series
+        highest_close_safe = highest_close.replace(0, np.nan)
+
+        wvf = (highest_close_safe - low) / highest_close_safe * 100
+
+        bb_mid = wvf.rolling(window=self.bb_period).mean()
+        bb_std = wvf.rolling(window=self.bb_period).std()
+        bb_upper = bb_mid + self.bb_dev * bb_std
+        bb_lower = bb_mid - self.bb_dev * bb_std
+
+        wvf_extreme = (wvf >= bb_upper).astype(int)
+
+        return pd.DataFrame(
+            {
+                "wvf": wvf,
+                "wvf_bb_upper": bb_upper,
+                "wvf_bb_lower": bb_lower,
+                "wvf_extreme": wvf_extreme,
+            },
+            index=close.index,
+        )

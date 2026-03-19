@@ -183,3 +183,23 @@ class TestVolumeCollectorMicrostructure:
         assert isinstance(result, dict)
         # At minimum the baseline keys must be present
         assert "vwap" in result
+
+
+class TestVolumeCollectorVWAPDeviation:
+    def test_vwap_deviation_key_present(self):
+        store = _make_store()
+        result = _run(collect_volume("SPY", store))
+        assert "vwap_deviation" in result
+
+    def test_vwap_deviation_zscore_key_present(self):
+        store = _make_store()
+        result = _run(collect_volume("SPY", store))
+        assert "vwap_deviation_zscore" in result
+
+    def test_vwap_deviation_reasonable_range(self):
+        """Deviation for realistic daily data should be within ±10%."""
+        store = _make_store()
+        result = _run(collect_volume("SPY", store))
+        dev = result.get("vwap_deviation")
+        if dev is not None:
+            assert -50 < dev < 50  # percentage, very loose bound

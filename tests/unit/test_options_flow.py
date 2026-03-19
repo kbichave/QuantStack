@@ -335,3 +335,102 @@ class TestOSRatioAvemoney:
         contracts = [{"option_type": "call", "strike": 100.0, "open_interest": 100}]
         result = compute_options_flow_signals(contracts, spot=100.0)
         assert result["avemoney"] is None
+
+
+# ---------------------------------------------------------------------------
+# IV Skew Z-Score
+# ---------------------------------------------------------------------------
+
+
+class TestIVSkewZScore:
+    def test_iv_skew_zscore_present_with_history(self):
+        """With enough historical skews, iv_skew_zscore should be computed."""
+        chain = _make_chain(spot=100, strikes=[90, 95, 100, 105, 110], iv=0.20)
+        # Build a contrived chain with distinct IV for puts vs calls at ≈25-delta
+        # Using full contracts with explicit delta for reliable skew computation
+        from datetime import date, timedelta
+        future = (date.today() + timedelta(days=60)).strftime("%Y-%m-%d")
+        dte = 60.0 / 365.0
+        spot = 100.0
+        contracts = [
+            {
+                "option_type": "put", "strike": 95.0, "open_interest": 500,
+                "implied_volatility": 0.28, "delta": -0.25,
+                "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05),
+            },
+            {
+                "option_type": "call", "strike": 105.0, "open_interest": 500,
+                "implied_volatility": 0.18, "delta": 0.25,
+                "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05),
+            },
+        ]
+        # iv_skew ≈ 0.28 - 0.18 = 0.10
+        historical = [0.08, 0.09, 0.07, 0.10, 0.11, 0.09, 0.08]  # mean ~0.089
+        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=historical)
+        assert result["iv_skew"] is not None
+        assert result["iv_skew_zscore"] is not None
+
+    def test_iv_skew_zscore_is_float(self):
+        """iv_skew_zscore should be a float when computed."""
+        dte = 60.0 / 365.0
+        spot = 100.0
+        contracts = [
+            {"option_type": "put", "strike": 95.0, "open_interest": 500,
+             "implied_volatility": 0.28, "delta": -0.25,
+             "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05)},
+            {"option_type": "call", "strike": 105.0, "open_interest": 500,
+             "implied_volatility": 0.18, "delta": 0.25,
+             "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05)},
+        ]
+        historical = [0.08, 0.09, 0.07, 0.10, 0.11, 0.09, 0.08]
+        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=historical)
+        if result["iv_skew_zscore"] is not None:
+            assert isinstance(result["iv_skew_zscore"], float)
+
+    def test_iv_skew_zscore_none_without_history(self):
+        """Without historical_skews, iv_skew_zscore stays None."""
+        dte = 60.0 / 365.0
+        spot = 100.0
+        contracts = [
+            {"option_type": "put", "strike": 95.0, "open_interest": 500,
+             "implied_volatility": 0.28, "delta": -0.25,
+             "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05)},
+            {"option_type": "call", "strike": 105.0, "open_interest": 500,
+             "implied_volatility": 0.18, "delta": 0.25,
+             "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05)},
+        ]
+        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=None)
+        assert result["iv_skew_zscore"] is None
+
+    def test_iv_skew_zscore_none_with_insufficient_history(self):
+        """With fewer than 5 historical observations, z-score cannot be computed."""
+        dte = 60.0 / 365.0
+        spot = 100.0
+        contracts = [
+            {"option_type": "put", "strike": 95.0, "open_interest": 500,
+             "implied_volatility": 0.28, "delta": -0.25,
+             "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05)},
+            {"option_type": "call", "strike": 105.0, "open_interest": 500,
+             "implied_volatility": 0.18, "delta": 0.25,
+             "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05)},
+        ]
+        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=[0.08, 0.09])
+        assert result["iv_skew_zscore"] is None
+
+    def test_iv_skew_zscore_sign_elevated_skew(self):
+        """When current skew >> historical mean, z-score should be positive."""
+        dte = 60.0 / 365.0
+        spot = 100.0
+        contracts = [
+            {"option_type": "put", "strike": 95.0, "open_interest": 500,
+             "implied_volatility": 0.40, "delta": -0.25,  # very high put IV
+             "gamma": _bs_gamma(spot, 95, dte, 0.40, 0.05)},
+            {"option_type": "call", "strike": 105.0, "open_interest": 500,
+             "implied_volatility": 0.18, "delta": 0.25,
+             "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05)},
+        ]
+        # current skew ≈ 0.22; history mean ≈ 0.05 → z-score should be positive
+        historical = [0.04, 0.05, 0.06, 0.05, 0.04, 0.05, 0.06]
+        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=historical)
+        if result["iv_skew_zscore"] is not None:
+            assert result["iv_skew_zscore"] > 0

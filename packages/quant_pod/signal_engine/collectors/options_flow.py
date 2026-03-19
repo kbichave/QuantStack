@@ -109,6 +109,7 @@ def compute_options_flow_signals(
     spot: float,
     realized_vol_30d: float | None = None,
     r: float = 0.05,
+    historical_skews: list[float] | None = None,
 ) -> dict[str, Any]:
     """
     Compute dealer-positioning signals from a list of options contracts.
@@ -124,12 +125,17 @@ def compute_options_flow_signals(
         30-day realised vol annualised (e.g. 0.18 = 18%). Used for VRP.
     r : float
         Risk-free rate. Default 5%.
+    historical_skews : list[float] | None
+        Historical iv_skew observations (same units as iv_skew output, i.e.
+        annualised IV decimal). Used to compute iv_skew_zscore — the current
+        skew relative to its recent history. Minimum 5 observations required.
+        Typically a rolling 30-day window of daily iv_skew snapshots.
 
     Returns
     -------
     dict with keys: gex, gamma_flip, above_gamma_flip, dex, max_pain,
-                    iv_skew, vrp, charm, vanna, ehd, os_ratio, avemoney,
-                    n_contracts, call_oi, put_oi
+                    iv_skew, iv_skew_zscore, vrp, charm, vanna, ehd,
+                    os_ratio, avemoney, n_contracts, call_oi, put_oi
 
     Definitions
     -----------
@@ -152,6 +158,7 @@ def compute_options_flow_signals(
         "dex": None,
         "max_pain": None,
         "iv_skew": None,
+        "iv_skew_zscore": None,
         "vrp": None,
         "charm": None,
         "vanna": None,
@@ -324,6 +331,20 @@ def compute_options_flow_signals(
         result["iv_skew"] = round(
             sum(put_ivs_otm) / len(put_ivs_otm) - sum(call_ivs_otm) / len(call_ivs_otm), 4
         )
+
+    # IV Skew z-score vs. historical window
+    # Elevated z-score = skew unusually steep (hedging demand surge or tail fear)
+    # Depressed z-score = skew unusually flat (complacency signal)
+    if (
+        result["iv_skew"] is not None
+        and historical_skews is not None
+        and len(historical_skews) >= 5
+    ):
+        import statistics
+        hist_mean = statistics.mean(historical_skews)
+        hist_std = statistics.stdev(historical_skews)
+        if hist_std > 0:
+            result["iv_skew_zscore"] = round((result["iv_skew"] - hist_mean) / hist_std, 3)
 
     # -----------------------------------------------------------------------
     # VRP: ATM IV minus realised vol

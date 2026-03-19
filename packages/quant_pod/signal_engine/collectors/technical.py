@@ -32,6 +32,7 @@ from quantcore.features.smart_money import (
     OTELevels,
     StructureAnalysis,
 )
+from quantcore.features.rates import DualMomentum
 from quantcore.features.technical_indicators import TechnicalIndicators
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator
 from quantcore.features.volatility import VolatilityFeatures, WilliamsVIXFix
@@ -217,6 +218,15 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["lrsi_oversold"] = int(lrsi_df["lrsi_os"].iloc[-1])
     except Exception as exc:
         logger.debug(f"[technical] {symbol}: Laguerre RSI failed: {exc}")
+
+    try:
+        dm_df = DualMomentum(abs_lookback=252, skip_period=21).compute(cl)
+        result["momentum_12m1m"] = _safe_float(dm_df["momentum_12m1m"].iloc[-1])
+        result["abs_momentum_signal"] = int(dm_df["abs_momentum_signal"].iloc[-1])
+        result["momentum_6m"] = _safe_float(dm_df["momentum_6m"].iloc[-1])
+        result["momentum_3m"] = _safe_float(dm_df["momentum_3m"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: DualMomentum failed: {exc}")
 
     # --- Order flow approximations (require volume column) ---
     if "volume" in df.columns:

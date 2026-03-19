@@ -14,9 +14,11 @@ import os
 from datetime import date, timedelta
 from typing import Any
 
+import pandas as pd
 from loguru import logger
 
 from quantcore.data.storage import DataStore
+from quantcore.features.rates import YieldCurveFeatures
 
 
 _TIMEOUT_SECONDS = 10.0
@@ -87,6 +89,31 @@ def _collect_macro_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 
         # Rate regime: direction of 10Y over last 20 observations
         result["rate_regime"] = _classify_rate_regime(rates)
+
+        # YieldCurveFeatures — 3m10y spread, inversion flag, smoothed slope
+        try:
+            dates = [r.get("date") or r.get("report_date") for r in rates]
+            idx = pd.to_datetime(dates)
+            s10y = pd.Series(
+                [_safe_float(r.get("ten_year") or r.get("10_year")) for r in rates],
+                index=idx, dtype=float,
+            )
+            s2y = pd.Series(
+                [_safe_float(r.get("two_year") or r.get("2_year")) for r in rates],
+                index=idx, dtype=float,
+            )
+            s3m = pd.Series(
+                [_safe_float(r.get("three_month") or r.get("3_month")) for r in rates],
+                index=idx, dtype=float,
+            )
+            if s10y.notna().sum() >= 5 and s2y.notna().sum() >= 5:
+                ycf_df = YieldCurveFeatures(smooth_period=5).compute(s2y, s3m, s10y)
+                result["yc_2s10s"] = _safe_float(ycf_df["spread_2s10s"].iloc[-1])
+                result["yc_3m10y"] = _safe_float(ycf_df["spread_3m10y"].iloc[-1])
+                result["yc_inverted"] = int(ycf_df["inverted"].iloc[-1])
+                result["yc_slope_smooth"] = _safe_float(ycf_df["slope_smooth"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[macro] YieldCurveFeatures failed: {exc}")
     else:
         result["yield_curve_slope"] = None
         result["rate_momentum_5d"] = None

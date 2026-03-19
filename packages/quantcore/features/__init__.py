@@ -47,7 +47,7 @@ from quantcore.features.alternative_data import (
     EarningsTranscriptNLP,
     ShortInterestSignals,
 )
-from quantcore.features.flow import CumulativeVolumeDelta, VPIN, HawkesIntensity
+from quantcore.features.flow import CumulativeVolumeDelta, FootprintApproximation, VPIN, HawkesIntensity
 from quantcore.features.koncorde import Koncorde
 from quantcore.features.rrg import RRGFeatures
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator, TrendFeatures
@@ -126,6 +126,7 @@ __all__ = [
     "SMTDivergence",
     # Order Flow Approximations
     "CumulativeVolumeDelta",
+    "FootprintApproximation",
     "VPIN",
     "HawkesIntensity",
     # Koncorde composite

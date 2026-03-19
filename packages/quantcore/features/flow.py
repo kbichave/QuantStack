@@ -378,3 +378,117 @@ class HawkesIntensity:
             },
             index=close.index,
         )
+
+
+# ---------------------------------------------------------------------------
+# Footprint Approximation
+# ---------------------------------------------------------------------------
+
+
+class FootprintApproximation:
+    """
+    OHLCV approximation of per-bar footprint (buy/sell delta, imbalance).
+
+    Real footprint charts require Level 2 tick-by-tick data with bid/ask
+    attribution. This class delivers the closest OHLCV approximation:
+
+    1. **Bar delta**: estimated (buy_volume - sell_volume) per bar via
+       the candle body/range proxy.
+    2. **Delta imbalance**: bar_delta as fraction of total volume; large
+       imbalance bars are high-conviction directional moves.
+    3. **Stacked imbalance**: N consecutive same-sign delta bars — marks
+       institutional accumulation/distribution zones.
+    4. **POC approximation**: price level with highest estimated volume
+       within a lookback window, using bar midpoint weighting.
+
+    When tick data is available (Polygon.io, Databento), replace with
+    the `signed_volume` parameter in CumulativeVolumeDelta for exact CVD,
+    and the Footprint grid will use exact price-level volume allocation.
+
+    Parameters
+    ----------
+    lookback : int
+        Bars used for rolling context (stacked imbalance, POC). Default 20.
+    imbalance_threshold : float
+        Minimum |delta / volume| to flag as imbalanced bar. Default 0.3.
+    stack_n : int
+        Number of consecutive same-sign delta bars to flag as stacked. Default 3.
+    """
+
+    def __init__(
+        self,
+        lookback: int = 20,
+        imbalance_threshold: float = 0.3,
+        stack_n: int = 3,
+    ) -> None:
+        self.lookback = lookback
+        self.imbalance_threshold = imbalance_threshold
+        self.stack_n = stack_n
+
+    def compute(
+        self,
+        open_: pd.Series,
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+        volume: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Returns
+        -------
+        pd.DataFrame with columns:
+            buy_vol          – estimated buy volume per bar
+            sell_vol         – estimated sell volume per bar
+            bar_delta        – buy_vol - sell_vol
+            delta_pct        – bar_delta / total_volume [-1, +1]
+            imbalanced_bull  – 1 when delta_pct > imbalance_threshold (buying pressure)
+            imbalanced_bear  – 1 when delta_pct < -imbalance_threshold (selling pressure)
+            stacked_bull     – 1 when N consecutive bars have positive delta
+            stacked_bear     – 1 when N consecutive bars have negative delta
+            poc_price        – approximate price-of-control (highest vol bar midpoint)
+                               over the rolling lookback window
+        """
+        buy_vol, sell_vol = _buy_sell_split(open_, high, low, close, volume)
+        bar_delta = buy_vol - sell_vol
+        total_vol = (volume).replace(0, np.nan)
+        delta_pct = bar_delta / total_vol
+
+        imbalanced_bull = (delta_pct > self.imbalance_threshold).astype(int)
+        imbalanced_bear = (delta_pct < -self.imbalance_threshold).astype(int)
+
+        # Stacked imbalance: N consecutive same-sign delta bars
+        delta_sign = np.sign(bar_delta)
+        n = len(close)
+        stacked_bull = np.zeros(n, dtype=int)
+        stacked_bear = np.zeros(n, dtype=int)
+        for i in range(self.stack_n - 1, n):
+            window_signs = delta_sign.iloc[i - self.stack_n + 1: i + 1]
+            if (window_signs == 1).all():
+                stacked_bull[i] = 1
+            elif (window_signs == -1).all():
+                stacked_bear[i] = 1
+
+        # POC approximation: rolling window bar with highest buy_vol
+        # Uses bar midpoint (hl2) as proxy for volume concentration price
+        hl2 = (high + low) / 2
+        poc_price = np.full(n, np.nan)
+        for i in range(self.lookback - 1, n):
+            window_vol = buy_vol.iloc[i - self.lookback + 1: i + 1]
+            window_hl2 = hl2.iloc[i - self.lookback + 1: i + 1]
+            poc_idx = window_vol.values.argmax()
+            poc_price[i] = window_hl2.iloc[poc_idx]
+
+        return pd.DataFrame(
+            {
+                "buy_vol":         buy_vol,
+                "sell_vol":        sell_vol,
+                "bar_delta":       bar_delta,
+                "delta_pct":       delta_pct,
+                "imbalanced_bull": imbalanced_bull,
+                "imbalanced_bear": imbalanced_bear,
+                "stacked_bull":    pd.Series(stacked_bull, index=close.index),
+                "stacked_bear":    pd.Series(stacked_bear, index=close.index),
+                "poc_price":       pd.Series(poc_price, index=close.index),
+            },
+            index=close.index,
+        )

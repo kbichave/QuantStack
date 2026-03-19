@@ -18,12 +18,16 @@ from loguru import logger
 
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
-from quantcore.features.momentum import MomentumFeatures, PercentRExhaustion
+from quantcore.features.flow import CumulativeVolumeDelta, FootprintApproximation, HawkesIntensity
+from quantcore.features.koncorde import Koncorde
+from quantcore.features.momentum import LaguerreRSI, MomentumFeatures, PercentRExhaustion
 from quantcore.features.smart_money import (
+    BreakerBlockDetector,
     EqualHighsLows,
     FairValueGapDetector,
     ICTKillZones,
     ICTPowerOfThree,
+    MMXMCycle,
     OrderBlockDetector,
     OTELevels,
     StructureAnalysis,
@@ -184,6 +188,76 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["po3_distribution_down"] = int(po3_df["distribution_down"].iloc[-1])
     except Exception as exc:
         logger.debug(f"[technical] {symbol}: Power of Three failed: {exc}")
+
+    try:
+        bb_df = BreakerBlockDetector(impulse_atr_multiple=1.5).compute(op, hi, lo, cl)
+        result["bullish_breaker"] = int(bb_df["bullish_breaker"].iloc[-1])
+        result["bearish_breaker"] = int(bb_df["bearish_breaker"].iloc[-1])
+        result["breaker_high"] = _safe_float(bb_df["breaker_high"].iloc[-1])
+        result["breaker_low"] = _safe_float(bb_df["breaker_low"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Breaker Block failed: {exc}")
+
+    try:
+        mmxm_df = MMXMCycle().compute(hi, lo, cl)
+        result["mmxm_phase"] = int(mmxm_df["mmxm_phase"].iloc[-1])
+        result["mmxm_label"] = mmxm_df["mmxm_label"].iloc[-1]
+        result["in_consolidation"] = int(mmxm_df["in_consolidation"].iloc[-1])
+        result["in_manipulation"] = int(mmxm_df["in_manipulation"].iloc[-1])
+        result["in_expansion"] = int(mmxm_df["in_expansion"].iloc[-1])
+        result["in_retracement"] = int(mmxm_df["in_retracement"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: MMXM Cycle failed: {exc}")
+
+    try:
+        lrsi_df = LaguerreRSI(gamma=0.5).compute(cl)
+        result["lrsi"] = _safe_float(lrsi_df["lrsi"].iloc[-1])
+        result["lma"] = _safe_float(lrsi_df["lma"].iloc[-1])
+        result["lrsi_overbought"] = int(lrsi_df["lrsi_ob"].iloc[-1])
+        result["lrsi_oversold"] = int(lrsi_df["lrsi_os"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Laguerre RSI failed: {exc}")
+
+    # --- Order flow approximations (require volume column) ---
+    if "volume" in df.columns:
+        vol = df["volume"]
+        try:
+            cvd_df = CumulativeVolumeDelta(lookback=20).compute(op, hi, lo, cl, vol)
+            result["cvd"] = _safe_float(cvd_df["cvd"].iloc[-1])
+            result["cvd_divergence"] = int(cvd_df["cvd_divergence"].iloc[-1])
+            result["bar_delta"] = _safe_float(cvd_df["bar_delta"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[technical] {symbol}: CVD failed: {exc}")
+
+        try:
+            hawkes_df = HawkesIntensity().compute(hi, lo, cl, vol)
+            result["hawkes_intensity"] = _safe_float(hawkes_df["intensity"].iloc[-1])
+            result["hawkes_excited"] = int(hawkes_df["excited"].iloc[-1])
+            result["hawkes_event"] = int(hawkes_df["event"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[technical] {symbol}: Hawkes Intensity failed: {exc}")
+
+        try:
+            kc_df = Koncorde().compute(hi, lo, cl, vol)
+            result["koncorde_green"] = _safe_float(kc_df["green_line"].iloc[-1])
+            result["koncorde_blue"] = _safe_float(kc_df["blue_line"].iloc[-1])
+            result["koncorde_agreement"] = int(kc_df["agreement"].iloc[-1])
+            result["koncorde_divergence"] = int(kc_df["divergence"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[technical] {symbol}: Koncorde failed: {exc}")
+
+        try:
+            op = df["open"]
+            fp_df = FootprintApproximation().compute(op, hi, lo, cl, vol)
+            result["fp_bar_delta"] = _safe_float(fp_df["bar_delta"].iloc[-1])
+            result["fp_delta_pct"] = _safe_float(fp_df["delta_pct"].iloc[-1])
+            result["fp_imbalanced_bull"] = int(fp_df["imbalanced_bull"].iloc[-1])
+            result["fp_imbalanced_bear"] = int(fp_df["imbalanced_bear"].iloc[-1])
+            result["fp_stacked_bull"] = int(fp_df["stacked_bull"].iloc[-1])
+            result["fp_stacked_bear"] = int(fp_df["stacked_bear"].iloc[-1])
+            result["fp_poc_price"] = _safe_float(fp_df["poc_price"].iloc[-1])
+        except Exception as exc:
+            logger.debug(f"[technical] {symbol}: FootprintApproximation failed: {exc}")
 
     # Weekly MTF alignment
     weekly_df = store.load_ohlcv(symbol, Timeframe.WEEKLY)

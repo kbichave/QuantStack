@@ -1,13 +1,18 @@
 # Copyright 2024 QuantPod Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for order flow approximations: CVD, VPIN, Hawkes."""
+"""Tests for order flow approximations: CVD, VPIN, Hawkes, Footprint."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.flow import CumulativeVolumeDelta, HawkesIntensity, VPIN
+from quantcore.features.flow import (
+    CumulativeVolumeDelta,
+    FootprintApproximation,
+    HawkesIntensity,
+    VPIN,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -242,3 +247,109 @@ class TestHawkesIntensity:
         assert result["event"].sum() == 0
         last_intensity = result["intensity"].iloc[-1]
         assert abs(last_intensity - 0.2) < 0.05
+
+
+# ---------------------------------------------------------------------------
+# FootprintApproximation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def ohlcv_footprint():
+    """50-bar OHLCV with clear directional segments."""
+    dates = pd.date_range("2023-01-01", periods=50, freq="D")
+    np.random.seed(7)
+    close = pd.Series(100.0 + np.cumsum(np.random.randn(50) * 0.5), index=dates)
+    high  = close + np.abs(np.random.randn(50) * 0.3) + 0.2
+    low   = close - np.abs(np.random.randn(50) * 0.3) - 0.2
+    open_ = close.shift(1).fillna(close.iloc[0])
+    volume = pd.Series(np.random.randint(100_000, 500_000, 50).astype(float), index=dates)
+    return open_, high, low, close, volume
+
+
+class TestFootprintApproximation:
+    def test_returns_dataframe(self, ohlcv_footprint):
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation().compute(open_, high, low, close, vol)
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self, ohlcv_footprint):
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation().compute(open_, high, low, close, vol)
+        expected = {
+            "buy_vol", "sell_vol", "bar_delta", "delta_pct",
+            "imbalanced_bull", "imbalanced_bear",
+            "stacked_bull", "stacked_bear", "poc_price",
+        }
+        assert expected.issubset(set(result.columns))
+
+    def test_same_length(self, ohlcv_footprint):
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation().compute(open_, high, low, close, vol)
+        assert len(result) == 50
+
+    def test_buy_plus_sell_equals_volume(self, ohlcv_footprint):
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation().compute(open_, high, low, close, vol)
+        pd.testing.assert_series_equal(
+            (result["buy_vol"] + result["sell_vol"]).round(6),
+            vol.round(6),
+            check_names=False,
+        )
+
+    def test_delta_pct_in_minus1_plus1(self, ohlcv_footprint):
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation().compute(open_, high, low, close, vol)
+        valid = result["delta_pct"].dropna()
+        assert (valid >= -1.0).all() and (valid <= 1.0).all()
+
+    def test_binary_imbalance_columns(self, ohlcv_footprint):
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation().compute(open_, high, low, close, vol)
+        for col in ("imbalanced_bull", "imbalanced_bear", "stacked_bull", "stacked_bear"):
+            assert set(result[col].unique()).issubset({0, 1})
+
+    def test_bull_and_bear_imbalance_mutually_exclusive(self, ohlcv_footprint):
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation().compute(open_, high, low, close, vol)
+        assert (result["imbalanced_bull"] & result["imbalanced_bear"]).sum() == 0
+
+    def test_stacked_bull_requires_n_consecutive(self):
+        """Construct bars where close is near high (buy_frac ~ 0.9) so bar_delta > 0."""
+        dates = pd.date_range("2023-01-01", periods=10, freq="D")
+        close  = pd.Series([100.0, 101.0, 102.0, 103.0, 104.0, 103.5, 103.0, 103.5, 104.0, 104.5], index=dates)
+        # close near top → buy_frac ≈ 0.9 → positive delta on all bars
+        high   = close + 0.1
+        low    = close - 0.9
+        open_  = close - 0.5
+        volume = pd.Series(np.full(10, 100_000.0), index=dates)
+        result = FootprintApproximation(stack_n=3).compute(open_, high, low, close, volume)
+        # All bars have buy_frac ≈ 0.9 → positive delta → stacked_bull fires from bar 2 onward
+        assert result["stacked_bull"].iloc[2:].sum() > 0
+
+    def test_poc_price_within_bar_range(self, ohlcv_footprint):
+        """POC price must be within the high/low range of some bar in the lookback window."""
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation(lookback=10).compute(open_, high, low, close, vol)
+        poc = result["poc_price"].dropna()
+        # POC is hl2 of some bar → must lie between overall min low and max high
+        assert (poc >= low.min()).all()
+        assert (poc <= high.max()).all()
+
+    def test_poc_nan_before_lookback(self, ohlcv_footprint):
+        """POC should be NaN for bars before lookback window fills."""
+        open_, high, low, close, vol = ohlcv_footprint
+        result = FootprintApproximation(lookback=15).compute(open_, high, low, close, vol)
+        assert result["poc_price"].iloc[:14].isna().all()
+        assert not result["poc_price"].iloc[14:].isna().any()
+
+    def test_zero_volume_bar_handled(self):
+        """Zero-volume bars should not cause division errors."""
+        dates = pd.date_range("2023-01-01", periods=5, freq="D")
+        close  = pd.Series([100.0, 101.0, 100.5, 101.5, 102.0], index=dates)
+        high   = close + 0.5
+        low    = close - 0.5
+        open_  = close - 0.1
+        volume = pd.Series([100_000.0, 0.0, 100_000.0, 0.0, 100_000.0], index=dates)
+        result = FootprintApproximation(lookback=3).compute(open_, high, low, close, volume)
+        assert not result.isnull().all(axis=None)  # at least some non-NaN values

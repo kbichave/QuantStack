@@ -26,6 +26,7 @@ from quantcore.features.microstructure import (
 )
 from quantcore.features.momentum import LaguerreRSI, MomentumFeatures, PercentRExhaustion
 from quantcore.features.rates import DualMomentum, YieldCurveFeatures
+from quantcore.features.sec_nlp import EightKClassifier, MDADeltaAnalyzer, RiskFactorDeltaAnalyzer
 from quantcore.features.smart_money import (
     EqualHighsLows,
     FairValueGapDetector,
@@ -91,6 +92,10 @@ __all__ = [
     # Rates / Macro
     "YieldCurveFeatures",
     "DualMomentum",
+    # SEC NLP Signals
+    "EightKClassifier",
+    "MDADeltaAnalyzer",
+    "RiskFactorDeltaAnalyzer",
     # ICT Smart Money Concepts
     "FairValueGapDetector",
     "OrderBlockDetector",

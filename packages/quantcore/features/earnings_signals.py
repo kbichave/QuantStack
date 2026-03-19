@@ -10,6 +10,8 @@ Signals
 EarningsSurpriseSignals – PEAD (Post-Earnings Announcement Drift), SUE
                            (Standardized Unexpected Earnings), earnings streak
 AnalystRevisionSignals  – estimate revision momentum, dispersion, whisper gap
+EarningsImpliedMove     – options-implied expected move vs. realized post-earnings
+                           move; identifies IV crush and move surprises
 """
 
 import numpy as np
@@ -147,5 +149,101 @@ class AnalystRevisionSignals:
         rolling_mean = df["eps_estimate"].rolling(window=w, min_periods=1).mean().replace(0, np.nan).abs()
         df["estimate_dispersion"] = rolling_std / rolling_mean
         df["dispersion_high"] = (df["estimate_dispersion"] > 0.2).astype(int)
+
+        return df
+
+
+class EarningsImpliedMove:
+    """
+    Options-implied expected move vs. realized post-earnings move.
+
+    The implied move is derived from at-the-money IV at a given DTE:
+        implied_move_pct = atm_iv × sqrt(dte_days / 365)
+
+    This is the market's 1-standard-deviation expectation of the earnings
+    move. Comparing it to the realized move reveals whether IV systematically
+    overstates or understates earnings volatility for this name.
+
+    Persistent IV overstatement (iv_overstated > 0 on average) is a
+    short-volatility alpha opportunity (sell straddles into earnings).
+    Persistent understatement flags gap-risk names.
+
+    Parameters
+    ----------
+    min_iv : float
+        Minimum IV to consider valid (filters data errors). Default 0.01.
+    """
+
+    def __init__(self, min_iv: float = 0.01) -> None:
+        self.min_iv = min_iv
+
+    def compute(self, earnings_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Compute implied vs. realized move signals per earnings event.
+
+        Parameters
+        ----------
+        earnings_df : pd.DataFrame
+            Must contain columns:
+            - period_end (datetime or str)      — fiscal quarter end date
+            - atm_iv (float)                    — ATM implied volatility at the
+                                                  time of earnings (annualized)
+            - dte_days (int/float)              — days to nearest option expiry
+                                                  used for pricing the IV
+            - pre_earnings_price (float)        — closing price before announcement
+            - post_earnings_price (float)       — closing price after announcement
+                                                  (typically next-day open or close)
+
+        Returns
+        -------
+        pd.DataFrame (same index as input, sorted by period_end) with columns:
+            implied_move_pct    – IV-implied 1-std expected move as % (>0)
+            realized_move_pct   – abs(post/pre - 1) × 100 — actual % move
+            iv_overstated       – 1 when implied_move > realized_move (IV crush)
+            move_surprise       – realized_move - implied_move (positive = bigger
+                                  than priced; negative = smaller than priced)
+            move_surprise_norm  – move_surprise / implied_move (relative overshoot)
+            historical_iv_bias  – rolling mean of move_surprise (last 4 events);
+                                  positive = this stock typically outperforms IV
+        """
+        df = earnings_df.copy()
+        df["period_end"] = pd.to_datetime(df["period_end"])
+        df = df.sort_values("period_end").reset_index(drop=True)
+
+        # Mask rows with invalid IV or prices
+        valid_iv = (df["atm_iv"] >= self.min_iv) & df["atm_iv"].notna()
+        valid_prices = (
+            df["pre_earnings_price"].gt(0)
+            & df["post_earnings_price"].gt(0)
+            & df["pre_earnings_price"].notna()
+            & df["post_earnings_price"].notna()
+        )
+        valid_dte = df["dte_days"].gt(0) & df["dte_days"].notna()
+
+        df["implied_move_pct"] = np.where(
+            valid_iv & valid_dte,
+            df["atm_iv"] * np.sqrt(df["dte_days"] / 365.0) * 100,
+            np.nan,
+        )
+
+        df["realized_move_pct"] = np.where(
+            valid_prices,
+            (df["post_earnings_price"] / df["pre_earnings_price"] - 1).abs() * 100,
+            np.nan,
+        )
+
+        df["iv_overstated"] = (
+            (df["implied_move_pct"] > df["realized_move_pct"])
+            & df["implied_move_pct"].notna()
+            & df["realized_move_pct"].notna()
+        ).astype(int)
+
+        df["move_surprise"] = df["realized_move_pct"] - df["implied_move_pct"]
+
+        implied_safe = df["implied_move_pct"].replace(0, np.nan)
+        df["move_surprise_norm"] = df["move_surprise"] / implied_safe
+
+        # Rolling bias: mean move_surprise over last 4 events
+        df["historical_iv_bias"] = df["move_surprise"].rolling(window=4, min_periods=2).mean()
 
         return df

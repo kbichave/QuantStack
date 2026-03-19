@@ -154,3 +154,109 @@ class TestDualMomentum:
         for col in ("momentum_6m", "momentum_3m"):
             valid = result[col].dropna()
             assert np.isfinite(valid).all()
+
+
+# ---------------------------------------------------------------------------
+# SpreadSignals
+# ---------------------------------------------------------------------------
+
+
+from quantcore.features.rates import SpreadSignals
+
+
+@pytest.fixture
+def spread_data():
+    """300 daily bars of 3M Treasury and overnight rate."""
+    dates = pd.date_range("2022-01-01", periods=300, freq="D")
+    np.random.seed(17)
+    rate_3m = pd.Series(4.0 + np.cumsum(np.random.randn(300) * 0.02), index=dates).clip(0)
+    overnight = pd.Series(3.5 + np.cumsum(np.random.randn(300) * 0.015), index=dates).clip(0)
+    return rate_3m, overnight
+
+
+class TestSpreadSignals:
+    def test_returns_dataframe(self, spread_data):
+        rate_3m, overnight = spread_data
+        result = SpreadSignals().compute(rate_3m, overnight)
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns(self, spread_data):
+        rate_3m, overnight = spread_data
+        result = SpreadSignals().compute(rate_3m, overnight)
+        for col in ("ted_spread", "ted_spread_smooth", "ted_spread_zscore",
+                    "fra_ois_approx", "credit_stress", "spread_widening"):
+            assert col in result.columns
+
+    def test_ted_spread_formula(self, spread_data):
+        rate_3m, overnight = spread_data
+        result = SpreadSignals().compute(rate_3m, overnight)
+        expected = rate_3m - overnight
+        pd.testing.assert_series_equal(
+            result["ted_spread"], expected, check_names=False
+        )
+
+    def test_fra_ois_equals_ted_spread(self, spread_data):
+        """fra_ois_approx is the same calculation as ted_spread post-LIBOR."""
+        rate_3m, overnight = spread_data
+        result = SpreadSignals().compute(rate_3m, overnight)
+        pd.testing.assert_series_equal(
+            result["fra_ois_approx"], result["ted_spread"], check_names=False
+        )
+
+    def test_credit_stress_binary(self, spread_data):
+        rate_3m, overnight = spread_data
+        result = SpreadSignals().compute(rate_3m, overnight)
+        assert set(result["credit_stress"].unique()).issubset({0, 1})
+
+    def test_credit_stress_fires_above_threshold(self):
+        """Construct data where spread clearly exceeds threshold."""
+        dates = pd.date_range("2023-01-01", periods=5, freq="D")
+        rate_3m = pd.Series([5.0, 5.0, 5.0, 5.0, 5.0], index=dates)
+        overnight = pd.Series([4.0, 4.0, 4.0, 4.0, 4.0], index=dates)  # spread = 1.0 > 0.5
+        result = SpreadSignals(stress_threshold=0.5).compute(rate_3m, overnight)
+        assert (result["credit_stress"] == 1).all()
+
+    def test_credit_stress_absent_below_threshold(self):
+        """Spread < threshold → credit_stress = 0."""
+        dates = pd.date_range("2023-01-01", periods=5, freq="D")
+        rate_3m = pd.Series([4.1, 4.1, 4.1, 4.1, 4.1], index=dates)
+        overnight = pd.Series([4.0, 4.0, 4.0, 4.0, 4.0], index=dates)  # spread = 0.1 < 0.5
+        result = SpreadSignals(stress_threshold=0.5).compute(rate_3m, overnight)
+        assert (result["credit_stress"] == 0).all()
+
+    def test_spread_widening_detects_increases(self):
+        """spread_widening = 1 on bars where TED spread increased."""
+        dates = pd.date_range("2023-01-01", periods=5, freq="D")
+        rate_3m = pd.Series([4.0, 4.1, 4.3, 4.2, 4.5], index=dates)
+        overnight = pd.Series([3.9, 3.9, 3.9, 3.9, 3.9], index=dates)
+        # spread = [0.1, 0.2, 0.4, 0.3, 0.6] → widening at bars 1,2,4
+        result = SpreadSignals().compute(rate_3m, overnight)
+        widening = result["spread_widening"].values
+        assert widening[1] == 1   # 0.2 > 0.1
+        assert widening[2] == 1   # 0.4 > 0.2
+        assert widening[3] == 0   # 0.3 < 0.4
+        assert widening[4] == 1   # 0.6 > 0.3
+
+    def test_smooth_is_rolling_mean(self, spread_data):
+        """Smoothed spread equals rolling mean of raw spread."""
+        rate_3m, overnight = spread_data
+        smooth_period = 5
+        result = SpreadSignals(smooth_period=smooth_period).compute(rate_3m, overnight)
+        expected_smooth = result["ted_spread"].rolling(smooth_period).mean()
+        pd.testing.assert_series_equal(
+            result["ted_spread_smooth"], expected_smooth, check_names=False
+        )
+
+    def test_zscore_finite_after_warmup(self, spread_data):
+        """Z-score should be finite after 252-bar warmup."""
+        rate_3m, overnight = spread_data
+        result = SpreadSignals().compute(rate_3m, overnight)
+        z = result["ted_spread_zscore"]
+        finite_z = z.dropna()
+        assert np.isfinite(finite_z).all()
+
+    def test_preserves_index(self, spread_data):
+        """Output index matches input index."""
+        rate_3m, overnight = spread_data
+        result = SpreadSignals().compute(rate_3m, overnight)
+        pd.testing.assert_index_equal(result.index, rate_3m.index)

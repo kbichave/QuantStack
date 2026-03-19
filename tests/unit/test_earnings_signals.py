@@ -168,3 +168,131 @@ class TestAnalystRevisionSignals:
         result = AnalystRevisionSignals().compute(df_shuffled)
         dates = pd.to_datetime(result["estimate_date"]).values
         assert (dates[1:] >= dates[:-1]).all()
+
+
+# ---------------------------------------------------------------------------
+# EarningsImpliedMove
+# ---------------------------------------------------------------------------
+
+
+from quantcore.features.earnings_signals import EarningsImpliedMove
+
+
+def _make_implied_move_df(n: int = 10, seed: int = 7) -> pd.DataFrame:
+    """Synthetic earnings events with IV, DTE, and price data."""
+    np.random.seed(seed)
+    dates = pd.date_range("2021-01-01", periods=n, freq="QS")
+    atm_iv = 0.30 + np.random.randn(n) * 0.05  # ~30% IV
+    dte_days = np.full(n, 30)                    # 30 days to expiry
+    pre_price = 100.0 + np.random.randn(n) * 5
+    # realized moves: sometimes bigger, sometimes smaller than implied
+    realized_pct = (0.03 + np.random.randn(n) * 0.04).clip(0.005)
+    post_price = pre_price * (1 + realized_pct * np.random.choice([-1, 1], n))
+    return pd.DataFrame({
+        "period_end": dates,
+        "atm_iv": atm_iv.clip(0.05),
+        "dte_days": dte_days,
+        "pre_earnings_price": pre_price.clip(50),
+        "post_earnings_price": post_price.clip(50),
+    })
+
+
+class TestEarningsImpliedMove:
+    def test_returns_dataframe(self):
+        result = EarningsImpliedMove().compute(_make_implied_move_df())
+        assert isinstance(result, pd.DataFrame)
+
+    def test_expected_columns_present(self):
+        result = EarningsImpliedMove().compute(_make_implied_move_df())
+        for col in ("implied_move_pct", "realized_move_pct", "iv_overstated",
+                    "move_surprise", "move_surprise_norm", "historical_iv_bias"):
+            assert col in result.columns
+
+    def test_implied_move_formula(self):
+        """implied_move = IV × sqrt(dte / 365) × 100."""
+        df = _make_implied_move_df(n=5)
+        result = EarningsImpliedMove().compute(df)
+        # Re-sort df to match result sort order
+        df_sorted = df.copy()
+        df_sorted["period_end"] = pd.to_datetime(df_sorted["period_end"])
+        df_sorted = df_sorted.sort_values("period_end").reset_index(drop=True)
+        expected = df_sorted["atm_iv"] * np.sqrt(df_sorted["dte_days"] / 365.0) * 100
+        pd.testing.assert_series_equal(
+            result["implied_move_pct"].reset_index(drop=True),
+            expected.reset_index(drop=True),
+            check_names=False,
+            rtol=1e-6,
+        )
+
+    def test_realized_move_is_non_negative(self):
+        result = EarningsImpliedMove().compute(_make_implied_move_df())
+        assert (result["realized_move_pct"].dropna() >= 0).all()
+
+    def test_iv_overstated_is_binary(self):
+        result = EarningsImpliedMove().compute(_make_implied_move_df())
+        vals = result["iv_overstated"].unique()
+        assert set(vals).issubset({0, 1})
+
+    def test_iv_overstated_logic(self):
+        """Construct a case where implied > realized to assert iv_overstated = 1."""
+        # IV = 30%, DTE = 30 → implied_move = 0.30 * sqrt(30/365) * 100 ≈ 8.6%
+        # Realized move = 2% (much smaller) → iv_overstated = 1
+        df = pd.DataFrame({
+            "period_end": ["2023-01-01"],
+            "atm_iv": [0.30],
+            "dte_days": [30],
+            "pre_earnings_price": [100.0],
+            "post_earnings_price": [102.0],  # 2% realized
+        })
+        result = EarningsImpliedMove().compute(df)
+        assert result["iv_overstated"].iloc[0] == 1
+
+    def test_move_surprise_sign(self):
+        """When realized > implied, move_surprise > 0."""
+        # IV = 5%, DTE = 5 → implied ≈ 0.65%; realized = 10% → surprise > 0
+        df = pd.DataFrame({
+            "period_end": ["2023-01-01"],
+            "atm_iv": [0.05],
+            "dte_days": [5],
+            "pre_earnings_price": [100.0],
+            "post_earnings_price": [110.0],  # 10% realized
+        })
+        result = EarningsImpliedMove().compute(df)
+        assert result["move_surprise"].iloc[0] > 0
+
+    def test_zero_dte_produces_nan(self):
+        """dte_days = 0 should produce NaN implied move (no valid option)."""
+        df = pd.DataFrame({
+            "period_end": ["2023-01-01"],
+            "atm_iv": [0.25],
+            "dte_days": [0],
+            "pre_earnings_price": [100.0],
+            "post_earnings_price": [105.0],
+        })
+        result = EarningsImpliedMove().compute(df)
+        assert pd.isna(result["implied_move_pct"].iloc[0])
+
+    def test_invalid_iv_produces_nan(self):
+        """atm_iv below min_iv threshold should produce NaN."""
+        df = pd.DataFrame({
+            "period_end": ["2023-01-01"],
+            "atm_iv": [0.005],  # below min_iv=0.01
+            "dte_days": [30],
+            "pre_earnings_price": [100.0],
+            "post_earnings_price": [103.0],
+        })
+        result = EarningsImpliedMove().compute(df)
+        assert pd.isna(result["implied_move_pct"].iloc[0])
+
+    def test_historical_iv_bias_requires_warmup(self):
+        """First few rows should be NaN (need min_periods=2 for rolling)."""
+        result = EarningsImpliedMove().compute(_make_implied_move_df(n=8))
+        assert pd.isna(result["historical_iv_bias"].iloc[0])
+
+    def test_sorted_by_period_end(self):
+        """Output is always sorted by period_end regardless of input order."""
+        df = _make_implied_move_df(n=8)
+        df_shuffled = df.sample(frac=1, random_state=99).reset_index(drop=True)
+        result = EarningsImpliedMove().compute(df_shuffled)
+        dates = pd.to_datetime(result["period_end"]).values
+        assert (dates[1:] >= dates[:-1]).all()

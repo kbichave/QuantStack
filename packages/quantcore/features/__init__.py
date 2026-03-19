@@ -3,7 +3,7 @@
 from quantcore.features.base import FeatureBase
 from quantcore.features.factory import MultiTimeframeFeatureFactory
 from quantcore.features.market_structure import MarketStructureFeatures
-from quantcore.features.earnings_signals import AnalystRevisionSignals, EarningsSurpriseSignals
+from quantcore.features.earnings_signals import AnalystRevisionSignals, EarningsImpliedMove, EarningsSurpriseSignals
 from quantcore.features.fundamental import (
     BeneishMScore,
     EarningsMomentumComposite,
@@ -28,7 +28,7 @@ from quantcore.features.microstructure import (
 )
 from quantcore.features.momentum import LaguerreRSI, MomentumFeatures, PercentRExhaustion
 from quantcore.features.carry import COTSignals, EquityCarry, FuturesBasis
-from quantcore.features.rates import DualMomentum, YieldCurveFeatures
+from quantcore.features.rates import DualMomentum, SpreadSignals, YieldCurveFeatures
 from quantcore.features.sec_nlp import EightKClassifier, MDADeltaAnalyzer, RiskFactorDeltaAnalyzer
 from quantcore.features.smart_money import (
     BreakerBlockDetector,
@@ -85,6 +85,7 @@ __all__ = [
     # Earnings / Fundamental (quantamental)
     "EarningsSurpriseSignals",
     "AnalystRevisionSignals",
+    "EarningsImpliedMove",
     "SloanAccruals",
     "NovyMarxGP",
     "AssetGrowthAnomaly",
@@ -109,6 +110,7 @@ __all__ = [
     # Rates / Macro / Carry
     "YieldCurveFeatures",
     "DualMomentum",
+    "SpreadSignals",
     "EquityCarry",
     "FuturesBasis",
     "COTSignals",

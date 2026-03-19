@@ -8,6 +8,8 @@ Signals
 -------
 YieldCurveFeatures  – 2s10s spread, 3m10y spread, curve slope, inversion flag
 DualMomentum        – Antonacci absolute + relative momentum (OHLCV-only)
+SpreadSignals       – TED spread (credit risk proxy) and FRA-OIS (liquidity risk)
+                      derived from Treasury 3M and a Fed Funds / SOFR proxy
 """
 
 import numpy as np
@@ -154,4 +156,89 @@ class DualMomentum:
                 "momentum_3m": mom_3m * 100,
             },
             index=close.index,
+        )
+
+
+class SpreadSignals:
+    """
+    Credit and liquidity risk spreads derived from Treasury rates.
+
+    TED Spread
+    ----------
+    Originally T-Bill minus LIBOR (Treasury–Euro Dollar). Since LIBOR's
+    retirement, the closest equivalent is 3M Treasury yield minus the
+    overnight risk-free rate (SOFR, Fed Funds, or an equivalent proxy).
+    A widening TED spread signals increasing credit/counterparty stress;
+    historically has led equity drawdowns by 2–6 weeks.
+
+    FRA-OIS Approximation
+    ---------------------
+    Forward Rate Agreement (FRA) vs. Overnight Index Swap (OIS) spread
+    measures interbank lending risk above the overnight risk-free rate.
+    Approximated as: 3M_yield - overnight_rate.
+    This is structurally the same calculation as TED in a post-LIBOR world;
+    both are exposed here for clarity on which rate pair is being used.
+
+    Parameters
+    ----------
+    stress_threshold : float
+        TED spread level (in same units as inputs) above which the market
+        is considered in credit stress. Default 0.5 (50 bps if rates in %).
+    smooth_period : int
+        Rolling mean window for noise reduction. Default 5.
+    """
+
+    def __init__(self, stress_threshold: float = 0.5, smooth_period: int = 5) -> None:
+        self.stress_threshold = stress_threshold
+        self.smooth_period = smooth_period
+
+    def compute(
+        self,
+        rate_3m: pd.Series,
+        overnight_rate: pd.Series,
+    ) -> pd.DataFrame:
+        """
+        Compute TED spread and FRA-OIS approximation.
+
+        Parameters
+        ----------
+        rate_3m : pd.Series
+            3-month Treasury yield time series (annualized, consistent units).
+        overnight_rate : pd.Series
+            Overnight risk-free rate: SOFR, Fed Funds Effective Rate, or
+            equivalent. Must share the same DatetimeIndex as rate_3m.
+
+        Returns
+        -------
+        pd.DataFrame with columns:
+            ted_spread          – rate_3m - overnight_rate (the spread)
+            ted_spread_smooth   – smoothed ted_spread (rolling mean)
+            ted_spread_zscore   – z-score vs. 252-bar rolling window
+            fra_ois_approx      – same as ted_spread (structural equivalent
+                                  post-LIBOR; included for naming clarity)
+            credit_stress       – 1 when ted_spread > stress_threshold
+            spread_widening     – 1 when ted_spread increased vs. prior bar
+                                  (momentum of credit deterioration)
+        """
+        ted = rate_3m - overnight_rate
+
+        smooth = ted.rolling(self.smooth_period).mean()
+
+        mu = ted.rolling(252).mean()
+        sigma = ted.rolling(252).std().replace(0, np.nan)
+        zscore = (ted - mu) / sigma
+
+        credit_stress = (ted > self.stress_threshold).astype(int)
+        spread_widening = (ted.diff() > 0).astype(int)
+
+        return pd.DataFrame(
+            {
+                "ted_spread": ted,
+                "ted_spread_smooth": smooth,
+                "ted_spread_zscore": zscore,
+                "fra_ois_approx": ted,         # same calculation, different naming convention
+                "credit_stress": credit_stress,
+                "spread_widening": spread_widening,
+            },
+            index=rate_3m.index,
         )

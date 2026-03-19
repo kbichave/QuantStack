@@ -111,7 +111,8 @@ def _collect_fundamentals_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
-    """Add NovyMarxGP, AssetGrowthAnomaly, RevenueAcceleration, OperatingLeverage."""
+    """Add NovyMarxGP, AssetGrowthAnomaly, RevenueAcceleration, OperatingLeverage,
+    SloanAccruals, FCFYield."""
     try:
         if not hasattr(store, "load_financial_statements"):
             return
@@ -126,31 +127,98 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
         if "report_period" in df.columns:
             df = df.rename(columns={"report_period": "period_end"})
 
+        # Merge cash flow columns if available (operating_cash_flow, capital_expenditures)
+        cf_df = store.load_financial_statements(
+            symbol, statement_type="cashflow", period_type="quarterly", limit=12
+        )
+        if cf_df is not None and not cf_df.empty:
+            if "report_period" in cf_df.columns:
+                cf_df = cf_df.rename(columns={"report_period": "period_end"})
+            cf_df = _expand_json_blob(cf_df)
+            # Merge cash flow columns onto income statement by period_end
+            cf_cols = [c for c in cf_df.columns
+                       if c in ("period_end", "operating_cash_flow", "capital_expenditures",
+                                "dividends_paid", "share_repurchases")]
+            if len(cf_cols) > 1:
+                df = df.merge(cf_df[cf_cols], on="period_end", how="left")
+
         df = df.sort_values("period_end").reset_index(drop=True)
 
-        # NovyMarxGP: gross_profit / total_assets
+        # NovyMarxGP: gross_profit / total_assets.
+        # NovyMarxGP.compute() needs cost_of_revenue to derive gross_profit.
+        # If gross_profit is pre-computed (key column from schema) but
+        # cost_of_revenue is absent, synthesize it from revenue and gross_profit
+        # so the class can run without modification.
         if "gross_profit" in df.columns and "total_assets" in df.columns:
-            from quantcore.features.fundamental import NovyMarxGP
-            gp_df = NovyMarxGP().compute(df)
-            result["novy_marx_gp"] = _sf(gp_df["gp_ratio"].iloc[-1])
+            try:
+                from quantcore.features.fundamental import NovyMarxGP
+                gp_input = df.copy()
+                if "cost_of_revenue" not in gp_input.columns and "revenue" in gp_input.columns:
+                    gp_input["cost_of_revenue"] = gp_input["revenue"] - gp_input["gross_profit"]
+                gp_df = NovyMarxGP().compute(gp_input)
+                result["novy_marx_gp"] = _sf(gp_df["gp_ratio"].iloc[-1])
+            except Exception as exc:
+                logger.debug(f"[fundamentals] {symbol}: NovyMarxGP failed: {exc}")
 
         # AssetGrowthAnomaly: total_assets growth rate
         if "total_assets" in df.columns:
-            from quantcore.features.fundamental import AssetGrowthAnomaly
-            ag_df = AssetGrowthAnomaly().compute(df)
-            result["asset_growth"] = _sf(ag_df["asset_growth"].iloc[-1])
+            try:
+                from quantcore.features.fundamental import AssetGrowthAnomaly
+                ag_df = AssetGrowthAnomaly().compute(df)
+                result["asset_growth"] = _sf(ag_df["asset_growth"].iloc[-1])
+            except Exception as exc:
+                logger.debug(f"[fundamentals] {symbol}: AssetGrowthAnomaly failed: {exc}")
 
         # RevenueAcceleration: QoQ revenue growth delta
         if "revenue" in df.columns and len(df) >= 4:
-            from quantcore.features.fundamental import RevenueAcceleration
-            ra_df = RevenueAcceleration().compute(df)
-            result["revenue_acceleration"] = _sf(ra_df["revenue_acceleration"].iloc[-1])
+            try:
+                from quantcore.features.fundamental import RevenueAcceleration
+                ra_df = RevenueAcceleration().compute(df)
+                result["revenue_acceleration"] = _sf(ra_df["revenue_acceleration"].iloc[-1])
+            except Exception as exc:
+                logger.debug(f"[fundamentals] {symbol}: RevenueAcceleration failed: {exc}")
 
-        # OperatingLeverage: DOL = %Δ operating_income / %Δ revenue
-        if "operating_income" in df.columns and "revenue" in df.columns and len(df) >= 4:
-            from quantcore.features.fundamental import OperatingLeverage
-            ol_df = OperatingLeverage().compute(df)
-            result["operating_leverage"] = _sf(ol_df["dol"].iloc[-1])
+        # OperatingLeverage: DOL = %Δ EBITDA / %Δ revenue.
+        # Use operating_income as an EBITDA proxy when ebitda column is absent.
+        if "revenue" in df.columns and len(df) >= 4:
+            ebitda_col = "ebitda" if "ebitda" in df.columns else (
+                "operating_income" if "operating_income" in df.columns else None
+            )
+            if ebitda_col:
+                try:
+                    from quantcore.features.fundamental import OperatingLeverage
+                    ol_input = df.copy()
+                    if ebitda_col != "ebitda":
+                        ol_input["ebitda"] = ol_input[ebitda_col]
+                    ol_df = OperatingLeverage().compute(ol_input)
+                    result["operating_leverage"] = _sf(ol_df["dol"].iloc[-1])
+                except Exception as exc:
+                    logger.debug(f"[fundamentals] {symbol}: OperatingLeverage failed: {exc}")
+
+        # SloanAccruals: (net_income - operating_cash_flow) / avg(total_assets)
+        # High accruals = earnings quality issue → mean-reversion signal.
+        if all(c in df.columns for c in ("net_income", "operating_cash_flow", "total_assets")):
+            try:
+                from quantcore.features.fundamental import SloanAccruals
+                sloan_df = SloanAccruals().compute(df)
+                result["sloan_accruals"] = _sf(sloan_df["accruals"].iloc[-1])
+                result["sloan_accruals_high"] = int(sloan_df["accruals_high"].iloc[-1])
+            except Exception as exc:
+                logger.debug(f"[fundamentals] {symbol}: SloanAccruals failed: {exc}")
+
+        # FCFYield: (operating_cash_flow - capex) / market_cap
+        if all(c in df.columns for c in ("operating_cash_flow", "capital_expenditures")):
+            try:
+                mcap = result.get("market_cap")
+                if mcap:
+                    from quantcore.features.fundamental import FCFYield
+                    fcf_input = df.copy()
+                    fcf_input["market_cap"] = mcap
+                    fcf_df = FCFYield().compute(fcf_input)
+                    result["fcf_yield"] = _sf(fcf_df["fcf_yield_pct"].iloc[-1])
+                    result["fcf_positive"] = int(fcf_df["fcf_positive"].iloc[-1])
+            except Exception as exc:
+                logger.debug(f"[fundamentals] {symbol}: FCFYield failed: {exc}")
 
     except Exception as exc:
         logger.debug(f"[fundamentals] {symbol}: statement signals failed: {exc}")
@@ -325,6 +393,28 @@ def _add_herding_signals(symbol: str, store: DataStore, result: dict) -> None:
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
+
+def _expand_json_blob(df: pd.DataFrame) -> pd.DataFrame:
+    """Expand the 'data' JSON blob column into individual columns.
+
+    Financial statement rows from the store sometimes pack non-key metrics
+    into a single 'data' JSON string column.  This unpacks them so downstream
+    feature classes can access columns by name.
+    """
+    import json
+    if "data" not in df.columns:
+        return df
+    try:
+        extra = df["data"].dropna().apply(
+            lambda x: json.loads(x) if isinstance(x, str) else (x if isinstance(x, dict) else {})
+        )
+        if not extra.empty:
+            extra_df = pd.DataFrame(list(extra), index=extra.index)
+            df = pd.concat([df.drop(columns=["data"]), extra_df], axis=1)
+    except Exception:
+        pass
+    return df
+
 
 def _sf(v: Any) -> float | None:
     """Safe float conversion with NaN guard."""

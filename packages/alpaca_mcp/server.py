@@ -352,17 +352,42 @@ def get_option_chains(
             req_kwargs["expiration_date"] = expiry
         req = OptionChainRequest(**req_kwargs)
         chain = cli.get_option_chain(req)
-        # Normalise to a list of dicts
+        # Normalise to a list of dicts including Greeks, IV, OI
         contracts = []
         for sym, snap in chain.items():
+            # Parse strike/expiry/side from OCC symbol (format: AAPL230120C00150000)
+            # sym[-9] = 'C' or 'P'; sym[-8:] = 8-digit strike×1000
+            try:
+                option_type = "call" if sym[-9] == "C" else "put"
+                strike = int(sym[-8:]) / 1000.0
+                expiry_str = f"20{sym[-15:-9][:2]}-{sym[-13:-11]}-{sym[-11:-9]}"
+            except Exception:
+                option_type = None
+                strike = None
+                expiry_str = None
+
+            bid = float(snap.latest_quote.bid_price) if snap.latest_quote and snap.latest_quote.bid_price else None
+            ask = float(snap.latest_quote.ask_price) if snap.latest_quote and snap.latest_quote.ask_price else None
+
+            greeks = snap.greeks if hasattr(snap, "greeks") and snap.greeks else None
             contracts.append(
                 {
                     "symbol": sym,
-                    "bid": float(snap.latest_quote.bid_price) if snap.latest_quote else None,
-                    "ask": float(snap.latest_quote.ask_price) if snap.latest_quote else None,
+                    "option_type": option_type,
+                    "strike": strike,
+                    "expiry": expiry_str,
+                    "bid": bid,
+                    "ask": ask,
+                    "mid": round((bid + ask) / 2, 4) if bid is not None and ask is not None else None,
+                    "implied_volatility": float(snap.implied_volatility) if hasattr(snap, "implied_volatility") and snap.implied_volatility else None,
+                    "open_interest": int(snap.open_interest) if hasattr(snap, "open_interest") and snap.open_interest else None,
+                    "delta": float(greeks.delta) if greeks and greeks.delta is not None else None,
+                    "gamma": float(greeks.gamma) if greeks and greeks.gamma is not None else None,
+                    "theta": float(greeks.theta) if greeks and greeks.theta is not None else None,
+                    "vega": float(greeks.vega) if greeks and greeks.vega is not None else None,
                 }
             )
-        return {"success": True, "underlying": symbol, "contracts": contracts}
+        return {"success": True, "underlying": symbol, "contracts": contracts, "n_contracts": len(contracts)}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
 

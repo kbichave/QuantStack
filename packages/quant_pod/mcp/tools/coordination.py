@@ -331,3 +331,52 @@ def generate_daily_digest(target_date: str | None = None) -> dict[str, Any]:
     except Exception as exc:
         logger.error(f"[MCP:generate_daily_digest] {exc}")
         return {"success": False, "error": str(exc)}
+
+
+# ── Preflight Check Tools ────────────────────────────────────────────────────
+
+
+def run_preflight_check(
+    target_symbols: list[str] | None = None,
+    target_wallet: float = 1000.0,
+) -> dict[str, Any]:
+    """
+    Run the production preflight check — the gate between research and trading.
+
+    Validates: DB tables, kill switch, cash balance, universe, screener,
+    strategies, risk limits vs wallet, data provider, broker, paper mode.
+
+    Args:
+        target_symbols: Symbols to validate (default ["SPY"]).
+        target_wallet: Starting equity in dollars (default 1000).
+
+    Returns:
+        {"ready": bool, "blockers": [...], "warnings": [...], "summary": "..."}
+    """
+    try:
+        from quant_pod.coordination.preflight import PreflightCheck
+
+        conn = _get_conn()
+        check = PreflightCheck(conn, target_symbols, target_wallet)
+        report = check.run()
+
+        return {
+            "success": True,
+            "ready": report.ready,
+            "blockers": [
+                {"name": c.name, "detail": c.detail}
+                for c in report.blockers
+            ],
+            "warnings": [
+                {"name": c.name, "detail": c.detail}
+                for c in report.warnings
+            ],
+            "checks": [
+                {"name": c.name, "passed": c.passed, "detail": c.detail, "severity": c.severity}
+                for c in report.checks
+            ],
+            "summary": report.summary(),
+        }
+    except Exception as exc:
+        logger.error(f"[MCP:run_preflight_check] {exc}")
+        return {"success": False, "error": str(exc)}

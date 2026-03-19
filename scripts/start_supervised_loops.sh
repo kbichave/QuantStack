@@ -12,7 +12,8 @@
 #   4: Git auto-commit (every 300s)
 #
 # Usage:
-#   ./scripts/start_supervised_loops.sh [all|factory|trader|ml|supervisor]
+#   ./scripts/start_supervised_loops.sh [all|factory|trader|ml|operator|supervisor]
+#   ./scripts/start_supervised_loops.sh operator   # single unified loop (recommended for options)
 #   tmux kill-session -t quantpod-loops   # to stop everything
 
 set -euo pipefail
@@ -37,8 +38,11 @@ sleep 1
 # Create session with first pane (Strategy Factory)
 tmux new-session -d -s "$SESSION" -n loops -x 220 -y 50
 
-# ── Pane 0: Strategy Factory ────────────────────────────────────────────────
-if [[ "$MODE" == "all" || "$MODE" == "factory" ]]; then
+# ── Pane 0: Strategy Factory OR Trading Operator ─────────────────────────────
+if [[ "$MODE" == "operator" ]]; then
+  SLEEP_OPERATOR=300
+  tmux send-keys -t "$SESSION:loops.0" "cd $WORKDIR && echo '=== Trading Operator (unified) ===' && while :; do echo \"[\$(date)] Operator iteration starting...\"; cat prompts/trading_operator.md | $CLAUDE_CMD --continue 2>&1 | tail -30; echo \"[\$(date)] Sleeping ${SLEEP_OPERATOR}s...\"; sleep $SLEEP_OPERATOR; done" Enter
+elif [[ "$MODE" == "all" || "$MODE" == "factory" ]]; then
   tmux send-keys -t "$SESSION:loops.0" "cd $WORKDIR && echo '=== Strategy Factory ===' && while :; do echo \"[\$(date)] Factory iteration starting...\"; cat prompts/strategy_factory.md | $CLAUDE_CMD --continue 2>&1 | tail -20; echo \"[\$(date)] Sleeping ${SLEEP_FACTORY}s...\"; sleep $SLEEP_FACTORY; done" Enter
 fi
 

@@ -270,7 +270,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             logger.debug(f"[technical] {symbol}: FootprintApproximation failed: {exc}")
 
         try:
-            vpin_df = VPIN(n_buckets=50, window=50).compute(hi, lo, cl, vol)
+            vpin_df = VPIN(n_buckets=50, window=50).compute(op, hi, lo, cl, vol)
             result["vpin"] = _safe_float(vpin_df["vpin"].iloc[-1])
             result["vpin_high"] = int(vpin_df["vpin_high"].iloc[-1])
         except Exception as exc:

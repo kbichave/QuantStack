@@ -26,6 +26,15 @@ from quantcore.features.microstructure import (
 )
 from quantcore.features.momentum import MomentumFeatures, PercentRExhaustion
 from quantcore.features.rates import DualMomentum, YieldCurveFeatures
+from quantcore.features.smart_money import (
+    EqualHighsLows,
+    FairValueGapDetector,
+    ICTKillZones,
+    ICTPowerOfThree,
+    OrderBlockDetector,
+    OTELevels,
+    StructureAnalysis,
+)
 from quantcore.features.rrg import RRGFeatures
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator, TrendFeatures
 from quantcore.features.volatility import VolatilityFeatures, WilliamsVIXFix
@@ -79,6 +88,14 @@ __all__ = [
     # Rates / Macro
     "YieldCurveFeatures",
     "DualMomentum",
+    # ICT Smart Money Concepts
+    "FairValueGapDetector",
+    "OrderBlockDetector",
+    "StructureAnalysis",
+    "EqualHighsLows",
+    "OTELevels",
+    "ICTKillZones",
+    "ICTPowerOfThree",
     # Other
     "RRGFeatures",
     "WaveFeatures",

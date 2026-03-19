@@ -19,6 +19,15 @@ from loguru import logger
 from quantcore.config.timeframes import Timeframe
 from quantcore.data.storage import DataStore
 from quantcore.features.momentum import MomentumFeatures, PercentRExhaustion
+from quantcore.features.smart_money import (
+    EqualHighsLows,
+    FairValueGapDetector,
+    ICTKillZones,
+    ICTPowerOfThree,
+    OrderBlockDetector,
+    OTELevels,
+    StructureAnalysis,
+)
 from quantcore.features.technical_indicators import TechnicalIndicators
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator
 from quantcore.features.volatility import VolatilityFeatures, WilliamsVIXFix
@@ -114,6 +123,68 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     except Exception as exc:
         logger.debug(f"[technical] {symbol}: Williams VIX Fix failed: {exc}")
 
+    # --- ICT Smart Money Concepts ---
+    op = df["open"] if "open" in df.columns else cl  # fallback if open unavailable
+    try:
+        fvg_df = FairValueGapDetector(min_gap_atr_multiple=0.1).compute(hi, lo, cl)
+        result["bullish_fvg"] = int(fvg_df["bullish_fvg"].iloc[-1])
+        result["bearish_fvg"] = int(fvg_df["bearish_fvg"].iloc[-1])
+        result["fvg_top"] = _safe_float(fvg_df["fvg_top"].iloc[-1])
+        result["fvg_bottom"] = _safe_float(fvg_df["fvg_bottom"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: FVG failed: {exc}")
+
+    try:
+        ob_df = OrderBlockDetector(impulse_atr_multiple=1.5).compute(op, hi, lo, cl)
+        result["bullish_ob"] = int(ob_df["bullish_ob"].iloc[-1])
+        result["bearish_ob"] = int(ob_df["bearish_ob"].iloc[-1])
+        result["ob_high"] = _safe_float(ob_df["ob_high"].iloc[-1])
+        result["ob_low"] = _safe_float(ob_df["ob_low"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Order Block failed: {exc}")
+
+    try:
+        sa_df = StructureAnalysis(swing_period=5).compute(hi, lo, cl)
+        result["bos_bullish"] = int(sa_df["bos_bullish"].iloc[-1])
+        result["bos_bearish"] = int(sa_df["bos_bearish"].iloc[-1])
+        result["choch_bullish"] = int(sa_df["choch_bullish"].iloc[-1])
+        result["choch_bearish"] = int(sa_df["choch_bearish"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Structure Analysis failed: {exc}")
+
+    try:
+        ehl_df = EqualHighsLows(lookback=20).compute(hi, lo, cl)
+        result["equal_highs"] = int(ehl_df["equal_highs"].iloc[-1])
+        result["equal_lows"] = int(ehl_df["equal_lows"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Equal H/L failed: {exc}")
+
+    try:
+        ote_df = OTELevels(swing_period=20).compute(hi, lo, cl)
+        result["price_in_ote"] = int(ote_df["price_in_ote"].iloc[-1])
+        result["ote_upper"] = _safe_float(ote_df["ote_upper"].iloc[-1])
+        result["ote_lower"] = _safe_float(ote_df["ote_lower"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: OTE Levels failed: {exc}")
+
+    try:
+        kz_df = ICTKillZones().compute(df.index)
+        result["in_any_kz"] = int(kz_df["in_any_kz"].iloc[-1])
+        result["in_london_kz"] = int(kz_df["in_london_kz"].iloc[-1])
+        result["in_ny_am_kz"] = int(kz_df["in_ny_am_kz"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Kill Zones failed: {exc}")
+
+    try:
+        po3_df = ICTPowerOfThree().compute(op, hi, lo, cl)
+        result["po3_tight_range"] = int(po3_df["tight_range"].iloc[-1])
+        result["po3_manipulation_up"] = int(po3_df["manipulation_up"].iloc[-1])
+        result["po3_manipulation_down"] = int(po3_df["manipulation_down"].iloc[-1])
+        result["po3_distribution_up"] = int(po3_df["distribution_up"].iloc[-1])
+        result["po3_distribution_down"] = int(po3_df["distribution_down"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Power of Three failed: {exc}")
+
     # Weekly MTF alignment
     weekly_df = store.load_ohlcv(symbol, Timeframe.WEEKLY)
     if weekly_df is not None and len(weekly_df) >= _MIN_WEEKLY_BARS:
@@ -190,7 +261,6 @@ def _safe_float(v: Any) -> float | None:
         return None
     try:
         f = float(v)
-        return None if (f != f)  # NaN check
-        else f
+        return None if (f != f) else f  # NaN check
     except (TypeError, ValueError):
         return None

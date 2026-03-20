@@ -107,6 +107,15 @@ For each experiment:
 - Update ML research program with next experiments
 - Persist learnings to `.claude/memory/ml_model_registry.md`
 
+## Persistence — Write to BOTH DuckDB AND Memory Files
+
+After every experiment:
+1. DuckDB `ml_experiments` table — structured data for programmatic queries
+2. `.claude/memory/ml_experiment_log.md` — append experiment result for cross-session visibility
+3. `.claude/memory/ml_model_registry.md` — update when a champion model changes
+4. `.claude/memory/ml_research_program.md` — update current research priorities and next experiments
+5. `breakthrough_features` DuckDB table — when SHAP reveals a high-importance feature
+
 ## Hard Rules
 
 - **ONE variable at a time.** Never change model + features + params simultaneously. You won't know what helped.

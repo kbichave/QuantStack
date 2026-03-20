@@ -144,6 +144,26 @@ def _collect_macro_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     # stores None for risk_appetite_proxy, which is expected and not an error.
     result["risk_appetite_proxy"] = _compute_risk_appetite(crypto_resp)
 
+    # --- FRED-sourced macro signals (optional, degrades gracefully) ---
+    try:
+        from quantcore.data.fred_fetcher import FREDFetcher
+        from quantcore.features.macro_features import CreditSpreadFeatures, VolOfVol
+
+        fred = FREDFetcher()
+        hy_data = fred.fetch("hy_oas", days=365)
+        if not hy_data.empty and len(hy_data) >= 30:
+            oas = pd.Series(
+                hy_data["value"].values,
+                index=pd.to_datetime(hy_data["date"]),
+                dtype=float,
+            )
+            cs_df = CreditSpreadFeatures().compute(oas)
+            result["hy_oas"] = _safe_float(cs_df["hy_oas"].iloc[-1])
+            result["hy_oas_zscore"] = _safe_float(cs_df["hy_oas_zscore"].iloc[-1])
+            result["credit_regime_fred"] = cs_df["credit_regime"].iloc[-1]
+    except Exception as exc:
+        logger.debug(f"[macro] FRED credit signals skipped: {exc}")
+
     return result
 
 

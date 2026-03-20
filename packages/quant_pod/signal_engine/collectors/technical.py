@@ -34,6 +34,12 @@ from quantcore.features.smart_money import (
     StructureAnalysis,
 )
 from quantcore.features.microstructure import OvernightGapPersistence
+from quantcore.features.statistical import (
+    EntropyFeatures,
+    HurstExponent,
+    VarianceRatioTest,
+    YangZhangVolatility,
+)
 from quantcore.features.rates import DualMomentum
 from quantcore.features.technical_indicators import TechnicalIndicators
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator
@@ -305,6 +311,34 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
                 result["institutional_gap"] = int(gap_df["institutional_gap"].iloc[-1])
         except Exception as exc:
             logger.debug(f"[technical] {symbol}: OvernightGapPersistence failed: {exc}")
+
+    # --- Statistical features (hedge fund grade) ---
+    try:
+        if "open" in df.columns:
+            yz_df = YangZhangVolatility(period=22).compute(
+                df["open"], df["high"], df["low"], cl
+            )
+            result["yang_zhang_vol"] = _safe_float(yz_df["yang_zhang_vol"].iloc[-1])
+            result["parkinson_vol"] = _safe_float(yz_df["parkinson_vol"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: YangZhang failed: {exc}")
+
+    try:
+        vr_df = VarianceRatioTest(lags=[2, 5, 10], window=126).compute(cl)
+        result["vr_5"] = _safe_float(vr_df["vr_5"].iloc[-1])
+        result["vr_10"] = _safe_float(vr_df["vr_10"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: VarianceRatio failed: {exc}")
+
+    try:
+        ent_df = EntropyFeatures(window=63).compute(cl)
+        result["shannon_entropy"] = _safe_float(ent_df["shannon_entropy"].iloc[-1])
+        result["entropy_regime"] = _safe_float(ent_df["entropy_regime"].iloc[-1])
+    except Exception as exc:
+        logger.debug(f"[technical] {symbol}: Entropy failed: {exc}")
+
+    # Note: HurstExponent (window=252) is too slow for real-time collector
+    # (~0.5s per symbol). Use it in the FeatureFactory for ML training only.
 
     # Weekly MTF alignment
     weekly_df = store.load_ohlcv(symbol, Timeframe.W1)

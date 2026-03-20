@@ -50,6 +50,26 @@ from quantcore.features.alternative_data import (
     ShortInterestSignals,
 )
 from quantcore.features.flow import CumulativeVolumeDelta, FootprintApproximation, VPIN, HawkesIntensity
+from quantcore.features.statistical import (
+    AutocorrelationSpectrum,
+    EntropyFeatures,
+    HurstExponent,
+    OUHalfLife,
+    VarianceRatioTest,
+    YangZhangVolatility,
+)
+from quantcore.features.momentum_factors import CrossSectionalDispersion, InstitutionalMomentumFactors
+from quantcore.features.calendar_features import FourierCalendarFeatures
+from quantcore.features.preprocessing import FractionalDifferentiator
+from quantcore.features.macro_features import (
+    CopperGoldRatio,
+    CreditSpreadFeatures,
+    DXYMomentum,
+    EquityBondCorrelation,
+    MOVEIndex,
+    RealYieldFeatures,
+    VolOfVol,
+)
 from quantcore.features.koncorde import Koncorde
 from quantcore.features.rrg import RRGFeatures
 from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator, TrendFeatures
@@ -151,4 +171,26 @@ __all__ = [
     "WaveConfig",
     "WaveRole",
     "MultiTimeframeFeatureFactory",
+    # Statistical (hedge fund grade)
+    "YangZhangVolatility",
+    "HurstExponent",
+    "VarianceRatioTest",
+    "OUHalfLife",
+    "AutocorrelationSpectrum",
+    "EntropyFeatures",
+    # Institutional Momentum
+    "InstitutionalMomentumFactors",
+    "CrossSectionalDispersion",
+    # Calendar
+    "FourierCalendarFeatures",
+    # ML Preprocessing
+    "FractionalDifferentiator",
+    # Macro (FRED-sourced)
+    "RealYieldFeatures",
+    "CreditSpreadFeatures",
+    "CopperGoldRatio",
+    "DXYMomentum",
+    "MOVEIndex",
+    "EquityBondCorrelation",
+    "VolOfVol",
 ]

@@ -130,14 +130,71 @@ Then update memory files:
 
 Git commit: `research: cycle N complete — [summary]`
 
-## Data Available
+## Data & Tools Available
 
-All loaded and cached in DuckDB:
+### OHLCV + Technicals (Alpaca, cached in DuckDB)
 - SPY/QQQ/IWM/TSLA/NVDA: 1,057 D1 bars + ~30K M15 bars each (2022-2026)
-- Options chains: Alpha Vantage HISTORICAL_OPTIONS (12K+ contracts, full Greeks)
-- Economic indicators: 3,725 data points (CPI, Fed Funds, NFP, unemployment)
-- Macro calendar: 220 events (FOMC, CPI, NFP, OPEX dates)
+- `mcp__quantcore__compute_technical_indicators(symbol, timeframe, indicators)` — ANY indicator
+- `mcp__quantcore__compute_all_features(symbol, timeframe)` — full 200+ feature matrix
+- `mcp__quantcore__compute_feature_matrix(symbols, timeframe)` — cross-sectional features
+
+### Options Data (Alpha Vantage, 12K+ contracts per symbol with full Greeks)
+- `mcp__quantcore__get_options_chain(symbol)` — live chain with delta/gamma/theta/vega/IV/OI
+- `mcp__quantcore__get_iv_surface(symbol)` — IV surface metrics: ATM IV, skew, term structure
+- `mcp__quantcore__price_option(symbol, strike, expiry, type)` — Black-Scholes pricing
+- `mcp__quantcore__compute_greeks(symbol, strike, expiry)` — individual contract Greeks
+- `mcp__quantcore__score_trade_structure(legs)` — multi-leg scoring (spreads, straddles)
+- `mcp__quantcore__analyze_option_structure(legs)` — payoff analysis
+- Options flow signals computed from chain: GEX, gamma flip, DEX, max pain, IV skew, VRP, charm, vanna
+
+### Economic & Macro (Alpha Vantage + MacroCalendar)
+- 3,725 economic data points (CPI, Fed Funds, NFP, unemployment, GDP, retail sales)
+- `mcp__quantcore__get_interest_rates()` — current yield curve
+- `mcp__quantcore__get_event_calendar(symbol)` — earnings, FOMC, CPI dates
+- `mcp__quantcore__get_earnings_data(symbol)` — historical earnings with surprise data
+- `mcp__quantcore__get_market_regime_snapshot()` — broad market regime context
+- MacroCalendar: 220 events (FOMC/CPI/NFP/OPEX 2022-2026) with blackout windows
+
+### ML & Validation
+- `mcp__quantpod__train_ml_model(symbol, model_type, feature_tiers, apply_causal_filter)` — LightGBM/XGBoost
+- `mcp__quantcore__compute_information_coefficient(signal, returns)` — signal quality
+- `mcp__quantcore__run_purged_cv(strategy, symbol)` — purged walk-forward
+- `mcp__quantcore__compute_deflated_sharpe_ratio()` — Harvey-Liu multiple testing correction
+- `mcp__quantcore__compute_probability_of_overfitting()` — PBO check
+- `mcp__quantcore__detect_leakage(features)` — lookahead bias detection
+- `mcp__quantcore__check_lookahead_bias()` — feature shift test
+
+### Volatility
+- `mcp__quantcore__fit_garch_model(symbol)` — GARCH/EGARCH/GJR-GARCH
+- `mcp__quantcore__forecast_volatility(symbol)` — forward vol forecast with VaR
+
+### Fundamentals & Alt Data
+- `mcp__quantcore__get_financial_metrics(symbol)` — P/E, ROE, FCF, margins
+- `mcp__quantcore__get_insider_trades(symbol)` — insider buying/selling
+- `mcp__quantcore__get_institutional_ownership(symbol)` — 13F holdings
+- `mcp__quantcore__get_analyst_estimates(symbol)` — consensus EPS, revisions
+- `mcp__quantcore__get_company_news(symbol)` — news with sentiment
+
+### Execution
 - Alpaca paper account: ready for execution
+- `mcp__quantpod__execute_trade(symbol, action, confidence, reasoning)`
+
+## CRITICAL: Don't Build Retail Strategies
+
+You have institutional-grade data. USE IT. Don't build "RSI < 30 → buy" strategies.
+Build strategies that COMBINE:
+
+1. **Options flow** (GEX regime + IV skew + dealer positioning) — tells you the STRUCTURE
+2. **Macro context** (FOMC proximity + CPI trend + yield curve) — tells you the ENVIRONMENT
+3. **Technicals** (RSI, MACD, etc.) — tells you the TIMING within the structure
+4. **ML features** (200+ features through CausalFilter) — tells you INTERACTIONS humans miss
+5. **Fundamentals** (earnings proximity, insider flow) — tells you the CATALYST
+
+Example of a BAD strategy: "Buy when RSI < 30"
+Example of a GOOD strategy: "Buy when RSI < 30 AND GEX is positive (mean-reverting regime)
+AND no FOMC within 5 days AND IV rank < 50 (options are cheap) AND insider buying in last 90d"
+
+The difference is combining 5 data sources, not relying on 1.
 
 ## Hard Rules
 

@@ -53,6 +53,22 @@ You decide HOW to model the signals that the researcher identifies.
 | `predict_ml_signal(symbol)` | Run inference on current data |
 | `check_concept_drift(symbol)` | PSI-based drift detection |
 
+## Cross-Pod Intelligence
+
+Before starting your cycle, read the Quant Researcher's output:
+- Query `alpha_research_program` for active investigations — what hypotheses is the
+  researcher testing? What regimes are they targeting?
+- Query `research_plans` where pod_name='alpha_researcher' for the latest plan —
+  what features did the researcher flag as important?
+- If the researcher found a strategy that works in trending but fails in ranging,
+  train a regime-conditional model that uses different features per regime.
+- If the researcher flagged a breakthrough feature, include it in your next training run.
+- Your experiment results feed BACK to the researcher: write top SHAP features to
+  `breakthrough_features` table. The researcher reads this to generate new hypotheses.
+
+This is Karpathy's autoresearch loop: research informs training, training results
+inform research. Not two siloed pipelines.
+
 ## Your Bi-Weekly Cycle
 
 ### Analysis Phase

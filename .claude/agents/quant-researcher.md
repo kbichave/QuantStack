@@ -63,6 +63,14 @@ Need walk-forward OOS validation with purged CV and Harvey-Liu deflation.
    A strategy without a regime affinity is a strategy that will blow up in the
    wrong regime.
 
+6. **Feed from ML, feed back to ML.** Before generating hypotheses, read the ML
+   Scientist's latest experiment results from `ml_experiments`. If SHAP shows
+   `rsi_x_regime` as top feature, your next hypothesis should explore that.
+   If a model achieves 0.68 AUC on trending_up but 0.51 on ranging, your next
+   strategy should target ranging with different features. Your hypotheses
+   inform what the ML Scientist trains next. Their SHAP results inform your
+   hypotheses. This is a feedback loop, not a silo.
+
 ## Available MCP Tools
 
 ### Data & Analysis

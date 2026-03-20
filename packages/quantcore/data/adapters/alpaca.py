@@ -347,11 +347,14 @@ class AlpacaAdapter(AssetClassAdapter):
                 return None
             return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
+        from alpaca.data.enums import DataFeed
+
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
             timeframe=_to_alpaca_tf(timeframe),
             start=_as_utc(start_date),
             end=_as_utc(end_date),
+            feed=DataFeed.IEX,  # Free tier; SIP requires paid subscription
         )
         logger.debug(f"[Alpaca] Fetching {timeframe.value} bars for {symbol}")
         bar_set = self._client.get_stock_bars(request)

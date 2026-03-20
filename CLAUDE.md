@@ -236,111 +236,16 @@ from cache. Cache warmer pre-loads at market open.
 
 ---
 
-## 3. MCP Tool Inventory
+## 3. MCP Tools (Core 20)
 
-### Phase 1 — Core Analysis (packages/quant_pod/mcp/server.py)
+Full tool inventory: `packages/quant_pod/mcp/TOOL_CONSOLIDATION.md`
 
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `get_signal_brief` | Run SignalEngine (7 collectors, ~2–5 sec) | `symbol`, `regime?`, `include_strategy_context?` | `{success, signal_brief, regime_used, elapsed_seconds}` |
-| `run_multi_signal_brief` | Parallel SignalEngine for up to 5 symbols | `symbols[]`, `regime?` | `{results, symbols_succeeded, symbols_failed}` |
-| `get_portfolio_state` | Current positions, cash, equity, P&L | (none) | `{snapshot, positions, context_string}` |
-| `get_regime` | ADX/ATR market regime classification | `symbol` | `{success, trend_regime, volatility_regime, confidence, adx, atr, atr_percentile}` |
-| `get_recent_decisions` | Query audit trail | `symbol?`, `limit?` | `{decisions, total}` |
-| `get_system_status` | Kill switch, risk halt, broker mode | (none) | `{kill_switch_active, risk_halted, broker_mode, session_id}` |
-
-### Phase 2 — Strategy & Backtesting (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `register_strategy` | Register a new strategy in the catalog | `name`, `parameters`, `entry_rules`, `exit_rules`, `description?`, `asset_class?`, `regime_affinity?`, `risk_params?`, `source?`, `instrument_type?`, `time_horizon?`, `holding_period_days?` | `{strategy_id, status}` |
-| `list_strategies` | List strategies with optional filters | `status?`, `asset_class?` | `{strategies, total}` |
-| `get_strategy` | Get full strategy details | `strategy_id?`, `name?` | `{strategy}` |
-| `update_strategy` | Update strategy fields | `strategy_id`, partial fields | updated record |
-| `run_backtest` | Backtest a strategy against price data | `strategy_id`, `symbol`, `start_date?`, `end_date?`, `initial_capital?`, etc. | `{sharpe_ratio, max_drawdown, win_rate, total_trades, profit_factor, calmar_ratio, ...}` |
-| `run_backtest_mtf` | Multi-timeframe backtest (setup_tf + trigger_tf) | `strategy_id`, `symbol`, `start_date?`, `end_date?`, `initial_capital?`, `position_size_pct?` | `{sharpe, win_rate, total_trades, profit_factor, max_drawdown, trades[]}` |
-| `run_backtest_options` | Options convexity backtest — BS-priced ATM calls/puts on equity signals | `strategy_id`, `symbol`, `option_type?`, `expiry_days?`, `tp_pct?`, `sl_pct?`, `time_stop_days?`, `iv_rank_max?` | `{sharpe, win_rate, avg_premium_return_pct, iv_crush_pct, equity_comparison, trades[]}` |
-| `run_walkforward` | Walk-forward validation with IS/OOS folds | `strategy_id`, `symbol`, `n_splits?`, `test_size?`, `min_train_size?` | `{fold_results, is_sharpe_mean, oos_sharpe_mean, overfit_ratio, oos_degradation_pct}` |
-| `run_walkforward_mtf` | Walk-forward for MTF strategies — uses run_backtest_mtf per fold | `strategy_id`, `symbol`, `n_splits?`, `test_size_days?`, `min_train_size_days?` | `{fold_results, is_sharpe_mean, oos_sharpe_mean, overfit_ratio, sparse_warning}` |
-| `walk_forward_sparse_signal` | Auto-adjusts OOS window to guarantee min trades per fold | `strategy_id`, `symbol`, `min_oos_trades?`, `n_splits?`, `max_test_size_pct?` | `{adjusted_test_size_bars, trades_per_bar, sparse_warning, fold_results, oos_sharpe_mean}` |
-
-### Phase 3 — Execution (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `execute_trade` | Execute trade through risk gate + broker | `symbol`, `action`, `reasoning`, `confidence`, `quantity?`, `position_size?`, `order_type?`, `strategy_id?`, `paper_mode=True` | `{fill_price, filled_quantity, slippage_bps, risk_approved, risk_violations}` |
-| `close_position` | Close an open position (infers side) | `symbol`, `reasoning`, `quantity?` | fill details or error |
-| `cancel_order` | Cancel an open order | `order_id` | confirmation |
-| `get_fills` | Get recent trade fills | `symbol?`, `limit?` | `{fills, total}` |
-| `get_risk_metrics` | Current exposure, drawdown, limits headroom | (none) | `{cash, equity, gross_exposure, daily_headroom_pct, ...}` |
-| `get_audit_trail` | Query decision audit trail | `session_id?`, `symbol?`, `limit?` | `{events, total}` |
-
-### Phase 4 — Decoder (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `decode_strategy` | Reverse-engineer strategy from trade signals | `signals` (list of dicts), `source_name`, `strategy_name?` | `{decoded_strategy, signals_parsed, low_confidence_warning}` |
-| `decode_from_trades` | Decode from system's own trade history | `source` ("closed_trades"/"fills"), `symbol?`, `date_range?` | Same as decode_strategy |
-
-### Phase 5 — Meta Orchestration (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `get_regime_strategies` | Get strategy allocations for a regime | `regime` | `{allocations, total}` |
-| `set_regime_allocation` | Set/update regime-strategy allocation matrix | `regime`, `allocations` (list) | Updated allocations |
-| `run_multi_analysis` | Run analysis for multiple symbols sequentially | `symbols` (list) | `{results, symbols_succeeded, symbols_failed}` |
-| `resolve_portfolio_conflicts` | Resolve signal conflicts across strategies | `proposed_trades` (list) | `{resolved_trades, resolutions, conflicts_count}` |
-| `get_strategy_gaps` | Analyze strategy registry for regime coverage gaps | (none) | `{gaps[], coverage_summary, trailing_sharpe}` |
-| `promote_draft_strategies` | Auto-promote drafts to forward_testing, retire stale | `min_oos_sharpe?`, `max_overfit_ratio?`, `max_age_days?` | `{promoted[], rejected[], retired[]}` |
-
-### Phase 6 — Learning Loop (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `get_rl_status` | RL model status: enabled agents, shadow mode | (none) | `{agents, shadow_mode_enabled}` |
-| `get_rl_recommendation` | RL position size recommendation (advisory) | `symbol`, `direction`, `signal_confidence?`, `regime?` | `{recommendation, shadow_mode}` |
-| `promote_strategy` | Promote forward_testing → live (with validation) | `strategy_id`, `evidence` | success or failures list |
-| `retire_strategy` | Retire strategy + remove from matrix | `strategy_id`, `reason` | confirmation |
-| `get_strategy_performance` | Live performance metrics vs backtest | `strategy_id`, `lookback_days?` | `{live_sharpe, win_rate, degradation_pct, degraded}` |
-| `validate_strategy` | Re-run backtest and compare to registered summary | `strategy_id` | `{still_valid, sharpe_degradation_pct}` |
-| `update_regime_matrix_from_performance` | Propose matrix updates from trade data | `lookback_days?` | `{proposals, current_matrix}` |
-
-### Enhancement 5 — Execution Feedback Loop (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `get_fill_quality` | Assess execution quality for a fill vs VWAP | `order_id` | `{fill_price, slippage_bps, vwap, fill_vs_vwap_bps, quality_note}` |
-| `get_position_monitor` | Comprehensive position status: price, P&L, stop proximity, regime | `symbol` | `{pnl_pct, days_held, current_regime, near_stop, near_target, recommended_action}` |
-
-### Enhancement 6 — Live Rule Evaluation + ML Pipeline (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `check_strategy_rules` | Evaluate strategy entry/exit rules against current market data | `symbol`, `strategy_id` | `{entry_triggered, exit_triggered, entry_rules_detail[], features_loaded[]}` |
-| `train_ml_model` | Train LightGBM/XGBoost/CatBoost with full feature pipeline | `symbol`, `model_type?`, `feature_tiers?`, `lookback_days?`, `label_method?`, `apply_causal_filter?` | `{accuracy, auc, cv_scores, features_used, model_path}` |
-| `tune_hyperparameters` | Bayesian HPO via Optuna with TimeSeriesSplit CV | `symbol`, `model_type?`, `n_trials?`, `metric?` | `{best_params, best_score, convergence[]}` |
-| `get_ml_model_status` | Check trained model status, age, staleness | `symbol?` | `{models[], stale_count}` |
-| `predict_ml_signal` | Run ML inference on current market data | `symbol` | `{probability, direction, confidence, top_features[]}` |
-| `register_model` | Version and register a trained model (champion/challenger) | `symbol`, `model_path`, `metadata?` | `{registry_id, version, promoted}` |
-| `get_model_history` | All registered versions for a symbol | `symbol` | `{versions[], total}` |
-| `rollback_model` | Revert to a previous model version | `symbol`, `version` | `{rolled_back_to}` |
-| `compare_models` | Side-by-side accuracy/feature/hyperparam diff | `symbol`, `version_a`, `version_b` | `{accuracy_diff, auc_diff, features_added[], features_removed[]}` |
-| `check_concept_drift` | KS test per feature vs training distribution | `symbol`, `window_days?` | `{drift_detected, drifted_features[], recommended_action}` |
-| `update_model_incremental` | Warm-start retrain on new data (LightGBM init_model) | `symbol`, `new_data_days?` | `{updated, old_accuracy, new_accuracy, registered_version}` |
-
-### Enhancement 7 — Portfolio Optimization (packages/quant_pod/mcp/server.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `optimize_portfolio` | Portfolio allocation (HRP/MVO/risk parity/max Sharpe) | `symbols[]`, `method?`, `lookback_days?`, `risk_free_rate?` | `{weights, expected_return, expected_vol, sharpe, risk_contributions}` |
-| `compute_hrp_weights` | Hierarchical Risk Parity with cluster tree detail | `symbols[]`, `lookback_days?` | `{weights, cluster_tree, risk_contributions}` |
-
-### Enhancement 8 — Volatility Modeling (packages/quantcore/mcp/tools/research.py)
-
-| Tool | Description | Input | Output |
-|------|-------------|-------|--------|
-| `fit_garch_model` | Fit GARCH/EGARCH/GJR-GARCH model | `symbol`, `model_type?`, `p?`, `q?` | `{params, aic, bic, persistence, annualized_vol}` |
-| `forecast_volatility` | Forward-looking vol forecast from GARCH | `symbol`, `horizon_days?` | `{forecast_vol_daily[], forecast_vol_annualized, vol_regime, var_95}` |
+**Analysis**: `get_signal_brief`, `run_multi_signal_brief`, `get_regime`, `check_strategy_rules`
+**Execution**: `execute_trade`, `close_position`, `cancel_order`, `get_fills`
+**Portfolio**: `get_portfolio_state`, `get_risk_metrics`, `get_system_status`
+**Strategy**: `register_strategy`, `list_strategies`, `run_backtest`, `run_walkforward`
+**ML**: `train_ml_model`, `predict_ml_signal`, `check_concept_drift`
+**Attribution**: `get_daily_equity` (equity curve), `get_strategy_pnl` (per-strategy P&L)
 
 ---
 
@@ -387,109 +292,16 @@ DATA_PROVIDER_PRIORITY=alpaca,alpha_vantage
 
 ---
 
-## 5. Core Schemas (packages/quant_pod)
+## 5. Schemas & ML
 
-### Active (packages/quant_pod/mcp/models.py)
-| Model | Description |
-|-------|-------------|
-| `RunAnalysisInput` | Input for get_signal_brief tool (legacy name, still used internally) |
-| `RunAnalysisOutput` | Output with SignalBrief and metadata |
-| `PortfolioStateOutput` | Snapshot + positions + context string |
-| `GetRegimeOutput` | Regime classification result |
-| `RecentDecisionSummary` | Summary of a single audit event |
-| `RecentDecisionsOutput` | List of audit events |
-| `SystemStatusOutput` | Kill switch + risk halt + broker mode |
+Full schema reference: `packages/quant_pod/mcp/models.py`
+ML integration reference: `packages/quantcore/` (models, features, labeling, validation)
 
-### Signal Output Schemas (packages/quant_pod/crews/schemas.py + signal_engine/brief.py)
-| Model | Description |
-|-------|-------------|
-| `KeyLevel` | Support/resistance/pivot level with strength |
-| `SymbolBrief` | Per-symbol consolidated brief (consensus_bias, conviction, levels) |
-| `DailyBrief` | Base synthesis schema — 12 fields including market_bias, risk_environment |
-| `SignalBrief` | Superset of DailyBrief — adds engine_version, collector_failures, sentiment_score, regime_detail |
-| `RiskVerdict` | Risk gate verdict (APPROVE/SCALE/VETO) |
+Key models: `SignalBrief`, `PortfolioSnapshot`, `StrategyRecord`, `BacktestResult`,
+`TradeOrder`, `RiskVerdict`, `TradingSheet`
 
-### Phase 2 Models (packages/quant_pod/mcp/models.py)
-| Model | Description |
-|-------|-------------|
-| `StrategyDefinition` | Input for registering a strategy (name, rules, params, regime_affinity) |
-| `StrategyRecord` | Full strategy row from DB (includes id, status, timestamps, summaries) |
-| `BacktestRequest` | Input for run_backtest (strategy_id, symbol, date range, capital) |
-| `BacktestResult` | Backtest metrics (Sharpe, drawdown, win rate, profit factor, Calmar) |
-| `WalkForwardRequest` | Input for run_walkforward (strategy_id, symbol, fold config) |
-| `WalkForwardResult` | Per-fold IS/OOS metrics + aggregate statistics |
-
-### Phase 3 Models (packages/quant_pod/mcp/models.py)
-| Model | Description |
-|-------|-------------|
-| `TradeOrder` | Input for execute_trade (symbol, action, reasoning, confidence, quantity, paper_mode) |
-| `TradeResult` | Fill details or rejection (fill_price, risk_approved, risk_violations) |
-| `RiskMetrics` | Current exposure, drawdown, daily P&L, all limit values |
-
-### Phase 4 Models (packages/quant_pod/mcp/models.py)
-| Model | Description |
-|-------|-------------|
-| `DecodedStrategy` | Decoded strategy spec: source, style, entry/exit triggers, regime affinity, edge hypothesis, confidence |
-
-### Phase 5 Models (packages/quant_pod/mcp/models.py)
-| Model | Description |
-|-------|-------------|
-| `StrategyAllocation` | Single strategy's capital allocation (strategy_id, capital_pct, mode, regime_score) |
-| `AllocationPlan` | Portfolio-level allocation plan with per-strategy weights and warnings |
-| `ConflictResolution` | Result of resolving a signal conflict for a single symbol |
-
----
-
-## 5.5 ML Integration (`packages/quantcore/`)
-
-The system includes a production-grade ML stack alongside rule-based strategies.
-These run outside the SignalEngine — they are Python modules callable directly
-or via QuantCore MCP tools.
-
-### Supervised Learning (`packages/quantcore/models/`)
-| Module | Class | What it does |
-|--------|-------|-------------|
-| `trainer.py` | `ModelTrainer` | Train LightGBM / XGBoost / CatBoost classifiers with TimeSeriesSplit CV |
-| `predictor.py` | `Predictor` | Calibrated probability predictions with feature alignment |
-| `ensemble.py` | `HierarchicalEnsemble` | Combine W1/D1/H4/1H predictions with configurable timeframe weights |
-| `explainer.py` | `SHAPExplainer` | Global + local feature importance via SHAP |
-
-### Labeling (`packages/quantcore/labeling/`)
-| Module | Class | What it does |
-|--------|-------|-------------|
-| `event_labeler.py` | `EventLabeler` | Binary WIN/LOSS labels from ATR-based TP/SL outcomes |
-| `wave_event_labeler.py` | `WaveEventLabeler` | Wave-specific outcome labeling |
-| `llm_labeler.py` | `LLMLabelProvider` | Attach externally-computed LLM quality labels |
-
-### Regime Classification (`packages/quantcore/hierarchy/regime/`)
-| Module | Class | What it does |
-|--------|-------|-------------|
-| `tft_regime.py` | `TFTRegimeModel` | Temporal Fusion Transformer — 4 regimes with attention weights |
-| `hmm_model.py` | `HMMRegimeModel` | Hidden Markov Model — state transitions + regime stability |
-| `changepoint.py` | `BayesianChangepointDetector` | Online changepoint detection (Adams & MacKay 2007) |
-| `regime_classifier.py` | `WeeklyRegimeClassifier` | Rule-based BULL/BEAR/SIDEWAYS with confidence score |
-
-### Feature Validation (`packages/quantcore/validation/`)
-| Module | Class | What it does |
-|--------|-------|-------------|
-| `causal_filter.py` | `CausalFilter` | Granger causality + optional transfer entropy; drops features that don't causally predict forward returns (Bonferroni/Holm corrected) |
-| `orthogonalization.py` | `CorrelationFilter` | Removes highly correlated feature clusters (r > 0.85) |
-| `orthogonalization.py` | `FeatureOrthogonalizer` | Chains CausalFilter (optional) → CorrelationFilter → PCA |
-
-### When to use ML vs rule-based strategies
-- **Rule-based** (workshop default): fast to iterate, interpretable, good for < 100 trades/year
-- **ML-backed**: better for high-frequency signals, when feature importance reveals non-obvious drivers, when regime classification needs probabilistic output
-- Use `CausalFilter` before model training to drop spurious features (reduces overfitting, improves OOS)
-- Use `SHAPExplainer` in /reflect to understand which features drove recent predictions
-- Use `HMMRegimeModel` when `get_regime()` confidence is low — HMM provides state probabilities, not just a label
-- See `.claude/memory/ml_model_registry.md` for all trained models, their feature sets, and OOS accuracy
-
-### MCP exposure
-Feature inputs are exposed (`compute_all_features`, `compute_feature_matrix`).
-Training/prediction/SHAP/CausalFilter are **not** MCP tools — call them directly
-in scripts or via `packages/quantcore/equity/pipeline.py` → `run_ml_strategy()`.
-
----
+ML stack: LightGBM/XGBoost trainers, CausalFilter, PurgedKFoldCV, SHAP explainer,
+HierarchicalEnsemble, EventLabeler, DriftDetector. See `.claude/agents/ml-scientist.md`.
 
 ## 6. Decision Framework
 

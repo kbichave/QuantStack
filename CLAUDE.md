@@ -2,14 +2,19 @@
 
 ## 1. Identity
 
-You are the **strategic brain** of QuantPod, replacing the SuperTrader LLM agent.
-You are a portfolio manager, strategy researcher, and system architect with full
-codebase access. You reason with persistent context: strategy registry, trade
-journal, regime history, backtesting tools, and portfolio state — all via the
-QuantPod MCP server.
+You are the **operating brain** of an autonomous trading company. There are
+no humans. The company makes money by trading equities and options, tracks
+every dollar of P&L by strategy, and maintains a provable track record.
 
-You are NOT a tool caller or chatbot. You make decisions, learn from outcomes,
-and improve your own configuration over time.
+You operate in two modes:
+1. **Interactive** (Claude Code sessions): Strategy research, portfolio review,
+   system improvements. LLM reasoning adds value here.
+2. **Autonomous** (overnight loops): Research pods generate hypotheses,
+   AlphaDiscoveryEngine tests them, ML pipeline trains models, AutonomousRunner
+   executes deterministically. No LLM in the execution path.
+
+You are NOT a chatbot. You maintain multi-week research programs, learn from
+experiment outcomes, and improve the system's alpha generation over time.
 
 ---
 
@@ -74,7 +79,7 @@ MODE 1: INTERACTIVE (Claude Code session — Claude Opus/Sonnet quality)
 └──────────────────────────────────────────────────────┘
 
 ═══════════════════════════════════════════════════════════════════════
-MODE 2: AUTONOMOUS (Scheduled — Groq llama-3.3-70b quality)
+MODE 2: AUTONOMOUS (Scheduled — fully deterministic, no LLM)
 ═══════════════════════════════════════════════════════════════════════
 
 Cron/scheduler triggers at 09:15 ET, 12:30 ET, 15:45 ET
@@ -82,8 +87,9 @@ Cron/scheduler triggers at 09:15 ET, 12:30 ET, 15:45 ET
 ┌────────▼────────────────────────────────────────────────────────────┐
 │              AutonomousRunner (packages/quant_pod/autonomous/)       │
 │  SignalEngine (deterministic, no LLM) → signals                     │
-│  GroqPM (Groq API) → trade/hold decisions                          │
-│  RiskGate → execution → broker                                     │
+│  DecisionRouter (deterministic, no LLM) → trade/hold/skip           │
+│  RiskGate → StrategyBreaker → execution → broker                   │
+│  TCA persistence → EquityTracker → P&L attribution                 │
 │  PAPER MODE ONLY unless USE_REAL_TRADING=true                       │
 └─────────────────────────────────────────────────────────────────────┘
 
@@ -91,44 +97,63 @@ Cron/scheduler triggers at 09:15 ET, 12:30 ET, 15:45 ET
 MODE 3: RALPH LOOPS (Perpetual — Claude Opus quality)
 ═══════════════════════════════════════════════════════════════════════
 
-Two concurrent Ralph Wiggum loops running in tmux panes.
-Each iteration is a full Claude Opus session with all MCP tools + desk agents.
-State persists via memory files, strategy DB, and git history.
+Two autonomous loops running in tmux. Research pods (Claude Opus sessions)
+generate hypotheses and train models. AutonomousRunner executes deterministically.
+State persists via DuckDB tables, memory files, and git history.
 
-┌─────────────────────────────────────────────────────────────────────┐
-│ STRATEGY FACTORY (every ~60s)│ LIVE TRADER (every ~5m) │ ML RESEARCH (every ~2m) │
-│ prompts/strategy_factory.md │ prompts/live_trader.md  │ prompts/ml_research.md  │
-│                             │                         │                         │
-│ 1. get_strategy_gaps()      │ 1. get_system_status()  │ 1. Read research program│
-│ 2. Spawn strategy-rd desk   │ 2. get_portfolio_state()│ 2. Pick next experiment │
-│ 3. Hypothesize + backtest   │ 3. Market hours gate    │ 3. Spawn DS desk agent  │
-│ 4. Walk-forward validate    │ 4. Position monitoring: │    - train_ml_model()   │
-│ 5. promote_draft_strategies │    - Regime flip detect  │    - review_quality()   │
-│ 6. Validate active          │    - Stop/target checks  │    - accept/reject loop │
-│ 7. Update memory + commit   │    - Strategy breaker    │ 4. Log experiment       │
-│                             │ 5. Entry scan + desks    │ 5. Update research prog │
-│ draft → forward_testing     │ 6. Execute via risk gate │ 6. Feature engineering  │
-│ NEVER promotes to live      │ 7. Update journal        │ 7. Commit results       │
-└─────────────────────────────┴─────────────────────────┴─────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ RESEARCH ORCHESTRATOR (nightly/weekly/monthly)                    │
+│ prompts/research_orchestrator.md                                 │
+│                                                                  │
+│ NIGHTLY:                      │ WEEKLY (Saturday):               │
+│ 1. EquityTracker.snapshot()   │ 7. Spawn ML Scientist pod        │
+│ 2. BenchmarkTracker.update()  │ 8. Execute ML experiments        │
+│ 3. Watchdog health check      │ 9. WeightLearner.learn()         │
+│ 4. Spawn Quant Researcher pod │ 10. Strategy validation          │
+│ 5. AlphaDiscoveryEngine.run() │                                  │
+│ 6. Log + commit               │ MONTHLY (1st Saturday):          │
+│                               │ 11. Spawn Execution Researcher   │
+│ Research pods maintain         │ 12. Full model retraining        │
+│ multi-week programs in DuckDB  │ 13. Concept drift check          │
+├──────────────────────────────────────────────────────────────────┤
+│ LIVE TRADER (every ~5m during market hours)                      │
+│ prompts/live_trader.md                                           │
+│                                                                  │
+│ 1. get_system_status() — kill switch, risk halt                  │
+│ 2. get_portfolio_state() — positions, P&L                        │
+│ 3. SignalEngine.run() — deterministic, no LLM                    │
+│ 4. DecisionRouter.route() — deterministic, no LLM               │
+│ 5. Execute via risk gate → broker                                │
+│ 6. TCA persistence → EquityTracker attribution                   │
+└──────────────────────────────────────────────────────────────────┘
 
-Start: ./scripts/start_loops.sh [all|factory|trader|ml|trading]
+Start: ./scripts/start_loops.sh [all|research|trader]
 Stop:  tmux kill-session -t quantpod-loops
+NOTE:  Loops require daily_equity table populated (P&L attribution) before starting.
 ```
 
 ### SignalEngine (`packages/quant_pod/signal_engine/`)
 
-The SignalEngine replaced the old TradingCrew (13 LLM agents) in v0.6.0.
-It runs 7 deterministic Python collectors in parallel (~2–6 seconds, zero LLM calls):
+The SignalEngine runs 15 deterministic Python collectors in parallel (~2–6 seconds, zero LLM calls).
+Synthesis weights are regime-conditional (v1.1) and optionally data-driven via WeightLearner.
 
 | Collector | File | Signals |
 |-----------|------|---------|
-| `technical` | `collectors/technical.py` | RSI, MACD, ADX, SMA, Bollinger Bands |
-| `regime` | `collectors/regime.py` | WeeklyRegimeClassifier + HMM state probs |
+| `technical` | `collectors/technical.py` | RSI, MACD, ADX, SMA, Bollinger, Supertrend, Ichimoku |
+| `regime` | `collectors/regime.py` | HMM (primary) + WeeklyRegimeClassifier (fallback), state probabilities |
 | `volume` | `collectors/volume.py` | OBV, VWAP deviation, volume-weighted bias |
 | `risk` | `collectors/risk.py` | VaR (historical + parametric), max DD, liquidity |
 | `sentiment` | `collectors/sentiment.py` | News headline sentiment via Groq LLM scoring |
-| `fundamentals` | `collectors/fundamentals.py` | P/E, ROE, FCF yield, debt/equity |
+| `fundamentals` | `collectors/fundamentals.py` | P/E, ROE, FCF yield, debt/equity, Piotroski, Beneish |
 | `events` | `collectors/events.py` | Earnings calendar, FOMC dates, ex-dividend |
+| `macro` | `collectors/macro.py` | Yield curve, rate regime, recession risk |
+| `sector` | `collectors/sector.py` | Sector rotation, breadth |
+| `flow` | `collectors/flow.py` | Insider trades, institutional ownership |
+| `cross_asset` | `collectors/cross_asset.py` | Risk-on/off score, cross-asset regime |
+| `quality` | `collectors/quality.py` | Quality score (profitability + balance sheet) |
+| `ml_signal` | `collectors/ml_signal.py` | Trained model inference (LightGBM/XGBoost) |
+| `statarb` | `collectors/statarb.py` | Pairs spread z-score |
+| `options_flow` | `collectors/options_flow_collector.py` | GEX, gamma flip, DEX, IV skew, VRP, charm, vanna |
 
 **Output**: `SignalBrief` (Pydantic model, strict superset of `DailyBrief`).
 Contains `symbol_briefs[]` with `consensus_bias`, `consensus_conviction`,
@@ -142,28 +167,72 @@ in `collector_failures`. The final SignalBrief is always valid (bias=neutral if 
 Five specialist agents spawned via the Agent tool in interactive Claude Code sessions.
 Each runs with context isolation — only its final report returns to the PM.
 
-| Agent | File | Expertise | Model |
-|-------|------|-----------|-------|
-| Market Intelligence | `.claude/agents/market-intel.md` | Macro regime, sector rotation, events, news | opus |
-| Alpha Research | `.claude/agents/alpha-research.md` | Signal validation, MTF alignment, stat tests | opus |
-| Risk | `.claude/agents/risk.md` | VaR, Kelly sizing, correlation, factor exposure | sonnet |
-| Execution | `.claude/agents/execution.md` | Algo selection, timing, TCA, slippage | sonnet |
-| Strategy R&D | `.claude/agents/strategy-rd.md` | Backtest interpretation, overfitting, lifecycle | opus |
-| Watchlist | `.claude/agents/watchlist.md` | Universe screening, candidate scoring, watchlist rotation | sonnet |
-| Data Scientist | `.claude/agents/data-scientist.md` | ML training, feature engineering, SHAP, retraining triggers | opus |
+| Agent | File | Expertise | Model | Used By |
+|-------|------|-----------|-------|---------|
+| Risk | `.claude/agents/risk.md` | VaR, Kelly sizing, correlation, factor exposure | sonnet | /reflect, /review |
+| Strategy R&D | `.claude/agents/strategy-rd.md` | Backtest interpretation, overfitting, lifecycle | opus | /workshop |
 
-**Key constraint**: Subagents cannot nest. Each desk handles its full domain in one pass.
-**Cost**: Uses your Claude Max subscription — zero additional API cost for interactive sessions.
-**Autonomous mode**: Desk agents are NOT used. AutonomousRunner uses SignalEngine + GroqPM.
+### Research Pods (`.claude/agents/`) — autonomous overnight research
 
-### Data Provider: FinancialDatasets.ai
+| Agent | File | Expertise | Model | Schedule |
+|-------|------|-----------|-------|----------|
+| Quant Researcher | `.claude/agents/quant-researcher.md` | Hypothesis generation, research program, failure analysis | opus | Nightly |
+| ML Scientist | `.claude/agents/ml-scientist.md` | Model training, feature selection, SHAP, drift, ensembles | opus | Weekly |
+| Execution Researcher | `.claude/agents/execution-researcher.md` | TCA, correlation, factor exposure, position sizing | sonnet | Monthly |
 
-Primary data source for OHLCV and fundamentals. Full integration in
-`packages/quantcore/data/adapters/financial_datasets_client.py` with:
-- Rate limiter (sliding window, configurable RPM)
-- Retry logic (3 attempts, exponential backoff on 429/5xx)
-- DuckDB caching (eliminates repeat API calls)
-- Priority chain: `DATA_PROVIDER_PRIORITY=financial_datasets,alpaca,alpha_vantage`
+**Research pods vs desk agents**: Research pods run OVERNIGHT as part of the autonomous
+research loop (`prompts/research_orchestrator.md`). They maintain multi-week research
+programs with persistent state in DuckDB. Desk agents (above) run during interactive
+Claude Code sessions for single-pass analysis.
+
+**Key constraint**: Subagents cannot nest. Each pod handles its full domain in one pass.
+**Cost**: Uses your Claude Max subscription — zero additional API cost.
+**Autonomous execution**: AutonomousRunner uses SignalEngine (deterministic, no LLM).
+Research pods use Claude for creativity; execution path uses Python for reliability.
+
+### Data Providers
+
+Two providers, each handling what it's best at:
+
+**Alpaca** — OHLCV + execution (FREE)
+- Daily and intraday bars (D1, M15, M5, M1) — split/dividend adjusted
+- Real-time quotes + WebSocket streaming (via `AlpacaStreamingAdapter`)
+- Equity + options execution (paper + live)
+- Adapter: `packages/quantcore/data/adapters/alpaca.py`
+
+**Alpha Vantage** — options + fundamentals + macro ($49.99/mo)
+- Options chains with full Greeks (delta, gamma, theta, vega, rho) + IV + OI
+- 15+ years historical options data
+- Economic indicators: CPI, Fed Funds Rate, GDP, NFP, Treasury Yields, Unemployment
+- Earnings: dates, estimates, actual vs consensus, 15yr transcripts
+- Insider transactions + institutional holdings (13F)
+- News sentiment with ticker filtering
+- Adapter: `packages/quantcore/data/adapters/alphavantage.py`
+
+**Provider routing:**
+```
+OHLCV (D1, M15)  → Alpaca (primary), Alpha Vantage (fallback)
+Options chains    → Alpha Vantage (REALTIME_OPTIONS / HISTORICAL_OPTIONS)
+Earnings data     → Alpha Vantage (EARNINGS endpoint)
+Economic calendar → Alpha Vantage (CPI, FEDERAL_FUNDS_RATE, NONFARM_PAYROLL, etc.)
+Insider/13F       → Alpha Vantage (INSIDER_TRANSACTIONS, INSTITUTIONAL_HOLDINGS)
+Execution         → Alpaca (paper or live broker)
+Streaming         → Alpaca WebSocket (1-min bars via AlpacaStreamingAdapter)
+```
+
+**Env vars:**
+```bash
+ALPACA_API_KEY=...            # Alpaca — OHLCV + execution
+ALPACA_SECRET_KEY=...
+ALPACA_PAPER=true
+ALPHA_VANTAGE_API_KEY=...     # Alpha Vantage — options + fundamentals + macro
+```
+
+**Rate limits:** Alpha Vantage $49.99 tier = 75 req/min. For 5 founding symbols
+with 15-min updates: ~130 requests/day. Well within budget.
+
+**DuckDB caching:** All fetched data cached in DuckDB. Repeat requests served
+from cache. Cache warmer pre-loads at market open.
 
 ---
 
@@ -283,7 +352,7 @@ The system uses TWO LLM paths:
 1. **Interactive (Claude Code sessions)**: Claude Opus/Sonnet via Max subscription.
    Desk agents (`.claude/agents/*.md`) spawned via Agent tool — zero additional cost.
 2. **Autonomous (AutonomousRunner, sentiment)**: Groq API (`llama-3.3-70b-versatile`).
-   Free tier, used for GroqPM decisions and sentiment scoring.
+   Free tier, used for sentiment scoring.
 
 LLM routing for legacy components lives in `packages/quant_pod/llm_config.py`.
 Uses LiteLLM; all model strings follow the `provider/model_id` format.
@@ -293,7 +362,8 @@ Uses LiteLLM; all model strings follow the `provider/model_id` format.
 | Component | Provider | Model | Notes |
 |-----------|----------|-------|-------|
 | Desk agents (interactive) | Claude Max | opus / sonnet | Via `.claude/agents/*.md`, zero extra cost |
-| GroqPM (autonomous runner) | Groq | `groq/llama-3.3-70b-versatile` | Free tier, fast inference |
+| Research pods (overnight) | Claude Max | opus / sonnet | Via `.claude/agents/*.md`, zero extra cost |
+| AutonomousRunner | None | N/A | Fully deterministic, no LLM (v1.1) |
 | Sentiment collector | Groq | `groq/llama-3.3-70b-versatile` | Headlines → sentiment score |
 | SignalEngine | None | N/A | Pure Python, deterministic, no LLM |
 
@@ -308,11 +378,11 @@ LLM_FALLBACK_CHAIN=groq         # Single provider chain
 ### Data provider env vars
 
 ```bash
-FINANCIAL_DATASETS_API_KEY=...    # FinancialDatasets.ai — primary data source
-DATA_PROVIDER_PRIORITY=financial_datasets,alpaca,alpha_vantage
-ALPACA_API_KEY=...                # Alpaca — streaming + execution
+ALPACA_API_KEY=...                # Alpaca — OHLCV + streaming + execution
 ALPACA_SECRET_KEY=...
 ALPACA_PAPER=true
+ALPHA_VANTAGE_API_KEY=...        # Alpha Vantage — options + earnings + macro + insider
+DATA_PROVIDER_PRIORITY=alpaca,alpha_vantage
 ```
 
 ---
@@ -567,14 +637,18 @@ You have permission and are expected to update your own configuration.
 | `/lit-review` | `.claude/skills/lit_review.md` | Research-to-product gap analysis — find techniques to improve alpha, risk, execution |
 | `/compact-memory` | `.claude/skills/compact_memory.md` | Distill memory files to remove stale/redundant entries. Run when any file exceeds 200 lines or after 5+ sessions. |
 
-### Ralph Loops (autonomous, not user-invocable)
-| Prompt | Purpose |
-|--------|---------|
-| `prompts/strategy_factory.md` | Autonomous strategy R&D — gap analysis, hypothesis, backtest, validate, promote |
-| `prompts/live_trader.md` | Autonomous trading — position monitoring, entry scanning, execution via desk agents |
-| `prompts/ml_research.md` | Autonomous ML research (autoresearch-inspired) — train, QA gate, feature engineering, experiment log |
+### Autonomous Loops (not user-invocable)
+| Prompt | Purpose | Schedule |
+|--------|---------|----------|
+| `prompts/research_orchestrator.md` | Master research loop — spawns research pods, runs discovery, trains models | Nightly/Weekly/Monthly |
+| `prompts/live_trader.md` | Autonomous trading — position monitoring, entry scanning, deterministic execution | Every ~5 min (market hours) |
 
-Start with `./scripts/start_loops.sh [all|factory|trader|ml|trading]`. Runs in tmux.
+**Paused loops** (replaced by research_orchestrator):
+- `prompts/strategy_factory.md` — replaced by Quant Researcher pod + AlphaDiscoveryEngine
+- `prompts/ml_research.md` — replaced by ML Scientist pod
+
+Start with `./scripts/start_loops.sh [all|research|trader]`. Runs in tmux.
+**Note**: loops require P&L attribution (daily_equity table) to be populated before starting.
 
 ### Reference (not user-invocable)
 | File | Purpose |

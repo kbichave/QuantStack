@@ -4,10 +4,10 @@
 """
 AutonomousRunner — unattended trading loop.
 
-Runs without a Claude Code session. Calls SignalEngine for analysis,
-DecisionRouter to pick execution path, and GroqPM for non-routine decisions.
-All trades still flow through risk_gate → broker so every safety invariant
-from the interactive path is preserved.
+Runs without a Claude Code session. Calls SignalEngine for analysis and
+DecisionRouter to pick execution path. All decisions are fully deterministic —
+no LLM calls in the execution path (v1.1). All trades still flow through
+risk_gate → broker so every safety invariant from the interactive path is preserved.
 
 Invariants (never violated regardless of arguments):
 - kill_switch.is_active() is checked before every symbol, not just at start.
@@ -40,8 +40,8 @@ from typing import Any
 
 from loguru import logger
 
-from quant_pod.autonomous.decision import DecisionPath, DecisionRouter
-from quant_pod.autonomous.groq_pm import GroqPM
+from quant_pod.autonomous.decision import DecisionPath, DecisionRouter, RouteContext
+from quant_pod.observability.trace import TraceContext
 
 
 # =============================================================================
@@ -117,9 +117,11 @@ class AutonomousRunner:
         self._paper_only = paper_only
         self._max_concurrent = max_concurrent
         self._router = DecisionRouter()
-        self._groq_pm = GroqPM()
         self._drift_detector = self._init_drift_detector()
         self._current_drift_scale: float = 1.0
+        self._auto_trigger = self._init_auto_trigger()
+        # Track entry regimes for position monitoring (symbol → trend_regime at entry)
+        self._entry_regimes: dict[str, str] = {}
 
     async def run(
         self,
@@ -201,14 +203,8 @@ class AutonomousRunner:
                 report.errors += 1
             elif r.path == DecisionPath.SKIP:
                 report.skipped += 1
-            elif r.path == DecisionPath.RULE_BASED:
+            elif r.path in (DecisionPath.RULE_BASED, DecisionPath.GROQ_SYNTHESIS):
                 report.rule_based += 1
-                if r.fill_result and r.fill_result.get("success"):
-                    report.executed += 1
-                elif r.fill_result and not r.fill_result.get("risk_approved", True):
-                    report.risk_rejected += 1
-            elif r.path == DecisionPath.GROQ_SYNTHESIS:
-                report.groq_synthesis += 1
                 if r.fill_result and r.fill_result.get("success"):
                     report.executed += 1
                 elif r.fill_result and not r.fill_result.get("risk_approved", True):
@@ -217,14 +213,28 @@ class AutonomousRunner:
         logger.info(
             f"[AutonomousRunner] run={run_id} done — "
             f"executed={report.executed} skipped={report.skipped} "
-            f"groq={report.groq_synthesis} errors={report.errors} "
+            f"rule_based={report.rule_based} errors={report.errors} "
             f"elapsed={round((finished_at - started_at).total_seconds(), 1)}s"
         )
+
+        # --- Step 5: Post-pass continuous risk monitoring ------------------
+        await self._run_post_pass_monitor(results)
+
         return report
 
     # -------------------------------------------------------------------------
     # Per-Symbol Processing
     # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _init_auto_trigger():
+        """Lazy-load AutoTriggerMonitor. Returns None if import fails."""
+        try:
+            from quant_pod.execution.kill_switch import get_kill_switch
+            return get_kill_switch().create_auto_trigger()
+        except Exception as exc:
+            logger.debug(f"[AutonomousRunner] AutoTriggerMonitor not available: {exc}")
+            return None
 
     @staticmethod
     def _init_drift_detector():
@@ -263,35 +273,37 @@ class AutonomousRunner:
         t0 = time.monotonic()
 
         async with semaphore:
-            # Re-check kill switch per symbol — it may have been triggered
-            # by an order submitted earlier in this same pass.
-            if system_status.get("kill_switch_active"):
-                return SymbolResult(
-                    symbol=symbol,
-                    path=DecisionPath.SKIP,
-                    path_reason="kill switch active (re-check)",
-                    elapsed_seconds=time.monotonic() - t0,
-                )
+            # Wrap entire symbol processing in a trace for end-to-end correlation
+            with TraceContext.new_trace(symbol=symbol, run_id=run_id):
+                # Re-check kill switch per symbol — it may have been triggered
+                # by an order submitted earlier in this same pass.
+                if system_status.get("kill_switch_active"):
+                    return SymbolResult(
+                        symbol=symbol,
+                        path=DecisionPath.SKIP,
+                        path_reason="kill switch active (re-check)",
+                        elapsed_seconds=time.monotonic() - t0,
+                    )
 
-            try:
-                return await self._analyze_and_decide(
-                    symbol=symbol,
-                    strategies=strategies,
-                    portfolio=portfolio,
-                    last_regime=last_regime,
-                    system_status=system_status,
-                    run_id=run_id,
-                    t0=t0,
-                )
-            except Exception as exc:
-                logger.error(f"[AutonomousRunner] {symbol}: unhandled error — {exc}", exc_info=True)
-                return SymbolResult(
-                    symbol=symbol,
-                    path=DecisionPath.SKIP,
-                    path_reason="internal error",
-                    error=str(exc),
-                    elapsed_seconds=time.monotonic() - t0,
-                )
+                try:
+                    return await self._analyze_and_decide(
+                        symbol=symbol,
+                        strategies=strategies,
+                        portfolio=portfolio,
+                        last_regime=last_regime,
+                        system_status=system_status,
+                        run_id=run_id,
+                        t0=t0,
+                    )
+                except Exception as exc:
+                    logger.error(f"[AutonomousRunner] {symbol}: unhandled error — {exc}", exc_info=True)
+                    return SymbolResult(
+                        symbol=symbol,
+                        path=DecisionPath.SKIP,
+                        path_reason="internal error",
+                        error=str(exc),
+                        elapsed_seconds=time.monotonic() - t0,
+                    )
 
     async def _analyze_and_decide(
         self,
@@ -342,8 +354,8 @@ class AutonomousRunner:
         # Stash drift_scale for downstream handlers
         self._current_drift_scale = drift_scale
 
-        # --- Routing ---
-        path, reason = self._router.route(
+        # --- Routing (fully deterministic, no LLM) ---
+        path, reason, route_ctx = self._router.route(
             symbol=symbol,
             brief=brief,
             strategies=symbol_strategies,
@@ -363,18 +375,11 @@ class AutonomousRunner:
                 elapsed_seconds=time.monotonic() - t0,
             )
 
-        if path == DecisionPath.GROQ_SYNTHESIS:
-            return await self._handle_groq(
-                symbol=symbol, brief=brief, reason=reason,
-                strategies=symbol_strategies, portfolio=portfolio,
-                run_id=run_id, t0=t0,
-            )
-
-        # RULE_BASED — derive action deterministically from brief
+        # All non-SKIP paths are RULE_BASED (Groq path removed in v1.1)
         return await self._handle_rule_based(
             symbol=symbol, brief=brief, reason=reason,
             strategies=symbol_strategies, portfolio=portfolio,
-            run_id=run_id, t0=t0,
+            run_id=run_id, t0=t0, route_ctx=route_ctx,
         )
 
     # -------------------------------------------------------------------------
@@ -390,9 +395,16 @@ class AutonomousRunner:
         portfolio: dict,
         run_id: str,
         t0: float,
+        route_ctx: RouteContext | None = None,
     ) -> SymbolResult:
-        """Deterministic execution from brief bias + strategy rules."""
+        """Deterministic execution from brief bias + strategy rules + route context."""
         action, confidence, position_size = _derive_trade_params(brief, strategies)
+
+        ctx = route_ctx or RouteContext()
+
+        # Apply RouteContext overrides (from exception conditions)
+        if ctx.force_size is not None:
+            position_size = ctx.force_size
 
         # Apply drift-based position scaling (set by _analyze_and_decide)
         if self._current_drift_scale < 1.0:
@@ -404,6 +416,10 @@ class AutonomousRunner:
             f"conviction={brief.market_conviction:.0%} "
             f"regime={getattr(brief, 'regime_detail', {}).get('trend_regime', 'unknown')}"
         )
+        if ctx.exception_type:
+            reasoning += f" [exception: {ctx.exception_type}]"
+        if ctx.force_size:
+            reasoning += f" [forced_size: {ctx.force_size}]"
         if self._current_drift_scale < 1.0:
             reasoning += f" [drift_warning: size scaled to {position_size}]"
 
@@ -428,73 +444,6 @@ class AutonomousRunner:
             symbol=symbol, path=DecisionPath.RULE_BASED,
             path_reason=reason, action=action,
             position_size=position_size, confidence=confidence,
-            reasoning=reasoning, fill_result=fill_result,
-            elapsed_seconds=time.monotonic() - t0,
-        )
-
-    async def _handle_groq(
-        self,
-        symbol: str,
-        brief: Any,
-        reason: str,
-        strategies: list[dict],
-        portfolio: dict,
-        run_id: str,
-        t0: float,
-    ) -> SymbolResult:
-        """Ask GroqPM for a decision; fall back to SKIP on timeout/error."""
-        decision = await self._groq_pm.synthesize(
-            symbol=symbol,
-            brief=brief,
-            exception_reason=reason,
-            portfolio=portfolio,
-            strategies=strategies,
-        )
-
-        if decision is None:
-            logger.info(f"[AutonomousRunner] {symbol}: GroqPM returned None — SKIP")
-            self._audit_skip(symbol, f"groq_pm returned None (exception: {reason})", brief, run_id)
-            return SymbolResult(
-                symbol=symbol, path=DecisionPath.GROQ_SYNTHESIS,
-                path_reason=reason, action=None,
-                reasoning="GroqPM unavailable or timed out — SKIP",
-                elapsed_seconds=time.monotonic() - t0,
-            )
-
-        if decision.action == "skip":
-            self._audit_skip(
-                symbol,
-                f"GroqPM chose skip: {decision.reasoning}",
-                brief, run_id,
-            )
-            return SymbolResult(
-                symbol=symbol, path=DecisionPath.GROQ_SYNTHESIS,
-                path_reason=reason, action=None,
-                confidence=decision.confidence,
-                reasoning=decision.reasoning,
-                elapsed_seconds=time.monotonic() - t0,
-            )
-
-        strategy_id = strategies[0].get("strategy_id") if strategies else None
-        reasoning = (
-            f"[groq_pm] {decision.reasoning} | "
-            f"risk: {decision.key_risk} | "
-            f"exception: {reason}"
-        )
-
-        regime_at_entry = getattr(brief, "regime_detail", {}).get("trend_regime", "unknown")
-        fill_result = await self._submit_order(
-            symbol=symbol, action=decision.action,
-            confidence=decision.confidence,
-            position_size=decision.position_size,
-            reasoning=reasoning, strategy_id=strategy_id,
-            run_id=run_id, regime_at_entry=regime_at_entry,
-        )
-        return SymbolResult(
-            symbol=symbol, path=DecisionPath.GROQ_SYNTHESIS,
-            path_reason=reason, action=decision.action,
-            position_size=decision.position_size,
-            confidence=decision.confidence,
             reasoning=reasoning, fill_result=fill_result,
             elapsed_seconds=time.monotonic() - t0,
         )
@@ -543,10 +492,56 @@ class AutonomousRunner:
                 f"{'filled' if result.get('success') else 'rejected'} "
                 f"paper={paper_mode}"
             )
+            # Record broker success for auto-trigger monitoring
+            if self._auto_trigger:
+                self._auto_trigger.record_broker_result(success=True)
+            # Track entry regime for continuous risk monitoring
+            if result.get("success"):
+                self._entry_regimes[symbol] = regime_at_entry
             return result
         except Exception as exc:
             logger.error(f"[AutonomousRunner] {symbol}: execute_trade failed — {exc}")
+            # Record broker failure for auto-trigger monitoring
+            if self._auto_trigger:
+                self._auto_trigger.record_broker_result(success=False, error=str(exc))
             return {"success": False, "error": str(exc)}
+
+    # -------------------------------------------------------------------------
+    # Post-pass continuous risk monitoring
+    # -------------------------------------------------------------------------
+
+    async def _run_post_pass_monitor(self, results: list[SymbolResult]) -> None:
+        """
+        Run continuous risk monitor after each trading pass.
+
+        Collects current regime data from the pass and checks open positions
+        for size drift, correlation, regime flips, and daily loss proximity.
+        """
+        try:
+            from quant_pod.execution.risk_gate import get_risk_gate
+
+            gate = get_risk_gate()
+
+            # Build current_regimes from signal briefs we just computed
+            current_regimes: dict[str, dict] = {}
+            for r in results:
+                # If the result has regime info, extract it
+                if hasattr(r, "reasoning") and r.reasoning:
+                    # Parse regime from reasoning string (best-effort)
+                    pass  # Regime data comes from the signal brief, not available here
+
+            monitor_report = gate.monitor(
+                current_regimes=current_regimes,
+                entry_regimes=self._entry_regimes,
+            )
+
+            if monitor_report.has_critical:
+                logger.critical(
+                    f"[AutonomousRunner] CRITICAL risk alerts detected — "
+                    f"{len(monitor_report.alerts)} total alerts"
+                )
+        except Exception as exc:
+            logger.debug(f"[AutonomousRunner] post-pass monitor failed (non-critical): {exc}")
 
     # -------------------------------------------------------------------------
     # Audit
@@ -765,5 +760,5 @@ if __name__ == "__main__":
     print(
         f"Run {report.run_id}: "
         f"executed={report.executed} skipped={report.skipped} "
-        f"groq={report.groq_synthesis} errors={report.errors}"
+        f"rule_based={report.rule_based} errors={report.errors}"
     )

@@ -1002,3 +1002,161 @@ def prometheus_metrics() -> str:
     if not body:
         return "# prometheus_client not installed\n"
     return PlainTextResponse(content=body, media_type=get_metrics_content_type())
+
+
+# =============================================================================
+# Track Record API — public endpoints for provable performance
+# =============================================================================
+
+
+def _get_equity_tracker():
+    """Lazy-load EquityTracker with read-only DB connection."""
+    from quant_pod.db import open_db_readonly
+    from quant_pod.performance.equity_tracker import EquityTracker
+
+    conn = open_db_readonly()
+    return EquityTracker(conn)
+
+
+def _get_benchmark_tracker():
+    """Lazy-load BenchmarkTracker with read-only DB connection."""
+    from quant_pod.db import open_db_readonly
+    from quant_pod.performance.benchmark import BenchmarkTracker
+
+    conn = open_db_readonly()
+    return BenchmarkTracker(conn)
+
+
+@app.get("/track-record/summary")
+def get_track_record_summary() -> dict[str, Any]:
+    """
+    Headline performance stats: total return, Sharpe, Sortino, max DD, win rate.
+
+    This is the single most important endpoint for proving profitability.
+    """
+    try:
+        tracker = _get_equity_tracker()
+        return tracker.get_summary()
+    except Exception as exc:
+        return {"error": str(exc), "message": "Equity tracker not available"}
+
+
+@app.get("/track-record/equity-curve")
+def get_equity_curve(
+    start: date | None = None,
+    end: date | None = None,
+) -> dict[str, Any]:
+    """
+    Daily NAV, return %, drawdown — the full equity curve.
+
+    Query params:
+        start: Start date (YYYY-MM-DD). Default: inception.
+        end: End date (YYYY-MM-DD). Default: today.
+    """
+    try:
+        tracker = _get_equity_tracker()
+        curve = tracker.get_equity_curve(start_date=start, end_date=end)
+        return {
+            "count": len(curve),
+            "data": curve,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@app.get("/track-record/monthly-returns")
+def get_monthly_returns() -> dict[str, Any]:
+    """
+    Calendar month returns grid — the standard hedge fund format.
+
+    Returns a dict of {year: {month: return_pct}} for all months with data.
+    """
+    try:
+        tracker = _get_equity_tracker()
+        curve = tracker.get_equity_curve()
+        if not curve:
+            return {"data": {}, "message": "No equity data yet"}
+
+        # Group by year-month and sum daily returns
+        monthly: dict[int, dict[int, float]] = {}
+        for row in curve:
+            d = row["date"]
+            if hasattr(d, 'year'):
+                y, m = d.year, d.month
+            else:
+                parts = str(d).split("-")
+                y, m = int(parts[0]), int(parts[1])
+            monthly.setdefault(y, {})[m] = monthly.get(y, {}).get(m, 0) + row["daily_return_pct"]
+
+        # Round
+        for y in monthly:
+            for m in monthly[y]:
+                monthly[y][m] = round(monthly[y][m], 2)
+
+        return {"data": monthly}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@app.get("/track-record/strategies")
+def get_strategy_performance_track() -> dict[str, Any]:
+    """
+    Per-strategy P&L attribution — which strategies are making money.
+    """
+    try:
+        tracker = _get_equity_tracker()
+        pnl = tracker.get_strategy_pnl()
+        if not pnl:
+            return {"data": [], "message": "No strategy P&L data yet"}
+
+        # Aggregate by strategy
+        by_strategy: dict[str, dict[str, float]] = {}
+        for row in pnl:
+            sid = row["strategy_id"]
+            if sid not in by_strategy:
+                by_strategy[sid] = {
+                    "strategy_id": sid,
+                    "total_realized_pnl": 0,
+                    "total_trades": 0,
+                    "total_wins": 0,
+                    "total_losses": 0,
+                    "trading_days": 0,
+                }
+            by_strategy[sid]["total_realized_pnl"] += row["realized_pnl"]
+            by_strategy[sid]["total_trades"] += row["num_trades"]
+            by_strategy[sid]["total_wins"] += row["win_count"]
+            by_strategy[sid]["total_losses"] += row["loss_count"]
+            by_strategy[sid]["trading_days"] += 1
+
+        # Compute win rates
+        for s in by_strategy.values():
+            total = s["total_wins"] + s["total_losses"]
+            s["win_rate"] = round(s["total_wins"] / total, 3) if total > 0 else 0
+            s["total_realized_pnl"] = round(s["total_realized_pnl"], 2)
+
+        return {
+            "data": sorted(by_strategy.values(), key=lambda x: x["total_realized_pnl"], reverse=True),
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@app.get("/track-record/benchmark")
+def get_benchmark_comparison(
+    benchmark: str = "SPY",
+    start: date | None = None,
+    end: date | None = None,
+) -> dict[str, Any]:
+    """
+    Portfolio vs benchmark comparison — rolling Sharpe, alpha, beta.
+    """
+    try:
+        tracker = _get_benchmark_tracker()
+        comparisons = tracker.get_comparison(benchmark=benchmark, start_date=start, end_date=end)
+        return {
+            "benchmark": benchmark,
+            "count": len(comparisons),
+            "data": comparisons,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}

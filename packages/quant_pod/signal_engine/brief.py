@@ -101,6 +101,19 @@ class SignalBrief(BaseModel):
     statarb_signal: str = "unknown"            # "long_spread" | "short_spread" | "neutral" | "unknown"
     spread_zscore: float | None = None
 
+    # Options flow: dealer positioning signals (options_flow collector)
+    opt_gex: float | None = None               # Net Gamma Exposure (positive = mean-reverting)
+    opt_gamma_flip: float | None = None        # Strike where GEX crosses zero (key S/R)
+    opt_above_gamma_flip: int | None = None    # 1 if spot > gamma flip, 0 if below
+    opt_dex: float | None = None               # Net Delta Exposure (directional bias)
+    opt_max_pain: float | None = None          # Max pain strike
+    opt_iv_skew: float | None = None           # OTM put IV - OTM call IV
+    opt_iv_skew_zscore: float | None = None    # Skew z-score vs history
+    opt_vrp: float | None = None               # Vol Risk Premium (IV - RV)
+    opt_charm: float | None = None             # Aggregate delta decay
+    opt_vanna: float | None = None             # Aggregate dDelta/dVol
+    opt_ehd: float | None = None               # Expected Hedging Demand
+
     def to_daily_brief(self) -> DailyBrief:
         """Return a DailyBrief-compatible view of this brief (drops extra fields)."""
         return DailyBrief.model_validate(self.model_dump())

@@ -2,19 +2,26 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-RuleBasedSynthesizer — deterministic replacement for pod managers + trading assistant.
+RuleBasedSynthesizer — deterministic signal synthesis with regime-conditional weights.
 
-Converts raw collector output dicts into a SignalBrief using explicit threshold
-rules.  Every rule has a comment explaining the market logic behind it.
+v1.1 upgrade: Two fundamental changes from the original fixed-weight synthesizer:
 
-Design intent:
+1. **Regime-conditional weights**: Synthesis weights adapt to the detected regime.
+   In trending markets, momentum indicators (trend, MACD) get higher weight.
+   In ranging markets, mean-reversion indicators (RSI, BB) dominate.
+   Rationale: RSI oversold in a trending-down market is a falling knife, not a
+   buy signal. MACD momentum in a ranging market is noise, not signal.
+
+2. **ML signal integration**: When an ML model has been trained and returns a
+   prediction, it gets a vote in the synthesis (15% weight, stolen from the
+   weakest regime-specific indicators). ML adds non-obvious cross-feature
+   signals that rule-based indicators miss.
+
+Design intent (unchanged):
 - No LLM calls.
-- Rules are numerically grounded (not "if the RSI is low" but "if rsi_14 < 35").
-- When in doubt, bias toward neutral / lower conviction — the skill's execution
-  logic already filters on conviction threshold.
-- The synthesizer does not make trade decisions; it produces a structured brief
-  that the PM brain (Claude Code via skill, or GroqPM in autonomous mode) uses
-  to reason and decide.
+- Rules are numerically grounded.
+- When in doubt, bias toward neutral / lower conviction.
+- The synthesizer does not make trade decisions; it produces a structured brief.
 """
 
 from __future__ import annotations
@@ -34,55 +41,121 @@ _MktBias = Literal["bullish", "bearish", "neutral"]
 _RiskEnv = Literal["low", "normal", "elevated", "high"]
 
 
+# ------------------------------------------------------------------ #
+# Regime-conditional weight profiles                                   #
+# ------------------------------------------------------------------ #
+# Each profile defines weights for: trend, rsi, macd, bb, sentiment, ml
+# Weights must sum to 1.0.  The "ml" weight is only active when the
+# ML collector returns a valid prediction; otherwise it's redistributed
+# proportionally to the other voters.
+
+_WEIGHT_PROFILES: dict[str, dict[str, float]] = {
+    # Trending up: trust momentum (trend + MACD), downweight mean-reversion
+    "trending_up": {
+        "trend": 0.35, "rsi": 0.10, "macd": 0.20, "bb": 0.05,
+        "sentiment": 0.10, "ml": 0.15, "flow": 0.05,
+    },
+    # Trending down: trust momentum, but RSI gets more weight (oversold bounces)
+    "trending_down": {
+        "trend": 0.30, "rsi": 0.15, "macd": 0.20, "bb": 0.05,
+        "sentiment": 0.10, "ml": 0.15, "flow": 0.05,
+    },
+    # Ranging: mean-reversion dominates — RSI and BB are the primary signals
+    "ranging": {
+        "trend": 0.05, "rsi": 0.25, "macd": 0.10, "bb": 0.25,
+        "sentiment": 0.10, "ml": 0.15, "flow": 0.10,
+    },
+    # Unknown regime: conservative — spread weight evenly, lean on ML
+    "unknown": {
+        "trend": 0.15, "rsi": 0.15, "macd": 0.15, "bb": 0.15,
+        "sentiment": 0.10, "ml": 0.20, "flow": 0.10,
+    },
+}
+
+# Default (legacy) weights — used as absolute fallback
+_DEFAULT_WEIGHTS = {
+    "trend": 0.30, "rsi": 0.18, "macd": 0.15, "bb": 0.12,
+    "sentiment": 0.10, "ml": 0.15, "flow": 0.00,
+}
+
+
+def _get_weights(
+    trend_regime: str,
+    has_ml: bool,
+    has_flow: bool,
+) -> dict[str, float]:
+    """
+    Get synthesis weights for the given regime.
+
+    If ML signal is unavailable, redistribute its weight proportionally
+    to the remaining voters. Same for flow.
+    """
+    profile = _WEIGHT_PROFILES.get(trend_regime, _DEFAULT_WEIGHTS).copy()
+
+    # Redistribute inactive voter weights
+    inactive_weight = 0.0
+    if not has_ml:
+        inactive_weight += profile.pop("ml", 0.0)
+    if not has_flow:
+        inactive_weight += profile.pop("flow", 0.0)
+
+    if inactive_weight > 0 and profile:
+        active_total = sum(profile.values())
+        if active_total > 0:
+            scale = (active_total + inactive_weight) / active_total
+            for key in profile:
+                profile[key] = round(profile[key] * scale, 4)
+
+    return profile
+
+
 class RuleBasedSynthesizer:
     """
     Builds a SymbolBrief from collector output dicts.
 
-    Weights for consensus_bias vote:
-        trend direction  40%  — from regime classifier
-        RSI zone         25%  — classic mean-reversion indicator
-        MACD histogram   20%  — momentum direction and cross
-        BB position      15%  — price position within Bollinger Band channel
+    v1.1: Regime-conditional weights + ML signal integration.
+
+    Weights adapt to regime:
+        trending_up:  trend 35%, MACD 20%, ML 15%, RSI 10%, sentiment 10%, flow 5%, BB 5%
+        trending_down: trend 30%, MACD 20%, RSI 15%, ML 15%, sentiment 10%, flow 5%, BB 5%
+        ranging:      RSI 25%, BB 25%, ML 15%, MACD 10%, sentiment 10%, flow 10%, trend 5%
+        unknown:      ML 20%, even split on others
 
     Conviction scaling:
         Base: abs(weighted vote score)
-        +0.1 if ADX > 25 (strong trend confirms momentum)
+        +0.10 if ADX > 25 (strong trend confirms momentum)
+        +0.05 if HMM stability > 0.8 (regime is well-established)
         -0.15 if weekly trend contradicts daily regime
-        -0.2 if collector_failures contains "technical" or "regime"
+        -0.10 if HMM and rule-based disagree on regime
+        -0.20 if collector_failures contains "technical" or "regime"
         Clamped to [0.05, 0.95]
     """
 
-    # --- Bias vote weights ---
-    # Sentiment adds 10%; other weights scaled down proportionally:
-    # trend 40%→36%, RSI 25%→22.5%, MACD 20%→18%, BB 15%→13.5%, sentiment 10%
-    W_TREND     = 0.36
-    W_RSI       = 0.225
-    W_MACD      = 0.18
-    W_BB        = 0.135
-    W_SENTIMENT = 0.10
-
     # Sentiment thresholds (score in [0, 1]; 0.5 = neutral)
-    SENTIMENT_BULLISH_THRESHOLD = 0.65  # score above this → bullish vote
-    SENTIMENT_BEARISH_THRESHOLD = 0.35  # score below this → bearish vote
+    SENTIMENT_BULLISH_THRESHOLD = 0.65
+    SENTIMENT_BEARISH_THRESHOLD = 0.35
 
-    # --- RSI thresholds ---
-    RSI_OVERSOLD    = 35    # below → bullish bias (classic mean-reversion entry zone)
-    RSI_OVERBOUGHT  = 65    # above → bearish bias
+    # RSI thresholds
+    RSI_OVERSOLD    = 35
+    RSI_OVERBOUGHT  = 65
 
-    # --- MACD threshold ---
-    MACD_THRESHOLD  = 0.0   # histogram sign determines direction
+    # MACD threshold
+    MACD_THRESHOLD  = 0.0
 
-    # --- Bollinger threshold ---
-    BB_LOWER_ZONE = 0.20    # bb_pct below this → near lower band → bullish
-    BB_UPPER_ZONE = 0.80    # bb_pct above this → near upper band → bearish
+    # Bollinger threshold
+    BB_LOWER_ZONE = 0.20
+    BB_UPPER_ZONE = 0.80
 
-    # --- ADX threshold ---
-    ADX_STRONG_TREND = 25   # ADX > 25: trend is meaningful, add conviction
+    # ADX threshold
+    ADX_STRONG_TREND = 25
 
-    # --- Bias score to label mapping ---
-    # score in [-1, +1]; positive = bullish
+    # Bias score to label mapping
     SCORE_STRONG = 0.60
     SCORE_WEAK   = 0.25
+
+    # ML signal thresholds
+    ML_BULLISH_THRESHOLD = 0.55
+    ML_BEARISH_THRESHOLD = 0.45
 
     def synthesize(
         self,
@@ -96,15 +169,24 @@ class RuleBasedSynthesizer:
         collector_failures: list[str],
         strategy_context: str = "",
         sentiment: dict[str, Any] | None = None,
+        ml_signal: dict[str, Any] | None = None,
+        flow: dict[str, Any] | None = None,
     ) -> SymbolBrief:
         """Build a SymbolBrief from collector outputs."""
 
         bias, conviction = self._compute_bias_and_conviction(
-            technical, regime, collector_failures, sentiment=sentiment or {}
+            technical, regime, collector_failures,
+            sentiment=sentiment or {},
+            ml_signal=ml_signal or {},
+            flow=flow or {},
         )
-        pod_agreement = self._compute_pod_agreement(technical, regime, volume)
+        pod_agreement = self._compute_pod_agreement(
+            technical, regime, volume, ml_signal=ml_signal or {},
+        )
         critical_levels = self._extract_critical_levels(technical, volume, risk)
-        observations = self._build_observations(technical, regime, volume, events)
+        observations = self._build_observations(
+            technical, regime, volume, events, ml_signal=ml_signal or {},
+        )
         risk_factors = self._build_risk_factors(risk, events, regime, collector_failures)
         insights = self._build_insights(bias, conviction, technical, regime, volume)
         quality = self._assess_quality(regime, technical, collector_failures)
@@ -134,19 +216,18 @@ class RuleBasedSynthesizer:
         regime: dict,
         failures: list[str],
         sentiment: dict | None = None,
+        ml_signal: dict | None = None,
+        flow: dict | None = None,
     ) -> tuple[_Bias, float]:
 
         scores: dict[str, float] = {}
 
-        # 1. Trend direction signal from regime (40%)
-        # BULL regime → +1, BEAR → -1, ranging/unknown → 0
+        # 1. Trend direction signal from regime
         trend = regime.get("trend_regime", "unknown")
         scores["trend"] = {"trending_up": 1.0, "trending_down": -1.0,
                            "ranging": 0.0, "unknown": 0.0}.get(trend, 0.0)
 
-        # 2. RSI zone (25%)
-        # Oversold (< 35) → bullish for mean-reversion; overbought (> 65) → bearish.
-        # In a strong trend, RSI can stay extreme — that's handled by the ADX adjustment.
+        # 2. RSI zone — mean-reversion signal
         rsi = technical.get("rsi_14")
         if rsi is not None:
             if rsi < self.RSI_OVERSOLD:
@@ -154,22 +235,18 @@ class RuleBasedSynthesizer:
             elif rsi > self.RSI_OVERBOUGHT:
                 scores["rsi"] = -1.0
             else:
-                # Linear interpolation in the neutral zone: 50 → 0, 35→1, 65→-1
-                scores["rsi"] = (50 - rsi) / 15 * 0.5  # partial score
+                scores["rsi"] = (50 - rsi) / 15 * 0.5
         else:
             scores["rsi"] = 0.0
 
-        # 3. MACD histogram (20%)
-        # Histogram > 0: momentum is bullish; < 0: bearish.
+        # 3. MACD histogram — momentum signal
         macd_hist = technical.get("macd_hist")
         if macd_hist is not None:
             scores["macd"] = 1.0 if macd_hist > self.MACD_THRESHOLD else -1.0
         else:
             scores["macd"] = 0.0
 
-        # 4. Bollinger Band position (13.5%)
-        # Near lower band → oversold relative to recent volatility → bullish.
-        # Near upper band → overbought → bearish.
+        # 4. Bollinger Band position — volatility-relative signal
         bb_pct = technical.get("bb_pct")
         if bb_pct is not None:
             if bb_pct < self.BB_LOWER_ZONE:
@@ -181,9 +258,7 @@ class RuleBasedSynthesizer:
         else:
             scores["bb"] = 0.0
 
-        # 5. Sentiment signal (10%) — only applies when we have actual headlines.
-        # No headlines (n_headlines=0) → 0 vote (no influence on the score).
-        # This prevents the neutral default (0.5) from silently dampening signals.
+        # 5. Sentiment signal — only with actual headlines
         sent = sentiment or {}
         n_headlines = sent.get("n_headlines", 0)
         if n_headlines > 0:
@@ -197,14 +272,37 @@ class RuleBasedSynthesizer:
         else:
             scores["sentiment"] = 0.0
 
-        # Weighted sum
-        score = (
-            scores["trend"]     * self.W_TREND
-            + scores["rsi"]     * self.W_RSI
-            + scores["macd"]    * self.W_MACD
-            + scores["bb"]      * self.W_BB
-            + scores["sentiment"] * self.W_SENTIMENT
-        )
+        # 6. ML signal — calibrated probability from trained model
+        ml = ml_signal or {}
+        ml_pred = ml.get("ml_prediction")
+        has_ml = ml_pred is not None and ml.get("ml_confidence", 0) > 0
+        if has_ml:
+            if ml_pred > self.ML_BULLISH_THRESHOLD:
+                # Scale ML vote by confidence: strong prediction = full vote
+                ml_conf = ml.get("ml_confidence", 0.5)
+                scores["ml"] = min(1.0, ml_conf * 2)  # 0.5 conf → 1.0 vote
+            elif ml_pred < self.ML_BEARISH_THRESHOLD:
+                ml_conf = ml.get("ml_confidence", 0.5)
+                scores["ml"] = -min(1.0, ml_conf * 2)
+            else:
+                scores["ml"] = 0.0
+        else:
+            scores["ml"] = 0.0
+
+        # 7. Flow signal (institutional/insider flow direction)
+        fl = flow or {}
+        flow_signal = fl.get("flow_signal")
+        has_flow = flow_signal is not None
+        if has_flow:
+            scores["flow"] = {"bullish": 1.0, "bearish": -1.0, "neutral": 0.0,
+                              "unknown": 0.0}.get(str(flow_signal), 0.0)
+        else:
+            scores["flow"] = 0.0
+
+        # --- Regime-conditional weighted sum ---
+        weights = _get_weights(trend, has_ml=has_ml, has_flow=has_flow)
+
+        score = sum(scores.get(key, 0.0) * w for key, w in weights.items())
 
         # Map score to bias label
         if score >= self.SCORE_STRONG:
@@ -221,19 +319,35 @@ class RuleBasedSynthesizer:
         # --- Conviction scaling ---
         conviction = abs(score)
 
-        # ADX > 25 means trend has real momentum — trust the direction more.
+        # ADX > 25: trend is real, trust the direction more
         adx = technical.get("adx_14")
         if adx is not None and adx > self.ADX_STRONG_TREND:
             conviction += 0.10
 
-        # Weekly trend contradicts daily regime → reduce conviction.
+        # HMM stability bonus: well-established regimes deserve more trust
+        hmm_stability = regime.get("hmm_stability")
+        if hmm_stability is not None and hmm_stability > 0.8:
+            conviction += 0.05
+
+        # Weekly trend contradicts daily → reduce conviction
         weekly_trend = technical.get("weekly_trend", "unknown")
         if weekly_trend != "unknown" and trend != "unknown":
             if (weekly_trend == "bullish" and trend == "trending_down") or \
                (weekly_trend == "bearish" and trend == "trending_up"):
                 conviction -= 0.15
 
-        # Collector failures reduce reliability.
+        # HMM/rule-based regime disagreement → reduce conviction
+        if regime.get("regime_disagreement"):
+            conviction -= 0.10
+
+        # ML model agreement bonus: if ML agrees with rule-based direction, boost
+        if has_ml and scores.get("ml", 0) != 0:
+            ml_direction = 1 if scores["ml"] > 0 else -1
+            rule_direction = 1 if score > 0 else (-1 if score < 0 else 0)
+            if ml_direction == rule_direction and rule_direction != 0:
+                conviction += 0.05  # ML confirms rule-based → small boost
+
+        # Collector failures reduce reliability
         if "technical" in failures:
             conviction -= 0.20
         if "regime" in failures:
@@ -247,11 +361,15 @@ class RuleBasedSynthesizer:
     # ------------------------------------------------------------------ #
 
     def _compute_pod_agreement(
-        self, technical: dict, regime: dict, volume: dict
+        self,
+        technical: dict,
+        regime: dict,
+        volume: dict,
+        ml_signal: dict | None = None,
     ) -> _Agreement:
         """
-        Count how many 'pods' (technical, regime, volume, fundamentals proxy)
-        agree on the same directional signal.
+        Count how many signal sources agree on direction.
+        Now includes ML as a voter when available.
         """
         signals: list[int] = []  # +1 bullish, -1 bearish, 0 neutral
 
@@ -275,7 +393,7 @@ class RuleBasedSynthesizer:
         else:
             signals.append(0)
 
-        # Volume signal: price at HVN (support) with increasing volume → bullish
+        # Volume signal
         at_hvn = volume.get("at_hvn", False)
         vol_trend = volume.get("volume_trend", "flat")
         vol_confirms = volume.get("vol_confirms_move", False)
@@ -295,6 +413,16 @@ class RuleBasedSynthesizer:
         else:
             signals.append(0)
 
+        # ML signal (new voter)
+        ml = ml_signal or {}
+        ml_dir = ml.get("ml_direction")
+        if ml_dir == "bullish":
+            signals.append(1)
+        elif ml_dir == "bearish":
+            signals.append(-1)
+        elif ml_dir is not None:
+            signals.append(0)
+
         if not signals:
             return "mixed"
 
@@ -308,7 +436,7 @@ class RuleBasedSynthesizer:
         if bullish >= n - 1 or bearish >= n - 1:
             return "strong"
         if neutral >= n - 1:
-            return "mixed"  # everything neutral = no consensus
+            return "mixed"
         if bullish >= 2 and bearish == 0:
             return "moderate"
         if bearish >= 2 and bullish == 0:
@@ -378,6 +506,7 @@ class RuleBasedSynthesizer:
         regime: dict,
         volume: dict,
         events: dict,
+        ml_signal: dict | None = None,
     ) -> list[str]:
         obs: list[str] = []
 
@@ -398,7 +527,14 @@ class RuleBasedSynthesizer:
 
         trend = regime.get("trend_regime", "unknown")
         confidence = regime.get("confidence", 0)
-        obs.append(f"Regime: {trend} (confidence {confidence:.0%})")
+        source = regime.get("regime_source", "rule_based")
+        obs.append(f"Regime: {trend} (confidence {confidence:.0%}, source: {source})")
+
+        # HMM-specific observations
+        hmm_stability = regime.get("hmm_stability")
+        if hmm_stability is not None:
+            duration = regime.get("hmm_expected_duration", 0)
+            obs.append(f"HMM stability: {hmm_stability:.0%}, expected duration: {duration:.0f} bars")
 
         weekly = technical.get("weekly_trend", "unknown")
         if weekly != "unknown":
@@ -409,12 +545,22 @@ class RuleBasedSynthesizer:
         if volume.get("at_lvn"):
             obs.append("Price at Low Volume Node — expect fast moves through this area")
         if volume.get("vol_confirms_move"):
-            obs.append("Last bar volume > 1.5× ADV — move is volume-confirmed")
+            obs.append("Last bar volume > 1.5x ADV — move is volume-confirmed")
+
+        # ML signal observation
+        ml = ml_signal or {}
+        ml_pred = ml.get("ml_prediction")
+        if ml_pred is not None:
+            ml_dir = ml.get("ml_direction", "neutral")
+            ml_conf = ml.get("ml_confidence", 0)
+            top_feats = ml.get("ml_top_features", [])
+            feat_str = f" (top: {', '.join(top_feats[:2])})" if top_feats else ""
+            obs.append(f"ML signal: {ml_dir} (prob={ml_pred:.2f}, conf={ml_conf:.0%}){feat_str}")
 
         if events.get("has_earnings_24h"):
-            obs.append(f"⚠️ Earnings within 24h — {events.get('next_event_desc', '')}")
+            obs.append(f"Earnings within 24h — {events.get('next_event_desc', '')}")
 
-        return obs[:8]  # cap to keep brief readable
+        return obs[:10]  # increased cap for richer output
 
     def _build_risk_factors(
         self,
@@ -451,6 +597,14 @@ class RuleBasedSynthesizer:
         if regime.get("trend_regime") == "unknown":
             factors.append("Regime confidence too low — paper mode only")
 
+        # HMM-specific: regime transition warning
+        hmm_stability = regime.get("hmm_stability")
+        if hmm_stability is not None and hmm_stability < 0.5:
+            factors.append(f"HMM regime unstable ({hmm_stability:.0%}) — possible regime transition")
+
+        if regime.get("regime_disagreement"):
+            factors.append("HMM and rule-based regime detectors disagree — ambiguous regime")
+
         if failures:
             factors.append(f"Partial analysis — {', '.join(failures)} collector(s) unavailable")
 
@@ -458,7 +612,7 @@ class RuleBasedSynthesizer:
         if dd is not None and dd < -10:
             factors.append(f"Max drawdown last 90 days: {dd:.1f}% — symbol under stress")
 
-        return factors[:6]
+        return factors[:8]  # increased cap
 
     def _build_insights(
         self,
@@ -475,7 +629,7 @@ class RuleBasedSynthesizer:
         sma_200 = technical.get("sma_200")
         trend = regime.get("trend_regime", "unknown")
 
-        # Classic RSI mean-reversion setups (the backbone of the registered strategies)
+        # Classic RSI mean-reversion setups
         if rsi is not None and rsi < 35 and sma_200 and close and close > sma_200:
             insights.append(
                 f"RSI oversold ({rsi:.1f}) + price above SMA200 — "
@@ -516,11 +670,12 @@ class RuleBasedSynthesizer:
     ) -> str:
         trend = regime.get("trend_regime", "unknown")
         vol = regime.get("volatility_regime", "normal")
+        source = regime.get("regime_source", "rule_based")
         next_event = events.get("next_event_desc", "none")
         return (
             f"{symbol}: {bias.replace('_', ' ')} bias "
             f"(conviction {conviction:.0%}). "
-            f"Regime: {trend}, vol: {vol}. "
+            f"Regime: {trend}, vol: {vol} [{source}]. "
             f"Next event: {next_event}."
         )
 
@@ -531,6 +686,10 @@ class RuleBasedSynthesizer:
             return "low"
         if regime.get("trend_regime") == "unknown":
             return "low"
+        # HMM with high stability is more trustworthy
+        hmm_stability = regime.get("hmm_stability")
+        if hmm_stability is not None and hmm_stability > 0.7 and not failures:
+            return "high"
         if regime.get("confidence", 0) > 0.70 and not failures:
             return "high"
         if len(failures) > 1:

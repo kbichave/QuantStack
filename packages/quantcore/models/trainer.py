@@ -324,18 +324,45 @@ class ModelTrainer:
         X: pd.DataFrame,
         y: pd.Series,
     ) -> list[float]:
-        """Perform time-series cross-validation."""
-        tscv = TimeSeriesSplit(n_splits=self.config.n_splits)
+        """Perform time-series cross-validation with purged CV.
 
-        scores = cross_val_score(
-            model,
-            X,
-            y,
-            cv=tscv,
-            scoring="roc_auc",
-        )
+        Uses PurgedKFoldCV (Lopez de Prado methodology) with 1% embargo
+        to prevent data leakage at fold boundaries. This replaces the
+        previous TimeSeriesSplit which allowed information from adjacent
+        folds to contaminate training data.
+        """
+        try:
+            from quantcore.validation.purged_cv import PurgedKFoldCV
 
-        return scores.tolist()
+            purged_cv = PurgedKFoldCV(
+                n_splits=self.config.n_splits,
+                embargo_pct=0.01,
+            )
+            # PurgedKFoldCV.split yields (train_idx, test_idx) tuples
+            # compatible with sklearn's cross_val_score cv parameter
+            splits = list(purged_cv.split(X))
+            cv_iter = [(s.train_indices, s.test_indices) for s in splits]
+
+            scores = cross_val_score(
+                model,
+                X,
+                y,
+                cv=cv_iter,
+                scoring="roc_auc",
+            )
+            return scores.tolist()
+        except (ImportError, Exception) as exc:
+            # Fallback to TimeSeriesSplit if purged CV fails
+            logger.warning(f"PurgedKFoldCV failed ({exc}), falling back to TimeSeriesSplit")
+            tscv = TimeSeriesSplit(n_splits=self.config.n_splits)
+            scores = cross_val_score(
+                model,
+                X,
+                y,
+                cv=tscv,
+                scoring="roc_auc",
+            )
+            return scores.tolist()
 
     def _evaluate(
         self,

@@ -192,6 +192,43 @@ class CacheWarmer:
 
         return None
 
+    async def warm_incremental_from_stream(
+        self,
+        symbols: list[str],
+        stream_manager: Any,
+    ) -> int:
+        """
+        Persist streaming bars from LiveBarStore into DuckDB.
+
+        Called periodically (e.g., every 5 minutes) to flush in-memory
+        streaming bars to durable storage so they survive process restarts.
+
+        Args:
+            symbols: Symbols to persist.
+            stream_manager: StreamManager instance with get_bars() method.
+
+        Returns:
+            Total bars persisted across all symbols.
+        """
+        if stream_manager is None or not getattr(stream_manager, "is_started", False):
+            return 0
+
+        total = 0
+        for symbol in symbols:
+            try:
+                df = stream_manager.get_bars(symbol)
+                if df is not None and not df.empty and hasattr(self._store, "save_ohlcv"):
+                    from quantcore.config.timeframes import Timeframe
+
+                    rows = self._store.save_ohlcv(df, symbol, Timeframe.M1, replace=False)
+                    total += rows
+            except Exception as exc:
+                logger.debug(f"[CacheWarmer] Stream persist failed for {symbol}: {exc}")
+
+        if total > 0:
+            logger.debug(f"[CacheWarmer] Persisted {total} streaming bars to DuckDB")
+        return total
+
     def _store_prices(self, symbol: str, prices: list[dict[str, Any]]) -> None:
         """Store fetched price bars in the DataStore."""
         try:

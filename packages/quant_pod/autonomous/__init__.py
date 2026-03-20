@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-AutonomousRunner — unattended trading loop.
+AutonomousRunner — fully deterministic unattended trading loop.
 
 Runs the full analysis + execution pipeline without an active Claude Code session.
-Uses SignalEngine for analysis, DecisionRouter to choose execution path,
-and GroqPM for non-routine PM synthesis.
+Uses SignalEngine for analysis and DecisionRouter for fully deterministic routing.
+No LLM calls in the execution path (v1.1).
 
 Usage (CLI):
     python -m quant_pod.autonomous.runner --symbols XOM MSFT SPY
@@ -19,7 +19,7 @@ Usage (code):
     report = await AutonomousRunner().run(symbols=["XOM", "MSFT"])
 """
 
+from quant_pod.autonomous.decision import DecisionPath, DecisionRouter, RouteContext
 from quant_pod.autonomous.runner import AutonomousRunner
-from quant_pod.autonomous.decision import DecisionPath, DecisionRouter
 
-__all__ = ["AutonomousRunner", "DecisionRouter", "DecisionPath"]
+__all__ = ["AutonomousRunner", "DecisionRouter", "DecisionPath", "RouteContext"]

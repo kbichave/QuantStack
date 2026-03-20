@@ -18,6 +18,15 @@
 
 set -euo pipefail
 
+# ─── PAUSED: loops disabled until P&L attribution exists ───
+# See scripts/start_loops.sh for full rationale.
+if [[ "${FORCE_LOOPS:-0}" != "1" ]]; then
+    echo "ERROR: Ralph Wiggum loops are PAUSED."
+    echo "Reason: P&L attribution system not yet built."
+    echo "To force-start (testing only): FORCE_LOOPS=1 $0"
+    exit 1
+fi
+
 SESSION="quantpod-loops"
 WORKDIR="${QUANTPOD_WORKDIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 CLAUDE_CMD="${QUANTPOD_CLAUDE_CMD:-claude}"

@@ -54,10 +54,6 @@ Call `get_portfolio_state` via QuantPod MCP.
 - ATR > 2× its 20-day average → vol spike, reduce all sizes 50%
 - ADX < 15 on SPY → choppy/directionless market, favor mean-reversion setups
 
-**d) If desk agents are available** (`.claude/agents/` directory exists):
-- Spawn `market-intel` desk agent for comprehensive macro analysis
-- Use its structured report instead of steps 3a–3c above
-
 ### Step 4: Build Watchlist
 
 Default watchlist (expand based on strategy_registry symbols):
@@ -132,10 +128,6 @@ For each of the top 5 ranked opportunities:
 **c) Risk check:**
 - Call `mcp__quantcore__check_risk_limits(symbol, proposed_size)` — does this fit in portfolio?
 - If it would breach gross_exposure or position limits: reduce size or skip
-
-**d) If desk agents are available:**
-- Spawn `alpha-research` desk agent for top 3 candidates in parallel
-- Use their analysis to refine entry levels and conviction
 
 ### Step 8: Output
 

@@ -392,17 +392,58 @@ def compute_options_flow_signals(
 
 def collect_options_flow(symbol: str, spot: float, realized_vol_30d: float | None = None) -> dict[str, Any]:
     """
-    Fetch Alpaca options chain and compute flow signals.
+    Fetch options chain and compute flow signals.
+
+    Provider priority:
+    1. Alpha Vantage (primary — full Greeks, IV, OI, rho)
+    2. Alpaca (fallback — requires options data subscription)
 
     Returns empty dict on any failure — SignalEngine records the failure
     in collector_failures and continues.
     """
+    # Try Alpha Vantage first (richer data — includes rho, full Greeks)
+    contracts = _fetch_chain_alphavantage(symbol)
+
+    # Fallback to Alpaca if Alpha Vantage unavailable
+    if not contracts:
+        contracts = _fetch_chain_alpaca(symbol)
+
+    if not contracts:
+        return {}
+
+    signals = compute_options_flow_signals(contracts, spot=spot, realized_vol_30d=realized_vol_30d)
+    logger.debug(f"[options_flow] {symbol}: GEX={signals.get('gex')}, gamma_flip={signals.get('gamma_flip')}")
+    return {f"opt_{k}": v for k, v in signals.items()}
+
+
+def _fetch_chain_alphavantage(symbol: str) -> list[dict]:
+    """Fetch options chain from Alpha Vantage."""
+    try:
+        av_key = os.environ.get("ALPHA_VANTAGE_API_KEY", "")
+        if not av_key:
+            return []
+
+        from quantcore.data.adapters.alphavantage import AlphaVantageAdapter
+
+        adapter = AlphaVantageAdapter(api_key=av_key)
+        contracts = adapter.fetch_options_chain(symbol, expiry_max_days=45)
+
+        if contracts:
+            logger.debug(f"[options_flow] {symbol}: {len(contracts)} contracts from Alpha Vantage")
+        return contracts or []
+
+    except Exception as exc:
+        logger.debug(f"[options_flow] {symbol}: Alpha Vantage chain failed — {exc}")
+        return []
+
+
+def _fetch_chain_alpaca(symbol: str) -> list[dict]:
+    """Fetch options chain from Alpaca (fallback)."""
     try:
         api_key = os.environ.get("ALPACA_API_KEY", "")
         secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
         if not api_key or not secret_key:
-            logger.debug(f"[options_flow] {symbol}: ALPACA credentials not set, skipping")
-            return {}
+            return []
 
         from alpaca.data.historical.option import OptionHistoricalDataClient
         from alpaca.data.requests import OptionChainRequest
@@ -420,22 +461,19 @@ def collect_options_flow(symbol: str, spot: float, realized_vol_30d: float | Non
                 continue
 
             greeks = snap.greeks if hasattr(snap, "greeks") and snap.greeks else None
-            contracts.append(
-                {
-                    "symbol": sym,
-                    "option_type": option_type,
-                    "strike": strike,
-                    "implied_volatility": float(snap.implied_volatility) if hasattr(snap, "implied_volatility") and snap.implied_volatility else None,
-                    "open_interest": int(snap.open_interest) if hasattr(snap, "open_interest") and snap.open_interest else 0,
-                    "delta": float(greeks.delta) if greeks and greeks.delta is not None else None,
-                    "gamma": float(greeks.gamma) if greeks and greeks.gamma is not None else None,
-                }
-            )
+            contracts.append({
+                "option_type": option_type,
+                "strike": strike,
+                "implied_volatility": float(snap.implied_volatility) if hasattr(snap, "implied_volatility") and snap.implied_volatility else None,
+                "open_interest": int(snap.open_interest) if hasattr(snap, "open_interest") and snap.open_interest else 0,
+                "delta": float(greeks.delta) if greeks and greeks.delta is not None else None,
+                "gamma": float(greeks.gamma) if greeks and greeks.gamma is not None else None,
+            })
 
-        signals = compute_options_flow_signals(contracts, spot=spot, realized_vol_30d=realized_vol_30d)
-        logger.debug(f"[options_flow] {symbol}: GEX={signals.get('gex')}, gamma_flip={signals.get('gamma_flip')}")
-        return {f"opt_{k}": v for k, v in signals.items()}
+        if contracts:
+            logger.debug(f"[options_flow] {symbol}: {len(contracts)} contracts from Alpaca")
+        return contracts
 
     except Exception as exc:
-        logger.debug(f"[options_flow] {symbol}: failed — {exc}")
-        return {}
+        logger.debug(f"[options_flow] {symbol}: Alpaca chain failed — {exc}")
+        return []

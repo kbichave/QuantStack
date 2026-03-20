@@ -1,10 +1,14 @@
 """
 AlphaVantageAdapter — wraps the existing AlphaVantageClient.
 
-AlphaVantage is the legacy/fallback provider:
-  - Free tier: 5 calls/min (research and backtesting only)
-  - Supports equities, some FX pairs, and commodity spot prices
-  - No native 4H bars — H4 is built by resampling from H1
+Two roles:
+1. OHLCV fallback (behind Alpaca) for price data
+2. PRIMARY provider for:
+   - Options chains with full Greeks + IV ($49.99/mo premium)
+   - Economic indicators (CPI, Fed Funds, NFP, GDP, Treasury Yields)
+   - Earnings calendar + estimates
+   - News sentiment
+   - Company fundamentals
 
 Supported timeframes
 --------------------
@@ -148,3 +152,248 @@ class AlphaVantageAdapter(AssetClassAdapter):
 
         # Should never reach here given _SUPPORTED_TIMEFRAMES check above.
         raise ValueError(f"Unhandled timeframe: {timeframe}")
+
+    # ── Options data ───────────────────────────────────────────────────────
+
+    def fetch_options_chain(
+        self,
+        symbol: str,
+        expiry_min_days: int = 0,
+        expiry_max_days: int = 60,
+        as_of_date: str | None = None,
+    ) -> list[dict] | None:
+        """
+        Fetch end-of-day options chain with full Greeks from Alpha Vantage.
+
+        Uses HISTORICAL_OPTIONS endpoint which returns full Greeks (delta, gamma,
+        theta, vega, rho) + IV + OI. Data available back to 2020+.
+
+        Args:
+            symbol: Underlying ticker.
+            expiry_min_days: Min DTE to include (default 0).
+            expiry_max_days: Max DTE to include (default 60).
+            as_of_date: Fetch chain snapshot for a specific date (YYYY-MM-DD).
+                        None = latest available (most recent trading day).
+
+        Returns list of contract dicts compatible with the options_flow collector,
+        or None if data is unavailable.
+        """
+        from datetime import date as _date, timedelta
+
+        try:
+            df = self._client.fetch_historical_options(
+                symbol, date=as_of_date,
+            )
+
+            if df is None or df.empty:
+                # Fallback to realtime endpoint
+                try:
+                    df = self._client.fetch_realtime_options(symbol, require_greeks=True)
+                except Exception:
+                    pass
+
+            if df is None or df.empty:
+                return None
+
+            today = _date.today()
+            min_expiry = today + timedelta(days=expiry_min_days)
+            max_expiry = today + timedelta(days=expiry_max_days)
+
+            contracts: list[dict] = []
+            for _, row in df.iterrows():
+                # Client normalizes: "expiration" → "expiry", "type" → "option_type"
+                expiry_str = str(row.get("expiry", row.get("expiration", "")))
+                if not expiry_str or expiry_str == "nan":
+                    continue
+
+                try:
+                    expiry_date = _date.fromisoformat(expiry_str[:10])
+                except ValueError:
+                    continue
+
+                if not (min_expiry <= expiry_date <= max_expiry):
+                    continue
+
+                dte = (expiry_date - today).days
+                bid = _safe_float(row.get("bid"))
+                ask = _safe_float(row.get("ask"))
+                mid = round((bid + ask) / 2, 4) if bid is not None and ask is not None else None
+
+                contracts.append({
+                    "contract_id": row.get("contract_id", row.get("contractID", "")),
+                    "underlying": symbol,
+                    "expiry": expiry_str[:10],
+                    "strike": _safe_float(row.get("strike")),
+                    "option_type": str(row.get("option_type", row.get("type", ""))).lower(),
+                    "dte": dte,
+                    "bid": bid,
+                    "ask": ask,
+                    "mid": mid,
+                    "last": _safe_float(row.get("last")),
+                    "iv": _safe_float(row.get("iv", row.get("implied_volatility"))),
+                    "delta": _safe_float(row.get("delta")),
+                    "gamma": _safe_float(row.get("gamma")),
+                    "theta": _safe_float(row.get("theta")),
+                    "vega": _safe_float(row.get("vega")),
+                    "rho": _safe_float(row.get("rho")),
+                    "open_interest": _safe_int(row.get("open_interest")),
+                    "volume": _safe_int(row.get("volume")),
+                    "source": "alpha_vantage",
+                })
+
+            logger.info(f"[AV] Fetched {len(contracts)} option contracts for {symbol}")
+            return contracts if contracts else None
+
+        except Exception as exc:
+            logger.warning(f"[AV] Options chain failed for {symbol}: {exc}")
+            return None
+
+    def fetch_historical_options_chain(
+        self,
+        symbol: str,
+        date_str: str | None = None,
+    ) -> list[dict] | None:
+        """
+        Fetch historical options chain snapshot for a specific date.
+
+        Uses Alpha Vantage HISTORICAL_OPTIONS endpoint (15yr history).
+        Returns same format as fetch_options_chain.
+        """
+        try:
+            df = self._client.fetch_historical_options(
+                symbol, date=date_str, require_greeks=True,
+            )
+            if df is None or df.empty:
+                return None
+
+            contracts = []
+            for _, row in df.iterrows():
+                contracts.append({
+                    "underlying": symbol,
+                    "expiry": str(row.get("expiration", ""))[:10],
+                    "strike": _safe_float(row.get("strike")),
+                    "option_type": str(row.get("type", "")).lower(),
+                    "bid": _safe_float(row.get("bid")),
+                    "ask": _safe_float(row.get("ask")),
+                    "last": _safe_float(row.get("last")),
+                    "iv": _safe_float(row.get("implied_volatility")),
+                    "delta": _safe_float(row.get("delta")),
+                    "gamma": _safe_float(row.get("gamma")),
+                    "theta": _safe_float(row.get("theta")),
+                    "vega": _safe_float(row.get("vega")),
+                    "open_interest": _safe_int(row.get("open_interest")),
+                    "volume": _safe_int(row.get("volume")),
+                    "source": "alpha_vantage_historical",
+                })
+
+            return contracts if contracts else None
+
+        except Exception as exc:
+            logger.warning(f"[AV] Historical options failed for {symbol}: {exc}")
+            return None
+
+    # ── Economic indicators ────────────────────────────────────────────────
+
+    def fetch_economic(
+        self,
+        indicator: str,
+        interval: str = "monthly",
+    ) -> pd.DataFrame:
+        """
+        Fetch economic indicator time series.
+
+        Supported indicators:
+            CPI, FEDERAL_FUNDS_RATE, REAL_GDP, TREASURY_YIELD,
+            UNEMPLOYMENT, NONFARM_PAYROLL, INFLATION, RETAIL_SALES,
+            DURABLES
+
+        Returns DataFrame with DatetimeIndex and 'value' column.
+        """
+        return self._client.fetch_economic_indicator(
+            function=indicator, interval=interval,
+        )
+
+    def fetch_fed_funds_rate(self) -> pd.DataFrame:
+        """Fetch Federal Funds Rate history (monthly)."""
+        return self.fetch_economic("FEDERAL_FUNDS_RATE", interval="monthly")
+
+    def fetch_cpi(self) -> pd.DataFrame:
+        """Fetch CPI history (monthly)."""
+        return self.fetch_economic("CPI", interval="monthly")
+
+    def fetch_unemployment(self) -> pd.DataFrame:
+        """Fetch unemployment rate history (monthly)."""
+        return self.fetch_economic("UNEMPLOYMENT", interval="monthly")
+
+    def fetch_treasury_yield(self, maturity: str = "10year") -> pd.DataFrame:
+        """Fetch Treasury yield (daily). Maturity: 3month, 2year, 5year, 10year, 30year."""
+        return self._client.fetch_economic_indicator(
+            function="TREASURY_YIELD", interval="daily", maturity=maturity,
+        )
+
+    # ── Earnings ───────────────────────────────────────────────────────────
+
+    def fetch_earnings(
+        self,
+        symbol: str | None = None,
+        horizon: str = "3month",
+    ) -> pd.DataFrame:
+        """
+        Fetch earnings calendar with dates and EPS estimates.
+
+        Returns DataFrame with: symbol, report_date, estimate, fiscal_date_ending.
+        """
+        return self._client.fetch_earnings_calendar(symbol=symbol, horizon=horizon)
+
+    # ── News sentiment ─────────────────────────────────────────────────────
+
+    def fetch_news(
+        self,
+        tickers: str | None = None,
+        topics: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """
+        Fetch market news with sentiment scores.
+
+        Args:
+            tickers: Comma-separated symbols (e.g., "AAPL,MSFT")
+            topics: Topics filter (e.g., "earnings", "ipo", "technology")
+            limit: Max articles to return
+
+        Returns list of article dicts with sentiment data.
+        """
+        return self._client.fetch_news_sentiment(
+            tickers=tickers, topics=topics, limit=limit,
+        )
+
+    # ── Company fundamentals ───────────────────────────────────────────────
+
+    def fetch_fundamentals(self, symbol: str) -> dict:
+        """
+        Fetch company overview (P/E, EPS, market cap, sector, etc.).
+
+        Returns dict with ~60 fundamental fields.
+        """
+        return self._client.fetch_company_overview(symbol)
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+def _safe_float(val) -> float | None:
+    if val is None:
+        return None
+    try:
+        f = float(val)
+        return None if f != f else f  # NaN guard
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(val) -> int | None:
+    if val is None:
+        return None
+    try:
+        return int(float(val))
+    except (TypeError, ValueError):
+        return None

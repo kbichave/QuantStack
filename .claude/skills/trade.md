@@ -68,9 +68,7 @@ Call `get_signal_brief(symbol, regime)` via the quantpod MCP server.
   `market_bias`, `market_conviction`, `risk_environment`, plus `collector_failures`.
 - If `collector_failures` is non-empty: note which collectors failed and reduce
   conviction by 0.05 per failure (already factored in by the engine).
-- **If desk agents are available** (`.claude/agents/` directory exists): spawn
-  `market-intel` and `alpha-research` desk agents in parallel for deeper analysis.
-  Their reports supplement — not replace — the SignalBrief.
+- SignalBrief is the authoritative signal source. No additional LLM analysis needed.
 
 ### Step 4a: Pre-Trade Intelligence (Enhancement 2)
 
@@ -153,22 +151,6 @@ Before executing:
 - Call `get_system_status` — confirm:
   - kill_switch_active is False
   - risk_halted is False
-
-### Step 7.5: Desk Agent Delegation (if available)
-
-**Risk desk agent** — if `.claude/agents/risk.md` exists:
-- Spawn risk desk agent with the trade plan (symbol, action, confidence, position size,
-  stop loss, portfolio state from Step 2) for position sizing recommendation.
-- Use its `position_size_recommendation` to override the conviction-based sizing in Step 6.
-- If the risk desk recommends a smaller size than your conviction sizing, always defer
-  to the risk desk (it has formal factor exposure and Kelly-criterion context).
-
-**Execution desk agent** — if `.claude/agents/execution.md` exists:
-- Spawn execution desk agent for algo recommendation (MARKET/LIMIT/TWAP) and optimal
-  entry timing based on current spread, volume profile, and time of day.
-- Use its `algo_recommendation` to set order_type in Step 8.
-- Use its `entry_timing` to decide whether to execute now or delay
-  (e.g., "avoid first 15 min of session" or "wait for VWAP reversion").
 
 ### Step 8: Execute
 For each approved trade:

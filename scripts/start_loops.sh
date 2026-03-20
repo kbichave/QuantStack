@@ -18,6 +18,25 @@
 
 set -euo pipefail
 
+# ─── PAUSED: Ralph Wiggum loops disabled until P&L attribution exists ───
+# The Strategy Factory promotes strategies and Live Trader executes them,
+# but neither can measure whether they're making money. Running them without
+# P&L attribution generates noise — strategies promoted without validation,
+# trades executed without tracking which strategy they came from.
+#
+# Re-enable after Phase A (daily equity + strategy attribution) is complete.
+# See: .claude/plans/snazzy-wibbling-waterfall.md
+#
+# To force-start (testing only): FORCE_LOOPS=1 ./scripts/start_loops.sh
+if [[ "${FORCE_LOOPS:-0}" != "1" ]]; then
+    echo "ERROR: Ralph Wiggum loops are PAUSED."
+    echo "Reason: P&L attribution system not yet built. Running loops without"
+    echo "attribution generates untracked noise."
+    echo ""
+    echo "To force-start (testing only): FORCE_LOOPS=1 $0"
+    exit 1
+fi
+
 SESSION="quantpod-loops"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 

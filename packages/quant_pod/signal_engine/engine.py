@@ -32,6 +32,7 @@ from quant_pod.signal_engine.collectors.flow import collect_flow
 from quant_pod.signal_engine.collectors.fundamentals import collect_fundamentals
 from quant_pod.signal_engine.collectors.macro import collect_macro
 from quant_pod.signal_engine.collectors.ml_signal import collect_ml_signal
+from quant_pod.signal_engine.collectors.options_flow_collector import collect_options_flow_async
 from quant_pod.signal_engine.collectors.quality import collect_quality
 from quant_pod.signal_engine.collectors.regime import collect_regime
 from quant_pod.signal_engine.collectors.risk import collect_risk
@@ -154,6 +155,8 @@ class SignalEngine:
             "quality":      collect_quality(symbol, self._store),
             "ml_signal":    collect_ml_signal(symbol, self._store),
             "statarb":      collect_statarb(symbol, self._store),
+            # Phase 4 collectors (v1.1) — options flow (GEX, gamma flip, DEX, etc.)
+            "options_flow": collect_options_flow_async(symbol, self._store),
         }
 
         names = list(collector_map.keys())
@@ -184,20 +187,21 @@ class SignalEngine:
         failures: list[str],
     ) -> SignalBrief:
         """Synthesize collector outputs into a SignalBrief."""
-        technical    = outputs.get("technical", {})
-        regime       = outputs.get("regime", {})
-        volume       = outputs.get("volume", {})
-        risk         = outputs.get("risk", {})
-        events       = outputs.get("events", {})
-        fundamentals = outputs.get("fundamentals", {})
-        sentiment    = outputs.get("sentiment", {})
-        macro        = outputs.get("macro", {})
-        sector       = outputs.get("sector", {})
-        flow         = outputs.get("flow", {})
-        cross_asset  = outputs.get("cross_asset", {})
-        quality      = outputs.get("quality", {})
-        ml_signal    = outputs.get("ml_signal", {})
-        statarb      = outputs.get("statarb", {})
+        technical     = outputs.get("technical", {})
+        regime        = outputs.get("regime", {})
+        volume        = outputs.get("volume", {})
+        risk          = outputs.get("risk", {})
+        events        = outputs.get("events", {})
+        fundamentals  = outputs.get("fundamentals", {})
+        sentiment     = outputs.get("sentiment", {})
+        macro         = outputs.get("macro", {})
+        sector        = outputs.get("sector", {})
+        flow          = outputs.get("flow", {})
+        cross_asset   = outputs.get("cross_asset", {})
+        quality       = outputs.get("quality", {})
+        ml_signal     = outputs.get("ml_signal", {})
+        statarb       = outputs.get("statarb", {})
+        options_flow  = outputs.get("options_flow", {})
 
         # Inject strategy context from memory (same as run_analysis).
         strategy_context = _read_strategy_context()
@@ -213,6 +217,8 @@ class SignalEngine:
             sentiment=sentiment,
             collector_failures=failures,
             strategy_context=strategy_context,
+            ml_signal=ml_signal,
+            flow=flow,
         )
 
         market_bias, market_conviction = map_to_market_bias([symbol_brief])
@@ -263,6 +269,18 @@ class SignalEngine:
             ml_direction=ml_signal.get("ml_direction", "unknown"),
             statarb_signal=statarb.get("statarb_signal", "unknown"),
             spread_zscore=statarb.get("spread_zscore"),
+            # Options flow (dealer positioning)
+            opt_gex=options_flow.get("opt_gex"),
+            opt_gamma_flip=options_flow.get("opt_gamma_flip"),
+            opt_above_gamma_flip=options_flow.get("opt_above_gamma_flip"),
+            opt_dex=options_flow.get("opt_dex"),
+            opt_max_pain=options_flow.get("opt_max_pain"),
+            opt_iv_skew=options_flow.get("opt_iv_skew"),
+            opt_iv_skew_zscore=options_flow.get("opt_iv_skew_zscore"),
+            opt_vrp=options_flow.get("opt_vrp"),
+            opt_charm=options_flow.get("opt_charm"),
+            opt_vanna=options_flow.get("opt_vanna"),
+            opt_ehd=options_flow.get("opt_ehd"),
         )
 
 
@@ -282,6 +300,7 @@ def _read_strategy_context() -> str:
 _ALL_COLLECTORS = (
     "technical", "regime", "volume", "risk", "events", "fundamentals", "sentiment",
     "macro", "sector", "flow", "cross_asset", "quality", "ml_signal", "statarb",
+    "options_flow",
 )
 
 

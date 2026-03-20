@@ -52,13 +52,59 @@ async def _fetch_events(symbol: str) -> dict[str, Any]:
 
 
 def _events_from_data_layer(symbol: str) -> list[dict]:
-    """Best-effort events from local earnings data (no Alpha Vantage call)."""
+    """Best-effort events from local earnings data + Alpha Vantage + macro calendar."""
+    events: list[dict] = []
+
+    # 1. Local earnings calendar
     try:
         from quantcore.data.earnings import EarningsCalendar
         calendar = EarningsCalendar()
-        return calendar.get_upcoming(symbol, days_ahead=7)
+        events.extend(calendar.get_upcoming(symbol, days_ahead=7))
     except Exception:
-        return []
+        pass
+
+    # 2. Alpha Vantage earnings (if local is empty)
+    if not events:
+        try:
+            import os
+            av_key = os.environ.get("ALPHA_VANTAGE_API_KEY", "")
+            if av_key:
+                from quantcore.data.adapters.alphavantage import AlphaVantageAdapter
+                adapter = AlphaVantageAdapter(api_key=av_key)
+                df = adapter.fetch_earnings(symbol=symbol, horizon="3month")
+                if not df.empty:
+                    for _, row in df.iterrows():
+                        report_date = row.get("report_date")
+                        if report_date is not None:
+                            events.append({
+                                "event_type": "earnings",
+                                "symbol": symbol,
+                                "date": str(report_date)[:10],
+                                "description": f"Earnings: {symbol} (est EPS: {row.get('estimate', '?')})",
+                            })
+        except Exception:
+            pass
+
+    # 3. Macro calendar (FOMC, CPI, NFP) — affects all symbols
+    try:
+        from quantcore.data.macro_calendar import MacroCalendarGenerator
+        from datetime import datetime
+
+        gen = MacroCalendarGenerator()
+        calendar = gen.build_calendar()
+        upcoming = calendar.get_upcoming_events(datetime.now(), hours_ahead=168)  # 7 days
+
+        for evt in upcoming:
+            events.append({
+                "event_type": evt.event_type.value.lower(),
+                "symbol": None,  # affects all
+                "date": str(evt.timestamp.date()),
+                "description": f"{evt.event_type.value} — {evt.timestamp.strftime('%b %d %I:%M %p ET')}",
+            })
+    except Exception:
+        pass
+
+    return events
 
 
 def _parse_events(raw: Any) -> dict[str, Any]:

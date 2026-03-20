@@ -65,6 +65,8 @@ from threading import RLock
 import duckdb
 from loguru import logger
 
+from quant_pod.observability.trace import TraceContext
+
 
 class OrderStatus(str, Enum):
     """Order lifecycle states."""
@@ -126,6 +128,7 @@ class Order:
     submitted_at: datetime | None = None
     filled_at: datetime | None = None
     expires_at: datetime | None = None  # None = no expiry
+    trace_id: str | None = None  # Observability: trace ID from signal → fill
 
     @property
     def is_terminal(self) -> bool:
@@ -214,6 +217,7 @@ class OrderLifecycle:
             order_type=order_type,
             limit_price=limit_price,
             expires_at=datetime.now(UTC) + timedelta(seconds=ttl_seconds),
+            trace_id=TraceContext.get_trace_id(),
         )
 
         with self._lock:
@@ -316,6 +320,11 @@ class OrderLifecycle:
             if shortfall is not None
             else f"[OMS] Order FILLED {order_id[:8]} {order.symbol} @ ${fill_price:.4f}"
         )
+
+        # --- Persist TCA result to durable storage ---
+        # Non-fatal: if TCAStore fails, the fill is still recorded in OMS.
+        self._persist_tca_result(order)
+
         return order
 
     def reject(self, order_id: str, reason: str) -> Order:
@@ -611,6 +620,50 @@ class OrderLifecycle:
             )
         except Exception as e:
             logger.warning(f"[OMS] Could not persist order {order.order_id[:8]}: {e}")
+
+    def _persist_tca_result(self, order: Order) -> None:
+        """
+        Persist TCA result to TCAStore after a fill.
+
+        Non-fatal: if TCAStore is unavailable or fails, the fill is still
+        recorded in OMS. TCA persistence is best-effort.
+
+        This bridges the gap between OMS (which computes shortfall) and
+        TCAStore (which provides historical analysis for /reflect sessions).
+        """
+        shortfall = order.implementation_shortfall_bps
+        if shortfall is None or order.fill_price is None:
+            return
+
+        try:
+            from quantcore.execution.tca_storage import TCAStore
+
+            store = TCAStore()
+            store.save_result_raw(
+                trade_id=order.order_id,
+                symbol=order.symbol,
+                side=order.side,
+                shares=order.filled_quantity,
+                fill_price=order.fill_price,
+                arrival_price=order.arrival_price,
+                shortfall_vs_arrival_bps=shortfall,
+                shortfall_vs_vwap_bps=None,  # VWAP not available at OMS level
+                shortfall_dollar=(
+                    (order.fill_price - order.arrival_price)
+                    * order.filled_quantity
+                    * (1 if order.side == "buy" else -1)
+                ),
+                is_favorable=shortfall < 0,
+            )
+            store.close()
+            logger.debug(
+                f"[OMS] TCA persisted for {order.order_id[:8]} "
+                f"IS={shortfall:.1f}bps"
+            )
+        except ImportError:
+            logger.debug("[OMS] TCAStore not available — skipping TCA persistence")
+        except Exception as exc:
+            logger.warning(f"[OMS] TCA persistence failed for {order.order_id[:8]}: {exc}")
 
     @staticmethod
     def _row_to_order(row: tuple) -> Order:

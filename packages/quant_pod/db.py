@@ -204,6 +204,8 @@ def run_migrations(conn: duckdb.DuckDBPyConnection) -> None:
         _migrate_screener(conn)
         _migrate_coordination(conn)
         _migrate_conversations(conn)
+        _migrate_attribution(conn)
+        _migrate_research(conn)
         conn.execute("COMMIT")
         logger.info("[DB] Migrations complete")
     except Exception:
@@ -673,4 +675,175 @@ def _migrate_conversations(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS snap_symbol_idx
         ON signal_snapshots (symbol, created_at DESC)
+    """)
+
+
+def _migrate_attribution(conn: duckdb.DuckDBPyConnection) -> None:
+    """Phase A: P&L attribution tables — daily equity curve + strategy attribution."""
+
+    # A.1: Daily equity curve — immutable daily snapshots for track record.
+    # Source of truth for NAV history. INSERT only, never UPDATE.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS daily_equity (
+            date                DATE PRIMARY KEY,
+            cash                DOUBLE NOT NULL,
+            positions_value     DOUBLE NOT NULL,
+            total_equity        DOUBLE NOT NULL,
+            daily_pnl           DOUBLE NOT NULL,
+            cumulative_pnl      DOUBLE NOT NULL,
+            daily_return_pct    DOUBLE NOT NULL,
+            high_water_mark     DOUBLE NOT NULL,
+            drawdown_pct        DOUBLE NOT NULL,
+            open_positions      INTEGER NOT NULL,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # A.2: Per-strategy daily P&L rollup.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_daily_pnl (
+            date                DATE NOT NULL,
+            strategy_id         VARCHAR NOT NULL,
+            realized_pnl        DOUBLE DEFAULT 0,
+            unrealized_pnl      DOUBLE DEFAULT 0,
+            num_trades          INTEGER DEFAULT 0,
+            win_count           INTEGER DEFAULT 0,
+            loss_count          INTEGER DEFAULT 0,
+            PRIMARY KEY (date, strategy_id)
+        )
+    """)
+
+    # A.2: Add strategy_id and regime_at_entry to closed_trades if missing.
+    # ALTER TABLE ADD COLUMN is idempotent in DuckDB (errors if column exists,
+    # so we catch and ignore).
+    for col, typedef in [
+        ("strategy_id", "VARCHAR DEFAULT ''"),
+        ("regime_at_entry", "VARCHAR DEFAULT 'unknown'"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE closed_trades ADD COLUMN {col} {typedef}")
+            logger.info(f"[DB] Added {col} to closed_trades")
+        except duckdb.CatalogException:
+            pass  # Column already exists — expected on subsequent runs
+
+    # A.3: Benchmark comparison table (daily benchmark returns + rolling metrics).
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS benchmark_daily (
+            date                DATE NOT NULL,
+            benchmark           VARCHAR NOT NULL,
+            close_price         DOUBLE NOT NULL,
+            daily_return_pct    DOUBLE,
+            cumulative_return   DOUBLE,
+            PRIMARY KEY (date, benchmark)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS benchmark_comparison (
+            date                DATE NOT NULL,
+            benchmark           VARCHAR NOT NULL,
+            window_days         INTEGER NOT NULL,
+            portfolio_sharpe    DOUBLE,
+            benchmark_sharpe    DOUBLE,
+            portfolio_sortino   DOUBLE,
+            alpha               DOUBLE,
+            beta                DOUBLE,
+            PRIMARY KEY (date, benchmark, window_days)
+        )
+    """)
+
+
+def _migrate_research(conn: duckdb.DuckDBPyConnection) -> None:
+    """Research pod tables — experiment tracking, research programs, pod state."""
+
+    # ML experiment log — every training run, HPO trial, or model evaluation
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ml_experiments (
+            experiment_id       VARCHAR PRIMARY KEY,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            symbol              VARCHAR NOT NULL,
+            model_type          VARCHAR NOT NULL,
+            feature_tiers       JSON,
+            label_method        VARCHAR DEFAULT 'event',
+            n_features_raw      INTEGER,
+            n_features_filtered INTEGER,
+            test_auc            DOUBLE,
+            test_accuracy       DOUBLE,
+            cv_auc_mean         DOUBLE,
+            cv_auc_std          DOUBLE,
+            top_features        JSON,
+            causal_dropped      JSON,
+            hyperparams         JSON,
+            training_duration_s DOUBLE,
+            hypothesis_id       VARCHAR,
+            verdict             VARCHAR DEFAULT 'pending',
+            failure_analysis    TEXT,
+            notes               TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS mlexp_symbol_idx ON ml_experiments (symbol, created_at DESC)
+    """)
+
+    # Alpha research program — persistent multi-week research agenda
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alpha_research_program (
+            investigation_id    VARCHAR PRIMARY KEY,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            thesis              TEXT NOT NULL,
+            status              VARCHAR DEFAULT 'active',
+            priority            INTEGER DEFAULT 5,
+            source              VARCHAR,
+            experiments_run     INTEGER DEFAULT 0,
+            best_oos_sharpe     DOUBLE,
+            last_result_summary TEXT,
+            next_steps          TEXT,
+            dead_end_reason     TEXT,
+            target_regimes      JSON,
+            target_symbols      JSON
+        )
+    """)
+
+    # ML research program — model-level research state
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ml_research_program (
+            program_id          VARCHAR PRIMARY KEY,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            focus_area          VARCHAR NOT NULL,
+            status              VARCHAR DEFAULT 'active',
+            hypothesis          TEXT,
+            experiments_run     INTEGER DEFAULT 0,
+            best_metric         DOUBLE,
+            best_config         JSON,
+            lessons_learned     TEXT,
+            next_experiment     TEXT
+        )
+    """)
+
+    # Research plans — structured output from each pod run
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS research_plans (
+            plan_id             VARCHAR PRIMARY KEY,
+            created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            pod_name            VARCHAR NOT NULL,
+            plan_type           VARCHAR NOT NULL,
+            plan_json           JSON NOT NULL,
+            context_summary     TEXT,
+            executed            BOOLEAN DEFAULT FALSE,
+            execution_results   JSON
+        )
+    """)
+
+    # Breakthrough features — features that appear in 3+ winning strategies
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS breakthrough_features (
+            feature_name        VARCHAR PRIMARY KEY,
+            first_seen          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_seen           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            occurrence_count    INTEGER DEFAULT 1,
+            avg_shap_importance DOUBLE,
+            winning_strategies  JSON,
+            regimes_effective   JSON
+        )
     """)

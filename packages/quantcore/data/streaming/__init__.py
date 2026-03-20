@@ -29,6 +29,7 @@ from quantcore.data.streaming.incremental_features import (
 from quantcore.data.streaming.live_store import LiveBarStore
 from quantcore.data.streaming.publisher import BarPublisher
 from quantcore.data.streaming.tick_aggregator import TickAggregator
+from quantcore.data.streaming.stream_manager import StreamManager, get_stream_manager
 from quantcore.data.streaming.tick_base import TickStreamingAdapter
 from quantcore.data.streaming.tick_models import L2Update, QuoteTick, TradeTick
 
@@ -40,6 +41,9 @@ __all__ = [
     "LiveBarStore",
     "IncrementalFeatureEngine",
     "IncrementalFeatures",
+    # Orchestration
+    "StreamManager",
+    "get_stream_manager",
     # Tick streaming
     "TickStreamingAdapter",
     "TradeTick",

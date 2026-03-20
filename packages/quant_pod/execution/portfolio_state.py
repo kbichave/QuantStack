@@ -76,6 +76,8 @@ class ClosedTrade(BaseModel):
     opened_at: datetime
     closed_at: datetime = Field(default_factory=datetime.now)
     holding_days: int = 0
+    strategy_id: str = ""
+    regime_at_entry: str = "unknown"
 
 
 class PortfolioSnapshot(BaseModel):
@@ -332,10 +334,22 @@ class PortfolioState:
                 )
 
     def close_position(
-        self, symbol: str, exit_price: float, quantity: int | None = None
+        self,
+        symbol: str,
+        exit_price: float,
+        quantity: int | None = None,
+        strategy_id: str = "",
+        regime_at_entry: str = "unknown",
     ) -> ClosedTrade | None:
         """
         Close all or part of a position and record realized P&L.
+
+        Args:
+            symbol: Ticker to close.
+            exit_price: Execution price.
+            quantity: Shares to close. None = close entire position.
+            strategy_id: Strategy that generated this trade (for P&L attribution).
+            regime_at_entry: Market regime when position was opened.
 
         Returns the ClosedTrade record, or None if no position existed.
         """
@@ -360,14 +374,17 @@ class PortfolioState:
                 realized_pnl=realized,
                 opened_at=pos.opened_at,
                 holding_days=holding_days,
+                strategy_id=strategy_id,
+                regime_at_entry=regime_at_entry,
             )
 
             self.conn.execute(
                 """
                 INSERT INTO closed_trades
                     (id, symbol, side, quantity, entry_price, exit_price,
-                     realized_pnl, opened_at, closed_at, holding_days)
-                VALUES (nextval('closed_trades_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     realized_pnl, opened_at, closed_at, holding_days,
+                     strategy_id, regime_at_entry)
+                VALUES (nextval('closed_trades_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     symbol,
@@ -379,6 +396,8 @@ class PortfolioState:
                     pos.opened_at,
                     datetime.now(),
                     holding_days,
+                    strategy_id,
+                    regime_at_entry,
                 ],
             )
 

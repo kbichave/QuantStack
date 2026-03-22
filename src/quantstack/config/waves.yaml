@@ -1,0 +1,136 @@
+# Wave Detection Configuration
+# This file is used by the wave labeler to detect Elliott Wave-style patterns.
+# Parameters can be tuned via research/agentic_waves.py with Claude assistance.
+
+# Version tracking for config changes
+version: "1.0.0"
+last_updated: "2024-01-01"
+notes: "Initial wave detection parameters"
+
+# ZigZag Swing Detection Parameters
+swing_detection:
+  # ATR multiple for swing reversal threshold
+  # Higher = fewer swings, cleaner structure
+  # Lower = more swings, more noise
+  atr_mult:
+    W1: 2.0    # Weekly: larger swings only
+    D1: 1.5    # Daily: moderate
+    H4: 1.5    # 4H: primary wave timeframe
+    H1: 1.2    # 1H: smaller swings for execution
+  
+  # Minimum bars for a swing to be valid
+  # Filters out noise spikes
+  min_swing_bars:
+    W1: 2
+    D1: 3
+    H4: 3
+    H1: 4
+
+# Impulse Wave Constraints (5-wave structure)
+impulse:
+  # Minimum move size for impulse legs (as decimal, 0.01 = 1%)
+  min_impulse_pct: 0.01
+  
+  # Wave 2 retrace constraints
+  # Classic EW: Wave 2 retraces 38.2%-61.8% of Wave 1
+  wave2:
+    max_retrace: 1.0      # Can't exceed 100% of Wave 1
+    ideal_min: 0.382      # Ideal minimum (Fib)
+    ideal_max: 0.618      # Ideal maximum (Fib)
+  
+  # Wave 3 constraints
+  # Classic EW: Wave 3 is often the largest
+  wave3:
+    min_vs_wave1: 1.0     # Must be at least as big as Wave 1
+  
+  # Wave 4 retrace constraints
+  # Classic EW: Wave 4 typically retraces 23.6%-50% of Wave 3
+  # Wave 4 should not overlap Wave 1 territory
+  wave4:
+    max_retrace: 1.0      # Can't exceed 100% of Wave 3
+    ideal_min: 0.236      # Ideal minimum (Fib)
+    ideal_max: 0.50       # Ideal maximum (Fib)
+  
+  # Wave 5 constraints
+  wave5:
+    max_vs_wave3: 1.5     # Shouldn't be excessively larger than Wave 3
+
+# ABC Correction Constraints (3-wave structure)
+correction:
+  # Minimum move for correction legs
+  min_corr_pct: 0.005     # 0.5%
+  
+  # B wave constraints
+  # B wave is the counter-trend move within correction
+  b_wave:
+    max_retrace: 1.0      # Can't exceed A wave start
+    ideal_min: 0.5        # Often retraces 50-61.8% of A
+    ideal_max: 0.618
+  
+  # C wave constraints
+  # C wave often equals or exceeds A wave
+  c_wave:
+    min_vs_a: 0.618       # At least 61.8% of A wave
+    ideal_ratio: 1.0      # Often equals A wave
+
+# Pattern Scoring Weights
+scoring:
+  # How much Fibonacci alignment affects confidence
+  fib_weight: 0.3
+  
+  # How much proper structure affects confidence
+  structure_weight: 0.4
+  
+  # How much leg length proportions affect confidence
+  length_weight: 0.3
+  
+  # Minimum confidence to consider pattern valid
+  min_confidence: 0.4
+
+# Partial Pattern Detection (for live execution)
+partial:
+  # Minimum legs to attempt partial pattern scoring
+  min_legs: 2
+  
+  # Probability thresholds for wave context flags
+  prob_threshold_corrective: 0.6      # Threshold for is_corrective_down/up
+  prob_threshold_impulse: 0.5         # Threshold for impulse detection
+
+# Trading Integration
+trading:
+  # Wave context affects position sizing
+  # Multipliers for different wave contexts
+  sizing_multipliers:
+    corr_down_high_conf: 1.2    # Corrective down with conf > 0.7
+    corr_down_low_conf: 1.0     # Corrective down with conf < 0.7
+    late_impulse: 0.7           # Wave 4/5 caution
+    no_wave_context: 0.9        # No clear wave structure
+  
+  # Wave contexts that should block trades entirely
+  # Set to true to enable hard blocking
+  blocking:
+    block_impulse_counter: false   # Block MR trades against impulse
+    block_late_impulse: false      # Block on wave 5
+    min_wave_conf_required: 0.0    # Minimum confidence to trade
+
+# Research/Tuning Parameters
+research:
+  # Parameters that Claude can suggest changes to
+  tunable_params:
+    - swing_detection.atr_mult
+    - impulse.wave2.ideal_min
+    - impulse.wave2.ideal_max
+    - impulse.wave4.ideal_min
+    - impulse.wave4.ideal_max
+    - correction.b_wave.ideal_min
+    - correction.b_wave.ideal_max
+    - scoring.min_confidence
+    - partial.prob_threshold_corrective
+  
+  # Constraints for parameter tuning
+  param_bounds:
+    atr_mult: [0.5, 3.0]
+    ideal_retrace: [0.1, 0.9]
+    min_confidence: [0.2, 0.8]
+    prob_threshold: [0.4, 0.8]
+

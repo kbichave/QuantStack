@@ -29,7 +29,7 @@ post-earnings trades are swing trades riding the gap direction).
 
 ### Step 1: Earnings Calendar Confirmation
 
-Call `mcp__quantcore__get_event_calendar(symbol, days_ahead=30)`:
+Call `mcp__quantpod__get_event_calendar(symbol, days_ahead=30)`:
 - Confirm exact earnings date and time (pre-market / after-hours)
 - Days until earnings (DTE_earnings)
 - Is this a quarterly report (10-Q) or annual (10-K)?
@@ -44,7 +44,7 @@ Call `mcp__quantcore__get_event_calendar(symbol, days_ahead=30)`:
 
 ### Step 2: Historical Earnings Analysis
 
-Call `mcp__quantcore__get_earnings_data(symbol, limit=8)` for last 8 quarters:
+Call `mcp__quantpod__get_earnings_data(symbol, limit=8)` for last 8 quarters:
 - **Average absolute move**: mean(|surprise_pct|) — this is the expected move
 - **Beat/miss ratio**: how often does this company beat estimates?
 - **Directional bias after beats**: does stock rally or sell on beats? (some stocks sell on beats — "buy the rumor, sell the news")
@@ -61,7 +61,7 @@ post_miss_avg_return = mean(1-day return when surprise < 0)
 
 ### Step 3: Analyst Estimates Context
 
-Call `mcp__quantcore__get_analyst_estimates(symbol)`:
+Call `mcp__quantpod__get_analyst_estimates(symbol)`:
 - Consensus EPS estimate and range (high/low)
 - Revenue estimate
 - Number of analysts covering (>10 = well-covered, <5 = thin coverage → larger surprise risk)
@@ -85,12 +85,12 @@ Call `get_company_news(symbol, limit=10)`:
 
 ### Step 5: IV Regime Analysis
 
-Call `mcp__quantcore__get_iv_surface(symbol)`:
+Call `mcp__quantpod__get_iv_surface(symbol)`:
 - `iv_rank`: current IV vs 52-week range (0-100)
 - `atm_iv_30d`: front-month ATM implied volatility
 - `skew_25d`: put skew (positive = bearish positioning)
 
-Call `mcp__quantcore__get_options_chain(symbol)`:
+Call `mcp__quantpod__get_options_chain(symbol)`:
 - At-the-money straddle price → market's implied move
 - Compare implied move vs historical average move:
   - Implied > historical × 1.3 → IV is OVERPRICED (favor selling premium)

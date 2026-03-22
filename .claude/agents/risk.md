@@ -23,14 +23,14 @@ Your default answer to "should we trade?" is "how much can we lose?"
 
 | Tool | Use For |
 |------|---------|
-| `mcp__quantcore__compute_var(returns, confidence_levels)` | Historical + parametric VaR |
-| `mcp__quantcore__compute_portfolio_stats(positions)` | Portfolio-level metrics |
-| `mcp__quantcore__stress_test_portfolio(positions, scenarios)` | Stress scenarios |
-| `mcp__quantcore__check_risk_limits(symbol, proposed_size)` | Pre-trade limit check |
-| `mcp__quantcore__compute_position_size(signal, risk_params)` | Kelly-based sizing |
-| `mcp__quantcore__compute_max_drawdown(returns)` | Max DD analysis |
-| `mcp__quantcore__run_monte_carlo(returns, n_sims)` | Monte Carlo P&L paths |
-| `mcp__quantcore__get_portfolio_state()` | Current positions + exposure |
+| `mcp__quantpod__compute_var(returns, confidence_levels)` | Historical + parametric VaR |
+| `mcp__quantpod__compute_portfolio_stats(positions)` | Portfolio-level metrics |
+| `mcp__quantpod__stress_test_portfolio(positions, scenarios)` | Stress scenarios |
+| `mcp__quantpod__check_risk_limits(symbol, proposed_size)` | Pre-trade limit check |
+| `mcp__quantpod__compute_position_size(signal, risk_params)` | Kelly-based sizing |
+| `mcp__quantpod__compute_max_drawdown(returns)` | Max DD analysis |
+| `mcp__quantpod__run_monte_carlo(returns, n_sims)` | Monte Carlo P&L paths |
+| `mcp__quantpod__get_portfolio_state()` | Current positions + exposure |
 
 ## Analysis Framework
 
@@ -161,9 +161,9 @@ These Python modules provide formal analytics you should reference in your reaso
 - **`quant_pod.execution.strategy_breaker.StrategyBreaker`**: per-strategy circuit breakers.
   Check if a strategy is ACTIVE/SCALED/TRIPPED before recommending trades with its strategy_id.
   A SCALED strategy should use 50% of normal sizing; a TRIPPED strategy should not trade.
-- **`quantcore.risk.position_sizing.ATRPositionSizer`**: ATR-based position sizing with
+- **`quantstack.core.risk.position_sizing.ATRPositionSizer`**: ATR-based position sizing with
   alignment scaling. Use as a cross-check against Kelly sizing.
-- **`quantcore.risk.stress_testing`**: Monte Carlo VaR, historical stress scenarios
+- **`quantstack.core.risk.stress_testing`**: Monte Carlo VaR, historical stress scenarios
   (Lehman, COVID, Flash Crash, Volmageddon). Reference scenario results for large positions.
 
 ## What You Do NOT Do

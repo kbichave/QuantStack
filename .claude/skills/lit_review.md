@@ -58,7 +58,7 @@ and expanding. Strategies are rule-based with RSI mean-reversion as the core edg
 shift that breaks mean-reversion wipes the portfolio. We need diverse alpha sources.
 
 **QuantPod today:** `packages/quant_pod/alpha_discovery/engine.py` — grid search
-over 4 templates + LLM HypothesisAgent. `packages/quantcore/features/` — 200+ indicators.
+over 4 templates + LLM HypothesisAgent. `src/quantstack/core/features/` — 200+ indicators.
 
 **Search for:**
 - Grammar-guided GP / symbolic regression for alpha factor discovery
@@ -94,7 +94,7 @@ it shows up as IC degradation? What's the false positive rate?
 **Why it's #3:** Our 3 SAC agents need 63+ trading days in shadow mode.
 Decision Transformers train offline on historical data with no exploration risk.
 
-**QuantPod today:** `packages/quantcore/rl/` — 3 independent SAC agents
+**QuantPod today:** `src/quantstack/rl/` — 3 independent SAC agents
 (execution, sizing, meta). Shadow mode with promotion gating.
 
 **Search for:**
@@ -145,7 +145,7 @@ beat our LightGBM? This is an empirical question, not a literature question.
 pricing matters for exotic options, vol surface arb, or high-frequency flow.
 None of those are current QuantPod use cases.
 
-**QuantPod today:** `quantcore/options/` — BS pricing, Greeks, IV calc.
+**QuantPod today:** `quantpod/core/options/` — BS pricing, Greeks, IV calc.
 `backtesting/options_engine.py` — synthetic IV backtesting.
 
 **Search for (only if options volume is scaling):**

@@ -14,7 +14,7 @@ trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it dire
 ## Pre-Trade Intelligence (run before every /trade and /meta session)
 
 ### Economic Calendar Check
-**Tool:** `mcp__quantcore__get_event_calendar(symbol, days_ahead=2)`
+**Tool:** `mcp__quantpod__get_event_calendar(symbol, days_ahead=2)`
 **When:** Before any session.
 **Decision rule:**
 - FOMC or CPI within 2 hours → reduce all position sizes 50% or skip
@@ -22,7 +22,7 @@ trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it dire
 - No major events → proceed normally
 
 ### Market Regime Snapshot
-**Tool:** `mcp__quantcore__get_market_regime_snapshot(end_date)`
+**Tool:** `mcp__quantpod__get_market_regime_snapshot(end_date)`
 **When:** Opening of any session; supplement `get_regime` with broad market context.
 **What to look for:** VIX regime, breadth (% above 200-day MA), market phase.
 
@@ -31,25 +31,25 @@ trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it dire
 ## Signal Enrichment (run when DailyBrief confidence > 0.65)
 
 ### Raw Price Action
-**Tool:** `mcp__quantcore__load_market_data(symbol, timeframe, start_date, end_date)`
+**Tool:** `mcp__quantpod__load_market_data(symbol, timeframe, start_date, end_date)`
 **When:** DailyBrief flags critical levels — verify the levels are real in the data.
 **What to look for:** Did price actually bounce at support? Is the resistance clean?
 
 ### Volume Profile
-**Tool:** `mcp__quantcore__analyze_volume_profile(symbol, timeframe, lookback_days=20)`
+**Tool:** `mcp__quantpod__analyze_volume_profile(symbol, timeframe, lookback_days=20)`
 **When:** Before entering at a support or resistance level.
 **Decision rule:**
 - High volume node (HVN) at entry level → strong support/resistance, higher conviction
 - Low volume node (LVN) at entry level → price may slice through quickly, tighten stop
 
 ### Multi-Timeframe Alignment
-**Tool:** `mcp__quantcore__compute_technical_indicators(symbol, timeframe, indicators)`
+**Tool:** `mcp__quantpod__compute_technical_indicators(symbol, timeframe, indicators)`
 **When:** When 1-day signal looks good but context is unclear.
 **Timeframes to check:** weekly (trend direction), daily (entry timing), 4h (entry precision)
 **Rule:** Enter only if weekly and daily agree on direction.
 
 ### Relative Strength vs Sector
-**Tool:** `mcp__quantcore__run_screener(symbols, trend_filter, ...)`
+**Tool:** `mcp__quantpod__run_screener(symbols, trend_filter, ...)`
 **When:** For sector-specific trades.
 **Decision rule:** Entry symbol should be outperforming its sector peers.
 
@@ -60,7 +60,7 @@ trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it dire
 ### IV Rank and Skew
 
 **For strategy design and backtesting (synthetic chain):**
-**Tool:** `mcp__quantcore__compute_option_chain(symbol, expiry_date)`
+**Tool:** `mcp__quantpod__compute_option_chain(symbol, expiry_date)`
 **When:** `/workshop` sessions — evaluating whether a signal has options convexity, running `run_backtest_options`.
 **Important:** This chain is **synthetic** (hardcoded 25% IV, fake bid/ask spreads). Do NOT use for live /options execution.
 **What to extract:** Theoretical IV percentile, skew shape, options Sharpe vs equity Sharpe comparison.
@@ -77,15 +77,15 @@ trading sessions.  It is consumed by `/trade` and `/meta`; do not invoke it dire
 Use this — not `compute_option_chain` — for the IV rank decision matrix in `/options`.
 
 ### Put/Call Ratio
-**Tools:** `mcp__quantcore__analyze_option_structure` (or options_flow_ic output)
+**Tools:** `mcp__quantpod__analyze_option_structure` (or options_flow_ic output)
 **Decision rule:**
 - P/C ratio > 1.2 → bearish sentiment (potential contrarian long setup)
 - P/C ratio < 0.7 → complacent / bullish (fade if overextended)
 
 ### Trade Template
-**Tool:** `mcp__quantcore__generate_trade_template(symbol, direction, structure_type, expiry_days, risk_amount)`
+**Tool:** `mcp__quantpod__generate_trade_template(symbol, direction, structure_type, expiry_days, risk_amount)`
 **When:** Executing an options position.
-**Follow with:** `mcp__quantcore__validate_trade` and `mcp__quantcore__score_trade_structure`
+**Follow with:** `mcp__quantpod__validate_trade` and `mcp__quantpod__score_trade_structure`
 
 ### Options Convexity Assessment
 **When:** Evaluating whether an equity strategy's edge is better captured via options.
@@ -99,22 +99,22 @@ Use this — not `compute_option_chain` — for the IV rank decision matrix in `
 ## Risk Enrichment (run before any position > 3% allocation)
 
 ### Portfolio Beta Impact
-**Tool:** `mcp__quantcore__compute_portfolio_stats(equity_curve)`
+**Tool:** `mcp__quantpod__compute_portfolio_stats(equity_curve)`
 **When:** Before any position sized at "half" or "full".
 
 ### VaR Check
-**Tool:** `mcp__quantcore__compute_var(returns, confidence_levels, method)`
+**Tool:** `mcp__quantpod__compute_var(returns, confidence_levels, method)`
 **When:** When gross_exposure is already > 80%.
 **Decision rule:** If adding this position pushes 99% VaR beyond 3% of equity, reduce size.
 
 ### Stress Test
-**Tool:** `mcp__quantcore__stress_test_portfolio(positions, scenarios)`
+**Tool:** `mcp__quantpod__stress_test_portfolio(positions, scenarios)`
 **When:** Earnings season or macro events on the calendar.
 **Scenarios:** Include 2008, COVID, Volmageddon as minimum.
 **Decision rule:** If any scenario shows > 10% portfolio loss, reduce gross exposure.
 
 ### Liquidity Check
-**Tool:** `mcp__quantcore__analyze_liquidity(symbol, timeframe, window)`
+**Tool:** `mcp__quantpod__analyze_liquidity(symbol, timeframe, window)`
 **When:** For any symbol outside the S&P 500.
 **Decision rule:** If bid-ask spread estimate > 10 bps, factor into expected return.
 
@@ -147,7 +147,7 @@ Use this — not `compute_option_chain` — for the IV rank decision matrix in `
 ## ML Signal Enrichment (use in /workshop when rule-based Sharpe < 0.5)
 
 ### Causal Feature Filtering (when # features > 30)
-**How:** `from quantcore.validation.causal_filter import CausalFilter`
+**How:** `from quantstack.core.validation.causal_filter import CausalFilter`
 **When:** After variance filtering but before model training — drops spurious correlations
 **What it adds:** Granger causality tests identify which features actually predict forward
 returns; Bonferroni-corrected p-values prevent false discoveries across 200+ features;
@@ -159,26 +159,26 @@ correlations — the signal may be too noisy for causal detection at current sam
 and which features were dropped — feed this into /reflect for feature quality analysis
 
 ### Feature Importance Check
-**How:** Directly import `SHAPExplainer` from `quantcore.models.explainer`
+**How:** Directly import `SHAPExplainer` from `quantstack.ml.explainer`
 **When:** After a backtest fails — understand which features actually drove signals
 **What to look for:** If top SHAP features are lagged price (not indicators), the
 signal may be autocorrelation artefact, not a real edge
 
 ### Regime Probability (when `get_regime` confidence < 0.6)
-**How:** `from quantcore.hierarchy.regime.hmm_model import HMMRegimeModel`
+**How:** `from quantstack.core.hierarchy.regime.hmm_model import HMMRegimeModel`
 **When:** `get_regime()` returns confidence < 0.6 or regime has changed 3x in 5 days
 **What it adds:** State transition probabilities — "40% chance staying in ranging,
 35% trending_up, 25% trending_down" is more useful than a single label
 
 ### ML-Backed Direction Signal
-**How:** `from quantcore.equity.pipeline import run_ml_strategy`
+**How:** `from quantstack.core.equity.pipeline import run_ml_strategy`
 **When:** Rule-based workshop strategies repeatedly fail Sharpe > 1.0 threshold
 **What it adds:** GradientBoosting classifier trained on 200+ features with
 CausalFilter pre-selection + TimeSeriesSplit CV — provides calibrated probability
 of up/down move
 
 ### Changepoint Detection
-**How:** `from quantcore.hierarchy.regime.changepoint import BayesianChangepointDetector`
+**How:** `from quantstack.core.hierarchy.regime.changepoint import BayesianChangepointDetector`
 **When:** Entering a new trade after a regime that has been stable for 20+ days
 **Decision rule:** If changepoint probability > 0.3, reduce position size 50%
 — you may be near a regime transition

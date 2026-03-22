@@ -25,14 +25,14 @@ extraordinary claims.
 
 | Tool | Use For |
 |------|---------|
-| `mcp__quantcore__run_backtest(strategy_id, symbol, ...)` | In-sample backtest |
-| `mcp__quantcore__run_walkforward(strategy_id, symbol, ...)` | Walk-forward validation |
-| `mcp__quantcore__run_purged_cv(...)` | Purged cross-validation |
-| `mcp__quantcore__check_lookahead_bias(...)` | Lookahead bias detection |
-| `mcp__quantcore__detect_leakage(...)` | Data leakage detection |
-| `mcp__quantcore__compute_alpha_decay(...)` | IC decay over forward horizons |
-| `mcp__quantcore__compute_information_coefficient(...)` | Signal IC |
-| `mcp__quantcore__get_backtest_metrics(...)` | Detailed backtest statistics |
+| `mcp__quantpod__run_backtest(strategy_id, symbol, ...)` | In-sample backtest |
+| `mcp__quantpod__run_walkforward(strategy_id, symbol, ...)` | Walk-forward validation |
+| `mcp__quantpod__run_purged_cv(...)` | Purged cross-validation |
+| `mcp__quantpod__check_lookahead_bias(...)` | Lookahead bias detection |
+| `mcp__quantpod__detect_leakage(...)` | Data leakage detection |
+| `mcp__quantpod__compute_alpha_decay(...)` | IC decay over forward horizons |
+| `mcp__quantpod__compute_information_coefficient(...)` | Signal IC |
+| `mcp__quantpod__get_backtest_metrics(...)` | Detailed backtest statistics |
 
 ## Evaluation Framework
 

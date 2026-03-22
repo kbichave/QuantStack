@@ -45,12 +45,12 @@ Call `get_portfolio_state` via QuantPod MCP.
 - If confidence < 0.60: macro regime is ambiguous → reduce all sizing to half
 
 **b) Event calendar:**
-- Call `mcp__quantcore__get_event_calendar(SPY, days_ahead=1)` for today's macro events
+- Call `mcp__quantpod__get_event_calendar(SPY, days_ahead=1)` for today's macro events
 - FOMC, CPI, NFP today → flag HIGH event risk, reduce sizing 50% across the board
 - Earnings season active → note, individual symbol checks in Step 5
 
 **c) Volatility context:**
-- Call `mcp__quantcore__compute_technical_indicators(SPY, "daily", ["atr", "adx"])`
+- Call `mcp__quantpod__compute_technical_indicators(SPY, "daily", ["atr", "adx"])`
 - ATR > 2× its 20-day average → vol spike, reduce all sizes 50%
 - ADX < 15 on SPY → choppy/directionless market, favor mean-reversion setups
 
@@ -117,16 +117,16 @@ Rank by `opportunity_score` descending. Take top 5.
 For each of the top 5 ranked opportunities:
 
 **a) Volume profile:**
-- Call `mcp__quantcore__analyze_volume_profile(symbol, "daily", lookback_days=20)`
+- Call `mcp__quantpod__analyze_volume_profile(symbol, "daily", lookback_days=20)`
 - Identify entry zones: High Volume Nodes (HVN) as support, Low Volume Nodes (LVN) as air pockets
 
 **b) Multi-timeframe alignment:**
-- Call `mcp__quantcore__compute_technical_indicators(symbol, "weekly", ["sma_20", "rsi", "adx"])`
+- Call `mcp__quantpod__compute_technical_indicators(symbol, "weekly", ["sma_20", "rsi", "adx"])`
 - Entry valid only if weekly trend agrees with daily signal direction
 - If weekly disagrees: downgrade to "watch" (not actionable today)
 
 **c) Risk check:**
-- Call `mcp__quantcore__check_risk_limits(symbol, proposed_size)` — does this fit in portfolio?
+- Call `mcp__quantpod__check_risk_limits(symbol, proposed_size)` — does this fit in portfolio?
 - If it would breach gross_exposure or position limits: reduce size or skip
 
 ### Step 8: Output

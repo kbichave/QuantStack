@@ -43,16 +43,16 @@ Call `get_regime` with the requested symbol.
   → Log "regime ambiguous, skipping full analysis" in trade_journal.md and STOP.
 - If `trend_regime == "unknown"`: force paper_mode for this session.
 
-**b) Volatility pre-screen** via `mcp__quantcore__compute_technical_indicators(symbol, "daily", ["ATR", "ADX"])`:
+**b) Volatility pre-screen** via `mcp__quantpod__compute_technical_indicators(symbol, "daily", ["ATR", "ADX"])`:
 - If ATR is > 2× its 20-day average (vol spike):
   → Reduce ALL position sizes to 50% of strategy spec.
   → Log: "vol spike detected, sizes halved" in trade_journal.md.
 
-**c) Calendar pre-screen** via `mcp__quantcore__get_event_calendar(symbol, days_ahead=1)`:
+**c) Calendar pre-screen** via `mcp__quantpod__get_event_calendar(symbol, days_ahead=1)`:
 - FOMC, CPI, NFP, or earnings within 24 hours:
   → Reduce position sizes 50% OR skip equity positions entirely.
   → Options with defined risk (spreads) are acceptable.
-- Also call `mcp__quantcore__get_company_news(symbol, limit=5)` for recent news context.
+- Also call `mcp__quantpod__get_company_news(symbol, limit=5)` for recent news context.
   If news reveals material developments (M&A, regulatory action, guidance change),
   factor into conviction adjustment in Step 5.
 
@@ -79,7 +79,7 @@ After receiving the DailyBrief, before building the trade plan:
 - If events since pre-screen: reassess sizing.
 
 **Market regime snapshot:**
-- Call `mcp__quantcore__get_market_regime_snapshot()` for broad market context.
+- Call `mcp__quantpod__get_market_regime_snapshot()` for broad market context.
 - Note: market breadth, VIX regime, sector rotation.
 - If broad market regime conflicts with symbol-level signal → reduce conviction by 0.1.
 
@@ -88,25 +88,25 @@ After receiving the DailyBrief, before building the trade plan:
 For each actionable signal from the DailyBrief:
 
 **Volume profile at proposed entry:**
-- Call `mcp__quantcore__analyze_volume_profile(symbol, "daily", lookback_days=20)`.
+- Call `mcp__quantpod__analyze_volume_profile(symbol, "daily", lookback_days=20)`.
 - If entry is at a High Volume Node (HVN) → higher conviction (support is real).
 - If entry is in a Low Volume Node (LVN) → price may slice through; tighten stop.
 
 **Multi-timeframe alignment check:**
-- Call `mcp__quantcore__compute_technical_indicators(symbol, "weekly", ["sma_20", "rsi", "adx"])`.
+- Call `mcp__quantpod__compute_technical_indicators(symbol, "weekly", ["sma_20", "rsi", "adx"])`.
 - Entry is valid only if weekly trend agrees with daily signal direction.
 
 **Options intelligence (when volatility_ic flagged elevated IV):**
-- Call `mcp__quantcore__compute_option_chain(symbol, expiry_date)` for IV percentile.
+- Call `mcp__quantpod__compute_option_chain(symbol, expiry_date)` for IV percentile.
 - If IV rank > 60%: prefer premium-selling strategies, not long options.
 - If IV rank < 30%: options buying is cheap; consider debit spreads for directional plays.
 
 ### Step 4c: Risk Enrichment (for any proposed position > 3% allocation)
 
 Before sizing a "half" or "full" position:
-- Call `mcp__quantcore__compute_var(returns, [0.95, 0.99])` to check marginal VaR.
+- Call `mcp__quantpod__compute_var(returns, [0.95, 0.99])` to check marginal VaR.
 - If adding this position pushes 99% VaR beyond 3% of equity → reduce to "quarter".
-- For symbols outside S&P 500: call `mcp__quantcore__analyze_liquidity(symbol, "daily")`.
+- For symbols outside S&P 500: call `mcp__quantpod__analyze_liquidity(symbol, "daily")`.
   - If estimated spread > 10 bps → factor into expected return estimate.
 
 See `.claude/skills/deep_analysis.md` for the full QuantCore tool reference.

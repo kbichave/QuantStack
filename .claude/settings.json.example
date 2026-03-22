@@ -1,21 +1,12 @@
 {
   "mcpServers": {
     "quantpod": {
-      "command": "quantpod-mcp",
+      "command": "quantstack-mcp",
       "type": "stdio"
     },
     "quantcore": {
-      "command": "quantcore-mcp",
+      "command": "quantstack-mcp",
       "type": "stdio"
-    },
-    "slack": {
-      "command": "npx",
-      "args": ["-y", "@anthropic/slack-mcp"],
-      "type": "stdio",
-      "env": {
-        "SLACK_BOT_TOKEN": "",
-        "SLACK_TEAM_ID": ""
-      }
     }
   },
   "hooks": {
@@ -25,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/validate_brief_quality.py",
+            "command": "quantpod-validate-brief",
             "timeout": 10
           }
         ]
@@ -35,13 +26,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/log_decision.py",
+            "command": "quantpod-log-decision",
             "timeout": 10
-          },
-          {
-            "type": "command",
-            "command": "python3 scripts/notify_discord.py",
-            "timeout": 15
           }
         ]
       },
@@ -50,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/log_decision.py",
+            "command": "quantpod-log-decision",
             "timeout": 10
           }
         ]

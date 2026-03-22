@@ -109,7 +109,7 @@ Before walk-forward, validate that features causally predict returns:
 - This step is SKIPPED for pure rule-based strategies (RSI/SMA-only)
 
 ```python
-from quantcore.validation.causal_filter import CausalFilter
+from quantstack.core.validation.causal_filter import CausalFilter
 
 causal = CausalFilter(max_lag=5, significance_level=0.05)
 X_filtered = causal.fit_transform(features_df, forward_returns)
@@ -168,11 +168,11 @@ Use when rule-based hypotheses have failed 2+ iterations with Sharpe < 0.5.
 **Step 3 (alternate): Train an ML model to discover entry conditions**
 
 ```python
-from quantcore.labeling.event_labeler import EventLabeler
-from quantcore.models.trainer import ModelTrainer
-from quantcore.models.explainer import SHAPExplainer
-from quantcore.validation.causal_filter import CausalFilter
-from quantcore.data.storage import DataStore
+from quantstack.core.labeling.event_labeler import EventLabeler
+from quantstack.core.models.trainer import ModelTrainer
+from quantstack.core.models.explainer import SHAPExplainer
+from quantstack.core.validation.causal_filter import CausalFilter
+from quantstack.core.data.storage import DataStore
 
 store = DataStore()
 df = store.load_ohlcv(symbol, timeframe)
@@ -216,7 +216,7 @@ If a capability needed for a workshop step doesn't exist in the MCP tools:
    Missing: <tool_name>
    Input: <schema>
    Output: <schema>
-   Package: quantcore or quant_pod
+   Package: quantpod
    Priority: HIGH/MEDIUM (HIGH if it unlocks a whole strategy class)
    ```
 3. Do NOT halt or skip steps — work around it, document it, and continue.
@@ -262,7 +262,7 @@ Before promoting any strategy to forward_testing:
 
 - Never optimize parameters to maximize backtest Sharpe — that's overfitting.
   Instead, pick parameters from domain knowledge, then validate.
-- The backtest engine uses the existing `BacktestEngine` from quantcore.
+- The backtest engine uses the existing `BacktestEngine` from quantstack.core.
   It's a single-instrument, signal-based engine with slippage + commission.
 - Workshop sessions should produce either a registered strategy or a documented
   lesson. Never walk away with neither.

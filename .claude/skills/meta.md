@@ -80,7 +80,7 @@ Before running conflict resolution, assess portfolio-level risk from correlated 
   → Reduce the largest proposed position size by one step (full→half, half→quarter).
 
 **Calendar event check:**
-- Call `mcp__quantcore__get_event_calendar` for any symbols with earnings in 24 hours.
+- Call `mcp__quantpod__get_event_calendar` for any symbols with earnings in 24 hours.
 - Those symbols: force to paper_mode, or skip if portfolio already near gross_exposure limit.
 
 **RL cross-portfolio sizing:**

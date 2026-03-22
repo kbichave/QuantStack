@@ -10,8 +10,8 @@ All tests use an in-memory TradingContext — no file system, no shared state.
 from __future__ import annotations
 
 import pytest
-from quant_pod.context import create_trading_context
-from quant_pod.execution.paper_broker import OrderRequest, PaperBroker
+from quantstack.context import create_trading_context
+from quantstack.execution.paper_broker import OrderRequest, PaperBroker
 
 
 @pytest.fixture
@@ -173,14 +173,18 @@ class TestPortfolioUpdates:
 
     def test_fill_persisted_to_db(self, broker, ctx):
         broker.execute(make_req(symbol="SPY", side="buy", qty=5, price=450.0))
-        rows = ctx.db.execute("SELECT COUNT(*) FROM fills WHERE symbol = 'SPY'").fetchone()[0]
+        rows = ctx.db.execute(
+            "SELECT COUNT(*) FROM fills WHERE symbol = 'SPY'"
+        ).fetchone()[0]
         assert rows >= 1
 
     def test_volume_zero_uses_default_not_crash(self, broker):
         """When volume=0 slips through risk gate, broker must use DEFAULT_DAILY_VOLUME."""
         fill = broker.execute(make_req(qty=10, price=100.0, volume=0))
         # Should fill (using DEFAULT_DAILY_VOLUME internally) rather than divide-by-zero
-        assert not fill.rejected or fill.reject_reason is not None  # either fills or gives reason
+        assert (
+            not fill.rejected or fill.reject_reason is not None
+        )  # either fills or gives reason
 
 
 class TestSlippageModel:

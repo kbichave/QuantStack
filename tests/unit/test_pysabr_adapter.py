@@ -12,7 +12,7 @@ class TestPySABRAdapter:
 
     def test_fit_sabr_surface_basic(self):
         """Test basic SABR surface fitting."""
-        from quantcore.options.adapters.pysabr_adapter import fit_sabr_surface
+        from quantstack.core.options.adapters.pysabr_adapter import fit_sabr_surface
 
         # Create sample IV data with typical smile
         strikes = [90, 95, 100, 105, 110]
@@ -33,7 +33,7 @@ class TestPySABRAdapter:
 
     def test_fit_sabr_params_reasonable(self):
         """Test SABR parameters are in reasonable ranges."""
-        from quantcore.options.adapters.pysabr_adapter import fit_sabr_surface
+        from quantstack.core.options.adapters.pysabr_adapter import fit_sabr_surface
 
         strikes = [90, 95, 100, 105, 110]
         ivs = [0.28, 0.24, 0.22, 0.23, 0.26]
@@ -54,7 +54,7 @@ class TestPySABRAdapter:
 
     def test_interpolate_sabr_vol(self):
         """Test SABR volatility interpolation."""
-        from quantcore.options.adapters.pysabr_adapter import (
+        from quantstack.core.options.adapters.pysabr_adapter import (
             fit_sabr_surface,
             interpolate_sabr_vol,
         )
@@ -73,7 +73,7 @@ class TestPySABRAdapter:
 
     def test_interpolate_extrapolation(self):
         """Test interpolation handles extrapolation."""
-        from quantcore.options.adapters.pysabr_adapter import (
+        from quantstack.core.options.adapters.pysabr_adapter import (
             fit_sabr_surface,
             interpolate_sabr_vol,
         )
@@ -92,7 +92,7 @@ class TestPySABRAdapter:
 
     def test_get_sabr_smile(self):
         """Test generating vol smile from SABR params."""
-        from quantcore.options.adapters.pysabr_adapter import (
+        from quantstack.core.options.adapters.pysabr_adapter import (
             fit_sabr_surface,
             get_sabr_smile,
         )
@@ -117,7 +117,7 @@ class TestPySABRAdapter:
 
     def test_get_sabr_skew_metrics(self):
         """Test skew metrics extraction."""
-        from quantcore.options.adapters.pysabr_adapter import (
+        from quantstack.core.options.adapters.pysabr_adapter import (
             fit_sabr_surface,
             get_sabr_skew_metrics,
         )
@@ -140,7 +140,7 @@ class TestPySABRAdapter:
 
     def test_fit_sabr_insufficient_data(self):
         """Test error handling for insufficient data."""
-        from quantcore.options.adapters.pysabr_adapter import fit_sabr_surface
+        from quantstack.core.options.adapters.pysabr_adapter import fit_sabr_surface
 
         # Only 2 points
         quotes = pd.DataFrame({"strike": [100, 105], "iv": [0.22, 0.23]})
@@ -150,7 +150,7 @@ class TestPySABRAdapter:
 
     def test_fit_sabr_invalid_data(self):
         """Test filtering of invalid data."""
-        from quantcore.options.adapters.pysabr_adapter import fit_sabr_surface
+        from quantstack.core.options.adapters.pysabr_adapter import fit_sabr_surface
 
         strikes = [90, 95, 100, 105, 110, 115]
         ivs = [0.28, 0.24, 0.22, -0.1, 0.26, 6.0]  # Invalid: negative and >5
@@ -163,7 +163,9 @@ class TestPySABRAdapter:
 
     def test_fit_term_structure(self):
         """Test fitting across multiple expiries."""
-        from quantcore.options.adapters.pysabr_adapter import fit_term_structure_sabr
+        from quantstack.core.options.adapters.pysabr_adapter import (
+            fit_term_structure_sabr,
+        )
 
         # Create chain data with multiple expiries
         data = []
@@ -189,7 +191,7 @@ class TestPySABRFallback:
 
     def test_scipy_fallback(self):
         """Test scipy-based fitting works as fallback."""
-        from quantcore.options.adapters.pysabr_adapter import fit_sabr_surface
+        from quantstack.core.options.adapters.pysabr_adapter import fit_sabr_surface
 
         strikes = [90, 95, 100, 105, 110]
         ivs = [0.28, 0.24, 0.22, 0.23, 0.26]

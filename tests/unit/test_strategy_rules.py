@@ -6,8 +6,8 @@
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.strategy.rules import EntrySignal, MeanReversionRules
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.strategy.rules import EntrySignal, MeanReversionRules
 
 
 class TestEntrySignal:

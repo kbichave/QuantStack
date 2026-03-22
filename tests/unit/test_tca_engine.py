@@ -10,7 +10,7 @@ alpha_vs_cost_check, aggregate_report. No external I/O.
 from __future__ import annotations
 
 import pytest
-from quantcore.execution.tca_engine import (
+from quantstack.core.execution.tca_engine import (
     ExecAlgo,
     OrderSide,
     PreTradeForecast,
@@ -172,7 +172,11 @@ class TestTCAEngine:
         assert isinstance(forecast, PreTradeForecast)
 
         result = engine.record_fill(
-            trade_id, fill_price=450.9, vwap_price=450.5, twap_price=450.4, prev_close=449.0
+            trade_id,
+            fill_price=450.9,
+            vwap_price=450.5,
+            twap_price=450.4,
+            prev_close=449.0,
         )
         assert isinstance(result, TradeTCAResult)
 
@@ -182,7 +186,11 @@ class TestTCAEngine:
             tid = f"t{i}"
             engine.record_arrival(tid, "SPY", OrderSide.BUY, 100, 450.0)
             engine.record_fill(
-                tid, fill_price=450.9, vwap_price=450.5, twap_price=450.4, prev_close=449.0
+                tid,
+                fill_price=450.9,
+                vwap_price=450.5,
+                twap_price=450.4,
+                prev_close=449.0,
             )
 
         report = engine.aggregate_report()
@@ -192,7 +200,9 @@ class TestTCAEngine:
     def test_alpha_vs_cost_gates_expensive_trade(self):
         engine = TCAEngine()
         engine.record_arrival("t1", "SPY", OrderSide.BUY, 100_000, arrival_price=450.0)
-        engine.pre_trade("t1", adv=1_000_000, daily_vol_pct=2.0)  # 10% of ADV — high cost
+        engine.pre_trade(
+            "t1", adv=1_000_000, daily_vol_pct=2.0
+        )  # 10% of ADV — high cost
         ok, msg = engine.alpha_vs_cost_check("t1", expected_alpha_bps=2.0)  # Tiny alpha
         # Cost should dominate → reject
         assert isinstance(ok, bool)

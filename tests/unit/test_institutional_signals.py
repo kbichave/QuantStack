@@ -9,12 +9,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.institutional_signals import LSVHerding, InstitutionalConcentration
+from quantstack.core.features.institutional_signals import (
+    LSVHerding,
+    InstitutionalConcentration,
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_ownership(n: int = 12, seed: int = 42) -> pd.DataFrame:
     """Return a quarterly 13F ownership snapshot history."""
@@ -25,12 +29,14 @@ def _make_ownership(n: int = 12, seed: int = 42) -> pd.DataFrame:
     buying_frac = np.clip(np.random.normal(0.55, 0.1, n), 0, 1)
     holders_increased = (total_holders * buying_frac).astype(int)
     holders_decreased = total_holders - holders_increased
-    return pd.DataFrame({
-        "period_end": dates,
-        "total_holders": total_holders,
-        "holders_increased": holders_increased,
-        "holders_decreased": holders_decreased,
-    })
+    return pd.DataFrame(
+        {
+            "period_end": dates,
+            "total_holders": total_holders,
+            "holders_increased": holders_increased,
+            "holders_decreased": holders_decreased,
+        }
+    )
 
 
 def _make_concentration(n: int = 12, seed: int = 7) -> pd.DataFrame:
@@ -38,15 +44,18 @@ def _make_concentration(n: int = 12, seed: int = 7) -> pd.DataFrame:
     np.random.seed(seed)
     dates = pd.date_range("2020-03-31", periods=n, freq="QE")
     total_holders = 200 + np.cumsum(np.random.randint(-10, 20, n))
-    return pd.DataFrame({
-        "period_end": dates,
-        "total_holders": np.maximum(total_holders, 1),
-    })
+    return pd.DataFrame(
+        {
+            "period_end": dates,
+            "total_holders": np.maximum(total_holders, 1),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # LSVHerding
 # ---------------------------------------------------------------------------
+
 
 class TestLSVHerding:
     def test_returns_dataframe(self):
@@ -55,8 +64,13 @@ class TestLSVHerding:
 
     def test_expected_columns(self):
         result = LSVHerding().compute(_make_ownership())
-        for col in ("fraction_buying", "expected_buying", "herding_measure",
-                    "herding_buy_bias", "herding_high"):
+        for col in (
+            "fraction_buying",
+            "expected_buying",
+            "herding_measure",
+            "herding_buy_bias",
+            "herding_high",
+        ):
             assert col in result.columns, f"missing: {col}"
 
     def test_same_length(self):
@@ -93,12 +107,14 @@ class TestLSVHerding:
         holders = [200] * n
         increased = [100] * 4 + [180] * 8
         decreased = [100] * 4 + [20] * 8
-        df = pd.DataFrame({
-            "period_end": pd.date_range("2020-03-31", periods=n, freq="QE"),
-            "total_holders": holders,
-            "holders_increased": increased,
-            "holders_decreased": decreased,
-        })
+        df = pd.DataFrame(
+            {
+                "period_end": pd.date_range("2020-03-31", periods=n, freq="QE"),
+                "total_holders": holders,
+                "holders_increased": increased,
+                "holders_decreased": decreased,
+            }
+        )
         result = LSVHerding(rolling_window=4).compute(df)
         # In the 90%-buying phase, bias should be non-negative
         non_null = result["herding_buy_bias"].iloc[-4:].dropna()
@@ -110,12 +126,14 @@ class TestLSVHerding:
         holders = [200] * n
         increased = [100] * 4 + [20] * 8
         decreased = [100] * 4 + [180] * 8
-        df = pd.DataFrame({
-            "period_end": pd.date_range("2020-03-31", periods=n, freq="QE"),
-            "total_holders": holders,
-            "holders_increased": increased,
-            "holders_decreased": decreased,
-        })
+        df = pd.DataFrame(
+            {
+                "period_end": pd.date_range("2020-03-31", periods=n, freq="QE"),
+                "total_holders": holders,
+                "holders_increased": increased,
+                "holders_decreased": decreased,
+            }
+        )
         result = LSVHerding(rolling_window=4).compute(df)
         non_null = result["herding_buy_bias"].iloc[-4:].dropna()
         assert (non_null <= 0).all()
@@ -129,12 +147,14 @@ class TestLSVHerding:
 
     def test_zero_total_changes_no_crash(self):
         """When no institution increased or decreased, no crash."""
-        df = pd.DataFrame({
-            "period_end": pd.date_range("2020-03-31", periods=4, freq="QE"),
-            "total_holders": [300, 300, 300, 300],
-            "holders_increased": [0, 0, 0, 0],
-            "holders_decreased": [0, 0, 0, 0],
-        })
+        df = pd.DataFrame(
+            {
+                "period_end": pd.date_range("2020-03-31", periods=4, freq="QE"),
+                "total_holders": [300, 300, 300, 300],
+                "holders_increased": [0, 0, 0, 0],
+                "holders_decreased": [0, 0, 0, 0],
+            }
+        )
         result = LSVHerding().compute(df)
         assert isinstance(result, pd.DataFrame)
 
@@ -142,6 +162,7 @@ class TestLSVHerding:
 # ---------------------------------------------------------------------------
 # InstitutionalConcentration
 # ---------------------------------------------------------------------------
+
 
 class TestInstitutionalConcentration:
     def test_returns_dataframe(self):
@@ -162,10 +183,12 @@ class TestInstitutionalConcentration:
     def test_holder_count_change_direction(self):
         """When holder count monotonically increases, change should be non-negative."""
         n = 8
-        df = pd.DataFrame({
-            "period_end": pd.date_range("2020-03-31", periods=n, freq="QE"),
-            "total_holders": 100 + np.arange(n) * 10,
-        })
+        df = pd.DataFrame(
+            {
+                "period_end": pd.date_range("2020-03-31", periods=n, freq="QE"),
+                "total_holders": 100 + np.arange(n) * 10,
+            }
+        )
         result = InstitutionalConcentration().compute(df)
         # Skip first row (NaN or zero change)
         changes = result["holder_change"].iloc[1:].dropna()

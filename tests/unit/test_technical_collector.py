@@ -15,21 +15,23 @@ import pandas as pd
 import pytest
 from unittest.mock import MagicMock
 
-from quant_pod.signal_engine.collectors.technical import collect_technical
+from quantstack.signal_engine.collectors.technical import collect_technical
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_store(n: int = 300, seed: int = 7) -> MagicMock:
     """Return a mock DataStore with realistic OHLCV data (daily + weekly)."""
     np.random.seed(seed)
     dates = pd.date_range("2022-01-01", periods=n, freq="D")
     close = 100.0 + np.cumsum(np.random.randn(n) * 0.8)
-    high  = close + np.abs(np.random.randn(n) * 0.4) + 0.3
-    low   = close - np.abs(np.random.randn(n) * 0.4) - 0.3
-    open_ = np.roll(close, 1); open_[0] = close[0]
+    high = close + np.abs(np.random.randn(n) * 0.4) + 0.3
+    low = close - np.abs(np.random.randn(n) * 0.4) - 0.3
+    open_ = np.roll(close, 1)
+    open_[0] = close[0]
     volume = np.random.randint(1_000_000, 5_000_000, n).astype(float)
 
     daily_df = pd.DataFrame(
@@ -40,10 +42,16 @@ def _make_store(n: int = 300, seed: int = 7) -> MagicMock:
     # Weekly: ~52 bars
     w_dates = pd.date_range("2022-01-03", periods=60, freq="W")
     wc = 100.0 + np.cumsum(np.random.randn(60) * 1.5)
-    weekly_df = pd.DataFrame({
-        "open": np.roll(wc, 1), "high": wc + 1.0,
-        "low": wc - 1.0, "close": wc, "volume": np.full(60, 5_000_000.0),
-    }, index=w_dates)
+    weekly_df = pd.DataFrame(
+        {
+            "open": np.roll(wc, 1),
+            "high": wc + 1.0,
+            "low": wc - 1.0,
+            "close": wc,
+            "volume": np.full(60, 5_000_000.0),
+        },
+        index=w_dates,
+    )
 
     store = MagicMock()
     store.load_ohlcv.side_effect = lambda sym, tf: (
@@ -59,6 +67,7 @@ def _run(coro):
 # ---------------------------------------------------------------------------
 # Core contract
 # ---------------------------------------------------------------------------
+
 
 class TestTechnicalCollectorCore:
     def test_returns_dict(self):
@@ -78,12 +87,18 @@ class TestTechnicalCollectorCore:
 
     def test_weekly_trend_valid_value(self):
         result = _run(collect_technical("SPY", _make_store()))
-        assert result.get("weekly_trend") in ("bullish", "bearish", "neutral", "unknown")
+        assert result.get("weekly_trend") in (
+            "bullish",
+            "bearish",
+            "neutral",
+            "unknown",
+        )
 
 
 # ---------------------------------------------------------------------------
 # Phase 1 — trend indicators
 # ---------------------------------------------------------------------------
+
 
 class TestTechnicalCollectorTrend:
     def test_supertrend_keys(self):
@@ -119,6 +134,7 @@ class TestTechnicalCollectorTrend:
 # Phase 3 — ICT Smart Money
 # ---------------------------------------------------------------------------
 
+
 class TestTechnicalCollectorICT:
     def test_fvg_keys(self):
         result = _run(collect_technical("SPY", _make_store()))
@@ -149,6 +165,7 @@ class TestTechnicalCollectorICT:
 # ---------------------------------------------------------------------------
 # Order flow + momentum
 # ---------------------------------------------------------------------------
+
 
 class TestTechnicalCollectorOrderFlow:
     def test_laguerre_rsi_keys(self):

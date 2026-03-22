@@ -12,7 +12,7 @@ class TestLiquidityAnalysis:
 
     def test_spread_estimation(self):
         """Test Corwin-Schultz spread estimator."""
-        from quantcore.microstructure.liquidity import SpreadEstimator
+        from quantstack.core.microstructure.liquidity import SpreadEstimator
 
         # Create OHLC data with known spread
         np.random.seed(42)
@@ -28,7 +28,7 @@ class TestLiquidityAnalysis:
 
     def test_liquidity_score(self):
         """Test liquidity scoring."""
-        from quantcore.microstructure.liquidity import LiquidityAnalyzer
+        from quantstack.core.microstructure.liquidity import LiquidityAnalyzer
 
         # Create test data with sufficient bars for rolling calculations
         np.random.seed(42)

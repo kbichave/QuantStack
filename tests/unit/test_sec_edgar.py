@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from quantcore.data.sec_edgar import (
+from quantstack.data.sec_edgar import (
     EdgarSignal,
     FilingMetadata,
     FilingSentiment,

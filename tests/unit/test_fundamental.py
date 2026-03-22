@@ -7,8 +7,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.earnings_signals import AnalystRevisionSignals, EarningsSurpriseSignals
-from quantcore.features.fundamental import (
+from quantstack.core.features.earnings_signals import (
+    AnalystRevisionSignals,
+    EarningsSurpriseSignals,
+)
+from quantstack.core.features.fundamental import (
     AssetGrowthAnomaly,
     EarningsMomentumComposite,
     FCFYield,
@@ -25,7 +28,9 @@ from quantcore.features.fundamental import (
 # ---------------------------------------------------------------------------
 
 
-def _make_earnings(n: int = 12, beat_all: bool = False, miss_all: bool = False) -> pd.DataFrame:
+def _make_earnings(
+    n: int = 12, beat_all: bool = False, miss_all: bool = False
+) -> pd.DataFrame:
     """Quarterly earnings DataFrame with n periods."""
     dates = pd.date_range(start="2020-01-01", periods=n, freq="QS")
     np.random.seed(42)
@@ -92,8 +97,13 @@ class TestEarningsSurpriseSignals:
     def test_expected_columns(self):
         result = EarningsSurpriseSignals().compute(_make_earnings())
         expected = {
-            "eps_surprise", "eps_surprise_pct", "sue",
-            "sue_positive", "sue_negative", "beat_streak", "miss_streak",
+            "eps_surprise",
+            "eps_surprise_pct",
+            "sue",
+            "sue_positive",
+            "sue_negative",
+            "beat_streak",
+            "miss_streak",
         }
         assert expected.issubset(set(result.columns))
 
@@ -110,7 +120,9 @@ class TestEarningsSurpriseSignals:
             assert set(vals).issubset({0, 1})
 
     def test_sue_positive_on_consistent_beats(self):
-        result = EarningsSurpriseSignals(sue_lookback=4).compute(_make_earnings(beat_all=True))
+        result = EarningsSurpriseSignals(sue_lookback=4).compute(
+            _make_earnings(beat_all=True)
+        )
         # After warmup, all bars should have positive surprise
         assert (result["eps_surprise"] > 0).all()
 
@@ -139,8 +151,13 @@ class TestAnalystRevisionSignals:
     def test_expected_columns(self):
         result = AnalystRevisionSignals().compute(_make_estimates())
         expected = {
-            "consensus_eps", "prior_consensus_eps", "revision_momentum",
-            "revision_up", "revision_down", "estimate_dispersion", "dispersion_high",
+            "consensus_eps",
+            "prior_consensus_eps",
+            "revision_momentum",
+            "revision_up",
+            "revision_down",
+            "estimate_dispersion",
+            "dispersion_high",
         }
         assert expected.issubset(set(result.columns))
 
@@ -188,7 +205,9 @@ class TestSloanAccruals:
 
     def test_expected_columns(self):
         result = SloanAccruals().compute(_make_financials())
-        assert {"accruals", "accruals_high", "accruals_low"}.issubset(set(result.columns))
+        assert {"accruals", "accruals_high", "accruals_low"}.issubset(
+            set(result.columns)
+        )
 
     def test_binary_columns(self):
         result = SloanAccruals().compute(_make_financials())
@@ -216,7 +235,9 @@ class TestNovyMarxGP:
 
     def test_expected_columns(self):
         result = NovyMarxGP().compute(_make_financials())
-        assert {"gross_profit", "gp_ratio", "gp_zscore", "gp_high"}.issubset(set(result.columns))
+        assert {"gross_profit", "gp_ratio", "gp_zscore", "gp_high"}.issubset(
+            set(result.columns)
+        )
 
     def test_gross_profit_formula(self):
         df = _make_financials(n=8)
@@ -248,7 +269,9 @@ class TestAssetGrowthAnomaly:
 
     def test_expected_columns(self):
         result = AssetGrowthAnomaly().compute(_make_financials())
-        assert {"asset_growth", "asset_growth_high", "asset_growth_negative"}.issubset(set(result.columns))
+        assert {"asset_growth", "asset_growth_high", "asset_growth_negative"}.issubset(
+            set(result.columns)
+        )
 
     def test_binary_columns(self):
         result = AssetGrowthAnomaly().compute(_make_financials())
@@ -276,7 +299,13 @@ class TestFCFYield:
 
     def test_expected_columns(self):
         result = FCFYield().compute(_make_financials())
-        assert {"fcf", "fcf_yield", "fcf_yield_pct", "fcf_positive", "fcf_yield_high"}.issubset(set(result.columns))
+        assert {
+            "fcf",
+            "fcf_yield",
+            "fcf_yield_pct",
+            "fcf_positive",
+            "fcf_yield_high",
+        }.issubset(set(result.columns))
 
     def test_binary_columns(self):
         result = FCFYield().compute(_make_financials())
@@ -305,8 +334,11 @@ class TestRevenueAcceleration:
     def test_expected_columns(self):
         result = RevenueAcceleration().compute(_make_financials())
         expected = {
-            "revenue_qoq_growth", "revenue_yoy_growth",
-            "revenue_acceleration", "accelerating", "decelerating",
+            "revenue_qoq_growth",
+            "revenue_yoy_growth",
+            "revenue_acceleration",
+            "accelerating",
+            "decelerating",
         }
         assert expected.issubset(set(result.columns))
 
@@ -318,7 +350,7 @@ class TestRevenueAcceleration:
 
     def test_accelerating_in_exponential_growth(self):
         df = _make_financials(n=16)
-        df["revenue"] = np.array([100 * (1.05 ** i) for i in range(16)])
+        df["revenue"] = np.array([100 * (1.05**i) for i in range(16)])
         result = RevenueAcceleration().compute(df)
         # Revenue growing at same % each quarter → QoQ growth constant → acceleration ≈ 0
         # This tests the formula is at least computable without crash
@@ -338,7 +370,10 @@ class TestOperatingLeverage:
     def test_expected_columns(self):
         result = OperatingLeverage().compute(_make_financials())
         expected = {
-            "revenue_change_pct", "ebitda_change_pct", "dol", "high_leverage",
+            "revenue_change_pct",
+            "ebitda_change_pct",
+            "dol",
+            "high_leverage",
         }
         assert expected.issubset(set(result.columns))
 
@@ -371,22 +406,26 @@ def _make_piotroski_financials(n: int = 16) -> pd.DataFrame:
     total_liabilities = total_assets * 0.4
     current_assets = total_assets * 0.3
     current_liabilities = total_liabilities * 0.3
-    return pd.DataFrame({
-        "period_end": dates,
-        "revenue": revenue,
-        "cost_of_revenue": cost_of_revenue,
-        "net_income": net_income,
-        "total_assets": total_assets,
-        "operating_cash_flow": operating_cash_flow,
-        "total_liabilities": total_liabilities,
-        "current_assets": current_assets,
-        "current_liabilities": current_liabilities,
-        "shares_outstanding": np.ones(n) * 100_000_000,
-        "long_term_debt": total_liabilities * 0.5,
-    })
+    return pd.DataFrame(
+        {
+            "period_end": dates,
+            "revenue": revenue,
+            "cost_of_revenue": cost_of_revenue,
+            "net_income": net_income,
+            "total_assets": total_assets,
+            "operating_cash_flow": operating_cash_flow,
+            "total_liabilities": total_liabilities,
+            "current_assets": current_assets,
+            "current_liabilities": current_liabilities,
+            "shares_outstanding": np.ones(n) * 100_000_000,
+            "long_term_debt": total_liabilities * 0.5,
+        }
+    )
 
 
-def _make_price_series(n_days: int = 800, start: float = 100.0, seed: int = 42) -> pd.Series:
+def _make_price_series(
+    n_days: int = 800, start: float = 100.0, seed: int = 42
+) -> pd.Series:
     """Daily close price series."""
     np.random.seed(seed)
     dates = pd.date_range("2018-01-01", periods=n_days, freq="B")
@@ -405,8 +444,14 @@ class TestQualityMomentumComposite:
         result = QualityMomentumComposite().compute(
             _make_piotroski_financials(), _make_price_series()
         )
-        for col in ("f_score", "price_momentum", "momentum_rank",
-                    "quality_momentum", "qm_long_signal", "qm_short_signal"):
+        for col in (
+            "f_score",
+            "price_momentum",
+            "momentum_rank",
+            "quality_momentum",
+            "qm_long_signal",
+            "qm_short_signal",
+        ):
             assert col in result.columns, f"missing: {col}"
 
     def test_same_length_as_input(self):
@@ -464,11 +509,13 @@ def _make_em_earnings(n: int = 16, beat_all: bool = False) -> pd.DataFrame:
     if beat_all:
         surprise_base = np.abs(surprise_base) + 0.1
     actual = consensus + surprise_base
-    return pd.DataFrame({
-        "period_end": dates,
-        "actual_eps": actual,
-        "consensus_eps": consensus,
-    })
+    return pd.DataFrame(
+        {
+            "period_end": dates,
+            "actual_eps": actual,
+            "consensus_eps": consensus,
+        }
+    )
 
 
 class TestEarningsMomentumComposite:
@@ -482,8 +529,16 @@ class TestEarningsMomentumComposite:
         result = EarningsMomentumComposite().compute(
             _make_em_earnings(), _make_price_series()
         )
-        for col in ("sue", "sue_signal", "price_momentum", "price_mom_zscore",
-                    "em_composite", "dual_confirmation", "em_long", "em_short"):
+        for col in (
+            "sue",
+            "sue_signal",
+            "price_momentum",
+            "price_mom_zscore",
+            "em_composite",
+            "dual_confirmation",
+            "em_long",
+            "em_short",
+        ):
             assert col in result.columns, f"missing: {col}"
 
     def test_same_length_as_input(self):

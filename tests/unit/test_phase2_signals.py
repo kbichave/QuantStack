@@ -7,9 +7,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.fundamental import BeneishMScore, PiotroskiFScore
-from quantcore.features.insider_signals import InsiderSignals
-from quantcore.features.institutional_signals import InstitutionalConcentration, LSVHerding
+from quantstack.core.features.fundamental import BeneishMScore, PiotroskiFScore
+from quantstack.core.features.insider_signals import InsiderSignals
+from quantstack.core.features.institutional_signals import (
+    InstitutionalConcentration,
+    LSVHerding,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +68,9 @@ def _make_transactions(n: int = 20, all_buys: bool = False) -> pd.DataFrame:
     """Insider transaction DataFrame."""
     dates = pd.date_range(start="2023-01-01", periods=n, freq="3D")
     np.random.seed(0)
-    types = ["P"] * n if all_buys else np.where(np.random.rand(n) > 0.4, "P", "S").tolist()
+    types = (
+        ["P"] * n if all_buys else np.where(np.random.rand(n) > 0.4, "P", "S").tolist()
+    )
     names = [f"Insider_{i % 5}" for i in range(n)]
     return pd.DataFrame(
         {
@@ -110,9 +115,15 @@ class TestPiotroskiFScore:
     def test_expected_columns(self):
         result = PiotroskiFScore().compute(_make_financials_full())
         expected = {
-            "f_roa", "f_cfo", "f_delta_roa", "f_accrual",
-            "f_delta_leverage", "f_delta_liquidity", "f_no_dilution",
-            "f_delta_gross_margin", "f_delta_asset_turnover",
+            "f_roa",
+            "f_cfo",
+            "f_delta_roa",
+            "f_accrual",
+            "f_delta_leverage",
+            "f_delta_liquidity",
+            "f_no_dilution",
+            "f_delta_gross_margin",
+            "f_delta_asset_turnover",
             "f_score",
         }
         assert expected.issubset(set(result.columns))
@@ -126,9 +137,15 @@ class TestPiotroskiFScore:
     def test_component_signals_binary(self):
         result = PiotroskiFScore().compute(_make_financials_full())
         components = [
-            "f_roa", "f_cfo", "f_delta_roa", "f_accrual",
-            "f_delta_leverage", "f_delta_liquidity", "f_no_dilution",
-            "f_delta_gross_margin", "f_delta_asset_turnover",
+            "f_roa",
+            "f_cfo",
+            "f_delta_roa",
+            "f_accrual",
+            "f_delta_leverage",
+            "f_delta_liquidity",
+            "f_no_dilution",
+            "f_delta_gross_margin",
+            "f_delta_asset_turnover",
         ]
         for col in components:
             vals = result[col].dropna().unique()
@@ -137,9 +154,15 @@ class TestPiotroskiFScore:
     def test_f_score_equals_sum_of_components(self):
         result = PiotroskiFScore().compute(_make_financials_full())
         components = [
-            "f_roa", "f_cfo", "f_delta_roa", "f_accrual",
-            "f_delta_leverage", "f_delta_liquidity", "f_no_dilution",
-            "f_delta_gross_margin", "f_delta_asset_turnover",
+            "f_roa",
+            "f_cfo",
+            "f_delta_roa",
+            "f_accrual",
+            "f_delta_leverage",
+            "f_delta_liquidity",
+            "f_no_dilution",
+            "f_delta_gross_margin",
+            "f_delta_asset_turnover",
         ]
         computed_sum = result[components].sum(axis=1)
         valid = result["f_score"].dropna()
@@ -150,15 +173,15 @@ class TestPiotroskiFScore:
         """A firm with uniformly improving metrics should score near 9."""
         df = _make_financials_full(n=12)
         # Make all metrics uniformly excellent and improving
-        df["net_income"] = np.linspace(50, 100, 12)           # growing profitability
-        df["operating_cash_flow"] = np.linspace(60, 120, 12)   # CFO > NI
-        df["total_assets"] = np.linspace(1000, 1050, 12)       # slow asset growth
-        df["long_term_debt"] = np.linspace(200, 180, 12)       # declining leverage
+        df["net_income"] = np.linspace(50, 100, 12)  # growing profitability
+        df["operating_cash_flow"] = np.linspace(60, 120, 12)  # CFO > NI
+        df["total_assets"] = np.linspace(1000, 1050, 12)  # slow asset growth
+        df["long_term_debt"] = np.linspace(200, 180, 12)  # declining leverage
         df["current_assets"] = np.linspace(400, 450, 12)
         df["current_liabilities"] = np.linspace(150, 140, 12)  # improving liquidity
-        df["shares_outstanding"] = np.full(12, 10_000_000.0)   # no dilution
+        df["shares_outstanding"] = np.full(12, 10_000_000.0)  # no dilution
         df["revenue"] = np.linspace(500, 600, 12)
-        df["cost_of_revenue"] = np.linspace(300, 330, 12)      # margin improving slightly
+        df["cost_of_revenue"] = np.linspace(300, 330, 12)  # margin improving slightly
 
         result = PiotroskiFScore().compute(df)
         # After 4-quarter warmup, should score 7+ consistently
@@ -178,8 +201,18 @@ class TestBeneishMScore:
 
     def test_expected_columns(self):
         result = BeneishMScore().compute(_make_financials_full())
-        expected = {"DSRI", "GMI", "AQI", "SGI", "DEPI", "SGAI", "TATA", "LVGI",
-                    "m_score", "manipulation_risk"}
+        expected = {
+            "DSRI",
+            "GMI",
+            "AQI",
+            "SGI",
+            "DEPI",
+            "SGAI",
+            "TATA",
+            "LVGI",
+            "m_score",
+            "manipulation_risk",
+        }
         assert expected.issubset(set(result.columns))
 
     def test_manipulation_risk_binary(self):
@@ -219,8 +252,11 @@ class TestInsiderSignals:
     def test_expected_columns(self):
         result = InsiderSignals().compute(_make_transactions())
         expected = {
-            "buy_value", "sell_value", "distinct_buyers",
-            "cluster_buy", "adj_buy_sell_ratio",
+            "buy_value",
+            "sell_value",
+            "distinct_buyers",
+            "cluster_buy",
+            "adj_buy_sell_ratio",
         }
         assert expected.issubset(set(result.columns))
 
@@ -240,7 +276,9 @@ class TestInsiderSignals:
         df = _make_transactions(n=30, all_buys=True)
         # Ensure 5 distinct insiders are present in first window
         df["insider_name"] = [f"Insider_{i % 5}" for i in range(30)]
-        result = InsiderSignals(cluster_window_days=90, cluster_min_insiders=3).compute(df)
+        result = InsiderSignals(cluster_window_days=90, cluster_min_insiders=3).compute(
+            df
+        )
         assert result["cluster_buy"].max() == 1
 
     def test_no_cluster_when_one_insider(self):
@@ -248,7 +286,9 @@ class TestInsiderSignals:
         df = _make_transactions(n=10, all_buys=True)
         df["insider_name"] = "SingleInsider"
         # With min_insiders=50 and only 10 transactions, cluster cannot fire
-        result = InsiderSignals(cluster_window_days=90, cluster_min_insiders=50).compute(df)
+        result = InsiderSignals(
+            cluster_window_days=90, cluster_min_insiders=50
+        ).compute(df)
         assert result["cluster_buy"].max() == 0
 
 
@@ -265,8 +305,11 @@ class TestLSVHerding:
     def test_expected_columns(self):
         result = LSVHerding().compute(_make_ownership())
         expected = {
-            "fraction_buying", "expected_buying",
-            "herding_measure", "herding_buy_bias", "herding_high",
+            "fraction_buying",
+            "expected_buying",
+            "herding_measure",
+            "herding_buy_bias",
+            "herding_high",
         }
         assert expected.issubset(set(result.columns))
 
@@ -314,8 +357,10 @@ class TestInstitutionalConcentration:
     def test_expected_columns(self):
         result = InstitutionalConcentration().compute(_make_ownership())
         expected = {
-            "holder_change", "holder_change_pct",
-            "institutionalizing", "de_institutionalizing",
+            "holder_change",
+            "holder_change_pct",
+            "institutionalizing",
+            "de_institutionalizing",
         }
         assert expected.issubset(set(result.columns))
 

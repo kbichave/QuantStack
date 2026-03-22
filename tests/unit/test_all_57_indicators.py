@@ -11,8 +11,8 @@ Tests each indicator individually for:
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.features.technical_indicators import TechnicalIndicators
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.technical_indicators import TechnicalIndicators
 
 
 @pytest.fixture
@@ -372,7 +372,9 @@ class TestOscillatorIndicators:
         assert len(willr) >= 980
 
         # Williams %R must be -100 to 0
-        assert (willr >= -100).all(), f"Williams %R has values < -100: {willr[willr < -100]}"
+        assert (
+            willr >= -100
+        ).all(), f"Williams %R has values < -100: {willr[willr < -100]}"
         assert (willr <= 0).all(), f"Williams %R has values > 0: {willr[willr > 0]}"
 
     def test_adx(self, large_ohlcv):
@@ -706,7 +708,9 @@ class TestVolatilityIndicators:
         assert len(bb_lower) >= 970
 
         # Check ordering: upper > middle > lower
-        valid_idx = bb_upper.index.intersection(bb_middle.index).intersection(bb_lower.index)
+        valid_idx = bb_upper.index.intersection(bb_middle.index).intersection(
+            bb_lower.index
+        )
         assert (bb_upper.loc[valid_idx] >= bb_middle.loc[valid_idx]).all()
         assert (bb_middle.loc[valid_idx] >= bb_lower.loc[valid_idx]).all()
 
@@ -1006,7 +1010,9 @@ class TestComprehensiveIntegration:
         feature_names = ti.get_feature_names()
 
         # Should have all 57+ indicators (including variations)
-        assert len(feature_names) >= 57, f"Expected >= 57 indicators, got {len(feature_names)}"
+        assert (
+            len(feature_names) >= 57
+        ), f"Expected >= 57 indicators, got {len(feature_names)}"
 
         # Check each is in result
         missing = []
@@ -1059,9 +1065,9 @@ class TestComprehensiveIntegration:
         for name in feature_names:
             if name in result.columns:
                 nan_count = result[name].isna().sum()
-                assert nan_count <= warmup_threshold, (
-                    f"{name} has {nan_count} NaN values (expected <= {warmup_threshold})"
-                )
+                assert (
+                    nan_count <= warmup_threshold
+                ), f"{name} has {nan_count} NaN values (expected <= {warmup_threshold})"
 
     def test_performance_all_indicators(self, large_ohlcv):
         """Test computation performance with all indicators."""
@@ -1125,9 +1131,9 @@ class TestIndicatorCountVerification:
         ]
 
         # 8 types * 1 period + VWAP + MAMA + FAMA = 11
-        assert len(ma_indicators) == 11, (
-            f"Expected 11 MA indicators, got {len(ma_indicators)}: {ma_indicators}"
-        )
+        assert (
+            len(ma_indicators) == 11
+        ), f"Expected 11 MA indicators, got {len(ma_indicators)}: {ma_indicators}"
 
     def test_oscillator_count(self):
         """Verify 23+ oscillator indicators."""
@@ -1172,9 +1178,9 @@ class TestIndicatorCountVerification:
 
         found_oscillators = [osc for osc in oscillators if osc in names]
         # Should have at least 27 oscillator outputs
-        assert len(found_oscillators) >= 27, (
-            f"Expected >= 27 oscillator indicators, got {len(found_oscillators)}"
-        )
+        assert (
+            len(found_oscillators) >= 27
+        ), f"Expected >= 27 oscillator indicators, got {len(found_oscillators)}"
 
     def test_volatility_count(self):
         """Verify 8+ volatility indicators."""
@@ -1202,9 +1208,9 @@ class TestIndicatorCountVerification:
 
         found_volatility = [v for v in volatility if v in names]
         # Should have 11 volatility outputs
-        assert len(found_volatility) == 11, (
-            f"Expected 11 volatility indicators, got {len(found_volatility)}"
-        )
+        assert (
+            len(found_volatility) == 11
+        ), f"Expected 11 volatility indicators, got {len(found_volatility)}"
 
     def test_volume_count(self):
         """Verify 3 volume indicators."""
@@ -1219,7 +1225,9 @@ class TestIndicatorCountVerification:
         volume = ["ad", "adosc", "obv"]
         found_volume = [v for v in volume if v in names]
 
-        assert len(found_volume) == 3, f"Expected 3 volume indicators, got {len(found_volume)}"
+        assert (
+            len(found_volume) == 3
+        ), f"Expected 3 volume indicators, got {len(found_volume)}"
 
     def test_hilbert_count(self):
         """Verify 6+ Hilbert indicators."""
@@ -1246,7 +1254,9 @@ class TestIndicatorCountVerification:
 
         found_hilbert = [h for h in hilbert if h in names]
         # Should have 8 Hilbert outputs
-        assert len(found_hilbert) == 8, f"Expected 8 Hilbert indicators, got {len(found_hilbert)}"
+        assert (
+            len(found_hilbert) == 8
+        ), f"Expected 8 Hilbert indicators, got {len(found_hilbert)}"
 
 
 if __name__ == "__main__":

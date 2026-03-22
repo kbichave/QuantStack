@@ -12,8 +12,8 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from quant_pod.context import create_trading_context
-from quant_pod.memory.blackboard import Blackboard
+from quantstack.context import create_trading_context
+from quantstack.memory.blackboard import Blackboard
 
 
 @pytest.fixture

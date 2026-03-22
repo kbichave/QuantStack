@@ -13,7 +13,7 @@ import pytest
 @pytest.fixture
 def mock_datastore():
     """Mock DataStore for testing."""
-    with patch("quantcore.data.storage.DataStore") as mock:
+    with patch("quantstack.data.storage.DataStore") as mock:
         store = MagicMock()
 
         # Create sample OHLCV data with enough bars

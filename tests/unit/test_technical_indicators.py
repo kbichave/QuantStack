@@ -7,8 +7,8 @@ Tests all 57 indicators for correctness, performance, and integration.
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.features.technical_indicators import TechnicalIndicators
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.technical_indicators import TechnicalIndicators
 
 
 @pytest.fixture
@@ -148,7 +148,9 @@ class TestOscillators:
         # Histogram should be difference
         hist = result["macd_histogram"].dropna()
         expected_hist = (result["macd_line"] - result["macd_signal"]).dropna()
-        pd.testing.assert_series_equal(hist, expected_hist.loc[hist.index], check_names=False)
+        pd.testing.assert_series_equal(
+            hist, expected_hist.loc[hist.index], check_names=False
+        )
 
     def test_stochastic(self, sample_ohlcv):
         """Test Stochastic oscillator."""
@@ -335,7 +337,9 @@ class TestIntegration:
         for col in ["rsi", "macd_line", "atr"]:
             if col in result.columns:
                 corr = result[col].corr(result["close"].shift(-1))
-                assert abs(corr) < 0.95, f"{col} suspiciously high correlation with future"
+                assert (
+                    abs(corr) < 0.95
+                ), f"{col} suspiciously high correlation with future"
 
     def test_performance(self, sample_ohlcv):
         """Test computation performance."""

@@ -16,20 +16,21 @@ import pandas as pd
 import pytest
 from unittest.mock import MagicMock
 
-from quant_pod.signal_engine.collectors.volume import collect_volume
+from quantstack.signal_engine.collectors.volume import collect_volume
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_store(n: int = 80, seed: int = 42) -> MagicMock:
     """Return a mock DataStore with realistic OHLCV data."""
     np.random.seed(seed)
     dates = pd.date_range("2023-01-01", periods=n, freq="D")
     close = 100.0 + np.cumsum(np.random.randn(n) * 0.5)
-    high  = close + np.abs(np.random.randn(n) * 0.3) + 0.2
-    low   = close - np.abs(np.random.randn(n) * 0.3) - 0.2
+    high = close + np.abs(np.random.randn(n) * 0.3) + 0.2
+    low = close - np.abs(np.random.randn(n) * 0.3) - 0.2
     open_ = np.roll(close, 1)
     open_[0] = close[0]
     volume = np.random.randint(500_000, 2_000_000, n).astype(float)
@@ -50,6 +51,7 @@ def _run(coro):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestVolumeCollectorCore:
     def test_returns_dict(self):
@@ -171,13 +173,16 @@ class TestVolumeCollectorMicrostructure:
         """Constant price (zero-variance) must not crash the collector."""
         store = MagicMock()
         dates = pd.date_range("2023-01-01", periods=60, freq="D")
-        df = pd.DataFrame({
-            "open":   np.full(60, 100.0),
-            "high":   np.full(60, 100.5),
-            "low":    np.full(60, 99.5),
-            "close":  np.full(60, 100.0),
-            "volume": np.full(60, 1_000_000.0),
-        }, index=dates)
+        df = pd.DataFrame(
+            {
+                "open": np.full(60, 100.0),
+                "high": np.full(60, 100.5),
+                "low": np.full(60, 99.5),
+                "close": np.full(60, 100.0),
+                "volume": np.full(60, 1_000_000.0),
+            },
+            index=dates,
+        )
         store.load_ohlcv.return_value = df
         result = _run(collect_volume("SPY", store))
         assert isinstance(result, dict)

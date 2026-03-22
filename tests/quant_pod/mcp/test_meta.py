@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from quant_pod.context import create_trading_context
+from quantstack.context import create_trading_context
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -27,7 +27,7 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quant_pod.mcp._state as _mcp_state
+    import quantstack.mcp._state as _mcp_state
 
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
@@ -47,7 +47,7 @@ def _fn(tool_obj):
 class TestGetRegimeStrategies:
     @pytest.mark.asyncio
     async def test_empty_initially(self, _inject_ctx):
-        from quant_pod.mcp.server import get_regime_strategies
+        from quantstack.mcp.server import get_regime_strategies
 
         result = await _fn(get_regime_strategies)("trending_up")
         assert result["success"] is True
@@ -55,7 +55,7 @@ class TestGetRegimeStrategies:
 
     @pytest.mark.asyncio
     async def test_returns_allocations_after_set(self, _inject_ctx):
-        from quant_pod.mcp.server import get_regime_strategies, set_regime_allocation
+        from quantstack.mcp.server import get_regime_strategies, set_regime_allocation
 
         await _fn(set_regime_allocation)(
             regime="trending_up",
@@ -81,7 +81,7 @@ class TestGetRegimeStrategies:
 class TestSetRegimeAllocation:
     @pytest.mark.asyncio
     async def test_inserts_allocations(self, _inject_ctx):
-        from quant_pod.mcp.server import set_regime_allocation
+        from quantstack.mcp.server import set_regime_allocation
 
         result = await _fn(set_regime_allocation)(
             regime="ranging",
@@ -92,7 +92,7 @@ class TestSetRegimeAllocation:
 
     @pytest.mark.asyncio
     async def test_upserts_existing(self, _inject_ctx):
-        from quant_pod.mcp.server import get_regime_strategies, set_regime_allocation
+        from quantstack.mcp.server import get_regime_strategies, set_regime_allocation
 
         await _fn(set_regime_allocation)(
             regime="ranging",
@@ -109,7 +109,7 @@ class TestSetRegimeAllocation:
 
     @pytest.mark.asyncio
     async def test_rejects_over_100_pct(self, _inject_ctx):
-        from quant_pod.mcp.server import set_regime_allocation
+        from quantstack.mcp.server import set_regime_allocation
 
         result = await _fn(set_regime_allocation)(
             regime="trending_up",
@@ -130,7 +130,7 @@ class TestSetRegimeAllocation:
 class TestResolvePortfolioConflicts:
     @pytest.mark.asyncio
     async def test_no_conflicts(self, _inject_ctx):
-        from quant_pod.mcp.server import resolve_portfolio_conflicts
+        from quantstack.mcp.server import resolve_portfolio_conflicts
 
         result = await _fn(resolve_portfolio_conflicts)(
             proposed_trades=[
@@ -156,7 +156,7 @@ class TestResolvePortfolioConflicts:
 
     @pytest.mark.asyncio
     async def test_conflict_skip(self, _inject_ctx):
-        from quant_pod.mcp.server import resolve_portfolio_conflicts
+        from quantstack.mcp.server import resolve_portfolio_conflicts
 
         result = await _fn(resolve_portfolio_conflicts)(
             proposed_trades=[

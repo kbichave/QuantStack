@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.smart_money import (
+from quantstack.core.features.smart_money import (
     EqualHighsLows,
     FairValueGapDetector,
     ICTKillZones,
@@ -45,17 +45,27 @@ def ohlcv():
 
 class TestFairValueGapDetector:
     def test_returns_dataframe(self, ohlcv):
-        result = FairValueGapDetector().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        result = FairValueGapDetector().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
         assert isinstance(result, pd.DataFrame)
 
     def test_expected_columns(self, ohlcv):
-        result = FairValueGapDetector().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        result = FairValueGapDetector().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
         assert {
-            "bullish_fvg", "bearish_fvg", "fvg_top", "fvg_bottom", "fvg_filled"
+            "bullish_fvg",
+            "bearish_fvg",
+            "fvg_top",
+            "fvg_bottom",
+            "fvg_filled",
         }.issubset(set(result.columns))
 
     def test_binary_signal_columns(self, ohlcv):
-        result = FairValueGapDetector().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        result = FairValueGapDetector().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
         for col in ("bullish_fvg", "bearish_fvg", "fvg_filled"):
             vals = result[col].dropna().unique()
             assert set(vals).issubset({0, 1})
@@ -68,7 +78,9 @@ class TestFairValueGapDetector:
         close = pd.Series([99.0, 100.0, 105.5, 106.0, 107.0], index=dates)
 
         # bar[2]: low[2]=105 > high[0]=100 → bullish FVG at bar 2
-        result = FairValueGapDetector(min_gap_atr_multiple=0.0).compute(high, low, close)
+        result = FairValueGapDetector(min_gap_atr_multiple=0.0).compute(
+            high, low, close
+        )
         assert result["bullish_fvg"].iloc[2] == 1
 
     def test_bearish_fvg_fires_when_gap_exists(self):
@@ -79,7 +91,9 @@ class TestFairValueGapDetector:
         close = pd.Series([101.0, 100.0, 90.0, 89.0, 88.0], index=dates)
 
         # bar[2]: high[2]=95 < low[0]=100 → bearish FVG at bar 2
-        result = FairValueGapDetector(min_gap_atr_multiple=0.0).compute(high, low, close)
+        result = FairValueGapDetector(min_gap_atr_multiple=0.0).compute(
+            high, low, close
+        )
         assert result["bearish_fvg"].iloc[2] == 1
 
     def test_no_fvg_on_overlapping_candles(self, ohlcv):
@@ -108,7 +122,9 @@ class TestOrderBlockDetector:
         result = OrderBlockDetector().compute(
             ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
         )
-        assert {"bullish_ob", "bearish_ob", "ob_high", "ob_low"}.issubset(set(result.columns))
+        assert {"bullish_ob", "bearish_ob", "ob_high", "ob_low"}.issubset(
+            set(result.columns)
+        )
 
     def test_binary_ob_columns(self, ohlcv):
         result = OrderBlockDetector().compute(
@@ -135,24 +151,36 @@ class TestOrderBlockDetector:
 
 class TestStructureAnalysis:
     def test_returns_dataframe(self, ohlcv):
-        result = StructureAnalysis().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        result = StructureAnalysis().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
         assert isinstance(result, pd.DataFrame)
 
     def test_expected_columns(self, ohlcv):
-        result = StructureAnalysis().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        result = StructureAnalysis().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
         expected = {
-            "swing_high", "swing_low",
-            "bos_bullish", "bos_bearish",
-            "choch_bullish", "choch_bearish",
+            "swing_high",
+            "swing_low",
+            "bos_bullish",
+            "bos_bearish",
+            "choch_bullish",
+            "choch_bearish",
         }
         assert expected.issubset(set(result.columns))
 
     def test_binary_columns(self, ohlcv):
-        result = StructureAnalysis().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        result = StructureAnalysis().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
         for col in [
-            "swing_high", "swing_low",
-            "bos_bullish", "bos_bearish",
-            "choch_bullish", "choch_bearish",
+            "swing_high",
+            "swing_low",
+            "bos_bullish",
+            "bos_bearish",
+            "choch_bullish",
+            "choch_bearish",
         ]:
             vals = result[col].dropna().unique()
             assert set(vals).issubset({0, 1}), f"{col} not binary"
@@ -161,9 +189,9 @@ class TestStructureAnalysis:
         """Rise to 120, 5-bar pullback to 108, re-rally to 135 → swing high detected and broken."""
         dates = pd.date_range(start="2023-01-01", periods=30, freq="D")
         # rise → pullback (5 bars below peak) → re-rally past peak
-        rise1    = np.linspace(100, 120, 8)   # bars 0-7
-        pullback = np.linspace(120, 108, 6)   # bars 8-13: 5 bars clearly below peak
-        rise2    = np.linspace(108, 135, 16)  # bars 14-29: crosses above 121 (peak high)
+        rise1 = np.linspace(100, 120, 8)  # bars 0-7
+        pullback = np.linspace(120, 108, 6)  # bars 8-13: 5 bars clearly below peak
+        rise2 = np.linspace(108, 135, 16)  # bars 14-29: crosses above 121 (peak high)
         close_vals = np.concatenate([rise1, pullback, rise2])
         close = pd.Series(close_vals, index=dates)
         high = close + 1.0
@@ -202,7 +230,9 @@ class TestEqualHighsLows:
         high.iloc[10] = 110.0
         high.iloc[20] = 110.0
 
-        result = EqualHighsLows(lookback=15, tolerance_atr_multiple=0.5).compute(high, low, close)
+        result = EqualHighsLows(lookback=15, tolerance_atr_multiple=0.5).compute(
+            high, low, close
+        )
         assert result["equal_highs"].iloc[20] == 1
 
 
@@ -219,8 +249,11 @@ class TestOTELevels:
     def test_expected_columns(self, ohlcv):
         result = OTELevels().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
         assert {
-            "swing_range_high", "swing_range_low",
-            "ote_upper", "ote_lower", "price_in_ote",
+            "swing_range_high",
+            "swing_range_low",
+            "ote_upper",
+            "ote_lower",
+            "price_in_ote",
         }.issubset(set(result.columns))
 
     def test_ote_upper_above_lower(self, ohlcv):
@@ -248,13 +281,25 @@ class TestICTKillZones:
     def test_expected_columns(self):
         idx = pd.date_range(start="2023-01-01 00:00", periods=48, freq="30min")
         result = ICTKillZones().compute(idx)
-        expected = {"in_asia_kz", "in_london_kz", "in_ny_am_kz", "in_ny_pm_kz", "in_any_kz"}
+        expected = {
+            "in_asia_kz",
+            "in_london_kz",
+            "in_ny_am_kz",
+            "in_ny_pm_kz",
+            "in_any_kz",
+        }
         assert expected.issubset(set(result.columns))
 
     def test_binary_columns(self):
         idx = pd.date_range(start="2023-01-01 00:00", periods=48, freq="30min")
         result = ICTKillZones().compute(idx)
-        for col in ("in_asia_kz", "in_london_kz", "in_ny_am_kz", "in_ny_pm_kz", "in_any_kz"):
+        for col in (
+            "in_asia_kz",
+            "in_london_kz",
+            "in_ny_am_kz",
+            "in_ny_pm_kz",
+            "in_any_kz",
+        ):
             vals = result[col].unique()
             assert set(vals).issubset({0, 1})
 
@@ -291,9 +336,12 @@ class TestICTPowerOfThree:
             ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
         )
         expected = {
-            "session_range_pct", "tight_range",
-            "manipulation_up", "manipulation_down",
-            "distribution_up", "distribution_down",
+            "session_range_pct",
+            "tight_range",
+            "manipulation_up",
+            "manipulation_down",
+            "distribution_up",
+            "distribution_down",
         }
         assert expected.issubset(set(result.columns))
 
@@ -301,8 +349,13 @@ class TestICTPowerOfThree:
         result = ICTPowerOfThree().compute(
             ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
         )
-        for col in ("tight_range", "manipulation_up", "manipulation_down",
-                    "distribution_up", "distribution_down"):
+        for col in (
+            "tight_range",
+            "manipulation_up",
+            "manipulation_down",
+            "distribution_up",
+            "distribution_down",
+        ):
             vals = result[col].dropna().unique()
             assert set(vals).issubset({0, 1})
 
@@ -321,7 +374,11 @@ class TestICTPowerOfThree:
 # ---------------------------------------------------------------------------
 
 
-from quantcore.features.smart_money import BreakerBlockDetector, SilverBullet, MMXMCycle
+from quantstack.core.features.smart_money import (
+    BreakerBlockDetector,
+    SilverBullet,
+    MMXMCycle,
+)
 
 
 class TestBreakerBlockDetector:
@@ -335,9 +392,12 @@ class TestBreakerBlockDetector:
         result = BreakerBlockDetector().compute(
             ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
         )
-        assert {"bullish_breaker", "bearish_breaker", "breaker_high", "breaker_low"}.issubset(
-            set(result.columns)
-        )
+        assert {
+            "bullish_breaker",
+            "bearish_breaker",
+            "breaker_high",
+            "breaker_low",
+        }.issubset(set(result.columns))
 
     def test_binary_breaker_columns(self, ohlcv):
         result = BreakerBlockDetector().compute(
@@ -361,20 +421,32 @@ class TestBreakerBlockDetector:
         n = 40
         dates = pd.date_range(start="2023-01-01", periods=n, freq="D")
         close = np.full(n, 100.0)
-        high  = np.full(n, 101.0)
-        low   = np.full(n, 99.0)
+        high = np.full(n, 101.0)
+        low = np.full(n, 99.0)
         open_ = np.full(n, 100.0)
 
         # Bar 15: bearish candle (OB candidate)
-        open_[15] = 101.0; close[15] = 96.0; high[15] = 102.0; low[15] = 95.5
+        open_[15] = 101.0
+        close[15] = 96.0
+        high[15] = 102.0
+        low[15] = 95.5
         # Bar 16: large bullish impulse body (close - open_ >> ATR * 0.5)
-        open_[16] = 96.5; close[16] = 110.0; high[16] = 111.0; low[16] = 96.0
+        open_[16] = 96.5
+        close[16] = 110.0
+        high[16] = 111.0
+        low[16] = 96.0
         # Bars 17-25: hold high level
         for k in range(17, 26):
-            open_[k] = 109.0; close[k] = 110.0; high[k] = 111.0; low[k] = 108.5
+            open_[k] = 109.0
+            close[k] = 110.0
+            high[k] = 111.0
+            low[k] = 108.5
         # Bars 26-39: crash below OB low (95.5)
         for k in range(26, n):
-            open_[k] = 95.0; close[k] = 93.0; high[k] = 95.5; low[k] = 92.5
+            open_[k] = 95.0
+            close[k] = 93.0
+            high[k] = 95.5
+            low[k] = 92.5
 
         result = BreakerBlockDetector(impulse_atr_multiple=0.5).compute(
             pd.Series(open_, index=dates),
@@ -389,7 +461,9 @@ class TestBreakerBlockDetector:
         result = BreakerBlockDetector().compute(
             ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
         )
-        breaker_bars = result[(result["bullish_breaker"] == 1) | (result["bearish_breaker"] == 1)]
+        breaker_bars = result[
+            (result["bullish_breaker"] == 1) | (result["bearish_breaker"] == 1)
+        ]
         if len(breaker_bars) > 0:
             assert not breaker_bars["breaker_high"].isna().any()
             assert not breaker_bars["breaker_low"].isna().any()
@@ -416,9 +490,13 @@ class TestSilverBullet:
         dates = pd.date_range(start=start, periods=periods, freq=freq)
         np.random.seed(99)
         close = 100 + np.cumsum(np.random.randn(periods) * 0.05)
-        high  = close + np.abs(np.random.randn(periods) * 0.05) + 0.1
-        low   = close - np.abs(np.random.randn(periods) * 0.05) - 0.1
-        return pd.Series(high, index=dates), pd.Series(low, index=dates), pd.Series(close, index=dates)
+        high = close + np.abs(np.random.randn(periods) * 0.05) + 0.1
+        low = close - np.abs(np.random.randn(periods) * 0.05) - 0.1
+        return (
+            pd.Series(high, index=dates),
+            pd.Series(low, index=dates),
+            pd.Series(close, index=dates),
+        )
 
     def test_returns_dataframe(self):
         high, low, close = self._make_intraday()
@@ -449,8 +527,8 @@ class TestSilverBullet:
         dates = pd.date_range(start="2023-01-02 15:00", periods=60, freq="1min")
         np.random.seed(7)
         close = pd.Series(100 + np.cumsum(np.random.randn(60) * 0.05), index=dates)
-        high  = close + 0.1
-        low   = close - 0.1
+        high = close + 0.1
+        low = close - 0.1
         result = SilverBullet().compute(high, low, close)
         assert result["sb_bullish"].sum() == 0
         assert result["sb_bearish"].sum() == 0
@@ -475,8 +553,12 @@ class TestMMXMCycle:
     def test_expected_columns(self, ohlcv):
         result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
         assert {
-            "mmxm_phase", "mmxm_label", "in_consolidation",
-            "in_manipulation", "in_expansion", "in_retracement",
+            "mmxm_phase",
+            "mmxm_label",
+            "in_consolidation",
+            "in_manipulation",
+            "in_expansion",
+            "in_retracement",
         }.issubset(set(result.columns))
 
     def test_phase_values_in_range(self, ohlcv):
@@ -485,13 +567,23 @@ class TestMMXMCycle:
 
     def test_binary_indicator_columns(self, ohlcv):
         result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
-        for col in ("in_consolidation", "in_manipulation", "in_expansion", "in_retracement"):
+        for col in (
+            "in_consolidation",
+            "in_manipulation",
+            "in_expansion",
+            "in_retracement",
+        ):
             vals = result[col].unique()
             assert set(vals).issubset({0, 1})
 
     def test_labels_consistent_with_phase(self, ohlcv):
         result = MMXMCycle().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
-        label_map = {0: "consolidation", 1: "manipulation", 2: "expansion", 3: "retracement"}
+        label_map = {
+            0: "consolidation",
+            1: "manipulation",
+            2: "expansion",
+            3: "retracement",
+        }
         for phase_val, label_val in label_map.items():
             mask = result["mmxm_phase"] == phase_val
             if mask.any():
@@ -503,10 +595,12 @@ class TestMMXMCycle:
         dates = pd.date_range(start="2023-01-01", periods=n, freq="D")
         # First 30 bars: moderate noise
         close = np.full(n, 100.0)
-        high  = np.full(n, 101.0)
-        low   = np.full(n, 99.0)
+        high = np.full(n, 101.0)
+        low = np.full(n, 99.0)
         # Bar 35: huge expansion candle (range = 20 vs ATR ~2)
-        high[35] = 120.0; low[35] = 100.0; close[35] = 119.0
+        high[35] = 120.0
+        low[35] = 100.0
+        close[35] = 119.0
         result = MMXMCycle(expansion_multiple=1.5).compute(
             pd.Series(high, index=dates),
             pd.Series(low, index=dates),
@@ -519,8 +613,8 @@ class TestMMXMCycle:
         n = 60
         dates = pd.date_range(start="2023-01-01", periods=n, freq="D")
         close = pd.Series(np.full(n, 100.0), index=dates)
-        high  = pd.Series(np.full(n, 100.01), index=dates)
-        low   = pd.Series(np.full(n, 99.99), index=dates)
+        high = pd.Series(np.full(n, 100.01), index=dates)
+        low = pd.Series(np.full(n, 99.99), index=dates)
         result = MMXMCycle(atr_contraction_threshold=1.5).compute(high, low, close)
         # Later bars (past warmup) should be consolidation
         assert result["in_consolidation"].iloc[40:].sum() > 0
@@ -543,7 +637,7 @@ class TestMMXMCycle:
 # ---------------------------------------------------------------------------
 
 
-from quantcore.features.smart_money import SMTDivergence
+from quantstack.core.features.smart_money import SMTDivergence
 
 
 class TestSMTDivergence:
@@ -554,9 +648,9 @@ class TestSMTDivergence:
         np.random.seed(1)
         base = 100 + np.cumsum(np.random.randn(100) * 0.5)
         high_a = pd.Series(base + 1.0, index=dates)
-        low_a  = pd.Series(base - 1.0, index=dates)
-        high_b = pd.Series(base * 1.005 + 1.0, index=dates)   # slightly different scale
-        low_b  = pd.Series(base * 1.005 - 1.0, index=dates)
+        low_a = pd.Series(base - 1.0, index=dates)
+        high_b = pd.Series(base * 1.005 + 1.0, index=dates)  # slightly different scale
+        low_b = pd.Series(base * 1.005 - 1.0, index=dates)
         return high_a, low_a, high_b, low_b
 
     def test_returns_dataframe(self, dual_ohlcv):
@@ -567,9 +661,12 @@ class TestSMTDivergence:
     def test_expected_columns(self, dual_ohlcv):
         ha, la, hb, lb = dual_ohlcv
         result = SMTDivergence().compute(ha, la, hb, lb)
-        assert {"bearish_smt", "bullish_smt", "smt_strength", "divergence_direction"}.issubset(
-            set(result.columns)
-        )
+        assert {
+            "bearish_smt",
+            "bullish_smt",
+            "smt_strength",
+            "divergence_direction",
+        }.issubset(set(result.columns))
 
     def test_binary_signal_columns(self, dual_ohlcv):
         ha, la, hb, lb = dual_ohlcv
@@ -597,17 +694,26 @@ class TestSMTDivergence:
         dates = pd.date_range(start="2023-01-01", periods=n, freq="D")
 
         # Instrument A: steady rise to swing high at bar 20, then decline
-        h_a = [100 + i for i in range(20)] + [119.5] + [118 - i * 0.5 for i in range(19)]
+        h_a = (
+            [100 + i for i in range(20)] + [119.5] + [118 - i * 0.5 for i in range(19)]
+        )
         high_a = pd.Series(h_a, index=dates)
-        low_a  = pd.Series([v - 1.0 for v in h_a], index=dates)
+        low_a = pd.Series([v - 1.0 for v in h_a], index=dates)
 
         # Instrument B: rises to swing high of 115 at bar 10, then drops to ~108 and stays
-        h_b = ([100 + i for i in range(10)] + [114.5] +
-               [113 - i for i in range(8)] + [105.5] + [105.0] * 20)
+        h_b = (
+            [100 + i for i in range(10)]
+            + [114.5]
+            + [113 - i for i in range(8)]
+            + [105.5]
+            + [105.0] * 20
+        )
         high_b = pd.Series(h_b, index=dates)
-        low_b  = pd.Series([v - 1.0 for v in h_b], index=dates)
+        low_b = pd.Series([v - 1.0 for v in h_b], index=dates)
 
-        result = SMTDivergence(swing_period=3, atr_tolerance=0.0001).compute(high_a, low_a, high_b, low_b)
+        result = SMTDivergence(swing_period=3, atr_tolerance=0.0001).compute(
+            high_a, low_a, high_b, low_b
+        )
         assert result["bearish_smt"].sum() > 0
 
     def test_direction_column_matches_signals(self, dual_ohlcv):

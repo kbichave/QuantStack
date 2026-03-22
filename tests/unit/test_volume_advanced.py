@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.volume import AnchoredVWAP, VolumePointOfControl
+from quantstack.core.features.volume import AnchoredVWAP, VolumePointOfControl
 
 
 @pytest.fixture
@@ -32,27 +32,39 @@ def ohlcv():
 
 class TestVolumePointOfControl:
     def test_returns_dataframe(self, ohlcv):
-        result = VolumePointOfControl().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"])
+        result = VolumePointOfControl().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
+        )
         assert isinstance(result, pd.DataFrame)
 
     def test_expected_columns(self, ohlcv):
-        result = VolumePointOfControl().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"])
-        assert {"vpoc", "vah", "val", "above_vah", "below_val", "in_value"}.issubset(set(result.columns))
+        result = VolumePointOfControl().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
+        )
+        assert {"vpoc", "vah", "val", "above_vah", "below_val", "in_value"}.issubset(
+            set(result.columns)
+        )
 
     def test_val_below_vpoc_below_vah(self, ohlcv):
-        result = VolumePointOfControl().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"])
+        result = VolumePointOfControl().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
+        )
         valid = result.dropna()
         assert (valid["val"] <= valid["vpoc"]).all()
         assert (valid["vpoc"] <= valid["vah"]).all()
 
     def test_binary_flag_columns(self, ohlcv):
-        result = VolumePointOfControl().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"])
+        result = VolumePointOfControl().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
+        )
         for col in ("above_vah", "below_val", "in_value"):
             vals = result[col].unique()
             assert set(vals).issubset({0, 1})
 
     def test_vpoc_within_price_range(self, ohlcv):
-        result = VolumePointOfControl().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"])
+        result = VolumePointOfControl().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
+        )
         valid = result.dropna()
         price_lo = ohlcv["low"].expanding().min()
         price_hi = ohlcv["high"].expanding().max()
@@ -64,7 +76,7 @@ class TestVolumePointOfControl:
         result = VolumePointOfControl(lookback=lookback).compute(
             ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
         )
-        assert result["vpoc"].iloc[:lookback - 1].isna().all()
+        assert result["vpoc"].iloc[: lookback - 1].isna().all()
 
     def test_vah_wider_value_area(self, ohlcv):
         """Wider value area (90%) → VAH/VAL spread should be >= default (68.2%)."""
@@ -79,10 +91,14 @@ class TestVolumePointOfControl:
         assert spread_wide >= spread_default
 
     def test_in_value_area_flag_correct(self, ohlcv):
-        result = VolumePointOfControl().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"])
+        result = VolumePointOfControl().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
+        )
         valid = result.dropna()
         close_valid = ohlcv["close"].loc[valid.index]
-        expected_in_value = ((close_valid >= valid["val"]) & (close_valid <= valid["vah"])).astype(int)
+        expected_in_value = (
+            (close_valid >= valid["val"]) & (close_valid <= valid["vah"])
+        ).astype(int)
         pd.testing.assert_series_equal(
             valid["in_value"], expected_in_value, check_names=False
         )
@@ -143,9 +159,9 @@ class TestAnchoredVWAP:
         """Single-bar anchor: VWAP = typical price; with same open/close, deviation = 0."""
         dates = pd.date_range(start="2023-01-01", periods=5, freq="D")
         close = pd.Series([100.0, 100.0, 100.0, 100.0, 100.0], index=dates)
-        high  = pd.Series([101.0, 101.0, 101.0, 101.0, 101.0], index=dates)
-        low   = pd.Series([99.0,  99.0,  99.0,  99.0,  99.0 ], index=dates)
-        vol   = pd.Series([1000.0, 1000.0, 1000.0, 1000.0, 1000.0], index=dates)
+        high = pd.Series([101.0, 101.0, 101.0, 101.0, 101.0], index=dates)
+        low = pd.Series([99.0, 99.0, 99.0, 99.0, 99.0], index=dates)
+        vol = pd.Series([1000.0, 1000.0, 1000.0, 1000.0, 1000.0], index=dates)
         # Typical = (101 + 99 + 100) / 3 = 100; VWAP = 100; deviation = 0
         result = AnchoredVWAP(anchor=0).compute(high, low, close, vol)
         assert (result["avwap_deviation"].abs() < 1e-9).all()
@@ -163,9 +179,9 @@ class TestAnchoredVWAP:
         """With equal-price bars, VWAP should equal that constant price regardless of volume."""
         dates = pd.date_range(start="2023-01-01", periods=20, freq="D")
         close = pd.Series(np.full(20, 100.0), index=dates)
-        high  = pd.Series(np.full(20, 101.0), index=dates)
-        low   = pd.Series(np.full(20, 99.0), index=dates)
-        vol   = pd.Series(np.random.randint(100, 10000, 20).astype(float), index=dates)
+        high = pd.Series(np.full(20, 101.0), index=dates)
+        low = pd.Series(np.full(20, 99.0), index=dates)
+        vol = pd.Series(np.random.randint(100, 10000, 20).astype(float), index=dates)
         result = AnchoredVWAP(anchor=0).compute(high, low, close, vol)
         # Typical price = 100; VWAP should always = 100
         assert (result["avwap"] - 100.0).abs().max() < 1e-9

@@ -6,7 +6,7 @@
 import numpy as np
 import pytest
 
-from quantcore.models.lorentzian_knn import (
+from quantstack.ml.lorentzian_knn import (
     LorentzianKNN,
     lorentzian_distance,
     lorentzian_distance_matrix,

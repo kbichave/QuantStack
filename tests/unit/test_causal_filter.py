@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.validation.causal_filter import (
+from quantstack.core.validation.causal_filter import (
     CausalFilter,
     CausalFilterResult,
     CausalTestResult,
@@ -185,7 +185,10 @@ class TestMultipleTesting:
         cf_holm.fit(X, y)
 
         # Holm is strictly more powerful than Bonferroni
-        assert cf_holm.get_result().surviving_features >= cf_bonf.get_result().surviving_features
+        assert (
+            cf_holm.get_result().surviving_features
+            >= cf_bonf.get_result().surviving_features
+        )
 
     def test_invalid_correction_raises(self):
         with pytest.raises(ValueError, match="correction must be"):
@@ -210,7 +213,9 @@ class TestNaNHandling:
 
         result = cf.get_result()
         # Should have been tested (450 valid obs > 100 min)
-        assert result.per_feature_results["warmup_feat"].drop_reason is None or "insufficient" not in (
+        assert result.per_feature_results[
+            "warmup_feat"
+        ].drop_reason is None or "insufficient" not in (
             result.per_feature_results["warmup_feat"].drop_reason or ""
         )
 
@@ -315,7 +320,7 @@ class TestOrthogonalizerIntegration:
 
     def test_orthogonalizer_with_causal_filter(self, rng):
         """FeatureOrthogonalizer with use_causal_filter=True chains correctly."""
-        from quantcore.validation.orthogonalization import FeatureOrthogonalizer
+        from quantstack.core.validation.orthogonalization import FeatureOrthogonalizer
 
         n = 500
         idx = _make_index(n)
@@ -337,7 +342,7 @@ class TestOrthogonalizerIntegration:
 
     def test_orthogonalizer_without_causal_backward_compat(self, rng):
         """FeatureOrthogonalizer without causal filter works as before (no y needed)."""
-        from quantcore.validation.orthogonalization import FeatureOrthogonalizer
+        from quantstack.core.validation.orthogonalization import FeatureOrthogonalizer
 
         n = 200
         idx = _make_index(n)
@@ -353,7 +358,7 @@ class TestOrthogonalizerIntegration:
 
     def test_orthogonalizer_causal_requires_y(self, rng):
         """FeatureOrthogonalizer with use_causal_filter=True raises without y."""
-        from quantcore.validation.orthogonalization import FeatureOrthogonalizer
+        from quantstack.core.validation.orthogonalization import FeatureOrthogonalizer
 
         n = 200
         idx = _make_index(n)

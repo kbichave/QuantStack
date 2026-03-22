@@ -20,9 +20,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from quantcore.config.timeframes import Timeframe
-from quantcore.data.base import AssetClass
-from quantcore.data.provider_enum import DataProvider
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.base import AssetClass
+from quantstack.data.provider_enum import DataProvider
 
 
 # =============================================================================
@@ -32,7 +32,7 @@ from quantcore.data.provider_enum import DataProvider
 
 class TestSlidingWindowRateLimiter:
     def test_no_sleep_under_limit(self):
-        from quantcore.data.adapters.financial_datasets_client import (
+        from quantstack.data.adapters.financial_datasets_client import (
             _SlidingWindowRateLimiter,
         )
 
@@ -45,7 +45,7 @@ class TestSlidingWindowRateLimiter:
         assert elapsed < 1.0
 
     def test_throttles_when_limit_reached(self):
-        from quantcore.data.adapters.financial_datasets_client import (
+        from quantstack.data.adapters.financial_datasets_client import (
             _SlidingWindowRateLimiter,
         )
 
@@ -75,19 +75,21 @@ class TestFinancialDatasetsClient:
         return resp
 
     def test_get_historical_prices(self, mock_response):
-        from quantcore.data.adapters.financial_datasets_client import (
+        from quantstack.data.adapters.financial_datasets_client import (
             FinancialDatasetsClient,
         )
 
         client = FinancialDatasetsClient(api_key="test-key", rate_limit_rpm=10000)
         with patch.object(client._client, "get", return_value=mock_response):
-            result = client.get_historical_prices("AAPL", "day", 1, "2024-01-01", "2024-12-31")
+            result = client.get_historical_prices(
+                "AAPL", "day", 1, "2024-01-01", "2024-12-31"
+            )
         assert result is not None
         assert "prices" in result
         client.close()
 
     def test_get_income_statements(self, mock_response):
-        from quantcore.data.adapters.financial_datasets_client import (
+        from quantstack.data.adapters.financial_datasets_client import (
             FinancialDatasetsClient,
         )
 
@@ -102,7 +104,7 @@ class TestFinancialDatasetsClient:
         client.close()
 
     def test_returns_none_on_http_error(self):
-        from quantcore.data.adapters.financial_datasets_client import (
+        from quantstack.data.adapters.financial_datasets_client import (
             FinancialDatasetsClient,
         )
 
@@ -120,7 +122,7 @@ class TestFinancialDatasetsClient:
         client.close()
 
     def test_retries_on_429(self):
-        from quantcore.data.adapters.financial_datasets_client import (
+        from quantstack.data.adapters.financial_datasets_client import (
             FinancialDatasetsClient,
         )
 
@@ -140,7 +142,7 @@ class TestFinancialDatasetsClient:
         client.close()
 
     def test_context_manager(self):
-        from quantcore.data.adapters.financial_datasets_client import (
+        from quantstack.data.adapters.financial_datasets_client import (
             FinancialDatasetsClient,
         )
 
@@ -155,7 +157,7 @@ class TestFinancialDatasetsClient:
 
 class TestFinancialDatasetsAdapter:
     def test_provider_enum(self):
-        from quantcore.data.adapters.financial_datasets import (
+        from quantstack.data.adapters.financial_datasets import (
             FinancialDatasetsAdapter,
         )
 
@@ -165,18 +167,24 @@ class TestFinancialDatasetsAdapter:
         adapter._client.close()
 
     def test_supported_timeframes(self):
-        from quantcore.data.adapters.financial_datasets import (
+        from quantstack.data.adapters.financial_datasets import (
             _SUPPORTED_TIMEFRAMES,
         )
 
         expected = {
-            Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.M30,
-            Timeframe.H1, Timeframe.H4, Timeframe.D1, Timeframe.W1,
+            Timeframe.M1,
+            Timeframe.M5,
+            Timeframe.M15,
+            Timeframe.M30,
+            Timeframe.H1,
+            Timeframe.H4,
+            Timeframe.D1,
+            Timeframe.W1,
         }
         assert _SUPPORTED_TIMEFRAMES == expected
 
     def test_unsupported_timeframe_raises(self):
-        from quantcore.data.adapters.financial_datasets import (
+        from quantstack.data.adapters.financial_datasets import (
             FinancialDatasetsAdapter,
         )
 
@@ -186,12 +194,14 @@ class TestFinancialDatasetsAdapter:
         adapter._client.close()
 
     def test_empty_response_returns_empty_df(self):
-        from quantcore.data.adapters.financial_datasets import (
+        from quantstack.data.adapters.financial_datasets import (
             FinancialDatasetsAdapter,
         )
 
         adapter = FinancialDatasetsAdapter(api_key="test-key")
-        with patch.object(adapter._client, "get_all_historical_prices", return_value=[]):
+        with patch.object(
+            adapter._client, "get_all_historical_prices", return_value=[]
+        ):
             df = adapter.fetch_ohlcv("AAPL", Timeframe.D1)
         assert df.empty
         assert list(df.columns) == ["open", "high", "low", "close", "volume"]
@@ -199,18 +209,41 @@ class TestFinancialDatasetsAdapter:
 
     def test_ohlcv_contract(self):
         """Verify the DataFrame contract: DatetimeIndex, float64 columns, sorted."""
-        from quantcore.data.adapters.financial_datasets import (
+        from quantstack.data.adapters.financial_datasets import (
             FinancialDatasetsAdapter,
         )
 
         mock_prices = [
-            {"time": "2024-01-02T00:00:00Z", "open": 150.0, "high": 155.0, "low": 149.0, "close": 153.0, "volume": 1000000},
-            {"time": "2024-01-03T00:00:00Z", "open": 153.0, "high": 157.0, "low": 152.0, "close": 156.0, "volume": 1200000},
-            {"time": "2024-01-01T00:00:00Z", "open": 148.0, "high": 151.0, "low": 147.0, "close": 150.0, "volume": 900000},
+            {
+                "time": "2024-01-02T00:00:00Z",
+                "open": 150.0,
+                "high": 155.0,
+                "low": 149.0,
+                "close": 153.0,
+                "volume": 1000000,
+            },
+            {
+                "time": "2024-01-03T00:00:00Z",
+                "open": 153.0,
+                "high": 157.0,
+                "low": 152.0,
+                "close": 156.0,
+                "volume": 1200000,
+            },
+            {
+                "time": "2024-01-01T00:00:00Z",
+                "open": 148.0,
+                "high": 151.0,
+                "low": 147.0,
+                "close": 150.0,
+                "volume": 900000,
+            },
         ]
 
         adapter = FinancialDatasetsAdapter(api_key="test-key")
-        with patch.object(adapter._client, "get_all_historical_prices", return_value=mock_prices):
+        with patch.object(
+            adapter._client, "get_all_historical_prices", return_value=mock_prices
+        ):
             df = adapter.fetch_ohlcv("AAPL", Timeframe.D1)
 
         # Contract checks.
@@ -226,7 +259,7 @@ class TestFinancialDatasetsAdapter:
 
     def test_h4_resampling(self):
         """H4 should be derived from H1 data via resampling."""
-        from quantcore.data.adapters.financial_datasets import (
+        from quantstack.data.adapters.financial_datasets import (
             FinancialDatasetsAdapter,
         )
 
@@ -234,15 +267,19 @@ class TestFinancialDatasetsAdapter:
         mock_h1 = [
             {
                 "time": f"2024-01-02T{h:02d}:00:00Z",
-                "open": 150 + h, "high": 155 + h,
-                "low": 149 + h, "close": 153 + h,
+                "open": 150 + h,
+                "high": 155 + h,
+                "low": 149 + h,
+                "close": 153 + h,
                 "volume": 100000,
             }
             for h in range(8)
         ]
 
         adapter = FinancialDatasetsAdapter(api_key="test-key")
-        with patch.object(adapter._client, "get_all_historical_prices", return_value=mock_h1):
+        with patch.object(
+            adapter._client, "get_all_historical_prices", return_value=mock_h1
+        ):
             df = adapter.fetch_ohlcv("AAPL", Timeframe.H4)
 
         # H4 resampling from 8 H1 bars should produce 2 H4 bars.
@@ -262,7 +299,7 @@ class TestFundamentalsProvider:
         return MagicMock()
 
     def test_fetch_income_statements(self, mock_client):
-        from quantcore.data.fundamentals import FundamentalsProvider
+        from quantstack.data.fundamentals import FundamentalsProvider
 
         mock_client.get_income_statements.return_value = {
             "income_statements": [
@@ -284,11 +321,16 @@ class TestFundamentalsProvider:
         assert "net_income" in df.columns or "netincome" in df.columns.str.lower()
 
     def test_fetch_earnings(self, mock_client):
-        from quantcore.data.fundamentals import FundamentalsProvider
+        from quantstack.data.fundamentals import FundamentalsProvider
 
         mock_client.get_earnings.return_value = {
             "earnings": [
-                {"reportDate": "2024-01-25", "estimate": 1.5, "reportedEps": 1.6, "surprise": 0.1},
+                {
+                    "reportDate": "2024-01-25",
+                    "estimate": 1.5,
+                    "reportedEps": 1.6,
+                    "surprise": 0.1,
+                },
             ]
         }
 
@@ -298,7 +340,7 @@ class TestFundamentalsProvider:
         assert "ticker" in df.columns
 
     def test_fetch_insider_trades(self, mock_client):
-        from quantcore.data.fundamentals import FundamentalsProvider
+        from quantstack.data.fundamentals import FundamentalsProvider
 
         mock_client.get_insider_trades.return_value = {
             "insider_trades": [
@@ -318,7 +360,7 @@ class TestFundamentalsProvider:
         assert df["ticker"].iloc[0] == "AAPL"
 
     def test_empty_response(self, mock_client):
-        from quantcore.data.fundamentals import FundamentalsProvider
+        from quantstack.data.fundamentals import FundamentalsProvider
 
         mock_client.get_balance_sheets.return_value = None
 
@@ -327,7 +369,7 @@ class TestFundamentalsProvider:
         assert df.empty
 
     def test_context_manager(self, mock_client):
-        from quantcore.data.fundamentals import FundamentalsProvider
+        from quantstack.data.fundamentals import FundamentalsProvider
 
         with FundamentalsProvider(client=mock_client) as fp:
             assert fp is not None
@@ -342,7 +384,7 @@ class TestFundamentalsSchema:
     @pytest.fixture
     def store(self, tmp_path):
         """Create a temporary DataStore for testing."""
-        from quantcore.data.storage import DataStore
+        from quantstack.data.storage import DataStore
 
         db_path = str(tmp_path / "test.duckdb")
         return DataStore(db_path=db_path)
@@ -367,16 +409,18 @@ class TestFundamentalsSchema:
 
     def test_financial_statements_roundtrip(self, store):
         """Save and load financial statements."""
-        df = pd.DataFrame([
-            {
-                "ticker": "AAPL",
-                "statement_type": "income",
-                "period_type": "annual",
-                "report_period": pd.Timestamp("2024-01-01"),
-                "revenue": 383285000000,
-                "net_income": 96995000000,
-            },
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "statement_type": "income",
+                    "period_type": "annual",
+                    "report_period": pd.Timestamp("2024-01-01"),
+                    "revenue": 383285000000,
+                    "net_income": 96995000000,
+                },
+            ]
+        )
         saved = store.save_financial_statements(df)
         assert saved == 1
 
@@ -387,17 +431,19 @@ class TestFundamentalsSchema:
 
     def test_insider_trades_roundtrip(self, store):
         """Save and load insider trades."""
-        df = pd.DataFrame([
-            {
-                "ticker": "AAPL",
-                "transaction_date": pd.Timestamp("2024-03-01"),
-                "owner_name": "Tim Cook",
-                "transaction_type": "sell",
-                "shares": 50000,
-                "price_per_share": 180.0,
-                "total_value": 9000000.0,
-            },
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "transaction_date": pd.Timestamp("2024-03-01"),
+                    "owner_name": "Tim Cook",
+                    "transaction_type": "sell",
+                    "shares": 50000,
+                    "price_per_share": 180.0,
+                    "total_value": 9000000.0,
+                },
+            ]
+        )
         saved = store.save_insider_trades(df)
         assert saved == 1
 
@@ -408,16 +454,18 @@ class TestFundamentalsSchema:
 
     def test_financial_metrics_roundtrip(self, store):
         """Save and load financial metrics."""
-        df = pd.DataFrame([
-            {
-                "ticker": "AAPL",
-                "date": pd.Timestamp("2024-01-01"),
-                "period_type": "annual",
-                "pe_ratio": 28.5,
-                "market_cap": 3e12,
-                "roe": 0.175,
-            },
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "date": pd.Timestamp("2024-01-01"),
+                    "period_type": "annual",
+                    "pe_ratio": 28.5,
+                    "market_cap": 3e12,
+                    "roe": 0.175,
+                },
+            ]
+        )
         saved = store.save_financial_metrics(df)
         assert saved == 1
 
@@ -428,15 +476,17 @@ class TestFundamentalsSchema:
 
     def test_institutional_ownership_roundtrip(self, store):
         """Save and load institutional ownership."""
-        df = pd.DataFrame([
-            {
-                "ticker": "AAPL",
-                "investor_name": "Vanguard Group",
-                "report_date": pd.Timestamp("2024-03-31"),
-                "shares_held": 1300000000,
-                "market_value": 234e9,
-            },
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "investor_name": "Vanguard Group",
+                    "report_date": pd.Timestamp("2024-03-31"),
+                    "shares_held": 1300000000,
+                    "market_value": 234e9,
+                },
+            ]
+        )
         saved = store.save_institutional_ownership(df)
         assert saved == 1
 
@@ -446,15 +496,17 @@ class TestFundamentalsSchema:
 
     def test_sec_filings_roundtrip(self, store):
         """Save and load SEC filings."""
-        df = pd.DataFrame([
-            {
-                "ticker": "AAPL",
-                "accession_number": "0000320193-24-000123",
-                "filing_type": "10-K",
-                "filed_date": pd.Timestamp("2024-10-30"),
-                "url": "https://sec.gov/...",
-            },
-        ])
+        df = pd.DataFrame(
+            [
+                {
+                    "ticker": "AAPL",
+                    "accession_number": "0000320193-24-000123",
+                    "filing_type": "10-K",
+                    "filed_date": pd.Timestamp("2024-10-30"),
+                    "url": "https://sec.gov/...",
+                },
+            ]
+        )
         saved = store.save_sec_filings(df)
         assert saved == 1
 

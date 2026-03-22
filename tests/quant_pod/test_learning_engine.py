@@ -7,16 +7,16 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from quant_pod.knowledge.models import (
+from quantstack.knowledge.models import (
     StructureType,
     TradeDirection,
     TradeRecord,
     TradeStatus,
 )
-from quant_pod.knowledge.store import KnowledgeStore
-from quant_pod.learning.expectancy_engine import ExpectancyEngine
-from quant_pod.learning.skill_tracker import SkillTracker
-from quant_pod.learning.structure_stats import StructureStats
+from quantstack.knowledge.store import KnowledgeStore
+from quantstack.learning.expectancy_engine import ExpectancyEngine
+from quantstack.learning.skill_tracker import SkillTracker
+from quantstack.learning.structure_stats import StructureStats
 
 
 @pytest.fixture

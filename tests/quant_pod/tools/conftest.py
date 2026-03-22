@@ -6,7 +6,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from quant_pod.tools.mcp_bridge import MCPBridge
+from quantstack.tools.mcp_bridge import MCPBridge
 
 
 @pytest.fixture

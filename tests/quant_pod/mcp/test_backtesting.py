@@ -15,7 +15,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import pytest
-from quant_pod.context import create_trading_context
+from quantstack.context import create_trading_context
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -31,7 +31,7 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quant_pod.mcp._state as _mcp_state
+    import quantstack.mcp._state as _mcp_state
 
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
@@ -72,14 +72,19 @@ def synthetic_data():
 @pytest.fixture
 async def registered_strategy(_inject_ctx):
     """Register a simple RSI mean-reversion strategy and return its ID."""
-    from quant_pod.mcp.server import register_strategy
+    from quantstack.mcp.server import register_strategy
 
     result = await _fn(register_strategy)(
         name=f"test_rsi_mr_{uuid.uuid4().hex[:6]}",
         description="RSI mean reversion for testing",
         parameters={"rsi_period": 14, "sma_fast": 10, "sma_slow": 50},
         entry_rules=[
-            {"indicator": "rsi", "condition": "crosses_below", "value": 35, "direction": "long"},
+            {
+                "indicator": "rsi",
+                "condition": "crosses_below",
+                "value": 35,
+                "direction": "long",
+            },
         ],
         exit_rules=[
             {"indicator": "rsi", "condition": "crosses_above", "value": 65},
@@ -98,17 +103,24 @@ async def registered_strategy(_inject_ctx):
 
 class TestSignalGeneration:
     def test_generates_signals_from_rsi_rules(self, synthetic_data):
-        from quant_pod.mcp.server import _generate_signals_from_rules
+        from quantstack.strategies.signal_generator import generate_signals_from_rules as _generate_signals_from_rules
 
         entry_rules = [
-            {"indicator": "rsi", "condition": "crosses_below", "value": 35, "direction": "long"},
+            {
+                "indicator": "rsi",
+                "condition": "crosses_below",
+                "value": 35,
+                "direction": "long",
+            },
         ]
         exit_rules = [
             {"indicator": "rsi", "condition": "crosses_above", "value": 65},
         ]
         parameters = {"rsi_period": 14, "sma_fast": 10, "sma_slow": 50}
 
-        signals = _generate_signals_from_rules(synthetic_data, entry_rules, exit_rules, parameters)
+        signals = _generate_signals_from_rules(
+            synthetic_data, entry_rules, exit_rules, parameters
+        )
 
         assert "signal" in signals.columns
         assert "signal_direction" in signals.columns
@@ -117,21 +129,27 @@ class TestSignalGeneration:
         assert signals["signal"].sum() > 0
 
     def test_sma_crossover_generates_signals(self, synthetic_data):
-        from quant_pod.mcp.server import _generate_signals_from_rules
+        from quantstack.strategies.signal_generator import generate_signals_from_rules as _generate_signals_from_rules
 
         entry_rules = [
-            {"indicator": "sma_crossover", "condition": "crosses_above", "direction": "long"},
+            {
+                "indicator": "sma_crossover",
+                "condition": "crosses_above",
+                "direction": "long",
+            },
         ]
         exit_rules = [
             {"indicator": "sma_crossover", "condition": "crosses_below"},
         ]
         parameters = {"sma_fast": 10, "sma_slow": 50}
 
-        signals = _generate_signals_from_rules(synthetic_data, entry_rules, exit_rules, parameters)
+        signals = _generate_signals_from_rules(
+            synthetic_data, entry_rules, exit_rules, parameters
+        )
         assert signals["signal"].sum() > 0
 
     def test_breakout_generates_signals(self, synthetic_data):
-        from quant_pod.mcp.server import _generate_signals_from_rules
+        from quantstack.strategies.signal_generator import generate_signals_from_rules as _generate_signals_from_rules
 
         entry_rules = [
             {"indicator": "breakout", "condition": "above", "direction": "long"},
@@ -139,9 +157,16 @@ class TestSignalGeneration:
         exit_rules = [
             {"indicator": "rsi", "condition": "crosses_above", "value": 75},
         ]
-        parameters = {"breakout_period": 20, "rsi_period": 14, "sma_fast": 10, "sma_slow": 50}
+        parameters = {
+            "breakout_period": 20,
+            "rsi_period": 14,
+            "sma_fast": 10,
+            "sma_slow": 50,
+        }
 
-        signals = _generate_signals_from_rules(synthetic_data, entry_rules, exit_rules, parameters)
+        signals = _generate_signals_from_rules(
+            synthetic_data, entry_rules, exit_rules, parameters
+        )
         long_entries = (signals["signal_direction"] == "LONG").sum()
         assert long_entries > 0
 
@@ -153,10 +178,15 @@ class TestSignalGeneration:
 
 class TestRunBacktest:
     @pytest.mark.asyncio
-    async def test_backtest_returns_metrics(self, _inject_ctx, registered_strategy, synthetic_data):
-        from quant_pod.mcp.server import run_backtest
+    async def test_backtest_returns_metrics(
+        self, _inject_ctx, registered_strategy, synthetic_data
+    ):
+        from quantstack.mcp.server import run_backtest
 
-        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=synthetic_data):
+        with patch(
+            "quantstack.mcp.tools.backtesting._fetch_price_data",
+            return_value=synthetic_data,
+        ):
             result = await _fn(run_backtest)(
                 strategy_id=registered_strategy,
                 symbol="TEST",
@@ -176,9 +206,12 @@ class TestRunBacktest:
     async def test_backtest_updates_strategy_record(
         self, _inject_ctx, registered_strategy, synthetic_data
     ):
-        from quant_pod.mcp.server import get_strategy, run_backtest
+        from quantstack.mcp.server import get_strategy, run_backtest
 
-        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=synthetic_data):
+        with patch(
+            "quantstack.mcp.tools.backtesting._fetch_price_data",
+            return_value=synthetic_data,
+        ):
             await _fn(run_backtest)(strategy_id=registered_strategy, symbol="TEST")
 
         strat = await _fn(get_strategy)(strategy_id=registered_strategy)
@@ -187,23 +220,27 @@ class TestRunBacktest:
 
     @pytest.mark.asyncio
     async def test_backtest_no_data_fails(self, _inject_ctx, registered_strategy):
-        from quant_pod.mcp.server import run_backtest
+        from quantstack.mcp.server import run_backtest
 
-        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=None):
-            result = await _fn(run_backtest)(strategy_id=registered_strategy, symbol="NODATA")
+        with patch(
+            "quantstack.mcp.tools.backtesting._fetch_price_data", return_value=None
+        ):
+            result = await _fn(run_backtest)(
+                strategy_id=registered_strategy, symbol="NODATA"
+            )
         assert result["success"] is False
         assert "No price data" in result["error"]
 
     @pytest.mark.asyncio
     async def test_backtest_bad_strategy_id(self, _inject_ctx):
-        from quant_pod.mcp.server import run_backtest
+        from quantstack.mcp.server import run_backtest
 
         result = await _fn(run_backtest)(strategy_id="nonexistent", symbol="TEST")
         assert result["success"] is False
 
     @pytest.mark.asyncio
     async def test_backtest_no_entry_rules(self, _inject_ctx, synthetic_data):
-        from quant_pod.mcp.server import register_strategy, run_backtest
+        from quantstack.mcp.server import register_strategy, run_backtest
 
         r = await _fn(register_strategy)(
             name="empty_rules",
@@ -212,8 +249,13 @@ class TestRunBacktest:
             exit_rules=[],
         )
 
-        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=synthetic_data):
-            result = await _fn(run_backtest)(strategy_id=r["strategy_id"], symbol="TEST")
+        with patch(
+            "quantstack.mcp.tools.backtesting._fetch_price_data",
+            return_value=synthetic_data,
+        ):
+            result = await _fn(run_backtest)(
+                strategy_id=r["strategy_id"], symbol="TEST"
+            )
         assert result["success"] is False
         assert "no entry_rules" in result["error"]
 
@@ -225,13 +267,17 @@ class TestRunBacktest:
 
 class TestRunWalkforward:
     @pytest.mark.asyncio
-    async def test_walkforward_returns_fold_results(self, _inject_ctx, registered_strategy):
-        from quant_pod.mcp.server import run_walkforward
+    async def test_walkforward_returns_fold_results(
+        self, _inject_ctx, registered_strategy
+    ):
+        from quantstack.mcp.server import run_walkforward
 
         # Need enough data: min_train_size(504) + n_splits(3) * test_size(60) = 684
         big_data = _make_trending_ohlcv(n_bars=800)
 
-        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=big_data):
+        with patch(
+            "quantstack.mcp.tools.backtesting._fetch_price_data", return_value=big_data
+        ):
             result = await _fn(run_walkforward)(
                 strategy_id=registered_strategy,
                 symbol="TEST",
@@ -249,12 +295,16 @@ class TestRunWalkforward:
         assert "oos_positive_folds" in result
 
     @pytest.mark.asyncio
-    async def test_walkforward_insufficient_data(self, _inject_ctx, registered_strategy):
-        from quant_pod.mcp.server import run_walkforward
+    async def test_walkforward_insufficient_data(
+        self, _inject_ctx, registered_strategy
+    ):
+        from quantstack.mcp.server import run_walkforward
 
         small_data = _make_trending_ohlcv(n_bars=100)
 
-        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=small_data):
+        with patch(
+            "quantstack.mcp.tools.backtesting._fetch_price_data", return_value=small_data
+        ):
             result = await _fn(run_walkforward)(
                 strategy_id=registered_strategy,
                 symbol="TEST",
@@ -266,12 +316,16 @@ class TestRunWalkforward:
         assert "Insufficient data" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_walkforward_updates_strategy_record(self, _inject_ctx, registered_strategy):
-        from quant_pod.mcp.server import get_strategy, run_walkforward
+    async def test_walkforward_updates_strategy_record(
+        self, _inject_ctx, registered_strategy
+    ):
+        from quantstack.mcp.server import get_strategy, run_walkforward
 
         big_data = _make_trending_ohlcv(n_bars=800)
 
-        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=big_data):
+        with patch(
+            "quantstack.mcp.tools.backtesting._fetch_price_data", return_value=big_data
+        ):
             await _fn(run_walkforward)(
                 strategy_id=registered_strategy,
                 symbol="TEST",
@@ -287,11 +341,13 @@ class TestRunWalkforward:
     async def test_walkforward_fold_metrics_have_expected_keys(
         self, _inject_ctx, registered_strategy
     ):
-        from quant_pod.mcp.server import run_walkforward
+        from quantstack.mcp.server import run_walkforward
 
         big_data = _make_trending_ohlcv(n_bars=800)
 
-        with patch("quant_pod.mcp.tools.backtesting._fetch_price_data", return_value=big_data):
+        with patch(
+            "quantstack.mcp.tools.backtesting._fetch_price_data", return_value=big_data
+        ):
             result = await _fn(run_walkforward)(
                 strategy_id=registered_strategy,
                 symbol="TEST",

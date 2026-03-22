@@ -10,7 +10,7 @@ No external I/O — pure in-memory logic.
 from __future__ import annotations
 
 import pytest
-from quant_pod.guardrails.agent_hardening import AgentHardener
+from quantstack.guardrails.agent_hardening import AgentHardener
 
 
 @pytest.fixture
@@ -44,7 +44,9 @@ class TestValidateAgentOutput:
     def test_unknown_action_rejected(self, hardener):
         result = hardener.validate_agent_output({"action": "DOUBLE_DOWN"})
         assert not result["is_valid"]
-        assert any("action" in v.lower() or "DOUBLE_DOWN" in v for v in result["violations"])
+        assert any(
+            "action" in v.lower() or "DOUBLE_DOWN" in v for v in result["violations"]
+        )
         # sanitized to HOLD
         assert result["sanitized_output"]["action"] == "HOLD"
 
@@ -63,7 +65,8 @@ class TestValidateAgentOutput:
         result = hardener.validate_agent_output({"position_size_pct": 0.50})
         assert not result["is_valid"]
         assert (
-            result["sanitized_output"]["position_size_pct"] == hardener.MAX_RECOMMENDED_POSITION_PCT
+            result["sanitized_output"]["position_size_pct"]
+            == hardener.MAX_RECOMMENDED_POSITION_PCT
         )
 
     def test_negative_position_size_flagged(self, hardener):

@@ -84,7 +84,9 @@ def make_ohlcv_df(
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range("2024-01-01", periods=n_bars, freq=freq, tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-01", periods=n_bars, freq=freq, tz="America/New_York"
+        ),
     )
 
     return df
@@ -142,7 +144,9 @@ def make_impulse_wave_ohlcv(
             "close": prices,
             "volume": np.random.randint(1000, 10000, len(prices)),
         },
-        index=pd.date_range("2024-01-01", periods=len(prices), freq="1D", tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-01", periods=len(prices), freq="1D", tz="America/New_York"
+        ),
     )
 
     return df
@@ -215,7 +219,9 @@ def make_swing_leg(
             return self.n_bars
 
     # Detect calling convention
-    if direction is not None or (start_price_or_direction is not None and end_price is not None):
+    if direction is not None or (
+        start_price_or_direction is not None and end_price is not None
+    ):
         # New convention: make_swing_leg(start_idx, end_idx, start_price, end_price, direction)
         return MockSwingLeg(
             start_idx=int(start_idx_or_start_price),
@@ -263,7 +269,9 @@ def make_monotonic_downtrend(
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range("2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"
+        ),
     )
 
     return df
@@ -288,7 +296,9 @@ def make_monotonic_uptrend(
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range("2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"
+        ),
     )
 
     return df
@@ -311,7 +321,9 @@ def make_flat_market(
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range("2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"
+        ),
     )
 
     return df
@@ -373,7 +385,9 @@ def make_v_shape_ohlcv(
             "close": prices,
             "volume": np.random.randint(1000, 10000, actual_bars),
         },
-        index=pd.date_range("2024-01-01", periods=actual_bars, freq="1D", tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-01", periods=actual_bars, freq="1D", tz="America/New_York"
+        ),
     )
 
     return df
@@ -451,7 +465,9 @@ def make_w_shape_ohlcv(
             "close": prices,
             "volume": np.random.randint(1000, 10000, actual_bars),
         },
-        index=pd.date_range("2024-01-01", periods=actual_bars, freq="1D", tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-01", periods=actual_bars, freq="1D", tz="America/New_York"
+        ),
     )
 
     return df
@@ -644,11 +660,11 @@ def make_typed_swing_leg(
     direction: Literal["up", "down"],
 ):
     """
-    Create a SwingLeg (from quantcore.features.waves) directly for testing.
+    Create a SwingLeg (from quantstack.core.features.waves) directly for testing.
 
     Computes ret_pct and length_bars automatically.
     """
-    from quantcore.features.waves import SwingLeg
+    from quantstack.core.features.waves import SwingLeg
 
     ret_pct = (end_price - start_price) / start_price if start_price != 0 else 0
     return SwingLeg(
@@ -674,7 +690,7 @@ def make_typed_impulse_up_legs(
     """
     Create 5 legs forming a valid impulse-up pattern.
 
-    Returns list of SwingLeg (from quantcore.features.waves).
+    Returns list of SwingLeg (from quantstack.core.features.waves).
 
     Default returns:
     - Wave1: +10%
@@ -718,9 +734,9 @@ def make_swing_point(
     time: pd.Timestamp | None = None,
 ):
     """
-    Create a SwingPoint (from quantcore.features.waves) for testing.
+    Create a SwingPoint (from quantstack.core.features.waves) for testing.
     """
-    from quantcore.features.waves import SwingPoint
+    from quantstack.core.features.waves import SwingPoint
 
     if time is None:
         time = pd.Timestamp("2024-01-01 09:00") + pd.Timedelta(hours=idx)

@@ -6,7 +6,12 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from quant_pod.tools.mcp_bridge import MCPBridge, fetch_market_data_tool, get_symbol_snapshot_tool, list_stored_symbols_tool
+from quantstack.tools.mcp_bridge import (
+    MCPBridge,
+    fetch_market_data_tool,
+    get_symbol_snapshot_tool,
+    list_stored_symbols_tool,
+)
 
 
 class TestMarketDataTools:
@@ -14,7 +19,9 @@ class TestMarketDataTools:
 
     def test_fetch_market_data_tool(self):
         """Test fetch_market_data_tool returns OHLCV data."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "data": [
@@ -38,7 +45,9 @@ class TestMarketDataTools:
 
     def test_get_symbol_snapshot_tool(self):
         """Test get_symbol_snapshot_tool returns comprehensive snapshot."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "AAPL",
                 "price": 175.50,
@@ -56,7 +65,9 @@ class TestMarketDataTools:
 
     def test_list_stored_symbols_tool(self):
         """Test list_stored_symbols_tool returns symbol list."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
                 "count": 4,

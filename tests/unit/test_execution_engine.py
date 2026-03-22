@@ -17,13 +17,20 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from quantcore.execution.async_execution_loop import AsyncExecutionLoop
-from quantcore.execution.broker import BrokerInterface
-from quantcore.execution.fill_tracker import FillEvent, FillTracker
-from quantcore.execution.kill_switch import KillSwitch, KillSwitchError
-from quantcore.execution.risk_gate import PreTradeRiskGate, RiskGateError, RiskLimits
-from quantcore.execution.smart_order_router import SmartOrderRouter, SmartOrderRouterError
-from quantcore.execution.unified_models import (
+from quantstack.core.execution.async_execution_loop import AsyncExecutionLoop
+from quantstack.core.execution.broker import BrokerInterface
+from quantstack.core.execution.fill_tracker import FillEvent, FillTracker
+from quantstack.core.execution.kill_switch import KillSwitch, KillSwitchError
+from quantstack.core.execution.risk_gate import (
+    PreTradeRiskGate,
+    RiskGateError,
+    RiskLimits,
+)
+from quantstack.core.execution.smart_order_router import (
+    SmartOrderRouter,
+    SmartOrderRouterError,
+)
+from quantstack.core.execution.unified_models import (
     UnifiedOrder,
     UnifiedOrderResult,
 )
@@ -89,7 +96,9 @@ def _result(
     )
 
 
-def _mock_broker(healthy: bool = True, result: UnifiedOrderResult | None = None) -> MagicMock:
+def _mock_broker(
+    healthy: bool = True, result: UnifiedOrderResult | None = None
+) -> MagicMock:
     """Return a MagicMock that satisfies BrokerInterface."""
     broker = MagicMock(spec=BrokerInterface)
     broker.check_auth.return_value = healthy
@@ -312,7 +321,9 @@ class TestPreTradeRiskGate:
 
     # --- Kill switch ---
 
-    def test_blocks_on_kill_switch(self, gate: PreTradeRiskGate, ks: KillSwitch) -> None:
+    def test_blocks_on_kill_switch(
+        self, gate: PreTradeRiskGate, ks: KillSwitch
+    ) -> None:
         ks.activate()
         with pytest.raises(RiskGateError) as exc_info:
             gate.check(_order("SPY", "buy", 10), current_price=100.0)
@@ -383,7 +394,9 @@ class TestPreTradeRiskGate:
 
     # --- Daily drawdown ---
 
-    def test_blocks_on_daily_loss(self, gate: PreTradeRiskGate, tracker: FillTracker) -> None:
+    def test_blocks_on_daily_loss(
+        self, gate: PreTradeRiskGate, tracker: FillTracker
+    ) -> None:
         # Buy at $100, current mark at $88 → open_pnl = 100 × (88 - 100) = -$1,200 < -$1,000
         tracker.update_fill(_fill("SPY", "buy", 100, 100.0))
         tracker.update_price("SPY", 88.0)
@@ -434,7 +447,9 @@ class TestSmartOrderRouter:
         alpaca_healthy: bool = True,
         ibkr_healthy: bool = True,
     ) -> SmartOrderRouter:
-        alpaca = _mock_broker(healthy=alpaca_healthy, result=_result(order_id="ALP-001"))
+        alpaca = _mock_broker(
+            healthy=alpaca_healthy, result=_result(order_id="ALP-001")
+        )
         ibkr = _mock_broker(healthy=ibkr_healthy, result=_result(order_id="IBK-001"))
         return SmartOrderRouter(
             alpaca_broker=alpaca,
@@ -450,7 +465,9 @@ class TestSmartOrderRouter:
         result = router.route("ACC1", _order("SPY"), asset_class="equity")
         assert result.order_id == "ALP-001"
 
-    def test_equity_falls_back_to_ibkr_when_alpaca_unhealthy(self, tracker: FillTracker) -> None:
+    def test_equity_falls_back_to_ibkr_when_alpaca_unhealthy(
+        self, tracker: FillTracker
+    ) -> None:
         router = self._router(tracker, alpaca_healthy=False)
         result = router.route("ACC1", _order("SPY"), asset_class="equity")
         assert result.order_id == "IBK-001"
@@ -460,9 +477,13 @@ class TestSmartOrderRouter:
         result = router.route("ACC1", _order("ES"), asset_class="futures")
         assert result.order_id == "IBK-001"
 
-    def test_futures_raises_when_ibkr_not_configured(self, tracker: FillTracker) -> None:
+    def test_futures_raises_when_ibkr_not_configured(
+        self, tracker: FillTracker
+    ) -> None:
         alpaca = _mock_broker(healthy=True)
-        router = SmartOrderRouter(alpaca_broker=alpaca, fill_tracker=tracker, paper=False)
+        router = SmartOrderRouter(
+            alpaca_broker=alpaca, fill_tracker=tracker, paper=False
+        )
         with pytest.raises(SmartOrderRouterError, match="IBKR"):
             router.route("ACC1", _order("ES"), asset_class="futures")
 
@@ -487,7 +508,9 @@ class TestSmartOrderRouter:
 
     def test_no_fill_recorded_on_zero_fill(self, tracker: FillTracker) -> None:
         alpaca = _mock_broker(result=_result(order_id="ALP-001", filled_qty=0.0))
-        router = SmartOrderRouter(alpaca_broker=alpaca, fill_tracker=tracker, paper=False)
+        router = SmartOrderRouter(
+            alpaca_broker=alpaca, fill_tracker=tracker, paper=False
+        )
         router.route("ACC1", _order("SPY"))
         assert tracker.get_position("SPY") is None
 
@@ -513,7 +536,9 @@ class TestSmartOrderRouter:
         assert "alpaca" in brokers
         assert "ibkr" in brokers
 
-    def test_available_brokers_empty_when_none_configured(self, tracker: FillTracker) -> None:
+    def test_available_brokers_empty_when_none_configured(
+        self, tracker: FillTracker
+    ) -> None:
         router = SmartOrderRouter(fill_tracker=tracker)
         assert router.available_brokers() == []
 
@@ -527,7 +552,7 @@ class TestSmartOrderRouter:
     # --- Health cache ---
 
     def test_unhealthy_broker_skipped_on_retry(self, tracker: FillTracker) -> None:
-        from quantcore.execution.broker import BrokerError
+        from quantstack.core.execution.broker import BrokerError
 
         alpaca = _mock_broker(healthy=True)
         alpaca.place_order.side_effect = BrokerError("rejected")
@@ -554,8 +579,8 @@ def _warm_features(
     rsi: float = 50.0,
 ) -> object:
     """Build a minimal IncrementalFeatures-like object."""
-    from quantcore.config.timeframes import Timeframe
-    from quantcore.data.streaming.incremental_features import IncrementalFeatures
+    from quantstack.config.timeframes import Timeframe
+    from quantstack.data.streaming.incremental_features import IncrementalFeatures
 
     return IncrementalFeatures(
         symbol=symbol,

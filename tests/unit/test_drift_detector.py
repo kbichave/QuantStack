@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from quant_pod.learning.drift_detector import (
+from quantstack.learning.drift_detector import (
     TRACKED_FEATURES,
     DriftDetector,
     DriftReport,
@@ -34,7 +34,9 @@ class TestComputePSI:
         expected = rng.normal(0, 1, 1000)
         actual = rng.normal(0.05, 1, 1000)  # tiny mean shift
         psi = compute_psi(expected, actual)
-        assert psi < 0.10, f"Similar distributions should have PSI < 0.10, got {psi:.4f}"
+        assert (
+            psi < 0.10
+        ), f"Similar distributions should have PSI < 0.10, got {psi:.4f}"
 
     def test_shifted_distribution_moderate_psi(self):
         rng = np.random.default_rng(42)
@@ -48,7 +50,9 @@ class TestComputePSI:
         expected = rng.normal(0, 1, 1000)
         actual = rng.normal(3, 0.5, 1000)  # large shift + different spread
         psi = compute_psi(expected, actual)
-        assert psi > 0.25, f"Very different distributions should have PSI > 0.25, got {psi:.4f}"
+        assert (
+            psi > 0.25
+        ), f"Very different distributions should have PSI > 0.25, got {psi:.4f}"
 
     def test_psi_is_nonnegative(self):
         rng = np.random.default_rng(42)
@@ -116,7 +120,9 @@ class TestDriftDetector:
         detector.set_baseline("strat_test", sample_baseline)
         assert detector.has_baseline("strat_test")
 
-    def test_baseline_persists_to_disk(self, detector, tmp_baseline_dir, sample_baseline):
+    def test_baseline_persists_to_disk(
+        self, detector, tmp_baseline_dir, sample_baseline
+    ):
         detector.set_baseline("strat_disk", sample_baseline)
         path = tmp_baseline_dir / "strat_disk.json"
         assert path.exists()
@@ -208,11 +214,14 @@ class TestCheckDriftFromBrief:
     def detector(self, tmp_path):
         det = DriftDetector(baseline_dir=tmp_path / "baselines")
         rng = np.random.default_rng(42)
-        det.set_baseline("strat_brief", {
-            "rsi_14": rng.uniform(25, 75, 252),
-            "atr_pct": rng.uniform(0.01, 0.04, 252),
-            "adx_14": rng.uniform(15, 45, 252),
-        })
+        det.set_baseline(
+            "strat_brief",
+            {
+                "rsi_14": rng.uniform(25, 75, 252),
+                "atr_pct": rng.uniform(0.01, 0.04, 252),
+                "adx_14": rng.uniform(15, 45, 252),
+            },
+        )
         return det
 
     def test_flat_brief_format(self, detector):
@@ -222,15 +231,17 @@ class TestCheckDriftFromBrief:
 
     def test_nested_brief_format(self, detector):
         brief = {
-            "symbol_briefs": [{
-                "raw_collectors": {
-                    "technical": {
-                        "rsi_14": 45.0,
-                        "atr_pct": 0.025,
-                        "adx_14": 30.0,
+            "symbol_briefs": [
+                {
+                    "raw_collectors": {
+                        "technical": {
+                            "rsi_14": 45.0,
+                            "atr_pct": 0.025,
+                            "adx_14": 30.0,
+                        }
                     }
                 }
-            }]
+            ]
         }
         report = detector.check_drift_from_brief("strat_brief", brief)
         assert isinstance(report, DriftReport)

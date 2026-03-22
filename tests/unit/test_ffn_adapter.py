@@ -12,7 +12,9 @@ class TestFFNAdapter:
 
     def test_compute_portfolio_stats_basic(self):
         """Test basic portfolio stats computation."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         # Create simple equity curve
         equity = pd.Series([100, 101, 102, 101, 103, 105, 104, 106])
@@ -26,7 +28,9 @@ class TestFFNAdapter:
 
     def test_portfolio_stats_with_returns(self):
         """Test stats with known returns."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         # 10% total return over period
         equity = pd.Series([100, 102, 104, 106, 108, 110])
@@ -38,7 +42,9 @@ class TestFFNAdapter:
 
     def test_max_drawdown_calculation(self):
         """Test max drawdown is calculated correctly."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         # Clear 20% drawdown in the middle
         equity = pd.Series([100, 110, 100, 88, 90, 95, 100, 105])
@@ -50,7 +56,9 @@ class TestFFNAdapter:
 
     def test_sharpe_ratio_positive_returns(self):
         """Test Sharpe ratio for consistently positive returns."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         # Consistently positive returns -> high Sharpe
         np.random.seed(42)
@@ -64,7 +72,9 @@ class TestFFNAdapter:
 
     def test_sortino_ratio(self):
         """Test Sortino ratio calculation."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         np.random.seed(42)
         equity = pd.Series(100 * np.cumprod(1 + np.random.randn(100) * 0.01))
@@ -75,7 +85,9 @@ class TestFFNAdapter:
 
     def test_calmar_ratio(self):
         """Test Calmar ratio (return / max DD)."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         equity = pd.Series([100, 105, 110, 100, 105, 115, 120])
 
@@ -85,7 +97,9 @@ class TestFFNAdapter:
 
     def test_distribution_metrics(self):
         """Test distribution metrics."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         np.random.seed(42)
         equity = pd.Series(100 * np.cumprod(1 + np.random.randn(100) * 0.01))
@@ -99,7 +113,9 @@ class TestFFNAdapter:
 
     def test_factor_stats(self):
         """Test factor/benchmark relative stats."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_factor_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_factor_stats_ffn,
+        )
 
         np.random.seed(42)
         returns = pd.Series(np.random.randn(100) * 0.01)
@@ -114,7 +130,9 @@ class TestFFNAdapter:
 
     def test_up_down_capture(self):
         """Test up/down capture ratios."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_factor_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_factor_stats_ffn,
+        )
 
         # Strategy that captures more upside
         np.random.seed(42)
@@ -128,7 +146,7 @@ class TestFFNAdapter:
 
     def test_generate_tearsheet_data(self):
         """Test tearsheet data generation."""
-        from quantcore.analytics.adapters.ffn_adapter import generate_tearsheet_data
+        from quantstack.core.analytics.adapters.ffn_adapter import generate_tearsheet_data
 
         np.random.seed(42)
         equity = pd.Series(
@@ -144,7 +162,9 @@ class TestFFNAdapter:
 
     def test_empty_equity_curve(self):
         """Test handling of insufficient data."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         equity = pd.Series([100])
 
@@ -154,7 +174,9 @@ class TestFFNAdapter:
 
     def test_list_input(self):
         """Test handling of list input."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         equity_list = [100, 101, 102, 103, 104, 105]
 
@@ -168,7 +190,9 @@ class TestFFNFallback:
 
     def test_internal_stats(self):
         """Test internal stats calculation."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         equity = pd.Series([100, 102, 104, 103, 105, 107, 106, 108])
 

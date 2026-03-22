@@ -6,7 +6,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from quant_pod.tools.mcp_bridge import (
+from quantstack.tools.mcp_bridge import (
     MCPBridge,
     analyze_volume_profile_tool,
     get_event_calendar_tool,
@@ -19,7 +19,9 @@ class TestMarketRegimeTools:
 
     def test_get_market_regime_snapshot_tool(self):
         """Test get_market_regime_snapshot_tool returns regime classification."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "regime": "trending_up",
                 "confidence": 0.85,
@@ -36,7 +38,9 @@ class TestMarketRegimeTools:
 
     def test_analyze_volume_profile_tool(self):
         """Test analyze_volume_profile_tool returns volume analysis."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "poc": 470.50,  # Point of Control
@@ -55,7 +59,9 @@ class TestMarketRegimeTools:
 
     def test_get_event_calendar_tool(self):
         """Test get_event_calendar_tool returns upcoming events."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "events": [
                     {"date": "2024-01-15", "type": "earnings", "symbol": "AAPL"},

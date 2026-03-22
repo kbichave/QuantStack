@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from quantcore.core.config import (
+from quantstack.core.core.config import (
     BacktestConfig,
     FeatureConfig,
     RiskConfig,
@@ -23,7 +23,7 @@ from quantcore.core.config import (
     merge_configs,
     save_config_to_yaml,
 )
-from quantcore.core.errors import ConfigurationError
+from quantstack.core.core.errors import ConfigurationError
 
 
 class TestBacktestConfig:

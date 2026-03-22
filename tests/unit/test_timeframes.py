@@ -4,7 +4,7 @@
 """Tests for quantcore.config.timeframes module."""
 
 import pytest
-from quantcore.config.timeframes import (
+from quantstack.config.timeframes import (
     TIMEFRAME_HIERARCHY,
     TIMEFRAME_PARAMS,
     Timeframe,
@@ -185,7 +185,13 @@ class TestGetLowerTimeframes:
     def test_from_hourly(self):
         """Test getting lower timeframes from H1."""
         lower = get_lower_timeframes(Timeframe.H1)
-        assert lower == [Timeframe.M30, Timeframe.M15, Timeframe.M5, Timeframe.M1, Timeframe.S5]
+        assert lower == [
+            Timeframe.M30,
+            Timeframe.M15,
+            Timeframe.M5,
+            Timeframe.M1,
+            Timeframe.S5,
+        ]
 
 
 class TestGetNextHigherTimeframe:

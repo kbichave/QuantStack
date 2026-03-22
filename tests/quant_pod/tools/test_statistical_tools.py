@@ -6,7 +6,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from quant_pod.tools.mcp_bridge import (
+from quantstack.tools.mcp_bridge import (
     MCPBridge,
     compute_alpha_decay_tool,
     compute_information_coefficient_tool,
@@ -20,7 +20,9 @@ class TestStatisticalTools:
 
     def test_run_adf_test_tool(self):
         """Test run_adf_test_tool returns stationarity result."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "adf_statistic": -3.5,
@@ -38,7 +40,9 @@ class TestStatisticalTools:
 
     def test_compute_alpha_decay_tool(self):
         """Test compute_alpha_decay_tool returns decay analysis."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "signal_column": "rsi_14",
@@ -56,7 +60,9 @@ class TestStatisticalTools:
 
     def test_compute_information_coefficient_tool(self):
         """Test compute_information_coefficient_tool returns IC value."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "signal_column": "rsi_14",
@@ -74,7 +80,9 @@ class TestStatisticalTools:
 
     def test_validate_signal_tool(self):
         """Test validate_signal_tool returns validation result."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "signal_column": "momentum_rsi",

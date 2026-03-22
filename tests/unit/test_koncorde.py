@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.koncorde import Koncorde
+from quantstack.core.features.koncorde import Koncorde
 
 
 @pytest.fixture
@@ -16,8 +16,8 @@ def ohlcv():
     dates = pd.date_range(start="2022-01-01", periods=300, freq="D")
     np.random.seed(42)
     close = pd.Series(100 + np.cumsum(np.random.randn(300) * 0.5), index=dates)
-    high  = close + np.abs(np.random.randn(300) * 0.4) + 0.3
-    low   = close - np.abs(np.random.randn(300) * 0.4) - 0.3
+    high = close + np.abs(np.random.randn(300) * 0.4) + 0.3
+    low = close - np.abs(np.random.randn(300) * 0.4) - 0.3
     open_ = close.shift(1).fillna(close.iloc[0])
     volume = pd.Series(
         np.random.randint(500_000, 2_000_000, 300).astype(float), index=dates
@@ -39,11 +39,19 @@ class TestKoncorde:
             ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
         )
         expected = {
-            "rsi", "mfi", "bb_pct_b", "stochastic",
-            "pvi", "nvi", "nvi_signal",
-            "green_line", "blue_line",
-            "green_positive", "blue_positive",
-            "agreement", "divergence",
+            "rsi",
+            "mfi",
+            "bb_pct_b",
+            "stochastic",
+            "pvi",
+            "nvi",
+            "nvi_signal",
+            "green_line",
+            "blue_line",
+            "green_positive",
+            "blue_positive",
+            "agreement",
+            "divergence",
         }
         assert expected.issubset(set(result.columns))
 
@@ -146,7 +154,9 @@ class TestKoncorde:
         c = pd.Series(100 + np.cumsum(np.random.randn(30) * 0.5), index=dates)
         h = c + 0.5
         lo = c - 0.5
-        v = pd.Series(np.random.randint(100_000, 500_000, 30).astype(float), index=dates)
+        v = pd.Series(
+            np.random.randint(100_000, 500_000, 30).astype(float), index=dates
+        )
         result = Koncorde().compute(h, lo, c, v)
         assert len(result) == 30
 
@@ -155,9 +165,11 @@ class TestKoncorde:
         n = 200
         dates = pd.date_range("2022-01-01", periods=n, freq="D")
         np.random.seed(5)
-        close = pd.Series(np.linspace(100, 200, n) + np.random.randn(n) * 0.3, index=dates)
-        high  = close + 1.0
-        low   = close - 0.5
+        close = pd.Series(
+            np.linspace(100, 200, n) + np.random.randn(n) * 0.3, index=dates
+        )
+        high = close + 1.0
+        low = close - 0.5
         # Volume must vary so MFI has both positive and negative flows
         volume = pd.Series(
             1_000_000.0 + np.random.randn(n) * 200_000, index=dates

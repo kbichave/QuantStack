@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from quantcore.execution.almgren_chriss import (
+from quantstack.core.execution.almgren_chriss import (
     ACCostBreakdown,
     almgren_chriss_cost_breakdown,
     almgren_chriss_expected_cost_bps,
@@ -57,7 +57,7 @@ class TestExpectedCostBps:
     def test_known_value_large_cap(self):
         """1% ADV on 2% daily vol large-cap should be in 1-15 bps range."""
         cost = almgren_chriss_expected_cost_bps(
-            order_shares=10_000,       # 1% of 1M ADV
+            order_shares=10_000,  # 1% of 1M ADV
             daily_volume=1_000_000,
             daily_volatility=0.02,
         )
@@ -103,7 +103,9 @@ class TestCostBreakdown:
     def test_temporary_dominates_for_small_fast_orders(self):
         """Short horizon + small order → temporary impact is primary cost."""
         result = almgren_chriss_cost_breakdown(
-            500, 1_000_000, 0.02,
+            500,
+            1_000_000,
+            0.02,
             execution_horizon_days=1 / 26,  # 15 minutes
         )
         assert result.temporary_impact_bps > result.permanent_impact_bps
@@ -146,7 +148,10 @@ class TestOptimalTrajectory:
     def test_high_urgency_front_loads(self):
         """High risk_aversion should execute more in early slices."""
         traj = optimal_trajectory(
-            1000, 10, 1_000_000, 0.02,
+            1000,
+            10,
+            1_000_000,
+            0.02,
             risk_aversion=1.0,  # very high urgency
         )
         first_half = traj[:5].sum()
@@ -156,7 +161,10 @@ class TestOptimalTrajectory:
     def test_low_urgency_is_uniform(self):
         """Near-zero risk_aversion should be close to TWAP (uniform)."""
         traj = optimal_trajectory(
-            1000, 10, 1_000_000, 0.02,
+            1000,
+            10,
+            1_000_000,
+            0.02,
             risk_aversion=1e-12,
         )
         # Should be close to 100 per slice
@@ -173,8 +181,10 @@ class TestCalibration:
 
     def test_insufficient_data_returns_defaults(self):
         gamma, eta = calibrate_from_fills(
-            np.array([100.5]), np.array([100.0]),
-            np.array([500]), np.array([1_000_000]),
+            np.array([100.5]),
+            np.array([100.0]),
+            np.array([500]),
+            np.array([1_000_000]),
             np.array([0.02]),
         )
         assert gamma == 0.1
@@ -190,7 +200,9 @@ class TestCalibration:
 
         # Simulate fills with known impact
         participation = sizes / volumes
-        slippage_frac = 0.15 * vols * participation + 0.02 * vols * np.sqrt(participation / (1/6.5))
+        slippage_frac = 0.15 * vols * participation + 0.02 * vols * np.sqrt(
+            participation / (1 / 6.5)
+        )
         fills = arrival * (1 + slippage_frac)
 
         gamma, eta = calibrate_from_fills(fills, arrival, sizes, volumes, vols)
@@ -210,11 +222,15 @@ class TestCalibration:
         # Low impact scenario
         slippage_low = 0.05 * vols * participation
         fills_low = arrival * (1 + slippage_low)
-        gamma_low, eta_low = calibrate_from_fills(fills_low, arrival, sizes, volumes, vols)
+        gamma_low, eta_low = calibrate_from_fills(
+            fills_low, arrival, sizes, volumes, vols
+        )
 
         # High impact scenario
         slippage_high = 0.5 * vols * participation
         fills_high = arrival * (1 + slippage_high)
-        gamma_high, eta_high = calibrate_from_fills(fills_high, arrival, sizes, volumes, vols)
+        gamma_high, eta_high = calibrate_from_fills(
+            fills_high, arrival, sizes, volumes, vols
+        )
 
         assert gamma_high > gamma_low or eta_high > eta_low

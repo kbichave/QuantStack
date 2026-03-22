@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from quant_pod.knowledge.models import (
+from quantstack.knowledge.models import (
     MarketObservation,
     RegimeState,
     RegimeType,
@@ -21,7 +21,7 @@ from quant_pod.knowledge.models import (
     WavePosition,
     WaveScenario,
 )
-from quant_pod.knowledge.store import KnowledgeStore
+from quantstack.knowledge.store import KnowledgeStore
 
 
 @pytest.fixture

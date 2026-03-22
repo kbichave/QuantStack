@@ -4,7 +4,11 @@ import asyncio
 
 import pytest
 
-from shared.mcp_toolkit import mcp_tool_response, mcp_tool_safe, require_resource
+from quantstack.shared.mcp_toolkit import (
+    mcp_tool_response,
+    mcp_tool_safe,
+    require_resource,
+)
 
 
 class TestMcpToolResponse:

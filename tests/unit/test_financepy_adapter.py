@@ -9,7 +9,9 @@ class TestFinancePyAdapter:
 
     def test_price_vanilla_european(self):
         """Test European option pricing."""
-        from quantcore.options.adapters.financepy_adapter import price_vanilla_financepy
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_vanilla_financepy,
+        )
 
         price = price_vanilla_financepy(
             spot=100.0,
@@ -27,7 +29,9 @@ class TestFinancePyAdapter:
 
     def test_price_american_call(self):
         """Test American call option pricing."""
-        from quantcore.options.adapters.financepy_adapter import price_american_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_american_option,
+        )
 
         result = price_american_option(
             spot=100.0,
@@ -49,7 +53,9 @@ class TestFinancePyAdapter:
 
     def test_price_american_put(self):
         """Test American put option pricing."""
-        from quantcore.options.adapters.financepy_adapter import price_american_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_american_option,
+        )
 
         result = price_american_option(
             spot=100.0,
@@ -68,7 +74,9 @@ class TestFinancePyAdapter:
 
     def test_american_put_early_exercise_value(self):
         """Test American put has early exercise value for deep ITM."""
-        from quantcore.options.adapters.financepy_adapter import price_american_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_american_option,
+        )
 
         # Deep ITM put
         result = price_american_option(
@@ -87,7 +95,9 @@ class TestFinancePyAdapter:
 
     def test_american_with_dividends(self):
         """Test American call with dividends has early exercise value."""
-        from quantcore.options.adapters.financepy_adapter import price_american_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_american_option,
+        )
 
         # High dividend stock - American call may have early exercise value
         result = price_american_option(
@@ -106,7 +116,9 @@ class TestFinancePyAdapter:
 
     def test_american_greeks(self):
         """Test Greeks from American option pricing."""
-        from quantcore.options.adapters.financepy_adapter import price_american_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_american_option,
+        )
 
         result = price_american_option(
             spot=100.0,
@@ -126,7 +138,9 @@ class TestFinancePyAdapter:
 
     def test_price_at_expiry(self):
         """Test pricing at expiry returns intrinsic."""
-        from quantcore.options.adapters.financepy_adapter import price_american_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_american_option,
+        )
 
         result = price_american_option(
             spot=105.0,
@@ -142,7 +156,9 @@ class TestFinancePyAdapter:
 
     def test_convergence_with_steps(self):
         """Test that more steps improves accuracy."""
-        from quantcore.options.adapters.financepy_adapter import price_american_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_american_option,
+        )
 
         prices = []
         for steps in [20, 50, 100, 200]:
@@ -169,7 +185,9 @@ class TestBarrierOptions:
 
     def test_down_out_call(self):
         """Test down-and-out call pricing."""
-        from quantcore.options.adapters.financepy_adapter import price_barrier_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_barrier_option,
+        )
 
         result = price_barrier_option(
             spot=100.0,
@@ -189,7 +207,9 @@ class TestBarrierOptions:
 
     def test_barrier_knocked_out(self):
         """Test barrier that's already been hit."""
-        from quantcore.options.adapters.financepy_adapter import price_barrier_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_barrier_option,
+        )
 
         result = price_barrier_option(
             spot=75.0,  # Below barrier
@@ -211,7 +231,9 @@ class TestFinancePyFallback:
 
     def test_binomial_fallback(self):
         """Test internal binomial tree implementation."""
-        from quantcore.options.adapters.financepy_adapter import price_american_option
+        from quantstack.core.options.adapters.financepy_adapter import (
+            price_american_option,
+        )
 
         # Should work regardless of financepy availability
         result = price_american_option(

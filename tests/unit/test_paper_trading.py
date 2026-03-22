@@ -7,7 +7,7 @@ from datetime import datetime
 
 import pandas as pd
 import pytest
-from quantcore.execution.paper_trading_enhanced import (
+from quantstack.core.execution.paper_trading_enhanced import (
     EnhancedPaperOrder,
     EnhancedPaperTradingEngine,
     ExecutionQualityMetrics,

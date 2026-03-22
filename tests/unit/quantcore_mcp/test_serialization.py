@@ -13,7 +13,7 @@ class TestJSONSerialization:
 
     def test_price_option_serializable(self):
         """Test price_option output is JSON-serializable."""
-        from quantcore.options.engine import price_option_dispatch
+        from quantstack.core.options.engine import price_option_dispatch
 
         result = price_option_dispatch(100, 100, 0.25, 0.20, 0.05, 0.0, "call")
 
@@ -23,7 +23,7 @@ class TestJSONSerialization:
 
     def test_greeks_serializable(self):
         """Test greeks output is JSON-serializable."""
-        from quantcore.options.engine import compute_greeks_dispatch
+        from quantstack.core.options.engine import compute_greeks_dispatch
 
         result = compute_greeks_dispatch(100, 100, 0.25, 0.20, 0.05, 0.0, "call")
 
@@ -32,7 +32,7 @@ class TestJSONSerialization:
 
     def test_structure_analysis_serializable(self):
         """Test structure analysis output is JSON-serializable."""
-        from quantcore.options.adapters.quantsbin_adapter import (
+        from quantstack.core.options.adapters.quantsbin_adapter import (
             analyze_structure_quantsbin,
         )
 
@@ -57,7 +57,9 @@ class TestJSONSerialization:
 
     def test_portfolio_stats_serializable(self):
         """Test portfolio stats output is JSON-serializable."""
-        from quantcore.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+        from quantstack.core.analytics.adapters.ffn_adapter import (
+            compute_portfolio_stats_ffn,
+        )
 
         result = compute_portfolio_stats_ffn([100, 102, 104, 103, 105])
 
@@ -66,7 +68,7 @@ class TestJSONSerialization:
 
     def test_sabr_fit_serializable(self):
         """Test SABR fit output is JSON-serializable."""
-        from quantcore.options.adapters.pysabr_adapter import fit_sabr_surface
+        from quantstack.core.options.adapters.pysabr_adapter import fit_sabr_surface
 
         quotes = pd.DataFrame(
             {

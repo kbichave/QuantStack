@@ -39,8 +39,14 @@ def pytest_configure(config: pytest.Config) -> None:
     )
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
     config.addinivalue_line("markers", "benchmark: marks tests as benchmark tests")
-    config.addinivalue_line("markers", "requires_api: marks tests that require API access")
+    config.addinivalue_line(
+        "markers", "requires_api: marks tests that require API access"
+    )
     config.addinivalue_line("markers", "requires_gpu: marks tests that require GPU")
+    config.addinivalue_line(
+        "markers",
+        "regression: strategy regression tests — re-run backtests and assert metrics stability",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
@@ -99,7 +105,7 @@ def trading_ctx():
             trading_ctx.portfolio.adjust_cash(-1000)
             ...
     """
-    from quant_pod.context import create_trading_context
+    from quantstack.context import create_trading_context
 
     ctx = create_trading_context(
         db_path=":memory:",
@@ -154,7 +160,7 @@ def tick_executor(trading_ctx):
     """
     import asyncio
 
-    from quant_pod.execution.tick_executor import TickExecutor
+    from quantstack.execution.tick_executor import TickExecutor
 
     fill_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     executor = TickExecutor(
@@ -169,19 +175,42 @@ def tick_executor(trading_ctx):
 
 
 @pytest.fixture(autouse=True)
-def reset_random_seeds() -> None:
-    """Reset random seeds before each test for reproducibility."""
+def reset_singletons_and_seeds() -> Generator[None, None, None]:
+    """Reset module-level singletons and random seeds before each test.
+
+    Without this, MCP tests that create a TradingContext pollute the global
+    _risk_gate and _portfolio_state singletons, causing later tests to see
+    stale state (wrong initial_cash, leftover positions, etc.).
+    """
     import numpy as np
 
     np.random.seed(42)
-
     try:
         import torch
-
         torch.manual_seed(42)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(42)
     except ImportError:
+        pass
+
+    yield
+
+    # Reset ALL module-level singletons so tests are fully isolated.
+    # Without this, earlier tests pollute global state for later tests.
+    import quantstack.execution.risk_gate as _rg
+    import quantstack.execution.portfolio_state as _ps
+    import quantstack.db as _db
+    _rg._risk_gate = None
+    _ps._portfolio_state = None
+    _ps._portfolio_state_ro = None
+    _db._managed = None
+
+    try:
+        import quantstack.mcp._state as _mcp_state
+        _mcp_state._ctx = None
+        _mcp_state._degraded = False
+        _mcp_state._degraded_reason = ""
+    except Exception:
         pass
 
 
@@ -207,7 +236,9 @@ def sample_ohlcv_df():
             "close": prices,
             "volume": np.random.randint(1000, 10000, n_bars),
         },
-        index=pd.date_range("2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-01", periods=n_bars, freq="1D", tz="America/New_York"
+        ),
     )
 
     return df

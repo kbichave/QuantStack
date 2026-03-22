@@ -3,7 +3,7 @@
 import time
 from unittest.mock import patch
 
-from shared.cache import TTLCache
+from quantstack.shared.cache import TTLCache
 
 
 class TestTTLCache:
@@ -22,7 +22,7 @@ class TestTTLCache:
         assert cache.get("key1") == "value1"
 
         # Simulate time passing beyond TTL
-        with patch("shared.cache.time") as mock_time:
+        with patch("quantstack.shared.cache.time") as mock_time:
             # First call for set was real; now mock monotonic to be past TTL
             mock_time.monotonic.return_value = time.monotonic() + 2
             assert cache.get("key1") is None

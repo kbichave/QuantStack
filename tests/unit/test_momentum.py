@@ -6,8 +6,8 @@
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.features.momentum import MomentumFeatures
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.momentum import MomentumFeatures
 
 
 class TestMomentumFeatures:

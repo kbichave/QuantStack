@@ -6,7 +6,7 @@
 import os
 from unittest.mock import patch
 
-from quantcore.config.settings import Settings, get_settings
+from quantstack.config.settings import Settings, get_settings
 
 
 class TestSettings:
@@ -19,7 +19,7 @@ class TestSettings:
         # API defaults - key may be overridden by env var, so just check it exists
         assert settings.alpha_vantage_api_key is not None
         assert settings.alpha_vantage_base_url == "https://www.alphavantage.co/query"
-        assert settings.alpha_vantage_rate_limit == 5
+        assert settings.alpha_vantage_rate_limit == 75
 
         # Database defaults
         assert settings.database_path == "data/trader.duckdb"
@@ -53,7 +53,9 @@ class TestSettings:
 
         # Default: (2 + 1 + 2) * 2 = 10 bps round trip
         expected = (
-            settings.spread_cost_bps + settings.slippage_cost_bps + settings.fee_cost_bps
+            settings.spread_cost_bps
+            + settings.slippage_cost_bps
+            + settings.fee_cost_bps
         ) * 2
         assert settings.total_transaction_cost_bps == expected
         assert settings.total_transaction_cost_bps == 10.0

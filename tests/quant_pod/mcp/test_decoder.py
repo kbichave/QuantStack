@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
-from quant_pod.context import create_trading_context
+from quantstack.context import create_trading_context
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -28,7 +28,7 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quant_pod.mcp._state as _mcp_state
+    import quantstack.mcp._state as _mcp_state
 
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
@@ -70,7 +70,7 @@ def _make_signals(n: int = 30) -> list:
 class TestDecodeStrategyTool:
     @pytest.mark.asyncio
     async def test_decode_returns_decoded_strategy(self, _inject_ctx):
-        from quant_pod.mcp.server import decode_strategy
+        from quantstack.mcp.server import decode_strategy
 
         result = await _fn(decode_strategy)(
             signals=_make_signals(),
@@ -85,7 +85,7 @@ class TestDecodeStrategyTool:
 
     @pytest.mark.asyncio
     async def test_decode_with_auto_register(self, _inject_ctx):
-        from quant_pod.mcp.server import decode_strategy, get_strategy
+        from quantstack.mcp.server import decode_strategy, get_strategy
 
         result = await _fn(decode_strategy)(
             signals=_make_signals(),
@@ -103,14 +103,14 @@ class TestDecodeStrategyTool:
 
     @pytest.mark.asyncio
     async def test_decode_empty_signals_fails(self, _inject_ctx):
-        from quant_pod.mcp.server import decode_strategy
+        from quantstack.mcp.server import decode_strategy
 
         result = await _fn(decode_strategy)(signals=[])
         assert result["success"] is False
 
     @pytest.mark.asyncio
     async def test_decode_low_confidence_warning(self, _inject_ctx):
-        from quant_pod.mcp.server import decode_strategy
+        from quantstack.mcp.server import decode_strategy
 
         result = await _fn(decode_strategy)(
             signals=_make_signals(10),
@@ -128,7 +128,7 @@ class TestDecodeStrategyTool:
 class TestDecodeFromTrades:
     @pytest.mark.asyncio
     async def test_no_trades_returns_error(self, _inject_ctx):
-        from quant_pod.mcp.server import decode_from_trades
+        from quantstack.mcp.server import decode_from_trades
 
         result = await _fn(decode_from_trades)(source="closed_trades")
         assert result["success"] is False
@@ -136,7 +136,7 @@ class TestDecodeFromTrades:
 
     @pytest.mark.asyncio
     async def test_with_closed_trades(self, _inject_ctx, ctx):
-        from quant_pod.mcp.server import decode_from_trades
+        from quantstack.mcp.server import decode_from_trades
 
         # Insert synthetic closed trades
         for i in range(25):
@@ -153,7 +153,15 @@ class TestDecodeFromTrades:
                      realized_pnl, opened_at, closed_at, holding_days)
                 VALUES (?, ?, 'long', 10, ?, ?, ?, ?, ?, 0)
                 """,
-                [i + 1, "SPY", entry_price, exit_price, realized, entry_time, exit_time],
+                [
+                    i + 1,
+                    "SPY",
+                    entry_price,
+                    exit_price,
+                    realized,
+                    entry_time,
+                    exit_time,
+                ],
             )
 
         result = await _fn(decode_from_trades)(
@@ -166,7 +174,7 @@ class TestDecodeFromTrades:
 
     @pytest.mark.asyncio
     async def test_invalid_source_fails(self, _inject_ctx):
-        from quant_pod.mcp.server import decode_from_trades
+        from quantstack.mcp.server import decode_from_trades
 
         result = await _fn(decode_from_trades)(source="bad_source")
         assert result["success"] is False

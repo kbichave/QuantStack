@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from quantcore.rl.features import RLFeatureExtractor
+from quantstack.rl.features import RLFeatureExtractor
 
 
 class TestExecutionFeatures:

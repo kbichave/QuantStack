@@ -33,29 +33,38 @@ def db():
     conn = duckdb.connect(":memory:")
 
     # Run the coordination migrations manually
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS loop_events (
             event_id VARCHAR PRIMARY KEY, event_type VARCHAR NOT NULL,
             source_loop VARCHAR NOT NULL, payload JSON,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS le_type ON loop_events (event_type, created_at)")
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS le_type ON loop_events (event_type, created_at)"
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS loop_cursors (
             consumer_id VARCHAR PRIMARY KEY, last_event_id VARCHAR,
             last_polled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS loop_heartbeats (
             loop_name VARCHAR NOT NULL, iteration INTEGER NOT NULL,
             started_at TIMESTAMP NOT NULL, finished_at TIMESTAMP,
             symbols_processed INTEGER DEFAULT 0, errors INTEGER DEFAULT 0,
             status VARCHAR DEFAULT 'running', PRIMARY KEY (loop_name, iteration)
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS strategies (
             strategy_id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL UNIQUE,
             description TEXT DEFAULT '', asset_class VARCHAR DEFAULT 'equities',
@@ -70,8 +79,10 @@ def db():
             time_horizon VARCHAR DEFAULT 'swing',
             holding_period_days INTEGER DEFAULT 5
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS strategy_outcomes (
             id INTEGER PRIMARY KEY, strategy_id VARCHAR NOT NULL,
             symbol VARCHAR NOT NULL, regime_at_entry VARCHAR DEFAULT 'unknown',
@@ -80,16 +91,20 @@ def db():
             opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, closed_at TIMESTAMP,
             session_id VARCHAR DEFAULT ''
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS regime_strategy_matrix (
             regime VARCHAR NOT NULL, strategy_id VARCHAR NOT NULL,
             allocation_pct DOUBLE NOT NULL, confidence DOUBLE DEFAULT 0.5,
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (regime, strategy_id)
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS universe (
             symbol VARCHAR PRIMARY KEY, name VARCHAR NOT NULL,
             sector VARCHAR DEFAULT 'Unknown', source VARCHAR NOT NULL,
@@ -99,8 +114,10 @@ def db():
             last_refreshed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             deactivated_reason VARCHAR
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS screener_results (
             symbol VARCHAR NOT NULL, screened_at TIMESTAMP NOT NULL,
             regime_used VARCHAR, tier INTEGER NOT NULL,
@@ -109,22 +126,28 @@ def db():
             volume_surge DOUBLE, regime_fit DOUBLE, catalyst_proximity DOUBLE,
             PRIMARY KEY (symbol, screened_at)
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS ohlcv (
             symbol VARCHAR, timeframe VARCHAR, timestamp TIMESTAMP,
             open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume DOUBLE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS positions (
             symbol VARCHAR PRIMARY KEY, quantity INTEGER NOT NULL,
             avg_cost DOUBLE NOT NULL, side VARCHAR DEFAULT 'long',
             opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS closed_trades (
             id INTEGER PRIMARY KEY, symbol VARCHAR NOT NULL,
             side VARCHAR NOT NULL, quantity INTEGER NOT NULL,
@@ -133,13 +156,16 @@ def db():
             closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             holding_days INTEGER DEFAULT 0, session_id VARCHAR DEFAULT ''
         )
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS earnings_calendar (
             symbol VARCHAR, report_date DATE, fiscal_date_ending DATE,
             estimate DOUBLE, reported_eps DOUBLE, surprise DOUBLE, surprise_pct DOUBLE
         )
-    """)
+    """
+    )
 
     yield conn
     conn.close()
@@ -150,16 +176,18 @@ def db():
 
 class TestEventBus:
     def test_publish_and_poll(self, db):
-        from quant_pod.coordination.event_bus import Event, EventBus, EventType
+        from quantstack.coordination.event_bus import Event, EventBus, EventType
 
         bus = EventBus(db)
 
         # Publish
-        eid = bus.publish(Event(
-            event_type=EventType.STRATEGY_PROMOTED,
-            source_loop="factory",
-            payload={"strategy_id": "abc"},
-        ))
+        eid = bus.publish(
+            Event(
+                event_type=EventType.STRATEGY_PROMOTED,
+                source_loop="factory",
+                payload={"strategy_id": "abc"},
+            )
+        )
         assert eid
 
         # Poll
@@ -173,10 +201,12 @@ class TestEventBus:
         assert len(events2) == 0
 
     def test_poll_with_filter(self, db):
-        from quant_pod.coordination.event_bus import Event, EventBus, EventType
+        from quantstack.coordination.event_bus import Event, EventBus, EventType
 
         bus = EventBus(db)
-        bus.publish(Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory"))
+        bus.publish(
+            Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory")
+        )
         bus.publish(Event(event_type=EventType.MODEL_TRAINED, source_loop="ml"))
 
         # Filter for MODEL_TRAINED only
@@ -185,29 +215,45 @@ class TestEventBus:
         assert events[0].event_type == EventType.MODEL_TRAINED
 
     def test_get_latest(self, db):
-        from quant_pod.coordination.event_bus import Event, EventBus, EventType
+        from quantstack.coordination.event_bus import Event, EventBus, EventType
 
         bus = EventBus(db)
-        bus.publish(Event(event_type=EventType.LOOP_HEARTBEAT, source_loop="factory", payload={"iter": 1}))
-        bus.publish(Event(event_type=EventType.LOOP_HEARTBEAT, source_loop="factory", payload={"iter": 2}))
+        bus.publish(
+            Event(
+                event_type=EventType.LOOP_HEARTBEAT,
+                source_loop="factory",
+                payload={"iter": 1},
+            )
+        )
+        bus.publish(
+            Event(
+                event_type=EventType.LOOP_HEARTBEAT,
+                source_loop="factory",
+                payload={"iter": 2},
+            )
+        )
 
         latest = bus.get_latest(EventType.LOOP_HEARTBEAT)
         assert latest is not None
         assert latest.payload["iter"] == 2
 
     def test_count_events(self, db):
-        from quant_pod.coordination.event_bus import Event, EventBus, EventType
+        from quantstack.coordination.event_bus import Event, EventBus, EventType
 
         bus = EventBus(db)
-        bus.publish(Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory"))
+        bus.publish(
+            Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory")
+        )
         bus.publish(Event(event_type=EventType.STRATEGY_RETIRED, source_loop="factory"))
-        bus.publish(Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory"))
+        bus.publish(
+            Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory")
+        )
 
         assert bus.count_events(EventType.STRATEGY_PROMOTED) == 2
         assert bus.count_events() == 3
 
     def test_independent_cursors(self, db):
-        from quant_pod.coordination.event_bus import Event, EventBus, EventType
+        from quantstack.coordination.event_bus import Event, EventBus, EventType
 
         bus = EventBus(db)
         bus.publish(Event(event_type=EventType.MODEL_TRAINED, source_loop="ml"))
@@ -231,7 +277,7 @@ class TestStrategyStatusLock:
         )
 
     def test_valid_transition(self, db):
-        from quant_pod.coordination.strategy_lock import StrategyStatusLock
+        from quantstack.coordination.strategy_lock import StrategyStatusLock
 
         self._insert_strategy(db, "s1", "test_strat", "draft")
         lock = StrategyStatusLock(db)
@@ -242,7 +288,7 @@ class TestStrategyStatusLock:
         assert status == "forward_testing"
 
     def test_cas_failure(self, db):
-        from quant_pod.coordination.strategy_lock import StrategyStatusLock
+        from quantstack.coordination.strategy_lock import StrategyStatusLock
 
         self._insert_strategy(db, "s1", "test_strat", "forward_testing")
         lock = StrategyStatusLock(db)
@@ -252,15 +298,15 @@ class TestStrategyStatusLock:
         assert not ok
 
     def test_invalid_transition_raises(self, db):
-        from quant_pod.coordination.strategy_lock import StrategyStatusLock
+        from quantstack.coordination.strategy_lock import StrategyStatusLock
 
         lock = StrategyStatusLock(db)
         with pytest.raises(ValueError, match="Invalid transition"):
             lock.transition("s1", "draft", "live", "skip forward_testing")
 
     def test_publishes_event(self, db):
-        from quant_pod.coordination.event_bus import EventBus, EventType
-        from quant_pod.coordination.strategy_lock import StrategyStatusLock
+        from quantstack.coordination.event_bus import EventBus, EventType
+        from quantstack.coordination.strategy_lock import StrategyStatusLock
 
         self._insert_strategy(db, "s1", "test_strat", "draft")
         bus = EventBus(db)
@@ -278,7 +324,7 @@ class TestStrategyStatusLock:
 
 class TestUniverseRegistry:
     def test_refresh_etfs(self, db):
-        from quant_pod.coordination.universe_registry import UniverseRegistry
+        from quantstack.coordination.universe_registry import UniverseRegistry
 
         registry = UniverseRegistry(db, client=None)
         report = registry.refresh_constituents()
@@ -293,7 +339,7 @@ class TestUniverseRegistry:
         assert "QQQ" in symbols
 
     def test_deactivate_symbol(self, db):
-        from quant_pod.coordination.universe_registry import UniverseRegistry
+        from quantstack.coordination.universe_registry import UniverseRegistry
 
         registry = UniverseRegistry(db, client=None)
         registry.refresh_constituents()
@@ -303,7 +349,7 @@ class TestUniverseRegistry:
         assert "SPY" not in symbols
 
     def test_count(self, db):
-        from quant_pod.coordination.universe_registry import UniverseRegistry
+        from quantstack.coordination.universe_registry import UniverseRegistry
 
         registry = UniverseRegistry(db, client=None)
         registry.refresh_constituents()
@@ -312,7 +358,7 @@ class TestUniverseRegistry:
         assert count > 40
 
     def test_refresh_age(self, db):
-        from quant_pod.coordination.universe_registry import UniverseRegistry
+        from quantstack.coordination.universe_registry import UniverseRegistry
 
         registry = UniverseRegistry(db, client=None)
 
@@ -329,7 +375,7 @@ class TestUniverseRegistry:
 
 class TestPortfolioOrchestrator:
     def test_no_doubling(self):
-        from quant_pod.coordination.portfolio_orchestrator import (
+        from quantstack.coordination.portfolio_orchestrator import (
             PortfolioOrchestrator,
             ProposedTrade,
         )
@@ -346,7 +392,7 @@ class TestPortfolioOrchestrator:
         assert report.approved == 1
 
     def test_position_cap(self):
-        from quant_pod.coordination.portfolio_orchestrator import (
+        from quantstack.coordination.portfolio_orchestrator import (
             PortfolioOrchestrator,
             ProposedTrade,
         )
@@ -363,7 +409,7 @@ class TestPortfolioOrchestrator:
         assert report.rejected_position_cap == 1
 
     def test_sector_concentration(self):
-        from quant_pod.coordination.portfolio_orchestrator import (
+        from quantstack.coordination.portfolio_orchestrator import (
             PortfolioOrchestrator,
             ProposedTrade,
         )
@@ -383,7 +429,7 @@ class TestPortfolioOrchestrator:
         assert report.rejected_sector >= 1
 
     def test_confidence_ranking(self):
-        from quant_pod.coordination.portfolio_orchestrator import (
+        from quantstack.coordination.portfolio_orchestrator import (
             PortfolioOrchestrator,
             ProposedTrade,
         )
@@ -405,7 +451,7 @@ class TestPortfolioOrchestrator:
 
 class TestAutoPromoter:
     def test_ramp_schedule(self):
-        from quant_pod.coordination.auto_promoter import PositionRamp
+        from quantstack.coordination.auto_promoter import PositionRamp
 
         ramp = PositionRamp()
         assert ramp.get_scale(0) == 0.25
@@ -416,7 +462,7 @@ class TestAutoPromoter:
         assert ramp.get_scale(100) == 1.00
 
     def test_disabled_by_default(self, db):
-        from quant_pod.coordination.auto_promoter import AutoPromoter
+        from quantstack.coordination.auto_promoter import AutoPromoter
 
         promoter = AutoPromoter(db)
         assert not promoter.is_enabled()
@@ -425,7 +471,7 @@ class TestAutoPromoter:
 
     @patch.dict("os.environ", {"AUTO_PROMOTE_ENABLED": "true"})
     def test_too_young_strategy(self, db):
-        from quant_pod.coordination.auto_promoter import AutoPromoter
+        from quantstack.coordination.auto_promoter import AutoPromoter
 
         # Insert a fresh forward_testing strategy
         db.execute(
@@ -446,7 +492,7 @@ class TestAutoPromoter:
 
 class TestDegradationEnforcer:
     def test_critical_trips_breaker(self):
-        from quant_pod.coordination.degradation_enforcer import DegradationEnforcer
+        from quantstack.coordination.degradation_enforcer import DegradationEnforcer
 
         # Mock detector returning CRITICAL
         detector = MagicMock()
@@ -468,7 +514,7 @@ class TestDegradationEnforcer:
         breaker.force_trip.assert_called_once()
 
     def test_warning_scales_breaker(self):
-        from quant_pod.coordination.degradation_enforcer import DegradationEnforcer
+        from quantstack.coordination.degradation_enforcer import DegradationEnforcer
 
         detector = MagicMock()
         report = MagicMock()
@@ -489,7 +535,7 @@ class TestDegradationEnforcer:
         breaker.force_scale.assert_called_once()
 
     def test_clean_no_action(self):
-        from quant_pod.coordination.degradation_enforcer import DegradationEnforcer
+        from quantstack.coordination.degradation_enforcer import DegradationEnforcer
 
         detector = MagicMock()
         report = MagicMock()
@@ -511,7 +557,7 @@ class TestDegradationEnforcer:
 
 class TestDailyDigest:
     def test_generate_empty(self, db):
-        from quant_pod.coordination.daily_digest import DailyDigest
+        from quantstack.coordination.daily_digest import DailyDigest
 
         digest = DailyDigest(db)
         report = digest.generate()
@@ -521,7 +567,7 @@ class TestDailyDigest:
         assert report.total_live == 0
 
     def test_format_markdown(self, db):
-        from quant_pod.coordination.daily_digest import DailyDigest
+        from quantstack.coordination.daily_digest import DailyDigest
 
         digest = DailyDigest(db)
         report = digest.generate()
@@ -532,7 +578,7 @@ class TestDailyDigest:
         assert "Strategy Lifecycle" in md
 
     def test_format_discord(self, db):
-        from quant_pod.coordination.daily_digest import DailyDigest
+        from quantstack.coordination.daily_digest import DailyDigest
 
         digest = DailyDigest(db)
         report = digest.generate()
@@ -548,7 +594,7 @@ class TestDailyDigest:
 
 class TestEventBusTTL:
     def test_old_events_pruned_on_publish(self, db):
-        from quant_pod.coordination.event_bus import Event, EventBus, EventType
+        from quantstack.coordination.event_bus import Event, EventBus, EventType
 
         bus = EventBus(db)
 
@@ -562,19 +608,21 @@ class TestEventBusTTL:
         assert bus.count_events() == 1
 
         # Publishing a new event should prune the old one
-        bus.publish(Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory"))
+        bus.publish(
+            Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory")
+        )
         assert bus.count_events(EventType.LOOP_HEARTBEAT) == 0
         assert bus.count_events(EventType.STRATEGY_PROMOTED) == 1
 
     def test_poll_empty_returns_empty(self, db):
-        from quant_pod.coordination.event_bus import EventBus
+        from quantstack.coordination.event_bus import EventBus
 
         bus = EventBus(db)
         events = bus.poll("new_consumer")
         assert events == []
 
     def test_get_latest_missing_returns_none(self, db):
-        from quant_pod.coordination.event_bus import EventBus, EventType
+        from quantstack.coordination.event_bus import EventBus, EventType
 
         bus = EventBus(db)
         assert bus.get_latest(EventType.MODEL_TRAINED) is None
@@ -592,14 +640,14 @@ class TestStrategyStatusLockEdgeCases:
         )
 
     def test_nonexistent_strategy(self, db):
-        from quant_pod.coordination.strategy_lock import StrategyStatusLock
+        from quantstack.coordination.strategy_lock import StrategyStatusLock
 
         lock = StrategyStatusLock(db)
         ok = lock.transition("nonexistent", "draft", "forward_testing", "test")
         assert not ok
 
     def test_get_status(self, db):
-        from quant_pod.coordination.strategy_lock import StrategyStatusLock
+        from quantstack.coordination.strategy_lock import StrategyStatusLock
 
         self._insert_strategy(db, "s1", "test_strat", "live")
         lock = StrategyStatusLock(db)
@@ -608,7 +656,7 @@ class TestStrategyStatusLockEdgeCases:
 
     def test_demotion_transition(self, db):
         """live → forward_testing is valid (degradation demotion)."""
-        from quant_pod.coordination.strategy_lock import StrategyStatusLock
+        from quantstack.coordination.strategy_lock import StrategyStatusLock
 
         self._insert_strategy(db, "s1", "test_strat", "live")
         lock = StrategyStatusLock(db)
@@ -618,13 +666,15 @@ class TestStrategyStatusLockEdgeCases:
 
     def test_full_lifecycle(self, db):
         """draft → forward_testing → live → retired."""
-        from quant_pod.coordination.strategy_lock import StrategyStatusLock
+        from quantstack.coordination.strategy_lock import StrategyStatusLock
 
         self._insert_strategy(db, "s1", "lifecycle_test", "draft")
         lock = StrategyStatusLock(db)
 
         assert lock.transition("s1", "draft", "forward_testing", "good backtest")
-        assert lock.transition("s1", "forward_testing", "live", "21d paper trading passed")
+        assert lock.transition(
+            "s1", "forward_testing", "live", "21d paper trading passed"
+        )
         assert lock.transition("s1", "live", "retired", "alpha decayed")
         assert lock.get_status("s1") == "retired"
 
@@ -634,7 +684,7 @@ class TestStrategyStatusLockEdgeCases:
 
 class TestStrategyBreakerExtensions:
     def test_force_trip(self, tmp_path):
-        from quant_pod.execution.strategy_breaker import StrategyBreaker
+        from quantstack.execution.strategy_breaker import StrategyBreaker
 
         state_file = tmp_path / "breakers.json"
         breaker = StrategyBreaker(state_path=str(state_file))
@@ -649,17 +699,19 @@ class TestStrategyBreakerExtensions:
         assert factor == 0.0
 
     def test_force_scale(self, tmp_path):
-        from quant_pod.execution.strategy_breaker import StrategyBreaker
+        from quantstack.execution.strategy_breaker import StrategyBreaker
 
         state_file = tmp_path / "breakers.json"
         breaker = StrategyBreaker(state_path=str(state_file))
 
-        result = breaker.force_scale("strat_1", scale_factor=0.25, reason="IS/OOS ratio > 2")
+        result = breaker.force_scale(
+            "strat_1", scale_factor=0.25, reason="IS/OOS ratio > 2"
+        )
         assert result.status == "SCALED"
         assert result.scale_factor == 0.25
 
     def test_force_scale_does_not_escalate_past_tripped(self, tmp_path):
-        from quant_pod.execution.strategy_breaker import StrategyBreaker
+        from quantstack.execution.strategy_breaker import StrategyBreaker
 
         state_file = tmp_path / "breakers.json"
         breaker = StrategyBreaker(state_path=str(state_file))
@@ -671,7 +723,7 @@ class TestStrategyBreakerExtensions:
         assert result.scale_factor == 0.0
 
     def test_force_scale_keeps_lower_factor(self, tmp_path):
-        from quant_pod.execution.strategy_breaker import StrategyBreaker
+        from quantstack.execution.strategy_breaker import StrategyBreaker
 
         state_file = tmp_path / "breakers.json"
         breaker = StrategyBreaker(state_path=str(state_file))
@@ -682,7 +734,7 @@ class TestStrategyBreakerExtensions:
         assert result.scale_factor == 0.25
 
     def test_force_trip_survives_reload(self, tmp_path):
-        from quant_pod.execution.strategy_breaker import StrategyBreaker
+        from quantstack.execution.strategy_breaker import StrategyBreaker
 
         state_file = tmp_path / "breakers.json"
         breaker1 = StrategyBreaker(state_path=str(state_file))
@@ -719,11 +771,19 @@ class TestAutonomousScreener:
             db.execute(
                 "INSERT INTO ohlcv (symbol, timeframe, timestamp, open, high, low, close, volume) "
                 "VALUES (?, 'D1', ?, ?, ?, ?, ?, ?)",
-                [symbol, day, price - 0.5, price + 1.0, price - 1.0, price, 500000 + i * 100],
+                [
+                    symbol,
+                    day,
+                    price - 0.5,
+                    price + 1.0,
+                    price - 1.0,
+                    price,
+                    500000 + i * 100,
+                ],
             )
 
     def test_screen_empty_universe(self, db):
-        from quant_pod.autonomous.screener import AutonomousScreener
+        from quantstack.autonomous.screener import AutonomousScreener
 
         screener = AutonomousScreener(db)
         result = screener._screen_sync("trending_up")
@@ -731,7 +791,7 @@ class TestAutonomousScreener:
         assert result.total_watchlist == 0
 
     def test_screen_produces_tiers(self, db):
-        from quant_pod.autonomous.screener import AutonomousScreener
+        from quantstack.autonomous.screener import AutonomousScreener
 
         # Seed 30 symbols with OHLCV data
         symbols = [f"SYM{i:02d}" for i in range(30)]
@@ -752,7 +812,7 @@ class TestAutonomousScreener:
             assert result.tier_1[-1].composite >= result.tier_2[0].composite
 
     def test_hard_filter_excludes_restricted(self, db):
-        from quant_pod.autonomous.screener import AutonomousScreener
+        from quantstack.autonomous.screener import AutonomousScreener
 
         self._seed_universe(db, ["AAPL", "BANNED"])
         self._seed_ohlcv(db, "AAPL")
@@ -768,7 +828,7 @@ class TestAutonomousScreener:
         assert "AAPL" in all_symbols
 
     def test_hard_filter_excludes_low_adv(self, db):
-        from quant_pod.autonomous.screener import AutonomousScreener
+        from quantstack.autonomous.screener import AutonomousScreener
 
         # Insert one with low ADV
         db.execute(
@@ -790,7 +850,7 @@ class TestAutonomousScreener:
         assert "ILLIQUID" not in all_symbols
 
     def test_results_persisted(self, db):
-        from quant_pod.autonomous.screener import AutonomousScreener
+        from quantstack.autonomous.screener import AutonomousScreener
 
         self._seed_universe(db, ["AAPL", "MSFT"])
         self._seed_ohlcv(db, "AAPL")
@@ -822,8 +882,8 @@ class TestWatchlistLoaderV2:
     @patch.dict("os.environ", {"USE_TIERED_WATCHLIST": "true"}, clear=False)
     def test_load_tiered_from_screener(self, db):
         # Patch open_db_readonly to return our test db
-        with patch("quant_pod.db.open_db", return_value=db):
-            from quant_pod.autonomous.watchlist import WatchlistLoader
+        with patch("quantstack.autonomous.watchlist.open_db", return_value=db):
+            from quantstack.autonomous.watchlist import WatchlistLoader
 
             symbols = [f"T1_{i}" for i in range(15)] + [f"T2_{i}" for i in range(10)]
             tier_map = {s: 1 for s in symbols[:15]}
@@ -838,8 +898,9 @@ class TestWatchlistLoaderV2:
 
     @patch.dict("os.environ", {"USE_TIERED_WATCHLIST": "true"}, clear=False)
     def test_load_returns_t1_plus_t2(self, db):
-        with patch("quant_pod.db.open_db", return_value=db):
-            from quant_pod.autonomous.watchlist import WatchlistLoader
+        with patch("quantstack.autonomous.watchlist.open_db", return_value=db), \
+             patch("quantstack.autonomous.watchlist.open_db_readonly", return_value=db):
+            from quantstack.autonomous.watchlist import WatchlistLoader
 
             symbols = [f"S{i}" for i in range(25)]
             tier_map = {s: 1 for s in symbols[:15]}
@@ -852,7 +913,7 @@ class TestWatchlistLoaderV2:
 
     @patch.dict("os.environ", {"AUTONOMOUS_WATCHLIST": "XOM,MSFT,SPY"}, clear=False)
     def test_env_override_takes_precedence(self, db):
-        from quant_pod.autonomous.watchlist import WatchlistLoader
+        from quantstack.autonomous.watchlist import WatchlistLoader
 
         loader = WatchlistLoader()
         result = loader.load()
@@ -863,13 +924,16 @@ class TestWatchlistLoaderV2:
         with patch.dict("os.environ", {}, clear=False):
             # Remove any env overrides
             import os
+
             os.environ.pop("AUTONOMOUS_WATCHLIST", None)
             os.environ.pop("USE_TIERED_WATCHLIST", None)
 
-            from quant_pod.autonomous.watchlist import DEFAULT_SYMBOLS, WatchlistLoader
+            from quantstack.autonomous.watchlist import DEFAULT_SYMBOLS, WatchlistLoader
 
             # Patch strategy loading to return empty (no DB)
-            with patch("quant_pod.autonomous.watchlist._load_from_strategies", return_value=[]):
+            with patch(
+                "quantstack.autonomous.watchlist._load_from_strategies", return_value=[]
+            ):
                 loader = WatchlistLoader()
                 result = loader.load()
                 assert result == DEFAULT_SYMBOLS
@@ -880,7 +944,7 @@ class TestWatchlistLoaderV2:
 
 class TestSupervisor:
     def test_healthy_loop(self, db):
-        from quant_pod.coordination.supervisor import LoopConfig, LoopSupervisor
+        from quantstack.coordination.supervisor import LoopConfig, LoopSupervisor
 
         # Insert a recent heartbeat
         db.execute(
@@ -898,7 +962,7 @@ class TestSupervisor:
         assert results[0].last_iteration == 1
 
     def test_stale_loop(self, db):
-        from quant_pod.coordination.supervisor import LoopConfig, LoopSupervisor
+        from quantstack.coordination.supervisor import LoopConfig, LoopSupervisor
 
         # Insert an old heartbeat (5 minutes ago, expected interval 60s → 3x = 180s)
         old_ts = datetime.now() - timedelta(minutes=5)
@@ -915,7 +979,7 @@ class TestSupervisor:
         assert results[0].status == "stale"
 
     def test_dead_loop(self, db):
-        from quant_pod.coordination.supervisor import LoopConfig, LoopSupervisor
+        from quantstack.coordination.supervisor import LoopConfig, LoopSupervisor
 
         # Insert a very old heartbeat (15 minutes ago, expected 60s → 10x = 600s)
         old_ts = datetime.now() - timedelta(minutes=15)
@@ -932,7 +996,7 @@ class TestSupervisor:
         assert results[0].status == "dead"
 
     def test_unknown_if_no_heartbeat(self, db):
-        from quant_pod.coordination.supervisor import LoopConfig, LoopSupervisor
+        from quantstack.coordination.supervisor import LoopConfig, LoopSupervisor
 
         configs = [LoopConfig(name="strategy_factory", expected_interval_seconds=60)]
         supervisor = LoopSupervisor(db, configs)
@@ -951,7 +1015,7 @@ class TestDBMigrations:
 
         # We can't call run_migrations directly (it requires shared module),
         # but we can verify the SQL is valid by running the migration functions
-        from quant_pod.db import (
+        from quantstack.db import (
             _migrate_coordination,
             _migrate_screener,
             _migrate_universe,
@@ -976,7 +1040,7 @@ class TestDBMigrations:
     def test_migrations_idempotent(self):
         """Running migrations twice should not fail."""
         conn = duckdb.connect(":memory:")
-        from quant_pod.db import (
+        from quantstack.db import (
             _migrate_coordination,
             _migrate_screener,
             _migrate_universe,
@@ -1004,7 +1068,7 @@ class TestDBMigrations:
 class TestAutoPromoterEdgeCases:
     @patch.dict("os.environ", {"AUTO_PROMOTE_ENABLED": "true"})
     def test_insufficient_trades(self, db):
-        from quant_pod.coordination.auto_promoter import AutoPromoter
+        from quantstack.coordination.auto_promoter import AutoPromoter
 
         # Strategy old enough but not enough trades
         old_date = datetime.now(timezone.utc) - timedelta(days=30)
@@ -1029,7 +1093,7 @@ class TestAutoPromoterEdgeCases:
 
     @patch.dict("os.environ", {"AUTO_PROMOTE_ENABLED": "true"})
     def test_strategy_cap_blocks_promotion(self, db):
-        from quant_pod.coordination.auto_promoter import AutoPromoter, PromotionCriteria
+        from quantstack.coordination.auto_promoter import AutoPromoter, PromotionCriteria
 
         # Fill up live strategy slots
         for i in range(8):
@@ -1051,7 +1115,11 @@ class TestAutoPromoterEdgeCases:
                 "INSERT INTO strategy_outcomes (id, strategy_id, symbol, action, entry_price, exit_price, "
                 "realized_pnl_pct, opened_at, closed_at) "
                 "VALUES (?, 'candidate', 'SPY', 'buy', 100, 105, 0.05, ?, ?)",
-                [i + 100, old_date + timedelta(days=i), old_date + timedelta(days=i + 1)],
+                [
+                    i + 100,
+                    old_date + timedelta(days=i),
+                    old_date + timedelta(days=i + 1),
+                ],
             )
 
         criteria = PromotionCriteria(max_concurrent_live=8)
@@ -1059,4 +1127,8 @@ class TestAutoPromoterEdgeCases:
         decisions = promoter.evaluate_all()
 
         # Should be held due to cap
-        assert any("strategy_cap" in str(d.criteria_results) for d in decisions if d.decision == "hold")
+        assert any(
+            "strategy_cap" in str(d.criteria_results)
+            for d in decisions
+            if d.decision == "hold"
+        )

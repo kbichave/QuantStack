@@ -7,7 +7,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.trend import HullMovingAverage, IchimokuCloud, SupertrendIndicator
+from quantstack.core.features.trend import (
+    HullMovingAverage,
+    IchimokuCloud,
+    SupertrendIndicator,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +170,12 @@ class TestIchimokuCloud:
     def test_binary_signal_columns(self, ohlcv_100):
         ichi = IchimokuCloud()
         result = ichi.compute(ohlcv_100["high"], ohlcv_100["low"], ohlcv_100["close"])
-        for col in ("price_above_cloud", "price_below_cloud", "cloud_bullish", "tenkan_above_kijun"):
+        for col in (
+            "price_above_cloud",
+            "price_below_cloud",
+            "cloud_bullish",
+            "tenkan_above_kijun",
+        ):
             vals = result[col].dropna().unique()
             assert set(vals).issubset({0, 1}), f"{col} has non-binary values: {vals}"
 
@@ -254,7 +263,7 @@ class TestHullMovingAverage:
         hma = HullMovingAverage(period=20)
         result = hma.compute(close)
         # Skip the warmup window (period + sqrt(period) bars) before asserting
-        warmup = 20 + int(20 ** 0.5) + 1
+        warmup = 20 + int(20**0.5) + 1
         valid = result["hma_uptrend"].iloc[warmup:].dropna()
         # After warmup, essentially all bars should be uptrend in a strong rally
         assert valid.mean() >= 0.9

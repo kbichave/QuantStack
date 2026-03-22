@@ -7,7 +7,7 @@ Tests for the allocation engine and conflict resolution logic (Phase 5).
 
 from __future__ import annotations
 
-from quant_pod.mcp.allocation import compute_allocation, resolve_conflicts
+from quantstack.mcp.allocation import compute_allocation, resolve_conflicts
 
 # ---------------------------------------------------------------------------
 # Allocation Engine
@@ -80,7 +80,9 @@ class TestComputeAllocation:
                 "risk_params": {},
             },
         ]
-        result = compute_allocation("trending_up", 0.9, strategies, forward_testing_cap=0.10)
+        result = compute_allocation(
+            "trending_up", 0.9, strategies, forward_testing_cap=0.10
+        )
         alloc = result["allocations"][0]
         assert alloc["capital_pct"] <= 0.10
         assert alloc["mode"] == "paper"
@@ -131,7 +133,9 @@ class TestComputeAllocation:
             }
             for i in range(10)
         ]
-        result = compute_allocation("trending_up", 0.9, strategies, max_gross_exposure_pct=1.5)
+        result = compute_allocation(
+            "trending_up", 0.9, strategies, max_gross_exposure_pct=1.5
+        )
         assert result["total_allocated_pct"] <= 1.5
 
     def test_ranking_by_sharpe(self):

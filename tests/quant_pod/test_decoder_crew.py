@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from quant_pod.crews.decoder_crew import (
+from quantstack.crews.decoder_crew import (
     _analyze_entry_patterns,
     _analyze_exit_patterns,
     _analyze_regime_affinity,

@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.backtesting.realistic_engine import (
+from quantstack.core.backtesting.realistic_engine import (
     FillRecord,
     OrderBookSnapshot,
     RealisticBacktestConfig,

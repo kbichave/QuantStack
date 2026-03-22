@@ -12,12 +12,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.trend import SupertrendIndicator, IchimokuCloud, HullMovingAverage
+from quantstack.core.features.trend import (
+    SupertrendIndicator,
+    IchimokuCloud,
+    HullMovingAverage,
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_series(n: int = 200, seed: int = 7, start: float = 100.0) -> tuple:
     """Return (high, low, close) pd.Series of length n."""
@@ -52,6 +57,7 @@ def _trending_down(n: int = 100) -> tuple:
 # SupertrendIndicator
 # ---------------------------------------------------------------------------
 
+
 class TestSupertrendIndicator:
     def test_returns_dataframe(self):
         high, low, close = _make_series()
@@ -78,13 +84,17 @@ class TestSupertrendIndicator:
 
     def test_direction_is_1_in_strong_uptrend(self):
         high, low, close = _trending_up(100)
-        result = SupertrendIndicator(atr_length=5, multiplier=1.0).compute(high, low, close)
+        result = SupertrendIndicator(atr_length=5, multiplier=1.0).compute(
+            high, low, close
+        )
         # After warm-up, should be in an uptrend
         assert result["st_direction"].iloc[-1] == 1
 
     def test_direction_is_minus1_in_strong_downtrend(self):
         high, low, close = _trending_down(100)
-        result = SupertrendIndicator(atr_length=5, multiplier=1.0).compute(high, low, close)
+        result = SupertrendIndicator(atr_length=5, multiplier=1.0).compute(
+            high, low, close
+        )
         assert result["st_direction"].iloc[-1] == -1
 
     def test_no_lookahead(self):
@@ -92,9 +102,30 @@ class TestSupertrendIndicator:
         high, low, close = _make_series(100)
         result_n = SupertrendIndicator().compute(high, low, close)
 
-        high2 = pd.concat([high, pd.Series([high.iloc[-1] + 0.5], index=[high.index[-1] + pd.Timedelta("1D")])])
-        low2 = pd.concat([low, pd.Series([low.iloc[-1] - 0.5], index=[high.index[-1] + pd.Timedelta("1D")])])
-        close2 = pd.concat([close, pd.Series([close.iloc[-1] + 0.2], index=[high.index[-1] + pd.Timedelta("1D")])])
+        high2 = pd.concat(
+            [
+                high,
+                pd.Series(
+                    [high.iloc[-1] + 0.5], index=[high.index[-1] + pd.Timedelta("1D")]
+                ),
+            ]
+        )
+        low2 = pd.concat(
+            [
+                low,
+                pd.Series(
+                    [low.iloc[-1] - 0.5], index=[high.index[-1] + pd.Timedelta("1D")]
+                ),
+            ]
+        )
+        close2 = pd.concat(
+            [
+                close,
+                pd.Series(
+                    [close.iloc[-1] + 0.2], index=[high.index[-1] + pd.Timedelta("1D")]
+                ),
+            ]
+        )
         result_n1 = SupertrendIndicator().compute(high2, low2, close2)
 
         np.testing.assert_allclose(
@@ -124,13 +155,16 @@ class TestSupertrendIndicator:
     def test_uptrend_indicator_matches_direction(self):
         high, low, close = _make_series()
         result = SupertrendIndicator().compute(high, low, close)
-        expected = (result["st_direction"] == 1)
-        pd.testing.assert_series_equal(result["st_uptrend"], expected, check_names=False)
+        expected = result["st_direction"] == 1
+        pd.testing.assert_series_equal(
+            result["st_uptrend"], expected, check_names=False
+        )
 
 
 # ---------------------------------------------------------------------------
 # IchimokuCloud
 # ---------------------------------------------------------------------------
+
 
 class TestIchimokuCloud:
     def test_returns_dataframe(self):
@@ -141,9 +175,17 @@ class TestIchimokuCloud:
     def test_expected_columns(self):
         high, low, close = _make_series()
         result = IchimokuCloud().compute(high, low, close)
-        for col in ("tenkan_sen", "kijun_sen", "senkou_a", "senkou_b",
-                    "chikou_span", "price_above_cloud", "price_below_cloud",
-                    "cloud_bullish", "tenkan_above_kijun"):
+        for col in (
+            "tenkan_sen",
+            "kijun_sen",
+            "senkou_a",
+            "senkou_b",
+            "chikou_span",
+            "price_above_cloud",
+            "price_below_cloud",
+            "cloud_bullish",
+            "tenkan_above_kijun",
+        ):
             assert col in result.columns, f"missing: {col}"
 
     def test_same_length(self):
@@ -165,7 +207,12 @@ class TestIchimokuCloud:
     def test_binary_columns_in_0_1(self):
         high, low, close = _make_series()
         result = IchimokuCloud().compute(high, low, close)
-        for col in ("price_above_cloud", "price_below_cloud", "cloud_bullish", "tenkan_above_kijun"):
+        for col in (
+            "price_above_cloud",
+            "price_below_cloud",
+            "cloud_bullish",
+            "tenkan_above_kijun",
+        ):
             valid = result[col].dropna().isin([0, 1])
             assert valid.all(), f"{col} has values outside {{0, 1}}"
 
@@ -195,6 +242,7 @@ class TestIchimokuCloud:
 # ---------------------------------------------------------------------------
 # HullMovingAverage
 # ---------------------------------------------------------------------------
+
 
 class TestHullMovingAverage:
     def test_returns_dataframe(self):
@@ -238,7 +286,9 @@ class TestHullMovingAverage:
         result_n = HullMovingAverage(period=10).compute(close)
 
         extra_date = close.index[-1] + pd.Timedelta("1D")
-        close_ext = pd.concat([close, pd.Series([close.iloc[-1] + 0.5], index=[extra_date])])
+        close_ext = pd.concat(
+            [close, pd.Series([close.iloc[-1] + 0.5], index=[extra_date])]
+        )
         result_n1 = HullMovingAverage(period=10).compute(close_ext)
 
         vals_n = result_n["hma"].dropna().values

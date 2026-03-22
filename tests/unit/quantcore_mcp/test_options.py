@@ -9,7 +9,7 @@ class TestOptionsEngine:
 
     def test_price_option_dispatch_european(self):
         """Test European option pricing through engine."""
-        from quantcore.options.engine import price_option_dispatch
+        from quantstack.core.options.engine import price_option_dispatch
 
         result = price_option_dispatch(
             spot=100.0,
@@ -28,7 +28,7 @@ class TestOptionsEngine:
 
     def test_price_option_dispatch_american(self):
         """Test American option pricing through engine."""
-        from quantcore.options.engine import price_option_dispatch
+        from quantstack.core.options.engine import price_option_dispatch
 
         result = price_option_dispatch(
             spot=100.0,
@@ -46,7 +46,7 @@ class TestOptionsEngine:
 
     def test_compute_greeks_dispatch(self):
         """Test Greeks computation through engine."""
-        from quantcore.options.engine import compute_greeks_dispatch
+        from quantstack.core.options.engine import compute_greeks_dispatch
 
         result = compute_greeks_dispatch(
             spot=100.0,
@@ -64,7 +64,7 @@ class TestOptionsEngine:
 
     def test_compute_iv_dispatch(self):
         """Test IV computation through engine."""
-        from quantcore.options.engine import compute_iv_dispatch
+        from quantstack.core.options.engine import compute_iv_dispatch
 
         result = compute_iv_dispatch(
             spot=100.0,
@@ -86,7 +86,7 @@ class TestQuickFunctions:
 
     def test_quick_price(self):
         """Test quick option pricing."""
-        from quantcore.options.engine import quick_price
+        from quantstack.core.options.engine import quick_price
 
         price = quick_price(100, 100, 30, 0.20, "call")
 
@@ -95,7 +95,7 @@ class TestQuickFunctions:
 
     def test_quick_greeks(self):
         """Test quick Greeks computation."""
-        from quantcore.options.engine import quick_greeks
+        from quantstack.core.options.engine import quick_greeks
 
         greeks = quick_greeks(100, 100, 30, 0.20, "call")
 
@@ -106,7 +106,7 @@ class TestQuickFunctions:
     def test_quick_iv(self):
         """Test quick IV computation."""
         # Price an option first
-        from quantcore.options.engine import quick_iv, quick_price
+        from quantstack.core.options.engine import quick_iv, quick_price
 
         price = quick_price(100, 100, 30, 0.25, "call")
 

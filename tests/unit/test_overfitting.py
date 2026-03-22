@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from quantcore.research.overfitting import (
+from quantstack.core.research.overfitting import (
     DSRResult,
     OverfittingReport,
     PBOResult,
@@ -78,10 +78,18 @@ class TestDeflatedSharpeRatio:
     def test_non_normality_changes_dsr(self):
         """Non-normal returns (skew/kurtosis) should change DSR vs normal baseline."""
         r_normal = deflated_sharpe_ratio(
-            observed_sharpe=1.5, n_trials=10, n_obs=252, skewness=0.0, excess_kurtosis=0.0
+            observed_sharpe=1.5,
+            n_trials=10,
+            n_obs=252,
+            skewness=0.0,
+            excess_kurtosis=0.0,
         )
         r_non_normal = deflated_sharpe_ratio(
-            observed_sharpe=1.5, n_trials=10, n_obs=252, skewness=-1.0, excess_kurtosis=3.0
+            observed_sharpe=1.5,
+            n_trials=10,
+            n_obs=252,
+            skewness=-1.0,
+            excess_kurtosis=3.0,
         )
         # Non-normality should change the DSR (direction depends on implementation)
         assert r_normal.dsr != r_non_normal.dsr

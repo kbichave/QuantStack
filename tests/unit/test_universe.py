@@ -5,7 +5,7 @@
 
 import pandas as pd
 import pytest
-from quantcore.data.universe import (
+from quantstack.data.universe import (
     INITIAL_LIQUID_UNIVERSE,
     Sector,
     UniverseManager,

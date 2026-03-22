@@ -6,8 +6,8 @@
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import TIMEFRAME_PARAMS, Timeframe
-from quantcore.features.base import FeatureBase
+from quantstack.config.timeframes import TIMEFRAME_PARAMS, Timeframe
+from quantstack.core.features.base import FeatureBase
 
 
 class ConcreteFeature(FeatureBase):
@@ -228,7 +228,9 @@ class TestNormalizeToRange:
     def test_normalize_custom_range(self):
         """Test normalization to custom range."""
         prices = pd.Series([100.0, 110.0, 90.0, 105.0, 95.0])
-        result = FeatureBase.normalize_to_range(prices, period=3, min_val=-50, max_val=50)
+        result = FeatureBase.normalize_to_range(
+            prices, period=3, min_val=-50, max_val=50
+        )
 
         valid_results = result.dropna()
         assert (valid_results >= -50).all()

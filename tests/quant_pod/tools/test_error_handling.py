@@ -6,7 +6,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from quant_pod.tools.mcp_bridge import (
+from quantstack.tools.mcp_bridge import (
     MCPBridge,
     compute_indicators_tool,
     get_symbol_snapshot_tool,
@@ -19,7 +19,9 @@ class TestErrorHandling:
 
     def test_quantcore_unavailable(self):
         """Test error when QuantCore MCP is unavailable."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {"error": "QuantCore MCP not available"}
 
             tool = compute_indicators_tool()
@@ -31,8 +33,12 @@ class TestErrorHandling:
 
     def test_invalid_tool_response(self):
         """Test handling of tool not found error."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
-            mock_call.return_value = {"error": "Tool nonexistent_tool not found in QuantCore MCP"}
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
+            mock_call.return_value = {
+                "error": "Tool nonexistent_tool not found in QuantCore MCP"
+            }
 
             tool = run_backtest_tool()
             result = tool._run(symbol="SPY")
@@ -42,7 +48,9 @@ class TestErrorHandling:
 
     def test_exception_handling(self):
         """Test exception from MCP call is returned as error dict."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             # Simulate the bridge returning an error dict (as it does when catching exceptions)
             mock_call.return_value = {"error": "Connection timeout"}
 

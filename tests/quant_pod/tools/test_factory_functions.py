@@ -3,7 +3,7 @@
 
 """Tests for tool factory functions in MCP Bridge."""
 
-from quant_pod.tools.mcp_bridge import (
+from quantstack.tools.mcp_bridge import (
     ComputeAllFeaturesTool,
     ComputeGreeksTool,
     ComputeImpliedVolTool,

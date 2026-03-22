@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from quant_pod.execution.kill_switch import KillSwitch
+from quantstack.execution.kill_switch import KillSwitch
 
 
 @pytest.fixture

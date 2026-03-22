@@ -10,7 +10,7 @@ without hitting Discord webhooks or DuckDB on disk.
 from __future__ import annotations
 
 import pytest
-from quant_pod.monitoring.alpha_monitor import (
+from quantstack.monitoring.alpha_monitor import (
     AlertSeverity,
     AlphaMonitor,
     DegradationAlert,

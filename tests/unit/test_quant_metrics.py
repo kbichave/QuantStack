@@ -6,7 +6,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.research.quant_metrics import (
+from quantstack.core.research.quant_metrics import (
     QuantResearchReport,
     compare_strategies,
     compute_cost_adjusted_returns,
@@ -146,7 +146,10 @@ class TestCostAdjustedReturns:
         )
 
         # Net cumulative should be less than or equal to gross
-        assert result["cumulative_net"].iloc[-1] <= result["cumulative_gross"].iloc[-1] + 0.01
+        assert (
+            result["cumulative_net"].iloc[-1]
+            <= result["cumulative_gross"].iloc[-1] + 0.01
+        )
 
 
 class TestCompareStrategies:

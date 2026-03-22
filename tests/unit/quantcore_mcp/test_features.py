@@ -12,8 +12,10 @@ class TestQuantAgentFeatures:
 
     def test_pattern_features_computation(self):
         """Test pattern feature computation."""
-        from quantcore.config.timeframes import Timeframe
-        from quantcore.features.quantagents_pattern import QuantAgentsPatternFeatures
+        from quantstack.config.timeframes import Timeframe
+        from quantstack.core.features.quantagents_pattern import (
+            QuantAgentsPatternFeatures,
+        )
 
         # Create test data
         dates = pd.date_range("2024-01-01", periods=100, freq="D")
@@ -37,8 +39,8 @@ class TestQuantAgentFeatures:
 
     def test_trend_features_computation(self):
         """Test trend feature computation."""
-        from quantcore.config.timeframes import Timeframe
-        from quantcore.features.quantagents_trend import QuantAgentsTrendFeatures
+        from quantstack.config.timeframes import Timeframe
+        from quantstack.core.features.quantagents_trend import QuantAgentsTrendFeatures
 
         # Create test data (need more bars for trend calculation)
         dates = pd.date_range("2024-01-01", periods=150, freq="D")

@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from quant_pod.context import create_trading_context
+from quantstack.context import create_trading_context
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -28,7 +28,7 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quant_pod.mcp._state as _mcp_state
+    import quantstack.mcp._state as _mcp_state
 
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
@@ -49,15 +49,22 @@ def _fn(tool_obj):
 class TestRegisterStrategy:
     @pytest.mark.asyncio
     async def test_register_returns_success(self, _inject_ctx):
-        from quant_pod.mcp.server import register_strategy
+        from quantstack.mcp.server import register_strategy
 
         result = await _fn(register_strategy)(
             name="test_momentum",
             parameters={"rsi_period": 14},
             entry_rules=[
-                {"indicator": "rsi", "condition": "crosses_below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "crosses_below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
-            exit_rules=[{"indicator": "rsi", "condition": "crosses_above", "value": 70}],
+            exit_rules=[
+                {"indicator": "rsi", "condition": "crosses_above", "value": 70}
+            ],
         )
         assert result["success"] is True
         assert result["strategy_id"].startswith("strat_")
@@ -65,7 +72,7 @@ class TestRegisterStrategy:
 
     @pytest.mark.asyncio
     async def test_register_with_all_fields(self, _inject_ctx):
-        from quant_pod.mcp.server import register_strategy
+        from quantstack.mcp.server import register_strategy
 
         result = await _fn(register_strategy)(
             name="full_strategy",
@@ -73,9 +80,15 @@ class TestRegisterStrategy:
             asset_class="equities",
             parameters={"rsi_period": 14, "sma_fast": 10, "sma_slow": 50},
             entry_rules=[
-                {"indicator": "sma_crossover", "condition": "crosses_above", "direction": "long"}
+                {
+                    "indicator": "sma_crossover",
+                    "condition": "crosses_above",
+                    "direction": "long",
+                }
             ],
-            exit_rules=[{"indicator": "rsi", "condition": "crosses_above", "value": 80}],
+            exit_rules=[
+                {"indicator": "rsi", "condition": "crosses_above", "value": 80}
+            ],
             regime_affinity={"trending_up": 0.9, "ranging": 0.2},
             risk_params={"stop_loss_atr": 2.0, "position_pct": 0.05},
             source="workshop",
@@ -84,13 +97,18 @@ class TestRegisterStrategy:
 
     @pytest.mark.asyncio
     async def test_duplicate_name_fails(self, _inject_ctx):
-        from quant_pod.mcp.server import register_strategy
+        from quantstack.mcp.server import register_strategy
 
         await _fn(register_strategy)(
             name="unique_name",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -98,7 +116,12 @@ class TestRegisterStrategy:
             name="unique_name",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 20, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 20,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -113,7 +136,7 @@ class TestRegisterStrategy:
 class TestListStrategies:
     @pytest.mark.asyncio
     async def test_empty_initially(self, _inject_ctx):
-        from quant_pod.mcp.server import list_strategies
+        from quantstack.mcp.server import list_strategies
 
         result = await _fn(list_strategies)()
         assert result["success"] is True
@@ -121,13 +144,18 @@ class TestListStrategies:
 
     @pytest.mark.asyncio
     async def test_returns_registered_strategies(self, _inject_ctx):
-        from quant_pod.mcp.server import list_strategies, register_strategy
+        from quantstack.mcp.server import list_strategies, register_strategy
 
         await _fn(register_strategy)(
             name="s1",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -135,7 +163,12 @@ class TestListStrategies:
             name="s2",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 20, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 20,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -145,13 +178,22 @@ class TestListStrategies:
 
     @pytest.mark.asyncio
     async def test_filter_by_status(self, _inject_ctx):
-        from quant_pod.mcp.server import list_strategies, register_strategy, update_strategy
+        from quantstack.mcp.server import (
+            list_strategies,
+            register_strategy,
+            update_strategy,
+        )
 
         r = await _fn(register_strategy)(
             name="s_draft",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -161,7 +203,12 @@ class TestListStrategies:
             name="s_still_draft",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 20, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 20,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -182,13 +229,18 @@ class TestListStrategies:
 class TestGetStrategy:
     @pytest.mark.asyncio
     async def test_get_by_id(self, _inject_ctx):
-        from quant_pod.mcp.server import get_strategy, register_strategy
+        from quantstack.mcp.server import get_strategy, register_strategy
 
         r = await _fn(register_strategy)(
             name="get_test",
             parameters={"rsi_period": 14},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
             description="test desc",
@@ -201,13 +253,18 @@ class TestGetStrategy:
 
     @pytest.mark.asyncio
     async def test_get_by_name(self, _inject_ctx):
-        from quant_pod.mcp.server import get_strategy, register_strategy
+        from quantstack.mcp.server import get_strategy, register_strategy
 
         await _fn(register_strategy)(
             name="by_name_test",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -217,7 +274,7 @@ class TestGetStrategy:
 
     @pytest.mark.asyncio
     async def test_not_found(self, _inject_ctx):
-        from quant_pod.mcp.server import get_strategy
+        from quantstack.mcp.server import get_strategy
 
         result = await _fn(get_strategy)(strategy_id="nonexistent")
         assert result["success"] is False
@@ -232,13 +289,18 @@ class TestGetStrategy:
 class TestUpdateStrategy:
     @pytest.mark.asyncio
     async def test_update_status(self, _inject_ctx):
-        from quant_pod.mcp.server import get_strategy, register_strategy, update_strategy
+        from quantstack.mcp.server import get_strategy, register_strategy, update_strategy
 
         r = await _fn(register_strategy)(
             name="update_test",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -249,13 +311,18 @@ class TestUpdateStrategy:
 
     @pytest.mark.asyncio
     async def test_update_backtest_summary(self, _inject_ctx):
-        from quant_pod.mcp.server import get_strategy, register_strategy, update_strategy
+        from quantstack.mcp.server import get_strategy, register_strategy, update_strategy
 
         r = await _fn(register_strategy)(
             name="bt_summary_test",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )
@@ -270,13 +337,18 @@ class TestUpdateStrategy:
 
     @pytest.mark.asyncio
     async def test_update_no_fields_fails(self, _inject_ctx):
-        from quant_pod.mcp.server import register_strategy, update_strategy
+        from quantstack.mcp.server import register_strategy, update_strategy
 
         r = await _fn(register_strategy)(
             name="no_fields",
             parameters={},
             entry_rules=[
-                {"indicator": "rsi", "condition": "below", "value": 30, "direction": "long"}
+                {
+                    "indicator": "rsi",
+                    "condition": "below",
+                    "value": 30,
+                    "direction": "long",
+                }
             ],
             exit_rules=[],
         )

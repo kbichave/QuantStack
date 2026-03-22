@@ -11,8 +11,8 @@ Verifies:
 from datetime import date
 
 import pytest
-from quantcore.core.calendar import TradingCalendar
-from quantcore.core.errors import CalendarError
+from quantstack.core.core.calendar import TradingCalendar
+from quantstack.core.core.errors import CalendarError
 
 
 class TestTradingCalendarBasics:

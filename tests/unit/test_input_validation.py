@@ -11,7 +11,7 @@ Verifies that:
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.validation.input_validation import (
+from quantstack.core.validation.input_validation import (
     DataFrameValidator,
     ValidationResult,
     validate_in_range,
@@ -122,7 +122,9 @@ class TestOHLCVValidation:
         result = DataFrameValidator.validate_ohlcv(df)
         # Should have warnings or errors about NaN
         has_nan_message = any(
-            "nan" in (e.lower() + w.lower()) for e in result.errors for w in result.warnings
+            "nan" in (e.lower() + w.lower())
+            for e in result.errors
+            for w in result.warnings
         ) or any("nan" in w.lower() for w in result.warnings)
         assert has_nan_message, f"NaN should be detected: {result}"
 
@@ -193,7 +195,9 @@ class TestOHLCVValidation:
 
         result = DataFrameValidator.validate_ohlcv(df)
         assert not result.is_valid
-        assert any("volume" in e.lower() and "negative" in e.lower() for e in result.errors)
+        assert any(
+            "volume" in e.lower() and "negative" in e.lower() for e in result.errors
+        )
 
     def test_raise_on_error_works(self):
         """raise_on_error=True should raise ValueError."""
@@ -319,9 +323,9 @@ class TestFeatureMatrixValidation:
         )
         result = DataFrameValidator.validate_feature_matrix(df, max_nan_pct=5.0)
         # Should have warning about high NaN
-        assert any("nan" in w.lower() for w in result.warnings), (
-            f"High NaN rate should be warned: {result}"
-        )
+        assert any(
+            "nan" in w.lower() for w in result.warnings
+        ), f"High NaN rate should be warned: {result}"
 
 
 class TestHelperValidators:

@@ -6,8 +6,8 @@
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.features.volatility import VolatilityFeatures
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.volatility import VolatilityFeatures
 
 
 class TestVolatilityFeatures:
@@ -182,8 +182,12 @@ class TestBollingerBands:
         result = features.compute(ohlcv)
 
         valid_idx = result["bb_upper"].notna()
-        assert (result.loc[valid_idx, "bb_upper"] >= result.loc[valid_idx, "bb_middle"]).all()
-        assert (result.loc[valid_idx, "bb_middle"] >= result.loc[valid_idx, "bb_lower"]).all()
+        assert (
+            result.loc[valid_idx, "bb_upper"] >= result.loc[valid_idx, "bb_middle"]
+        ).all()
+        assert (
+            result.loc[valid_idx, "bb_middle"] >= result.loc[valid_idx, "bb_lower"]
+        ).all()
 
     def test_bb_width_positive(self, features, ohlcv):
         """Test Bollinger Band width is positive."""

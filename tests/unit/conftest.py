@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-from quantcore.features.waves import WaveConfig
+from quantstack.core.features.waves import WaveConfig
 
 # Import renamed generators from shared fixtures and re-export under
 # the original names that unit tests expect.
@@ -56,7 +56,7 @@ def patch_get_settings(mock_settings):
     Patch get_settings() to return mock settings.
     Use this fixture when testing modules that depend on settings.
     """
-    with patch("quantcore.config.settings.get_settings", return_value=mock_settings):
+    with patch("quantstack.config.settings.get_settings", return_value=mock_settings):
         yield mock_settings
 
 
@@ -80,7 +80,9 @@ def simple_hourly_ohlcv():
             "close": [101, 102, 103, 104, 105, 106, 107, 108],
             "volume": [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700],
         },
-        index=pd.date_range("2024-01-02 09:00", periods=8, freq="1H", tz="America/New_York"),
+        index=pd.date_range(
+            "2024-01-02 09:00", periods=8, freq="1H", tz="America/New_York"
+        ),
     )
 
 

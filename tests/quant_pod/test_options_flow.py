@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-from quant_pod.tools.options_flow_tools import (
+from quantstack.tools.options_flow_tools import (
     OptionsContract,
     OptionsFlowClient,
     OptionsFlowSignal,
@@ -81,17 +81,27 @@ class TestComputeSignal:
     def _bullish_chain(self) -> list:
         """Heavy call volume, net premium positive."""
         return [
-            _contract("call", volume=5000, open_interest=500, last_price=3.0, bid=2.9, ask=3.1),
-            _contract("call", volume=3000, open_interest=200, last_price=2.0, bid=1.9, ask=2.1),
-            _contract("put", volume=500, open_interest=300, last_price=1.0, bid=0.9, ask=1.1),
+            _contract(
+                "call", volume=5000, open_interest=500, last_price=3.0, bid=2.9, ask=3.1
+            ),
+            _contract(
+                "call", volume=3000, open_interest=200, last_price=2.0, bid=1.9, ask=2.1
+            ),
+            _contract(
+                "put", volume=500, open_interest=300, last_price=1.0, bid=0.9, ask=1.1
+            ),
         ]
 
     def _bearish_chain(self) -> list:
         """Heavy put volume, net premium negative."""
         return [
             _contract("call", volume=500, open_interest=300),
-            _contract("put", volume=5000, open_interest=500, last_price=3.0, bid=2.9, ask=3.1),
-            _contract("put", volume=3000, open_interest=200, last_price=2.0, bid=1.9, ask=2.1),
+            _contract(
+                "put", volume=5000, open_interest=500, last_price=3.0, bid=2.9, ask=3.1
+            ),
+            _contract(
+                "put", volume=3000, open_interest=200, last_price=2.0, bid=1.9, ask=2.1
+            ),
         ]
 
     def test_bullish_chain_is_bullish(self, client):
@@ -131,8 +141,12 @@ class TestComputeSignal:
         assert signal.n_unusual_contracts >= 1
 
     def test_high_iv_contributes_to_score(self, client):
-        high_iv = _contract("call", implied_volatility=0.70, volume=500, open_interest=100)
-        low_iv = _contract("call", implied_volatility=0.20, volume=500, open_interest=100)
+        high_iv = _contract(
+            "call", implied_volatility=0.70, volume=500, open_interest=100
+        )
+        low_iv = _contract(
+            "call", implied_volatility=0.20, volume=500, open_interest=100
+        )
 
         sig_high = client._compute_signal("SPY", [high_iv])
         sig_low = client._compute_signal("SPY", [low_iv])

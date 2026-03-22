@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.microstructure import (
+from quantstack.core.features.microstructure import (
     AmihudIlliquidity,
     CorwinSchultzSpread,
     OvernightGapPersistence,
@@ -65,8 +65,18 @@ class TestAmihudIlliquidity:
         vol_high = pd.Series(np.full(50, 5_000_000.0), index=dates)
         vol_low = pd.Series(np.full(50, 50_000.0), index=dates)
 
-        r_high_vol = AmihudIlliquidity(period=10).compute(close, vol_high)["amihud"].dropna().mean()
-        r_low_vol = AmihudIlliquidity(period=10).compute(close, vol_low)["amihud"].dropna().mean()
+        r_high_vol = (
+            AmihudIlliquidity(period=10)
+            .compute(close, vol_high)["amihud"]
+            .dropna()
+            .mean()
+        )
+        r_low_vol = (
+            AmihudIlliquidity(period=10)
+            .compute(close, vol_low)["amihud"]
+            .dropna()
+            .mean()
+        )
 
         assert r_low_vol > r_high_vol
 
@@ -109,15 +119,23 @@ class TestRollImpliedSpread:
 
 class TestCorwinSchultzSpread:
     def test_returns_dataframe(self, ohlcv):
-        result = CorwinSchultzSpread().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        result = CorwinSchultzSpread().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
         assert isinstance(result, pd.DataFrame)
 
     def test_expected_columns(self, ohlcv):
-        result = CorwinSchultzSpread().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
-        assert {"cs_spread", "cs_spread_pct", "cs_spread_ma"}.issubset(set(result.columns))
+        result = CorwinSchultzSpread().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
+        assert {"cs_spread", "cs_spread_pct", "cs_spread_ma"}.issubset(
+            set(result.columns)
+        )
 
     def test_spread_non_negative_where_defined(self, ohlcv):
-        result = CorwinSchultzSpread().compute(ohlcv["high"], ohlcv["low"], ohlcv["close"])
+        result = CorwinSchultzSpread().compute(
+            ohlcv["high"], ohlcv["low"], ohlcv["close"]
+        )
         valid = result["cs_spread"].dropna()
         assert (valid >= 0).all()
 
@@ -131,8 +149,16 @@ class TestCorwinSchultzSpread:
         high_wide = close + 3.0
         low_wide = close - 3.0
 
-        spread_narrow = CorwinSchultzSpread(period=10).compute(high_narrow, low_narrow, close)["cs_spread"].dropna()
-        spread_wide = CorwinSchultzSpread(period=10).compute(high_wide, low_wide, close)["cs_spread"].dropna()
+        spread_narrow = (
+            CorwinSchultzSpread(period=10)
+            .compute(high_narrow, low_narrow, close)["cs_spread"]
+            .dropna()
+        )
+        spread_wide = (
+            CorwinSchultzSpread(period=10)
+            .compute(high_wide, low_wide, close)["cs_spread"]
+            .dropna()
+        )
 
         # Both must have some valid values; wide range should produce larger spread
         assert len(spread_wide) > 0
@@ -157,8 +183,12 @@ class TestRealizedVarianceDecomposition:
             ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
         )
         expected = {
-            "overnight_var", "intraday_var", "total_var",
-            "overnight_var_ratio", "rv_overnight_ma", "rv_intraday_ma",
+            "overnight_var",
+            "intraday_var",
+            "total_var",
+            "overnight_var_ratio",
+            "rv_overnight_ma",
+            "rv_intraday_ma",
         }
         assert expected.issubset(set(result.columns))
 
@@ -166,7 +196,11 @@ class TestRealizedVarianceDecomposition:
         result = RealizedVarianceDecomposition().compute(
             ohlcv["open"], ohlcv["high"], ohlcv["low"], ohlcv["close"]
         )
-        diff = (result["overnight_var"] + result["intraday_var"] - result["total_var"]).dropna().abs()
+        diff = (
+            (result["overnight_var"] + result["intraday_var"] - result["total_var"])
+            .dropna()
+            .abs()
+        )
         assert (diff < 1e-10).all()
 
     def test_ratio_in_zero_one(self, ohlcv):
@@ -194,7 +228,9 @@ class TestVWAPSessionDeviation:
         result = VWAPSessionDeviation().compute(
             ohlcv["high"], ohlcv["low"], ohlcv["close"], ohlcv["volume"]
         )
-        assert {"vwap_rolling", "vwap_deviation", "vwap_deviation_zscore"}.issubset(set(result.columns))
+        assert {"vwap_rolling", "vwap_deviation", "vwap_deviation_zscore"}.issubset(
+            set(result.columns)
+        )
 
     def test_zero_deviation_when_close_equals_typical(self):
         """When close = typical price (H+L+C)/3 = (101+99+100)/3=100, deviation ≈ 0."""
@@ -221,7 +257,14 @@ class TestOvernightGapPersistence:
 
     def test_expected_columns(self, ohlcv):
         result = OvernightGapPersistence().compute(ohlcv["open"], ohlcv["close"])
-        expected = {"gap_pct", "gap_up", "gap_down", "gap_filled", "gap_persisted", "gap_filled_pct"}
+        expected = {
+            "gap_pct",
+            "gap_up",
+            "gap_down",
+            "gap_filled",
+            "gap_persisted",
+            "gap_filled_pct",
+        }
         assert expected.issubset(set(result.columns))
 
     def test_binary_columns(self, ohlcv):

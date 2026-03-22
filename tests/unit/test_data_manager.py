@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.data.base import AssetClass, AssetClassAdapter
-from quantcore.data.manager import UnifiedDataManager
-from quantcore.data.provider_enum import DataProvider
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.base import AssetClass, AssetClassAdapter
+from quantstack.data.manager import UnifiedDataManager
+from quantstack.data.provider_enum import DataProvider
 
 
 class MockEquityAdapter(AssetClassAdapter):
@@ -92,7 +92,7 @@ class TestUnifiedDataManager:
     @pytest.fixture
     def manager(self) -> UnifiedDataManager:
         """Create data manager with mocked storage."""
-        with patch("quantcore.data.manager.DataStore"):
+        with patch("quantstack.data.manager.DataStore"):
             return UnifiedDataManager()
 
     @pytest.fixture
@@ -266,7 +266,7 @@ class TestDataManagerIntegration:
     @pytest.fixture
     def manager_with_adapters(self) -> UnifiedDataManager:
         """Create manager with adapters registered."""
-        with patch("quantcore.data.manager.DataStore"):
+        with patch("quantstack.data.manager.DataStore"):
             manager = UnifiedDataManager()
             manager.register_adapter(MockEquityAdapter())
             manager.register_adapter(MockCryptoAdapter())

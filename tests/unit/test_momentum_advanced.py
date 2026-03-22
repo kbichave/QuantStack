@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.momentum import PercentRExhaustion
+from quantstack.core.features.momentum import PercentRExhaustion
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,9 @@ class TestPercentRExhaustionStructure:
         ind = PercentRExhaustion()
         result = ind.compute(ohlcv_200["high"], ohlcv_200["low"], ohlcv_200["close"])
         both = (result["exhaustion_top"] == 1) & (result["exhaustion_bottom"] == 1)
-        assert not both.any(), "exhaustion_top and exhaustion_bottom fired simultaneously"
+        assert (
+            not both.any()
+        ), "exhaustion_top and exhaustion_bottom fired simultaneously"
 
 
 # ---------------------------------------------------------------------------

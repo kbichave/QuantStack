@@ -15,14 +15,17 @@ import pandas as pd
 import pytest
 from unittest.mock import MagicMock
 
-from quant_pod.signal_engine.collectors.cross_asset import collect_cross_asset
+from quantstack.signal_engine.collectors.cross_asset import collect_cross_asset
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_ohlcv(n: int = 60, seed: int = 42, start_close: float = 100.0) -> pd.DataFrame:
+
+def _make_ohlcv(
+    n: int = 60, seed: int = 42, start_close: float = 100.0
+) -> pd.DataFrame:
     """Return a realistic OHLCV DataFrame of length n."""
     np.random.seed(seed)
     dates = pd.date_range("2023-01-01", periods=n, freq="D")
@@ -65,6 +68,7 @@ def _run(coro):
 # Core contract
 # ---------------------------------------------------------------------------
 
+
 class TestCrossAssetCollectorCore:
     def test_returns_dict(self):
         result = _run(collect_cross_asset("AAPL", _make_store()))
@@ -91,6 +95,7 @@ class TestCrossAssetCollectorCore:
 # ---------------------------------------------------------------------------
 # ETF return signals
 # ---------------------------------------------------------------------------
+
 
 class TestCrossAssetETFSignals:
     def test_qqq_vs_spy_key_present(self):
@@ -119,6 +124,7 @@ class TestCrossAssetETFSignals:
 # Risk-on score and regime
 # ---------------------------------------------------------------------------
 
+
 class TestCrossAssetRiskScore:
     def test_risk_on_score_in_zero_one(self):
         result = _run(collect_cross_asset("AAPL", _make_store()))
@@ -138,6 +144,7 @@ class TestCrossAssetRiskScore:
 # ---------------------------------------------------------------------------
 # SMT Divergence signals
 # ---------------------------------------------------------------------------
+
 
 class TestCrossAssetSMT:
     def test_smt_keys_present(self):
@@ -170,6 +177,7 @@ class TestCrossAssetSMT:
 # ---------------------------------------------------------------------------
 # Futures Basis (ES=F vs SPY)
 # ---------------------------------------------------------------------------
+
 
 class TestCrossAssetFuturesBasis:
     def test_es_basis_pct_key_present(self):
@@ -215,6 +223,7 @@ class TestCrossAssetFuturesBasis:
 # ---------------------------------------------------------------------------
 # VVIX signals
 # ---------------------------------------------------------------------------
+
 
 class TestCrossAssetVVIX:
     def test_vvix_key_present(self):

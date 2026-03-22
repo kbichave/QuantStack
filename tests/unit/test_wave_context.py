@@ -11,9 +11,9 @@ Tests verify:
 
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.features.waves import WaveRole
-from quantcore.hierarchy.wave_context import (
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.waves import WaveRole
+from quantstack.core.hierarchy.wave_context import (
     MultiTimeframeWaveContext,
     WaveContextAnalyzer,
     WaveContextSummary,
@@ -96,9 +96,9 @@ class TestIsCorrectiveDown:
 
         summary = wave_analyzer_h4.analyze(df)
 
-        assert summary.is_corrective_down is True, (
-            "wave_role=corr_down should set is_corrective_down=True"
-        )
+        assert (
+            summary.is_corrective_down is True
+        ), "wave_role=corr_down should set is_corrective_down=True"
 
     def test_is_corrective_down_from_probability(self, wave_analyzer_h4):
         """
@@ -115,9 +115,9 @@ class TestIsCorrectiveDown:
 
         summary = wave_analyzer_h4.analyze(df)
 
-        assert summary.is_corrective_down is True, (
-            "prob_corr_down > 0.6 should trigger is_corrective_down=True"
-        )
+        assert (
+            summary.is_corrective_down is True
+        ), "prob_corr_down > 0.6 should trigger is_corrective_down=True"
 
     def test_is_corrective_down_false_when_neither_condition(self, wave_analyzer_h4):
         """
@@ -197,9 +197,9 @@ class TestIsLateImpulse:
 
         summary = wave_analyzer_h4.analyze(df)
 
-        assert summary.is_late_impulse is True, (
-            "impulse_up_terminal should set is_late_impulse=True"
-        )
+        assert (
+            summary.is_late_impulse is True
+        ), "impulse_up_terminal should set is_late_impulse=True"
 
     def test_is_late_impulse_terminal_down(self, wave_analyzer_h4):
         """
@@ -231,7 +231,9 @@ class TestIsLateImpulse:
 
         summary = wave_analyzer_h4.analyze(df)
 
-        assert summary.is_late_impulse is True, "wave_stage=4 should trigger is_late_impulse=True"
+        assert (
+            summary.is_late_impulse is True
+        ), "wave_stage=4 should trigger is_late_impulse=True"
 
     def test_is_late_impulse_from_stage_5(self, wave_analyzer_h4):
         """
@@ -655,7 +657,9 @@ class TestMultiTimeframeWaveContext:
         mtf = MultiTimeframeWaveContext()
 
         df_h4 = make_df_with_wave_columns(n_bars=20, wave_role=WaveRole.CORR_DOWN.value)
-        df_d1 = make_df_with_wave_columns(n_bars=20, wave_role=WaveRole.IMPULSE_UP.value)
+        df_d1 = make_df_with_wave_columns(
+            n_bars=20, wave_role=WaveRole.IMPULSE_UP.value
+        )
 
         result = mtf.analyze(df_h4, df_d1)
 
@@ -701,7 +705,9 @@ class TestMultiTimeframeWaveContext:
 
         # Should be > 0.5 (favorable for long)
         assert 0 <= quality <= 1
-        assert quality > 0.5, "Corrective down on H4 + impulse up on D1 should favor long"
+        assert (
+            quality > 0.5
+        ), "Corrective down on H4 + impulse up on D1 should favor long"
 
     def test_get_combined_signal_quality_short(self):
         """
@@ -724,7 +730,9 @@ class TestMultiTimeframeWaveContext:
         quality = mtf.get_combined_signal_quality(contexts, "SHORT")
 
         assert 0 <= quality <= 1
-        assert quality > 0.5, "Corrective up on H4 + impulse down on D1 should favor short"
+        assert (
+            quality > 0.5
+        ), "Corrective up on H4 + impulse down on D1 should favor short"
 
 
 # =============================================================================

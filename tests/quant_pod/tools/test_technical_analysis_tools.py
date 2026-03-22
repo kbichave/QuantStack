@@ -6,7 +6,12 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from quant_pod.tools.mcp_bridge import MCPBridge, compute_all_features_tool, compute_indicators_tool, list_available_indicators_tool
+from quantstack.tools.mcp_bridge import (
+    MCPBridge,
+    compute_all_features_tool,
+    compute_indicators_tool,
+    list_available_indicators_tool,
+)
 
 
 class TestTechnicalAnalysisTools:
@@ -14,14 +19,18 @@ class TestTechnicalAnalysisTools:
 
     def test_compute_indicators_tool(self):
         """Test compute_indicators_tool returns indicator values."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "indicators": {"rsi_14": 55.5, "macd": 1.2, "atr_14": 5.5},
             }
 
             tool = compute_indicators_tool()
-            result = tool._run(symbol="SPY", timeframe="daily", indicators=["rsi_14", "macd"])
+            result = tool._run(
+                symbol="SPY", timeframe="daily", indicators=["rsi_14", "macd"]
+            )
 
             data = json.loads(result)
             assert data["symbol"] == "SPY"
@@ -30,7 +39,9 @@ class TestTechnicalAnalysisTools:
 
     def test_compute_all_features_tool(self):
         """Test compute_all_features_tool returns 200+ features."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "feature_count": 215,
@@ -46,7 +57,9 @@ class TestTechnicalAnalysisTools:
 
     def test_list_available_indicators_tool(self):
         """Test list_available_indicators_tool returns indicator catalog."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "indicators": [
                     {"name": "RSI", "description": "Relative Strength Index"},

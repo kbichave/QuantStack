@@ -6,7 +6,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from quant_pod.tools.mcp_bridge import (
+from quantstack.tools.mcp_bridge import (
     MCPBridge,
     check_risk_limits_tool,
     compute_position_size_tool,
@@ -20,7 +20,9 @@ class TestRiskManagementTools:
 
     def test_compute_position_size_tool(self):
         """Test compute_position_size_tool returns position size."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "shares": 50,
                 "dollar_amount": 5000,
@@ -37,7 +39,9 @@ class TestRiskManagementTools:
 
     def test_compute_var_tool(self):
         """Test compute_var_tool returns VaR metrics."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "var_95": 2500,
                 "var_99": 3500,
@@ -46,7 +50,9 @@ class TestRiskManagementTools:
             }
 
             tool = compute_var_tool()
-            result = tool._run(returns=[0.01, -0.02, 0.015, -0.01], portfolio_value=100000)
+            result = tool._run(
+                returns=[0.01, -0.02, 0.015, -0.01], portfolio_value=100000
+            )
 
             data = json.loads(result)
             assert "var_95" in data
@@ -54,7 +60,9 @@ class TestRiskManagementTools:
 
     def test_stress_test_portfolio_tool(self):
         """Test stress_test_portfolio_tool returns scenario results."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "scenarios": [
                     {"name": "Market Crash", "pnl": -15000},
@@ -74,7 +82,9 @@ class TestRiskManagementTools:
 
     def test_check_risk_limits_tool(self):
         """Test check_risk_limits_tool returns pass/fail status."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "within_limits": True,
                 "checks": {"delta_ok": True, "gamma_ok": True, "vega_ok": True},
@@ -82,7 +92,9 @@ class TestRiskManagementTools:
             }
 
             tool = check_risk_limits_tool()
-            result = tool._run(portfolio_delta=50, portfolio_gamma=25, portfolio_vega=2500)
+            result = tool._run(
+                portfolio_delta=50, portfolio_gamma=25, portfolio_vega=2500
+            )
 
             data = json.loads(result)
             assert "within_limits" in data

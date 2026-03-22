@@ -11,7 +11,7 @@ Tests verify:
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.validation.leakage import (
+from quantstack.core.validation.leakage import (
     DistributionTest,
     FeatureShiftTest,
     LeakageDetector,
@@ -59,7 +59,9 @@ def clean_features():
 
     # Labels with some correlation to features (no lookahead)
     noise = np.random.randn(n_samples) * 0.5
-    y = pd.Series(((X["feature_1"] + X["feature_2"] + noise) > 0).astype(int), name="label")
+    y = pd.Series(
+        ((X["feature_1"] + X["feature_2"] + noise) > 0).astype(int), name="label"
+    )
 
     return X, y
 
@@ -298,7 +300,9 @@ class TestDistributionTest:
 class TestLeakageDetector:
     """Tests for integrated leakage detector."""
 
-    def test_run_all_tests_returns_structured_results(self, simple_model, clean_features):
+    def test_run_all_tests_returns_structured_results(
+        self, simple_model, clean_features
+    ):
         """
         Verify run_all_tests returns properly structured results.
         """

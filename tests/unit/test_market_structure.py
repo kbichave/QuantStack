@@ -11,8 +11,8 @@ Tests verify:
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.features.market_structure import MarketStructureFeatures
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.market_structure import MarketStructureFeatures
 
 # Import helpers from conftest
 from tests.conftest import (
@@ -155,11 +155,13 @@ class TestZigZagVShape:
         # Allow some tolerance for detection lag
         for idx in swing_low_indices:
             bar_position = v_shape_with_atr.index.get_loc(idx)
-            assert 5 < bar_position < n_bars - 5, (
-                f"Swing low at position {bar_position} should be in middle portion"
-            )
+            assert (
+                5 < bar_position < n_bars - 5
+            ), f"Swing low at position {bar_position} should be in middle portion"
 
-    def test_v_shape_swing_low_at_local_minimum(self, market_structure_h4, v_shape_with_atr):
+    def test_v_shape_swing_low_at_local_minimum(
+        self, market_structure_h4, v_shape_with_atr
+    ):
         """
         Verify that detected swing low is near a local price minimum.
 
@@ -180,9 +182,9 @@ class TestZigZagVShape:
 
             # Swing low should be within 10% of the overall minimum
             tolerance = overall_min * 0.10
-            assert min_swing_price <= overall_min + tolerance, (
-                f"Swing low price {min_swing_price} should be near overall min {overall_min}"
-            )
+            assert (
+                min_swing_price <= overall_min + tolerance
+            ), f"Swing low price {min_swing_price} should be near overall min {overall_min}"
 
 
 # =============================================================================
@@ -193,7 +195,9 @@ class TestZigZagVShape:
 class TestZigZagWShape:
     """Tests for swing detection on W-shaped price patterns."""
 
-    def test_w_shape_detects_multiple_swings(self, market_structure_h4, w_shape_with_atr):
+    def test_w_shape_detects_multiple_swings(
+        self, market_structure_h4, w_shape_with_atr
+    ):
         """
         Verify that W-shape produces multiple swing points.
 
@@ -212,9 +216,9 @@ class TestZigZagWShape:
 
         # At minimum we expect some swing activity
         total_swings = n_swing_lows + n_swing_highs
-        assert total_swings >= 1, (
-            f"W-shape should detect at least 1 swing point, got {total_swings}"
-        )
+        assert (
+            total_swings >= 1
+        ), f"W-shape should detect at least 1 swing point, got {total_swings}"
 
     def test_w_shape_swing_highs_and_lows(self, market_structure_h4, w_shape_with_atr):
         """
@@ -242,7 +246,9 @@ class TestZigZagWShape:
 class TestZigZagMonotonic:
     """Tests for swing detection on monotonic price series."""
 
-    def test_monotonic_uptrend_few_swings(self, market_structure_h4, monotonic_up_with_atr):
+    def test_monotonic_uptrend_few_swings(
+        self, market_structure_h4, monotonic_up_with_atr
+    ):
         """
         Verify that monotonic uptrend produces few or no swings.
 
@@ -257,7 +263,9 @@ class TestZigZagMonotonic:
 
         # Monotonic series should have very few swings
         # The small spread might cause minor detections, but should be minimal
-        assert total_swings <= 2, f"Monotonic uptrend should have few swings, got {total_swings}"
+        assert (
+            total_swings <= 2
+        ), f"Monotonic uptrend should have few swings, got {total_swings}"
 
     def test_monotonic_downtrend_few_swings(self, market_structure_h4):
         """
@@ -275,7 +283,9 @@ class TestZigZagMonotonic:
         )
 
         total_swings = swing_high.sum() + swing_low.sum()
-        assert total_swings <= 2, f"Monotonic downtrend should have few swings, got {total_swings}"
+        assert (
+            total_swings <= 2
+        ), f"Monotonic downtrend should have few swings, got {total_swings}"
 
 
 # =============================================================================
@@ -298,7 +308,9 @@ class TestZigZagFlatMarket:
         )
 
         total_swings = swing_high.sum() + swing_low.sum()
-        assert total_swings == 0, f"Flat market should have no swings, got {total_swings}"
+        assert (
+            total_swings == 0
+        ), f"Flat market should have no swings, got {total_swings}"
 
 
 # =============================================================================
@@ -309,7 +321,9 @@ class TestZigZagFlatMarket:
 class TestSwingAlternation:
     """Tests for swing direction alternation invariant."""
 
-    def test_swings_never_fire_simultaneously(self, market_structure_h4, volatile_series_with_atr):
+    def test_swings_never_fire_simultaneously(
+        self, market_structure_h4, volatile_series_with_atr
+    ):
         """
         Verify that swing_high and swing_low never both equal 1 at the same bar.
 
@@ -321,9 +335,13 @@ class TestSwingAlternation:
 
         # Check no bar has both swing_high=1 and swing_low=1
         both_true = ((swing_high == 1) & (swing_low == 1)).sum()
-        assert both_true == 0, f"Found {both_true} bars with both swing high and swing low"
+        assert (
+            both_true == 0
+        ), f"Found {both_true} bars with both swing high and swing low"
 
-    def test_swings_strictly_alternate_v_shape(self, market_structure_h4, v_shape_with_atr):
+    def test_swings_strictly_alternate_v_shape(
+        self, market_structure_h4, v_shape_with_atr
+    ):
         """
         Verify swing direction alternation in V-shape.
 
@@ -348,9 +366,9 @@ class TestSwingAlternation:
         for i in range(1, len(swings)):
             prev_dir = swings[i - 1][0]
             curr_dir = swings[i][0]
-            assert prev_dir != curr_dir, (
-                f"Swings at {swings[i - 1][1]} and {swings[i][1]} both are '{curr_dir}'"
-            )
+            assert (
+                prev_dir != curr_dir
+            ), f"Swings at {swings[i - 1][1]} and {swings[i][1]} both are '{curr_dir}'"
 
 
 # =============================================================================
@@ -361,7 +379,9 @@ class TestSwingAlternation:
 class TestMinBarsBetweenSwings:
     """Tests for min_bars parameter enforcement."""
 
-    def test_min_bars_parameter_respected(self, market_structure_h4, volatile_series_with_atr):
+    def test_min_bars_parameter_respected(
+        self, market_structure_h4, volatile_series_with_atr
+    ):
         """
         Verify that swings respect the min_bars constraint.
 
@@ -391,11 +411,13 @@ class TestMinBarsBetweenSwings:
         # Check gaps between consecutive swings
         for i in range(1, len(all_swing_positions)):
             gap = all_swing_positions[i] - all_swing_positions[i - 1]
-            assert gap >= min_bars, (
-                f"Gap {gap} between swings at {all_swing_positions[i - 1]} and {all_swing_positions[i]} is less than min_bars={min_bars}"
-            )
+            assert (
+                gap >= min_bars
+            ), f"Gap {gap} between swings at {all_swing_positions[i - 1]} and {all_swing_positions[i]} is less than min_bars={min_bars}"
 
-    def test_smaller_min_bars_more_swings(self, market_structure_h4, volatile_series_with_atr):
+    def test_smaller_min_bars_more_swings(
+        self, market_structure_h4, volatile_series_with_atr
+    ):
         """
         Verify that smaller min_bars allows more swings to be detected.
 
@@ -414,9 +436,9 @@ class TestMinBarsBetweenSwings:
         )
         swings_large = sh_large.sum() + sl_large.sum()
 
-        assert swings_small >= swings_large, (
-            f"Smaller min_bars ({swings_small}) should detect >= swings than larger ({swings_large})"
-        )
+        assert (
+            swings_small >= swings_large
+        ), f"Smaller min_bars ({swings_small}) should detect >= swings than larger ({swings_large})"
 
 
 # =============================================================================
@@ -427,7 +449,9 @@ class TestMinBarsBetweenSwings:
 class TestATRMultiplierEffect:
     """Tests for ATR multiplier impact on swing detection."""
 
-    def test_larger_atr_mult_fewer_swings(self, market_structure_h4, volatile_series_with_atr):
+    def test_larger_atr_mult_fewer_swings(
+        self, market_structure_h4, volatile_series_with_atr
+    ):
         """
         Verify that larger ATR multiplier produces fewer swings.
 
@@ -446,9 +470,9 @@ class TestATRMultiplierEffect:
         )
         swings_high = sh_high.sum() + sl_high.sum()
 
-        assert swings_low >= swings_high, (
-            f"Lower atr_mult ({swings_low}) should detect >= swings than higher ({swings_high})"
-        )
+        assert (
+            swings_low >= swings_high
+        ), f"Lower atr_mult ({swings_low}) should detect >= swings than higher ({swings_high})"
 
 
 # =============================================================================
@@ -502,7 +526,9 @@ class TestZigZagEdgeCases:
         total = swing_high.sum() + swing_low.sum()
         assert total >= 0, "Should handle missing ATR gracefully"
 
-    def test_returns_series_with_correct_index(self, market_structure_h4, v_shape_with_atr):
+    def test_returns_series_with_correct_index(
+        self, market_structure_h4, v_shape_with_atr
+    ):
         """
         Verify that returned swing series have the same index as input DataFrame.
         """
@@ -521,8 +547,12 @@ class TestZigZagEdgeCases:
             v_shape_with_atr, atr_mult=1.5, min_bars=3
         )
 
-        assert set(swing_high.unique()).issubset({0, 1}), "swing_high should only contain 0 or 1"
-        assert set(swing_low.unique()).issubset({0, 1}), "swing_low should only contain 0 or 1"
+        assert set(swing_high.unique()).issubset(
+            {0, 1}
+        ), "swing_high should only contain 0 or 1"
+        assert set(swing_low.unique()).issubset(
+            {0, 1}
+        ), "swing_low should only contain 0 or 1"
 
 
 # =============================================================================
@@ -554,7 +584,9 @@ class TestMarketStructureFeatureCompute:
         for col in expected_cols:
             assert col in result.columns, f"Missing column: {col}"
 
-    def test_compute_preserves_original_columns(self, market_structure_h4, v_shape_with_atr):
+    def test_compute_preserves_original_columns(
+        self, market_structure_h4, v_shape_with_atr
+    ):
         """
         Verify that compute() preserves original OHLCV columns.
         """
@@ -562,7 +594,9 @@ class TestMarketStructureFeatureCompute:
 
         for col in ["open", "high", "low", "close", "volume"]:
             assert col in result.columns, f"Original column {col} should be preserved"
-            pd.testing.assert_series_equal(result[col], v_shape_with_atr[col], check_names=True)
+            pd.testing.assert_series_equal(
+                result[col], v_shape_with_atr[col], check_names=True
+            )
 
     def test_get_feature_names_returns_list(self, market_structure_h4):
         """

@@ -13,7 +13,7 @@ class TestWalkForwardValidator:
 
     def test_walkforward_split_generation(self):
         """Test walk-forward split generation."""
-        from quantcore.research.walkforward import WalkForwardValidator
+        from quantstack.core.research.walkforward import WalkForwardValidator
 
         # Create test data (need min_train + n_splits * test_size bars)
         # 504 + 5 * 252 = 1764, so use 2000
@@ -41,7 +41,7 @@ class TestWalkForwardValidator:
 
     def test_walkforward_insufficient_data(self):
         """Test error handling for insufficient data."""
-        from quantcore.research.walkforward import WalkForwardValidator
+        from quantstack.core.research.walkforward import WalkForwardValidator
 
         # Create small dataset
         dates = pd.date_range("2020-01-01", periods=100, freq="D")
@@ -58,7 +58,7 @@ class TestSignalValidation:
 
     def test_adf_stationary_signal(self):
         """Test ADF on stationary signal."""
-        from quantcore.research.stat_tests import adf_test
+        from quantstack.core.research.stat_tests import adf_test
 
         # Create stationary signal (white noise)
         np.random.seed(42)
@@ -71,7 +71,7 @@ class TestSignalValidation:
 
     def test_adf_nonstationary_signal(self):
         """Test ADF on non-stationary signal."""
-        from quantcore.research.stat_tests import adf_test
+        from quantstack.core.research.stat_tests import adf_test
 
         # Create random walk (non-stationary)
         np.random.seed(42)
@@ -83,7 +83,7 @@ class TestSignalValidation:
 
     def test_lagged_correlation(self):
         """Test lagged cross-correlation."""
-        from quantcore.research.stat_tests import lagged_cross_correlation
+        from quantstack.core.research.stat_tests import lagged_cross_correlation
 
         np.random.seed(42)
         signal = pd.Series(np.random.randn(200))
@@ -101,7 +101,7 @@ class TestLeakageDiagnostics:
 
     def test_clean_features_pass(self):
         """Test that clean features don't trigger leakage."""
-        from quantcore.research.leak_diagnostics import LeakageDiagnostics
+        from quantstack.core.research.leak_diagnostics import LeakageDiagnostics
 
         np.random.seed(42)
         n = 200
@@ -125,7 +125,7 @@ class TestLeakageDiagnostics:
 
     def test_leaky_feature_detected(self):
         """Test that obvious leakage is detected."""
-        from quantcore.research.leak_diagnostics import LeakageDiagnostics
+        from quantstack.core.research.leak_diagnostics import LeakageDiagnostics
 
         np.random.seed(42)
         n = 200

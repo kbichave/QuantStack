@@ -10,12 +10,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from quantcore.config.timeframes import Timeframe
-from quantcore.data.streaming.incremental_features import IncrementalFeatures
-from quantcore.execution.fill_tracker import FillTracker
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.streaming.incremental_features import IncrementalFeatures
+from quantstack.core.execution.fill_tracker import FillTracker
 
-from quant_pod.intraday.position_manager import IntradayPositionManager
-from quant_pod.intraday.signal_evaluator import (
+from quantstack.intraday.position_manager import IntradayPositionManager
+from quantstack.intraday.signal_evaluator import (
     IntradaySignalEvaluator,
     _evaluate_scalar_rule,
 )
@@ -63,13 +63,15 @@ def _make_evaluator(
         fill_tracker=tracker,
         broker_execute_fn=MagicMock(),
     )
-    strategies = strategies or [{
-        "name": "test_rsi",
-        "entry_rules": [{"indicator": "rsi", "condition": "below", "value": 30}],
-        "exit_rules": [{"indicator": "rsi", "condition": "above", "value": 70}],
-        "parameters": {"direction": "buy"},
-        "risk_params": {"quantity": 100},
-    }]
+    strategies = strategies or [
+        {
+            "name": "test_rsi",
+            "entry_rules": [{"indicator": "rsi", "condition": "below", "value": 30}],
+            "exit_rules": [{"indicator": "rsi", "condition": "above", "value": 70}],
+            "parameters": {"direction": "buy"},
+            "risk_params": {"quantity": 100},
+        }
+    ]
     evaluator = IntradaySignalEvaluator(
         strategies=strategies,
         position_manager=pm,
@@ -83,37 +85,43 @@ class TestScalarRuleEvaluation:
     def test_above(self):
         assert _evaluate_scalar_rule(
             {"indicator": "rsi", "condition": "above", "value": 70},
-            {"rsi": 75}, {},
+            {"rsi": 75},
+            {},
         )
 
     def test_below(self):
         assert _evaluate_scalar_rule(
             {"indicator": "rsi", "condition": "below", "value": 30},
-            {"rsi": 25}, {},
+            {"rsi": 25},
+            {},
         )
 
     def test_crosses_above(self):
         assert _evaluate_scalar_rule(
             {"indicator": "ema_cross", "condition": "crosses_above", "value": 0},
-            {"ema_cross": 0.5}, {"ema_cross": -0.3},
+            {"ema_cross": 0.5},
+            {"ema_cross": -0.3},
         )
 
     def test_crosses_above_no_prev(self):
         assert not _evaluate_scalar_rule(
             {"indicator": "ema_cross", "condition": "crosses_above", "value": 0},
-            {"ema_cross": 0.5}, {},
+            {"ema_cross": 0.5},
+            {},
         )
 
     def test_between(self):
         assert _evaluate_scalar_rule(
             {"indicator": "rsi", "condition": "between", "value": [40, 60]},
-            {"rsi": 50}, {},
+            {"rsi": 50},
+            {},
         )
 
     def test_missing_indicator(self):
         assert not _evaluate_scalar_rule(
             {"indicator": "nonexistent", "condition": "above", "value": 0},
-            {"rsi": 50}, {},
+            {"rsi": 50},
+            {},
         )
 
 
@@ -145,7 +153,7 @@ class TestSignalEvaluator:
         assert result is None
 
     @pytest.mark.asyncio
-    @patch("quant_pod.intraday.signal_evaluator.datetime")
+    @patch("quantstack.intraday.signal_evaluator.datetime")
     async def test_respects_entry_cutoff(self, mock_dt):
         mock_now = MagicMock()
         mock_now.time.return_value = datetime(2026, 3, 17, 15, 45).time()

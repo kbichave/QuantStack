@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 import yaml
-from quantcore.config.options_config import (
+from quantstack.config.options_config import (
     OptionsConfigLoader,
     Sector,
     SymbolConfig,
@@ -360,7 +360,7 @@ class TestModuleFunctions:
     def test_get_options_config(self):
         """Test get_options_config returns UniverseConfig."""
         # Reset singleton
-        import quantcore.config.options_config as module
+        import quantstack.config.options_config as module
 
         module._config_loader = None
 
@@ -369,7 +369,7 @@ class TestModuleFunctions:
 
     def test_get_symbol_config(self):
         """Test get_symbol_config function."""
-        import quantcore.config.options_config as module
+        import quantstack.config.options_config as module
 
         module._config_loader = None
 
@@ -380,7 +380,7 @@ class TestModuleFunctions:
 
     def test_get_symbol_config_not_found(self):
         """Test get_symbol_config returns None for unknown."""
-        import quantcore.config.options_config as module
+        import quantstack.config.options_config as module
 
         module._config_loader = None
 

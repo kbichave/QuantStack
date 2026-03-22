@@ -23,10 +23,10 @@ import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from quant_pod.context import TradingContext, create_trading_context
-from quant_pod.execution.portfolio_state import Position
-from quant_pod.execution.signal_cache import TradeSignal
-from quant_pod.execution.tick_executor import Tick, TickExecutor
+from quantstack.context import TradingContext, create_trading_context
+from quantstack.execution.portfolio_state import Position
+from quantstack.execution.signal_cache import TradeSignal
+from quantstack.execution.tick_executor import Tick, TickExecutor
 
 # =============================================================================
 # Fixtures
@@ -67,7 +67,9 @@ class TestTradingContextWiring:
 
     def test_two_contexts_are_isolated(self):
         """Two in-memory contexts do not share data."""
+        import quantstack.db as _db
         a = create_trading_context(db_path=":memory:", initial_cash=50_000.0)
+        _db._managed = None  # reset singleton so b gets a fresh connection
         b = create_trading_context(db_path=":memory:", initial_cash=200_000.0)
         try:
             assert a.portfolio.get_cash() == 50_000.0
@@ -147,7 +149,9 @@ class TestPortfolioState:
             try:
                 for _ in range(5):
                     ctx.portfolio.upsert_position(
-                        Position(symbol="AAPL", quantity=10, avg_cost=185.0, side="long")
+                        Position(
+                            symbol="AAPL", quantity=10, avg_cost=185.0, side="long"
+                        )
                     )
             except Exception as e:
                 errors.append(e)
@@ -166,11 +170,19 @@ class TestPortfolioState:
 
     def test_snapshot_is_internally_consistent(self, ctx):
         ctx.portfolio.upsert_position(
-            Position(symbol="QQQ", quantity=50, avg_cost=380.0, side="long", current_price=390.0)
+            Position(
+                symbol="QQQ",
+                quantity=50,
+                avg_cost=380.0,
+                side="long",
+                current_price=390.0,
+            )
         )
         snap = ctx.portfolio.get_snapshot()
         assert snap.position_count == 1
-        assert snap.total_equity == pytest.approx(snap.cash + snap.positions_value, abs=0.01)
+        assert snap.total_equity == pytest.approx(
+            snap.cash + snap.positions_value, abs=0.01
+        )
 
 
 # =============================================================================

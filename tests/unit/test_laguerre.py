@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.momentum import LaguerreRSI
+from quantstack.core.features.momentum import LaguerreRSI
 
 
 @pytest.fixture
@@ -82,11 +82,13 @@ class TestLaguerreRSI:
         dates = pd.date_range(start="2023-01-01", periods=51, freq="D")
         np.random.seed(7)
         vals = 100 + np.cumsum(np.random.randn(51) * 0.5)
-        close_n  = pd.Series(vals[:50], index=dates[:50])
+        close_n = pd.Series(vals[:50], index=dates[:50])
         close_n1 = pd.Series(vals[:51], index=dates[:51])
-        r_n  = LaguerreRSI().compute(close_n)
+        r_n = LaguerreRSI().compute(close_n)
         r_n1 = LaguerreRSI().compute(close_n1)
-        pd.testing.assert_series_equal(r_n["lrsi"], r_n1["lrsi"].iloc[:50], check_names=False)
+        pd.testing.assert_series_equal(
+            r_n["lrsi"], r_n1["lrsi"].iloc[:50], check_names=False
+        )
 
     def test_same_length_as_input(self, close_series):
         result = LaguerreRSI().compute(close_series)

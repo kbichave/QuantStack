@@ -10,8 +10,8 @@ Tests verify:
 """
 
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.features.waves import (
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.waves import (
     PartialPatternScorer,
     SwingDetector,
     WaveConfig,
@@ -106,7 +106,9 @@ class TestImpulseDetection:
 
         if patterns:
             pattern = patterns[0]
-            directions = [valid_impulse_up_legs[i].direction for i in pattern.leg_indices]
+            directions = [
+                valid_impulse_up_legs[i].direction for i in pattern.leg_indices
+            ]
             assert directions == ["up", "down", "up", "down", "up"]
 
     def test_no_impulse_wrong_directions(self, wave_labeler):
@@ -245,9 +247,9 @@ class TestSwingAlternation:
         for i in range(1, len(swings)):
             prev_dir = swings[i - 1].direction
             curr_dir = swings[i].direction
-            assert prev_dir != curr_dir, (
-                f"Swings at {swings[i - 1].idx} and {swings[i].idx} both are '{curr_dir}'"
-            )
+            assert (
+                prev_dir != curr_dir
+            ), f"Swings at {swings[i - 1].idx} and {swings[i].idx} both are '{curr_dir}'"
 
     def test_legs_have_consistent_direction(self, swing_detector, impulse_wave_df):
         """
@@ -263,7 +265,9 @@ class TestSwingAlternation:
                 assert leg.ret_pct > 0, f"Up leg has non-positive return: {leg.ret_pct}"
                 assert leg.end_price > leg.start_price
             else:
-                assert leg.ret_pct < 0, f"Down leg has non-negative return: {leg.ret_pct}"
+                assert (
+                    leg.ret_pct < 0
+                ), f"Down leg has non-negative return: {leg.ret_pct}"
                 assert leg.end_price < leg.start_price
 
 
@@ -450,9 +454,9 @@ class TestPatternConfidence:
         non_ideal_patterns = wave_labeler.detect_impulse_up(non_ideal_legs)
 
         if ideal_patterns and non_ideal_patterns:
-            assert ideal_patterns[0].confidence >= non_ideal_patterns[0].confidence, (
-                "Ideal Fib retraces should have higher or equal confidence"
-            )
+            assert (
+                ideal_patterns[0].confidence >= non_ideal_patterns[0].confidence
+            ), "Ideal Fib retraces should have higher or equal confidence"
 
     def test_confidence_in_valid_range(self, wave_labeler, valid_impulse_up_legs):
         """
@@ -461,6 +465,6 @@ class TestPatternConfidence:
         patterns = wave_labeler.detect_all_patterns(valid_impulse_up_legs)
 
         for pattern in patterns:
-            assert 0 <= pattern.confidence <= 1, (
-                f"Confidence {pattern.confidence} outside [0, 1] range"
-            )
+            assert (
+                0 <= pattern.confidence <= 1
+            ), f"Confidence {pattern.confidence} outside [0, 1] range"

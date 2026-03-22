@@ -5,7 +5,7 @@ import os
 import duckdb
 import pytest
 
-from shared.duckdb_lock import (
+from quantstack.shared.duckdb_lock import (
     connect_with_lock_guard,
     pid_from_lock_error,
     pid_is_alive,

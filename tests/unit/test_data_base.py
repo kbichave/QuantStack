@@ -7,9 +7,9 @@ from datetime import datetime
 
 import pandas as pd
 import pytest
-from quantcore.config.timeframes import Timeframe
-from quantcore.data.base import AssetClass, AssetClassAdapter
-from quantcore.data.provider_enum import DataProvider
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.base import AssetClass, AssetClassAdapter
+from quantstack.data.provider_enum import DataProvider
 
 
 class TestAssetClassEnum:

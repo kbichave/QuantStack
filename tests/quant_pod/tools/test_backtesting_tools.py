@@ -6,7 +6,12 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from quant_pod.tools.mcp_bridge import MCPBridge, run_backtest_tool, run_monte_carlo_tool, run_walkforward_tool
+from quantstack.tools.mcp_bridge import (
+    MCPBridge,
+    run_backtest_tool,
+    run_monte_carlo_tool,
+    run_walkforward_tool,
+)
 
 
 class TestBacktestingTools:
@@ -14,7 +19,9 @@ class TestBacktestingTools:
 
     def test_run_backtest_tool(self):
         """Test run_backtest_tool returns backtest metrics."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "strategy": "mean_reversion",
@@ -37,7 +44,9 @@ class TestBacktestingTools:
 
     def test_run_monte_carlo_tool(self):
         """Test run_monte_carlo_tool returns simulation results."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "n_simulations": 1000,
@@ -58,7 +67,9 @@ class TestBacktestingTools:
 
     def test_run_walkforward_tool(self):
         """Test run_walkforward_tool returns walk-forward splits."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "n_splits": 5,

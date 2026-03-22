@@ -18,8 +18,8 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
-from quant_pod.context import create_trading_context
-from quant_pod.execution.portfolio_state import Position
+from quantstack.context import create_trading_context
+from quantstack.execution.portfolio_state import Position
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,7 +41,7 @@ def ctx():
 @pytest.fixture
 def _inject_ctx(ctx):
     """Inject the test context into the MCP server module."""
-    import quant_pod.mcp._state as _mcp_state
+    import quantstack.mcp._state as _mcp_state
 
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
@@ -69,14 +69,14 @@ def _get_fn(tool_obj):
 class TestGetPortfolioState:
     @pytest.mark.asyncio
     async def test_returns_success(self, _inject_ctx):
-        from quant_pod.mcp.server import get_portfolio_state
+        from quantstack.mcp.server import get_portfolio_state
 
         result = await _get_fn(get_portfolio_state)()
         assert result["success"] is True
 
     @pytest.mark.asyncio
     async def test_returns_snapshot(self, _inject_ctx):
-        from quant_pod.mcp.server import get_portfolio_state
+        from quantstack.mcp.server import get_portfolio_state
 
         result = await _get_fn(get_portfolio_state)()
         snapshot = result["snapshot"]
@@ -86,14 +86,14 @@ class TestGetPortfolioState:
 
     @pytest.mark.asyncio
     async def test_returns_empty_positions(self, _inject_ctx):
-        from quant_pod.mcp.server import get_portfolio_state
+        from quantstack.mcp.server import get_portfolio_state
 
         result = await _get_fn(get_portfolio_state)()
         assert result["positions"] == []
 
     @pytest.mark.asyncio
     async def test_returns_positions_after_upsert(self, _inject_ctx, ctx):
-        from quant_pod.mcp.server import get_portfolio_state
+        from quantstack.mcp.server import get_portfolio_state
 
         ctx.portfolio.upsert_position(
             Position(symbol="SPY", quantity=100, avg_cost=450.0, current_price=455.0)
@@ -104,7 +104,7 @@ class TestGetPortfolioState:
 
     @pytest.mark.asyncio
     async def test_returns_context_string(self, _inject_ctx):
-        from quant_pod.mcp.server import get_portfolio_state
+        from quantstack.mcp.server import get_portfolio_state
 
         result = await _get_fn(get_portfolio_state)()
         assert "context_string" in result
@@ -119,35 +119,35 @@ class TestGetPortfolioState:
 class TestGetSystemStatus:
     @pytest.mark.asyncio
     async def test_returns_success(self, _inject_ctx):
-        from quant_pod.mcp.server import get_system_status
+        from quantstack.mcp.server import get_system_status
 
         result = await _get_fn(get_system_status)()
         assert result["success"] is True
 
     @pytest.mark.asyncio
     async def test_kill_switch_not_active(self, _inject_ctx):
-        from quant_pod.mcp.server import get_system_status
+        from quantstack.mcp.server import get_system_status
 
         result = await _get_fn(get_system_status)()
         assert result["kill_switch_active"] is False
 
     @pytest.mark.asyncio
     async def test_risk_not_halted(self, _inject_ctx):
-        from quant_pod.mcp.server import get_system_status
+        from quantstack.mcp.server import get_system_status
 
         result = await _get_fn(get_system_status)()
         assert result["risk_halted"] is False
 
     @pytest.mark.asyncio
     async def test_broker_mode_is_paper(self, _inject_ctx):
-        from quant_pod.mcp.server import get_system_status
+        from quantstack.mcp.server import get_system_status
 
         result = await _get_fn(get_system_status)()
         assert result["broker_mode"] == "paper"
 
     @pytest.mark.asyncio
     async def test_has_session_id(self, _inject_ctx):
-        from quant_pod.mcp.server import get_system_status
+        from quantstack.mcp.server import get_system_status
 
         result = await _get_fn(get_system_status)()
         assert result["session_id"] != ""
@@ -161,7 +161,7 @@ class TestGetSystemStatus:
 class TestGetRecentDecisions:
     @pytest.mark.asyncio
     async def test_returns_empty_initially(self, _inject_ctx):
-        from quant_pod.mcp.server import get_recent_decisions
+        from quantstack.mcp.server import get_recent_decisions
 
         result = await _get_fn(get_recent_decisions)()
         assert result["success"] is True
@@ -170,8 +170,8 @@ class TestGetRecentDecisions:
 
     @pytest.mark.asyncio
     async def test_returns_recorded_events(self, _inject_ctx, ctx):
-        from quant_pod.audit.models import DecisionEvent
-        from quant_pod.mcp.server import get_recent_decisions
+        from quantstack.audit.models import DecisionEvent
+        from quantstack.mcp.server import get_recent_decisions
 
         event = DecisionEvent(
             event_id=str(uuid.uuid4()),
@@ -200,7 +200,7 @@ class TestGetRecentDecisions:
 class TestGetRegime:
     @pytest.mark.asyncio
     async def test_returns_regime_with_mock_data(self, _inject_ctx):
-        from quant_pod.mcp.server import get_regime
+        from quantstack.mcp.server import get_regime
 
         mock_result = {
             "success": True,
@@ -212,7 +212,7 @@ class TestGetRegime:
         }
 
         with patch(
-            "quant_pod.agents.regime_detector.RegimeDetectorAgent.detect_regime",
+            "quantstack.agents.regime_detector.RegimeDetectorAgent.detect_regime",
             return_value=mock_result,
         ):
             result = await _get_fn(get_regime)("SPY")
@@ -221,10 +221,10 @@ class TestGetRegime:
 
     @pytest.mark.asyncio
     async def test_returns_error_on_failure(self, _inject_ctx):
-        from quant_pod.mcp.server import get_regime
+        from quantstack.mcp.server import get_regime
 
         with patch(
-            "quant_pod.agents.regime_detector.RegimeDetectorAgent.detect_regime",
+            "quantstack.agents.regime_detector.RegimeDetectorAgent.detect_regime",
             side_effect=ValueError("No data available"),
         ):
             result = await _get_fn(get_regime)("INVALID")
@@ -239,7 +239,7 @@ class TestGetRegime:
 
 class TestRequireCtx:
     def test_raises_when_ctx_is_none(self):
-        import quant_pod.mcp._state as _mcp_state
+        import quantstack.mcp._state as _mcp_state
 
         original = _mcp_state._ctx
         _mcp_state._ctx = None
@@ -257,12 +257,12 @@ class TestRequireCtx:
 
 class TestServerDefinition:
     def test_mcp_server_has_tools(self):
-        from quant_pod.mcp.server import mcp
+        from quantstack.mcp.server import mcp
 
         assert mcp is not None
-        assert mcp.name == "QuantPod Trading Intelligence"
+        assert mcp.name == "QuantPod"
 
     def test_main_is_callable(self):
-        from quant_pod.mcp.server import main
+        from quantstack.mcp.server import main
 
         assert callable(main)

@@ -10,7 +10,7 @@ No external I/O — pure in-memory validation logic.
 from __future__ import annotations
 
 import pytest
-from quant_pod.guardrails.mcp_response_validator import MCPResponseValidator
+from quantstack.guardrails.mcp_response_validator import MCPResponseValidator
 
 
 @pytest.fixture
@@ -41,7 +41,9 @@ class TestQuoteValidation:
         assert not result.is_valid
 
     def test_price_above_max_rejected(self, validator):
-        result = validator.validate_quote_response({"symbol": "SPY", "price": 200_000.0})
+        result = validator.validate_quote_response(
+            {"symbol": "SPY", "price": 200_000.0}
+        )
         assert not result.is_valid
 
     def test_zero_price_rejected(self, validator):
@@ -67,28 +69,52 @@ class TestQuoteValidation:
 class TestOHLCVValidation:
     def test_valid_ohlcv_passes(self, validator):
         result = validator.validate_ohlcv_response(
-            {"open": 448.0, "high": 455.0, "low": 447.0, "close": 452.0, "volume": 5_000_000},
+            {
+                "open": 448.0,
+                "high": 455.0,
+                "low": 447.0,
+                "close": 452.0,
+                "volume": 5_000_000,
+            },
             symbol="SPY",
         )
         assert result.is_valid
 
     def test_high_below_low_rejected(self, validator):
         result = validator.validate_ohlcv_response(
-            {"open": 450.0, "high": 445.0, "low": 452.0, "close": 450.0, "volume": 1_000},
+            {
+                "open": 450.0,
+                "high": 445.0,
+                "low": 452.0,
+                "close": 450.0,
+                "volume": 1_000,
+            },
             symbol="SPY",
         )
         assert not result.is_valid
 
     def test_high_below_close_rejected(self, validator):
         result = validator.validate_ohlcv_response(
-            {"open": 450.0, "high": 448.0, "low": 445.0, "close": 452.0, "volume": 1_000},
+            {
+                "open": 450.0,
+                "high": 448.0,
+                "low": 445.0,
+                "close": 452.0,
+                "volume": 1_000,
+            },
             symbol="SPY",
         )
         assert not result.is_valid
 
     def test_low_above_open_rejected(self, validator):
         result = validator.validate_ohlcv_response(
-            {"open": 450.0, "high": 460.0, "low": 455.0, "close": 458.0, "volume": 1_000},
+            {
+                "open": 450.0,
+                "high": 460.0,
+                "low": 455.0,
+                "close": 458.0,
+                "volume": 1_000,
+            },
             symbol="SPY",
         )
         assert not result.is_valid

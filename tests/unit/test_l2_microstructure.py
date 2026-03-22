@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quant_pod.signal_engine.collectors.l2_microstructure import (
+from quantstack.signal_engine.collectors.l2_microstructure import (
     compute_book_signals,
     kyle_lambda_df,
     kyle_lambda_ohlcv,
@@ -19,7 +19,9 @@ def ohlcv_with_volume():
     dates = pd.date_range(start="2023-01-01", periods=100, freq="D")
     np.random.seed(42)
     close = pd.Series(100 + np.cumsum(np.random.randn(100) * 0.5), index=dates)
-    volume = pd.Series(np.random.randint(500_000, 5_000_000, 100).astype(float), index=dates)
+    volume = pd.Series(
+        np.random.randint(500_000, 5_000_000, 100).astype(float), index=dates
+    )
     return close, volume
 
 
@@ -61,7 +63,7 @@ class TestKyleLambdaOHLCV:
         """With large volume for small price moves, lambda should be small."""
         dates = pd.date_range(start="2023-01-01", periods=50, freq="D")
         close = pd.Series(100 + np.random.randn(50) * 0.01, index=dates)  # tiny moves
-        volume = pd.Series(np.full(50, 10_000_000.0), index=dates)       # huge volume
+        volume = pd.Series(np.full(50, 10_000_000.0), index=dates)  # huge volume
         result = kyle_lambda_ohlcv(close, volume, period=22)
         valid = result.dropna()
         if len(valid) > 0:
@@ -77,7 +79,9 @@ class TestKyleLambdaDf:
     def test_expected_columns(self, ohlcv_with_volume):
         close, volume = ohlcv_with_volume
         result = kyle_lambda_df(close, volume)
-        assert {"kyle_lambda", "kyle_lambda_zscore", "high_impact"}.issubset(set(result.columns))
+        assert {"kyle_lambda", "kyle_lambda_zscore", "high_impact"}.issubset(
+            set(result.columns)
+        )
 
     def test_high_impact_binary(self, ohlcv_with_volume):
         close, volume = ohlcv_with_volume

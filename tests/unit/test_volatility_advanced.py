@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.volatility import WilliamsVIXFix
+from quantstack.core.features.volatility import WilliamsVIXFix
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,12 @@ class TestWilliamsVIXFixStructure:
             trending_ohlcv["low"],
             trending_ohlcv["close"],
         )
-        assert set(result.columns) == {"wvf", "wvf_bb_upper", "wvf_bb_lower", "wvf_extreme"}
+        assert set(result.columns) == {
+            "wvf",
+            "wvf_bb_upper",
+            "wvf_bb_lower",
+            "wvf_extreme",
+        }
 
     def test_index_preserved(self, trending_ohlcv):
         wvf = WilliamsVIXFix()

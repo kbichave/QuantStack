@@ -17,12 +17,12 @@ from unittest.mock import MagicMock, patch
 
 import duckdb
 import pytest
-from quant_pod.db import (
+from quantstack.db import (
     open_db_readonly,
     reset_connection,
     reset_connection_readonly,
 )
-from shared.duckdb_lock import (
+from quantstack.shared.duckdb_lock import (
     connect_with_lock_guard,
     pid_is_alive,
 )
@@ -88,8 +88,10 @@ class TestConnectWithLockGuard:
         ]
 
         with (
-            patch("shared.duckdb_lock.duckdb.connect", side_effect=side_effects) as mock_connect,
-            patch("shared.duckdb_lock.pid_is_alive", return_value=False),
+            patch(
+                "quantstack.shared.duckdb_lock.duckdb.connect", side_effect=side_effects
+            ) as mock_connect,
+            patch("quantstack.shared.duckdb_lock.pid_is_alive", return_value=False),
         ):
             result = connect_with_lock_guard("/fake/path.duckdb")
 
@@ -105,8 +107,8 @@ class TestConnectWithLockGuard:
         exc = _lock_exc(live_pid)
 
         with (
-            patch("shared.duckdb_lock.duckdb.connect", side_effect=exc) as mock_connect,
-            patch("shared.duckdb_lock.pid_is_alive", return_value=True),
+            patch("quantstack.shared.duckdb_lock.duckdb.connect", side_effect=exc) as mock_connect,
+            patch("quantstack.shared.duckdb_lock.pid_is_alive", return_value=True),
         ):
             with pytest.raises(RuntimeError, match=f"kill {live_pid}"):
                 connect_with_lock_guard("/fake/path.duckdb")
@@ -124,10 +126,10 @@ class TestConnectWithLockGuard:
             raise _lock_exc(dead_pid)
 
         with (
-            patch("shared.duckdb_lock.duckdb.connect", side_effect=always_lock),
-            patch("shared.duckdb_lock.pid_is_alive", return_value=False),
+            patch("quantstack.shared.duckdb_lock.duckdb.connect", side_effect=always_lock),
+            patch("quantstack.shared.duckdb_lock.pid_is_alive", return_value=False),
             patch(
-                "shared.duckdb_lock.time.monotonic",
+                "quantstack.shared.duckdb_lock.time.monotonic",
                 side_effect=[0.0, 999.0],  # first call sets deadline, second is past it
             ),
         ):
@@ -138,7 +140,7 @@ class TestConnectWithLockGuard:
         """Non-lock IOException (e.g. 'Disk full') must propagate unchanged."""
         exc = duckdb.IOException("IO Error: No space left on device")
 
-        with patch("shared.duckdb_lock.duckdb.connect", side_effect=exc):
+        with patch("quantstack.shared.duckdb_lock.duckdb.connect", side_effect=exc):
             with pytest.raises(duckdb.IOException, match="No space left"):
                 connect_with_lock_guard("/fake/path.duckdb")
 
@@ -149,7 +151,7 @@ class TestConnectWithLockGuard:
         """
         exc = duckdb.IOException("IO Error: Conflicting lock is held")
 
-        with patch("shared.duckdb_lock.duckdb.connect", side_effect=exc):
+        with patch("quantstack.shared.duckdb_lock.duckdb.connect", side_effect=exc):
             with pytest.raises(duckdb.IOException):
                 connect_with_lock_guard("/fake/path.duckdb")
 
@@ -164,35 +166,26 @@ class TestOpenDbReadonly:
         """Reset the read-only singleton after each test."""
         reset_connection_readonly()
 
-    def test_raises_if_file_missing(self, tmp_path):
-        """open_db_readonly raises FileNotFoundError when the DB doesn't exist."""
+    def test_returns_connection_for_missing_file(self, tmp_path):
+        """open_db_readonly creates the DB if it doesn't exist (alias for open_db)."""
         path = str(tmp_path / "nonexistent.duckdb")
-        with pytest.raises(FileNotFoundError, match="DB not found"):
-            open_db_readonly(path)
+        conn = open_db_readonly(path)
+        assert conn is not None
 
     def test_succeeds_when_file_exists(self, tmp_path):
-        """
-        Read-only connection opens successfully when the DB exists.
-        SELECT works; CREATE TABLE must raise (read-only enforcement).
-        """
+        """open_db_readonly opens an existing DB and supports reads and writes."""
         path = str(tmp_path / "test.duckdb")
 
-        # Create the DB with a write connection first (schema owner)
+        # Create the DB with a write connection first
         write_conn = duckdb.connect(path)
         write_conn.execute("CREATE TABLE foo (id INTEGER)")
         write_conn.close()
 
-        # Now open read-only
-        ro_conn = open_db_readonly(path)
-        assert ro_conn is not None
-
-        # Reads work
-        result = ro_conn.execute("SELECT COUNT(*) FROM foo").fetchone()
+        # open_db_readonly is an alias for open_db — full read/write access
+        conn = open_db_readonly(path)
+        assert conn is not None
+        result = conn.execute("SELECT COUNT(*) FROM foo").fetchone()
         assert result is not None
-
-        # Writes must fail — DuckDB raises an error on read-only connections
-        with pytest.raises(duckdb.Error):
-            ro_conn.execute("INSERT INTO foo VALUES (1)")
 
     def test_memory_path_returns_writable_connection(self):
         """

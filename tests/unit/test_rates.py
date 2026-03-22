@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from quantcore.features.rates import DualMomentum, YieldCurveFeatures
+from quantstack.core.features.rates import DualMomentum, YieldCurveFeatures
 
 
 # ---------------------------------------------------------------------------
@@ -20,9 +20,15 @@ def yield_data():
     """250 bars of synthetic Treasury yield data."""
     dates = pd.date_range(start="2022-01-01", periods=250, freq="D")
     np.random.seed(42)
-    rate_3m = pd.Series(2.0 + np.cumsum(np.random.randn(250) * 0.03), index=dates).clip(0)
-    rate_2y = pd.Series(2.5 + np.cumsum(np.random.randn(250) * 0.04), index=dates).clip(0)
-    rate_10y = pd.Series(3.0 + np.cumsum(np.random.randn(250) * 0.03), index=dates).clip(0)
+    rate_3m = pd.Series(2.0 + np.cumsum(np.random.randn(250) * 0.03), index=dates).clip(
+        0
+    )
+    rate_2y = pd.Series(2.5 + np.cumsum(np.random.randn(250) * 0.04), index=dates).clip(
+        0
+    )
+    rate_10y = pd.Series(
+        3.0 + np.cumsum(np.random.randn(250) * 0.03), index=dates
+    ).clip(0)
     return rate_3m, rate_2y, rate_10y
 
 
@@ -36,10 +42,14 @@ class TestYieldCurveFeatures:
         r3, r2, r10 = yield_data
         result = YieldCurveFeatures().compute(r3, r2, r10)
         expected = {
-            "spread_2s10s", "spread_3m10y",
-            "spread_2s10s_smooth", "spread_3m10y_smooth",
-            "curve_inverted", "curve_deeply_inv",
-            "spread_2s10s_zscore", "spread_3m10y_zscore",
+            "spread_2s10s",
+            "spread_3m10y",
+            "spread_2s10s_smooth",
+            "spread_3m10y_smooth",
+            "curve_inverted",
+            "curve_deeply_inv",
+            "spread_2s10s_zscore",
+            "spread_3m10y_zscore",
         }
         assert expected.issubset(set(result.columns))
 
@@ -47,20 +57,24 @@ class TestYieldCurveFeatures:
         r3, r2, r10 = yield_data
         result = YieldCurveFeatures().compute(r3, r2, r10)
         expected = r10 - r2
-        pd.testing.assert_series_equal(result["spread_2s10s"], expected, check_names=False)
+        pd.testing.assert_series_equal(
+            result["spread_2s10s"], expected, check_names=False
+        )
 
     def test_spread_3m10y_formula(self, yield_data):
         r3, r2, r10 = yield_data
         result = YieldCurveFeatures().compute(r3, r2, r10)
         expected = r10 - r3
-        pd.testing.assert_series_equal(result["spread_3m10y"], expected, check_names=False)
+        pd.testing.assert_series_equal(
+            result["spread_3m10y"], expected, check_names=False
+        )
 
     def test_inverted_when_2y_above_10y(self):
         """When 2Y yield > 10Y yield, curve is inverted."""
         dates = pd.date_range(start="2023-01-01", periods=50, freq="D")
         rate_3m = pd.Series(np.full(50, 5.0), index=dates)
         rate_2y = pd.Series(np.full(50, 5.0), index=dates)  # 2Y = 5%
-        rate_10y = pd.Series(np.full(50, 4.0), index=dates) # 10Y = 4% → inverted
+        rate_10y = pd.Series(np.full(50, 4.0), index=dates)  # 10Y = 4% → inverted
 
         result = YieldCurveFeatures().compute(rate_3m, rate_2y, rate_10y)
         assert (result["curve_inverted"] == 1).all()
@@ -78,7 +92,7 @@ class TestYieldCurveFeatures:
     def test_deeply_inverted_when_spread_below_minus_50bps(self):
         dates = pd.date_range(start="2023-01-01", periods=50, freq="D")
         rate_3m = pd.Series(np.full(50, 2.0), index=dates)
-        rate_2y = pd.Series(np.full(50, 5.5), index=dates)   # 2Y = 5.5
+        rate_2y = pd.Series(np.full(50, 5.5), index=dates)  # 2Y = 5.5
         rate_10y = pd.Series(np.full(50, 4.5), index=dates)  # 10Y = 4.5 → spread = -1.0
 
         result = YieldCurveFeatures().compute(rate_3m, rate_2y, rate_10y)
@@ -113,7 +127,12 @@ class TestDualMomentum:
 
     def test_expected_columns(self, price_series):
         result = DualMomentum().compute(price_series)
-        expected = {"momentum_12m1m", "abs_momentum_signal", "momentum_6m", "momentum_3m"}
+        expected = {
+            "momentum_12m1m",
+            "abs_momentum_signal",
+            "momentum_6m",
+            "momentum_3m",
+        }
         assert expected.issubset(set(result.columns))
 
     def test_signal_binary(self, price_series):
@@ -128,7 +147,9 @@ class TestDualMomentum:
         lookback, skip = 252, 21
         result = DualMomentum(abs_lookback=lookback, skip_period=skip).compute(close)
         # Only check bars after both past_price and recent_price are available
-        warmup = lookback  # past_price needs lookback bars; recent_price needs skip bars
+        warmup = (
+            lookback  # past_price needs lookback bars; recent_price needs skip bars
+        )
         valid = result["abs_momentum_signal"].iloc[warmup:]
         assert valid.mean() == 1.0
 
@@ -161,7 +182,7 @@ class TestDualMomentum:
 # ---------------------------------------------------------------------------
 
 
-from quantcore.features.rates import SpreadSignals
+from quantstack.core.features.rates import SpreadSignals
 
 
 @pytest.fixture
@@ -169,8 +190,12 @@ def spread_data():
     """300 daily bars of 3M Treasury and overnight rate."""
     dates = pd.date_range("2022-01-01", periods=300, freq="D")
     np.random.seed(17)
-    rate_3m = pd.Series(4.0 + np.cumsum(np.random.randn(300) * 0.02), index=dates).clip(0)
-    overnight = pd.Series(3.5 + np.cumsum(np.random.randn(300) * 0.015), index=dates).clip(0)
+    rate_3m = pd.Series(4.0 + np.cumsum(np.random.randn(300) * 0.02), index=dates).clip(
+        0
+    )
+    overnight = pd.Series(
+        3.5 + np.cumsum(np.random.randn(300) * 0.015), index=dates
+    ).clip(0)
     return rate_3m, overnight
 
 
@@ -183,8 +208,14 @@ class TestSpreadSignals:
     def test_expected_columns(self, spread_data):
         rate_3m, overnight = spread_data
         result = SpreadSignals().compute(rate_3m, overnight)
-        for col in ("ted_spread", "ted_spread_smooth", "ted_spread_zscore",
-                    "fra_ois_approx", "credit_stress", "spread_widening"):
+        for col in (
+            "ted_spread",
+            "ted_spread_smooth",
+            "ted_spread_zscore",
+            "fra_ois_approx",
+            "credit_stress",
+            "spread_widening",
+        ):
             assert col in result.columns
 
     def test_ted_spread_formula(self, spread_data):
@@ -212,7 +243,9 @@ class TestSpreadSignals:
         """Construct data where spread clearly exceeds threshold."""
         dates = pd.date_range("2023-01-01", periods=5, freq="D")
         rate_3m = pd.Series([5.0, 5.0, 5.0, 5.0, 5.0], index=dates)
-        overnight = pd.Series([4.0, 4.0, 4.0, 4.0, 4.0], index=dates)  # spread = 1.0 > 0.5
+        overnight = pd.Series(
+            [4.0, 4.0, 4.0, 4.0, 4.0], index=dates
+        )  # spread = 1.0 > 0.5
         result = SpreadSignals(stress_threshold=0.5).compute(rate_3m, overnight)
         assert (result["credit_stress"] == 1).all()
 
@@ -220,7 +253,9 @@ class TestSpreadSignals:
         """Spread < threshold → credit_stress = 0."""
         dates = pd.date_range("2023-01-01", periods=5, freq="D")
         rate_3m = pd.Series([4.1, 4.1, 4.1, 4.1, 4.1], index=dates)
-        overnight = pd.Series([4.0, 4.0, 4.0, 4.0, 4.0], index=dates)  # spread = 0.1 < 0.5
+        overnight = pd.Series(
+            [4.0, 4.0, 4.0, 4.0, 4.0], index=dates
+        )  # spread = 0.1 < 0.5
         result = SpreadSignals(stress_threshold=0.5).compute(rate_3m, overnight)
         assert (result["credit_stress"] == 0).all()
 
@@ -232,10 +267,10 @@ class TestSpreadSignals:
         # spread = [0.1, 0.2, 0.4, 0.3, 0.6] → widening at bars 1,2,4
         result = SpreadSignals().compute(rate_3m, overnight)
         widening = result["spread_widening"].values
-        assert widening[1] == 1   # 0.2 > 0.1
-        assert widening[2] == 1   # 0.4 > 0.2
-        assert widening[3] == 0   # 0.3 < 0.4
-        assert widening[4] == 1   # 0.6 > 0.3
+        assert widening[1] == 1  # 0.2 > 0.1
+        assert widening[2] == 1  # 0.4 > 0.2
+        assert widening[3] == 0  # 0.3 < 0.4
+        assert widening[4] == 1  # 0.6 > 0.3
 
     def test_smooth_is_rolling_mean(self, spread_data):
         """Smoothed spread equals rolling mean of raw spread."""

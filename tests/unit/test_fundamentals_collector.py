@@ -15,12 +15,13 @@ import pandas as pd
 import pytest
 from unittest.mock import MagicMock, patch
 
-from quant_pod.signal_engine.collectors.fundamentals import collect_fundamentals
+from quantstack.signal_engine.collectors.fundamentals import collect_fundamentals
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_income_df(n: int = 12, seed: int = 42) -> pd.DataFrame:
     np.random.seed(seed)
@@ -29,16 +30,18 @@ def _make_income_df(n: int = 12, seed: int = 42) -> pd.DataFrame:
     gross_profit = revenue * np.random.uniform(0.35, 0.45, n)
     total_assets = 5_000_000 + np.cumsum(np.random.randn(n) * 50_000)
     operating_income = revenue * np.random.uniform(0.10, 0.20, n)
-    return pd.DataFrame({
-        "report_period": dates,
-        "revenue": revenue,
-        "gross_profit": gross_profit,
-        "total_assets": total_assets,
-        "operating_income": operating_income,
-        "net_income": operating_income * 0.75,
-        "statement_type": "income",
-        "period_type": "quarterly",
-    })
+    return pd.DataFrame(
+        {
+            "report_period": dates,
+            "revenue": revenue,
+            "gross_profit": gross_profit,
+            "total_assets": total_assets,
+            "operating_income": operating_income,
+            "net_income": operating_income * 0.75,
+            "statement_type": "income",
+            "period_type": "quarterly",
+        }
+    )
 
 
 def _make_cashflow_df(n: int = 12, seed: int = 42) -> pd.DataFrame:
@@ -46,27 +49,31 @@ def _make_cashflow_df(n: int = 12, seed: int = 42) -> pd.DataFrame:
     dates = pd.date_range("2020-01-01", periods=n, freq="QS")
     operating_cash_flow = 150_000 + np.cumsum(np.random.randn(n) * 10_000)
     capital_expenditures = np.abs(np.random.randn(n) * 20_000) + 5_000
-    return pd.DataFrame({
-        "report_period": dates,
-        "operating_cash_flow": operating_cash_flow,
-        "capital_expenditures": capital_expenditures,
-        "statement_type": "cashflow",
-        "period_type": "quarterly",
-    })
+    return pd.DataFrame(
+        {
+            "report_period": dates,
+            "operating_cash_flow": operating_cash_flow,
+            "capital_expenditures": capital_expenditures,
+            "statement_type": "cashflow",
+            "period_type": "quarterly",
+        }
+    )
 
 
 def _make_insider_df(n: int = 15, seed: int = 7) -> pd.DataFrame:
     np.random.seed(seed)
     dates = pd.date_range("2023-01-01", periods=n, freq="10D")
     types = np.random.choice(["P", "S"], n, p=[0.6, 0.4])
-    return pd.DataFrame({
-        "transaction_date": dates,
-        "transaction_type": types,
-        "shares": np.random.randint(1000, 20000, n).astype(float),
-        "price_per_share": np.random.uniform(90, 110, n),
-        "owner_name": [f"Person_{i%5}" for i in range(n)],
-        "owner_title": np.random.choice(["CEO", "CFO", "Director"], n),
-    })
+    return pd.DataFrame(
+        {
+            "transaction_date": dates,
+            "transaction_type": types,
+            "shares": np.random.randint(1000, 20000, n).astype(float),
+            "price_per_share": np.random.uniform(90, 110, n),
+            "owner_name": [f"Person_{i%5}" for i in range(n)],
+            "owner_title": np.random.choice(["CEO", "CFO", "Director"], n),
+        }
+    )
 
 
 def _make_ownership_df(n: int = 8, seed: int = 99) -> pd.DataFrame:
@@ -76,25 +83,29 @@ def _make_ownership_df(n: int = 8, seed: int = 99) -> pd.DataFrame:
     rows = []
     for d in dates:
         for i in range(3):
-            rows.append({
-                "report_date": d,
-                "investor_name": f"Fund_{i}",
-                "shares_held": np.random.randint(100_000, 500_000),
-                "change_shares": np.random.randint(-50_000, 80_000),
-            })
+            rows.append(
+                {
+                    "report_date": d,
+                    "investor_name": f"Fund_{i}",
+                    "shares_held": np.random.randint(100_000, 500_000),
+                    "change_shares": np.random.randint(-50_000, 80_000),
+                }
+            )
     return pd.DataFrame(rows)
 
 
 def _make_analyst_df(n: int = 12, seed: int = 3) -> pd.DataFrame:
     np.random.seed(seed)
     dates = pd.date_range("2022-01-01", periods=n, freq="ME")
-    return pd.DataFrame({
-        "fiscal_date": dates,
-        "metric": ["EPS"] * n,
-        "consensus": 2.0 + np.arange(n) * 0.03 + np.random.randn(n) * 0.05,
-        "num_analysts": np.random.randint(5, 15, n),
-        "period_type": ["quarterly"] * n,
-    })
+    return pd.DataFrame(
+        {
+            "fiscal_date": dates,
+            "metric": ["EPS"] * n,
+            "consensus": 2.0 + np.arange(n) * 0.03 + np.random.randn(n) * 0.05,
+            "num_analysts": np.random.randint(5, 15, n),
+            "period_type": ["quarterly"] * n,
+        }
+    )
 
 
 def _make_store(with_fundamentals: bool = True) -> MagicMock:
@@ -114,7 +125,9 @@ def _make_store(with_fundamentals: bool = True) -> MagicMock:
     else:
         store.get_fundamentals.return_value = None
 
-    def _load_statements(symbol, statement_type="income", period_type="quarterly", limit=12):
+    def _load_statements(
+        symbol, statement_type="income", period_type="quarterly", limit=12
+    ):
         if statement_type == "cashflow":
             return _make_cashflow_df(n=min(limit, 12))
         return _make_income_df(n=min(limit, 12))
@@ -134,6 +147,7 @@ def _run(coro):
 # ---------------------------------------------------------------------------
 # Core contract
 # ---------------------------------------------------------------------------
+
 
 class TestFundamentalsCollectorCore:
     def test_returns_dict(self):
@@ -164,8 +178,15 @@ class TestFundamentalsCollectorCore:
 
     def test_baseline_keys_present(self):
         result = _run(collect_fundamentals("AAPL", _make_store()))
-        for key in ("pe_ratio", "eps_ttm", "revenue_growth", "gross_margin",
-                    "debt_to_equity", "beta", "market_cap"):
+        for key in (
+            "pe_ratio",
+            "eps_ttm",
+            "revenue_growth",
+            "gross_margin",
+            "debt_to_equity",
+            "beta",
+            "market_cap",
+        ):
             assert key in result, f"missing baseline key: {key}"
 
     def test_pe_ratio_value(self):
@@ -180,6 +201,7 @@ class TestFundamentalsCollectorCore:
 # ---------------------------------------------------------------------------
 # Quantamental signals from financial statements
 # ---------------------------------------------------------------------------
+
 
 class TestFundamentalsCollectorQuantamental:
     def test_novy_marx_gp_present(self):
@@ -227,6 +249,7 @@ class TestFundamentalsCollectorQuantamental:
 # Analyst revision signals
 # ---------------------------------------------------------------------------
 
+
 class TestFundamentalsCollectorAnalyst:
     def test_analyst_revision_momentum_present(self):
         result = _run(collect_fundamentals("AAPL", _make_store()))
@@ -252,6 +275,7 @@ class TestFundamentalsCollectorAnalyst:
 # ---------------------------------------------------------------------------
 # Insider signals
 # ---------------------------------------------------------------------------
+
 
 class TestFundamentalsCollectorInsider:
     def test_insider_cluster_buy_present(self):
@@ -284,6 +308,7 @@ class TestFundamentalsCollectorInsider:
 # ---------------------------------------------------------------------------
 # Institutional herding signals
 # ---------------------------------------------------------------------------
+
 
 class TestFundamentalsCollectorHerding:
     def test_herding_measure_present(self):
@@ -319,6 +344,7 @@ class TestFundamentalsCollectorHerding:
 # Sloan Accruals + FCF Yield signals (cash flow statement merge)
 # ---------------------------------------------------------------------------
 
+
 class TestFundamentalsCollectorCashFlowSignals:
     def test_sloan_accruals_present(self):
         result = _run(collect_fundamentals("AAPL", _make_store()))
@@ -346,11 +372,15 @@ class TestFundamentalsCollectorCashFlowSignals:
 
     def test_cashflow_signals_absent_when_no_cashflow_data(self):
         store = _make_store()
+
         # Override to return empty cashflow statement
-        def _load_statements_no_cf(symbol, statement_type="income", period_type="quarterly", limit=12):
+        def _load_statements_no_cf(
+            symbol, statement_type="income", period_type="quarterly", limit=12
+        ):
             if statement_type == "cashflow":
                 return pd.DataFrame()
             return _make_income_df(n=min(limit, 12))
+
         store.load_financial_statements.side_effect = _load_statements_no_cf
         result = _run(collect_fundamentals("AAPL", store))
         assert "sloan_accruals" not in result
@@ -375,31 +405,35 @@ def _make_piotroski_income_df(n: int = 12) -> pd.DataFrame:
     revenue = 1_000_000 + np.cumsum(np.random.randn(n) * 10_000)
     gross_profit = revenue * 0.40
     operating_cash_flow = 120_000 + np.cumsum(np.random.randn(n) * 5_000)
-    return pd.DataFrame({
-        "report_period": dates,
-        "revenue": revenue,
-        "gross_profit": gross_profit,
-        "cost_of_revenue": revenue * 0.60,
-        "total_assets": 5_000_000 + np.cumsum(np.random.randn(n) * 20_000),
-        "net_income": revenue * 0.08,
-        "operating_cash_flow": operating_cash_flow,
-        "long_term_debt": 500_000 + np.cumsum(np.random.randn(n) * 5_000),
-        "current_assets": 800_000 + np.cumsum(np.random.randn(n) * 5_000),
-        "current_liabilities": 400_000 + np.cumsum(np.random.randn(n) * 3_000),
-        "shares_outstanding": 10_000_000 * np.ones(n),
-        "statement_type": "income",
-        "period_type": "quarterly",
-    })
+    return pd.DataFrame(
+        {
+            "report_period": dates,
+            "revenue": revenue,
+            "gross_profit": gross_profit,
+            "cost_of_revenue": revenue * 0.60,
+            "total_assets": 5_000_000 + np.cumsum(np.random.randn(n) * 20_000),
+            "net_income": revenue * 0.08,
+            "operating_cash_flow": operating_cash_flow,
+            "long_term_debt": 500_000 + np.cumsum(np.random.randn(n) * 5_000),
+            "current_assets": 800_000 + np.cumsum(np.random.randn(n) * 5_000),
+            "current_liabilities": 400_000 + np.cumsum(np.random.randn(n) * 3_000),
+            "shares_outstanding": 10_000_000 * np.ones(n),
+            "statement_type": "income",
+            "period_type": "quarterly",
+        }
+    )
 
 
 def _make_store_with_piotroski() -> MagicMock:
     store = _make_store(with_fundamentals=True)
     piotroski_df = _make_piotroski_income_df()
 
-    def _load_statements_pio(symbol, statement_type="income", period_type="quarterly", limit=12):
+    def _load_statements_pio(
+        symbol, statement_type="income", period_type="quarterly", limit=12
+    ):
         if statement_type == "cashflow":
             return _make_cashflow_df(n=min(limit, 12))
-        return piotroski_df.iloc[:min(limit, len(piotroski_df))]
+        return piotroski_df.iloc[: min(limit, len(piotroski_df))]
 
     store.load_financial_statements.side_effect = _load_statements_pio
     return store
@@ -450,11 +484,13 @@ def _make_earnings_calendar_df(n: int = 10) -> pd.DataFrame:
     dates = pd.date_range("2021-01-15", periods=n, freq="QS")
     estimate = 1.0 + np.arange(n) * 0.05
     reported_eps = estimate + np.random.randn(n) * 0.10
-    return pd.DataFrame({
-        "report_date": dates,
-        "reported_eps": reported_eps,
-        "estimate": estimate,
-    })
+    return pd.DataFrame(
+        {
+            "report_date": dates,
+            "reported_eps": reported_eps,
+            "estimate": estimate,
+        }
+    )
 
 
 def _make_store_with_earnings() -> MagicMock:

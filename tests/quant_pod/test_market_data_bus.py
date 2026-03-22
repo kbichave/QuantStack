@@ -14,8 +14,8 @@ from datetime import UTC
 from unittest.mock import MagicMock
 
 import pytest
-from quant_pod.data.market_data_bus import RestPollingBus
-from quant_pod.execution.tick_executor import Tick
+from quantstack.data.market_data_bus import RestPollingBus
+from quantstack.execution.tick_executor import Tick
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -37,8 +37,8 @@ class TestStressTesting:
 
     def test_stress_scenario_pnl(self):
         """Test stress scenario P&L calculation."""
-        from quantcore.options.models import OptionType
-        from quantcore.options.pricing import black_scholes_price
+        from quantstack.core.options.models import OptionType
+        from quantstack.core.options.pricing import black_scholes_price
 
         # Initial position: ATM call
         # Signature: black_scholes_price(S, K, T, r, sigma, option_type, q=0.0)
@@ -48,14 +48,16 @@ class TestStressTesting:
         # Stress scenario: -20% price, +50% vol
         S_stressed = S0 * 0.8
         vol_stressed = vol * 1.5
-        stressed_price = black_scholes_price(S_stressed, K, T, r, vol_stressed, OptionType.CALL)
+        stressed_price = black_scholes_price(
+            S_stressed, K, T, r, vol_stressed, OptionType.CALL
+        )
 
         # Call should lose value from price drop
         assert stressed_price < initial_price
 
     def test_stress_scenarios_exist(self):
         """Test predefined stress scenarios exist."""
-        from quantcore.risk.stress_testing import STRESS_SCENARIOS
+        from quantstack.core.risk.stress_testing import STRESS_SCENARIOS
 
         assert "2008_lehman" in STRESS_SCENARIOS
         assert "2020_covid_crash" in STRESS_SCENARIOS
@@ -67,7 +69,7 @@ class TestRiskControls:
 
     def test_normal_state(self):
         """Test normal risk state."""
-        from quantcore.risk.controls import ExposureManager
+        from quantstack.core.risk.controls import ExposureManager
 
         manager = ExposureManager(
             max_concurrent_trades=5,
@@ -80,7 +82,7 @@ class TestRiskControls:
 
     def test_position_limit_breach(self):
         """Test position limit enforcement."""
-        from quantcore.risk.controls import ExposureManager
+        from quantstack.core.risk.controls import ExposureManager
 
         manager = ExposureManager(max_concurrent_trades=2)
 

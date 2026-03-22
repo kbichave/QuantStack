@@ -13,7 +13,7 @@ from datetime import datetime
 
 import duckdb
 import pytest
-from quant_pod.monitoring.degradation_detector import (
+from quantstack.monitoring.degradation_detector import (
     DegradationDetector,
     DegradationReport,
     DegradationStatus,
@@ -44,14 +44,16 @@ def _register_benchmark(detector: DegradationDetector, sharpe=1.8, dd=0.08, wr=0
 
 def _seed_trades(conn, pnls: list, strategy_id: str = "test_strategy"):
     """Insert dummy closed trades into the DB for the detector to pick up."""
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS closed_trades (
             trade_id VARCHAR,
             strategy_id VARCHAR,
             realized_pnl DOUBLE,
             closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
+    """
+    )
     for i, pnl in enumerate(pnls):
         conn.execute(
             "INSERT INTO closed_trades VALUES (?, ?, ?, NOW())",

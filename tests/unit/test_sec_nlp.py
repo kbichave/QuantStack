@@ -5,7 +5,7 @@
 
 import pytest
 
-from quantcore.features.sec_nlp import (
+from quantstack.core.features.sec_nlp import (
     EightKClassifier,
     MDADeltaAnalyzer,
     RiskFactorDeltaAnalyzer,
@@ -71,7 +71,9 @@ class TestEightKClassifier:
         assert "guidance_raise" in cats
 
     def test_guidance_lower_detected(self):
-        text = "The company lowered its fiscal year guidance below analyst expectations."
+        text = (
+            "The company lowered its fiscal year guidance below analyst expectations."
+        )
         events = self.clf.classify(text)
         cats = {e.category for e in events}
         assert "guidance_lower" in cats
@@ -117,8 +119,13 @@ class TestEightKClassifier:
         text = "Raises full-year guidance. The CEO resigns."
         result = self.clf.to_signal_dict(text)
         expected_keys = {
-            "sec_8k_guidance", "sec_8k_management", "sec_8k_ma",
-            "sec_8k_regulatory", "sec_8k_buyback", "sec_8k_net_impact", "sec_8k_n_events"
+            "sec_8k_guidance",
+            "sec_8k_management",
+            "sec_8k_ma",
+            "sec_8k_regulatory",
+            "sec_8k_buyback",
+            "sec_8k_net_impact",
+            "sec_8k_n_events",
         }
         assert expected_keys.issubset(result.keys())
 
@@ -154,43 +161,50 @@ class TestMDADeltaAnalyzer:
         assert result["mda_similarity"] > 0.95
 
     def test_different_texts_low_similarity(self):
-        prior   = "Revenue improved and growth accelerated across all segments."
+        prior = "Revenue improved and growth accelerated across all segments."
         current = "Regulatory compliance and litigation risk increased significantly."
         result = self.analyzer.analyze(prior, current)
         assert result["mda_similarity"] < 0.5
 
     def test_significant_change_flagged(self):
-        prior   = "Revenue grew significantly across all product categories."
+        prior = "Revenue grew significantly across all product categories."
         current = "Litigation risk and compliance costs increased substantially."
         result = self.analyzer.analyze(prior, current)
         assert result["mda_significant_change"] == 1
 
     def test_no_significant_change_when_similar(self):
         text = "Revenue growth improved significantly driven by strong demand in key markets."
-        result = self.analyzer.analyze(text, text + " Additionally, performance was solid.")
+        result = self.analyzer.analyze(
+            text, text + " Additionally, performance was solid."
+        )
         assert result["mda_significant_change"] == 0
 
     def test_word_count_delta_positive_when_longer(self):
-        prior   = "Short text."
+        prior = "Short text."
         current = "This is a much longer management discussion and analysis section with many more words."
         result = self.analyzer.analyze(prior, current)
         assert result["mda_word_count_delta"] > 0
 
     def test_sentiment_delta_positive_for_improving_tone(self):
-        prior   = "Revenue declined and challenges increased."
+        prior = "Revenue declined and challenges increased."
         current = "Strong growth momentum and robust expansion."
         result = self.analyzer.analyze(prior, current)
         assert result["mda_sentiment_delta"] > 0
 
     def test_sentiment_delta_negative_for_deteriorating_tone(self):
-        prior   = "Strong growth and solid performance."
+        prior = "Strong growth and solid performance."
         current = "Significant challenges and adverse conditions."
         result = self.analyzer.analyze(prior, current)
         assert result["mda_sentiment_delta"] < 0
 
     def test_returns_dict_with_expected_keys(self):
         result = self.analyzer.analyze("text a", "text b")
-        for key in ("mda_similarity", "mda_significant_change", "mda_word_count_delta", "mda_sentiment_delta"):
+        for key in (
+            "mda_similarity",
+            "mda_significant_change",
+            "mda_word_count_delta",
+            "mda_sentiment_delta",
+        ):
             assert key in result
 
 
@@ -221,11 +235,14 @@ class TestRiskFactorDeltaAnalyzer:
         assert result["rf_bearish_signal"] == 0
 
     def test_new_risk_factor_detected(self):
-        added_risk = _RISK_TEMPLATE + """
+        added_risk = (
+            _RISK_TEMPLATE
+            + """
 
 Supply Chain Risks
 Disruptions in our supply chain could materially harm our operations.
 """
+        )
         result = self.analyzer.analyze(_RISK_TEMPLATE, added_risk)
         assert result["rf_added"] >= 1
         assert result["rf_net_change"] > 0
@@ -252,6 +269,12 @@ Intense competition from established players may reduce our market share.
 
     def test_returns_dict_with_expected_keys(self):
         result = self.analyzer.analyze(_RISK_TEMPLATE, _RISK_TEMPLATE)
-        for key in ("rf_count_prior", "rf_count_current", "rf_added", "rf_removed",
-                    "rf_net_change", "rf_bearish_signal"):
+        for key in (
+            "rf_count_prior",
+            "rf_count_current",
+            "rf_added",
+            "rf_removed",
+            "rf_net_change",
+            "rf_bearish_signal",
+        ):
             assert key in result

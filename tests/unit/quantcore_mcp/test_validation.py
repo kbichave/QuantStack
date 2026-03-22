@@ -12,7 +12,7 @@ class TestPurgedCV:
 
     def test_purged_cv_splits(self):
         """Test purged CV generates correct splits."""
-        from quantcore.validation.purged_cv import PurgedKFoldCV
+        from quantstack.core.validation.purged_cv import PurgedKFoldCV
 
         # Create test data
         dates = pd.date_range("2020-01-01", periods=1000, freq="D")
@@ -31,7 +31,7 @@ class TestPurgedCV:
 
     def test_embargo_applied(self):
         """Test embargo creates gap between train and test."""
-        from quantcore.validation.purged_cv import PurgedKFoldCV
+        from quantstack.core.validation.purged_cv import PurgedKFoldCV
 
         dates = pd.date_range("2020-01-01", periods=1000, freq="D")
         X = pd.DataFrame({"feature": np.random.randn(1000)}, index=dates)

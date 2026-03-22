@@ -11,11 +11,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from quantcore.config.timeframes import Timeframe
-from quantcore.data.streaming.incremental_features import IncrementalFeatures
-from quantcore.execution.fill_tracker import FillEvent, FillTracker, LivePosition
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.streaming.incremental_features import IncrementalFeatures
+from quantstack.core.execution.fill_tracker import FillEvent, FillTracker, LivePosition
 
-from quant_pod.intraday.position_manager import IntradayPositionManager
+from quantstack.intraday.position_manager import IntradayPositionManager
 
 
 def _make_features(
@@ -69,10 +69,15 @@ class TestMarkToMarket:
     async def test_updates_price_on_bar(self):
         pm, tracker, _ = _make_pm(flatten_time="23:59")
         # Add a position
-        tracker.update_fill(FillEvent(
-            order_id="1", symbol="SPY", side="buy",
-            filled_qty=100, avg_fill_price=450.0,
-        ))
+        tracker.update_fill(
+            FillEvent(
+                order_id="1",
+                symbol="SPY",
+                side="buy",
+                filled_qty=100,
+                avg_fill_price=450.0,
+            )
+        )
         assert tracker.get_position("SPY").current_price == 450.0
 
         await pm.on_features(_make_features(close=455.0))
@@ -85,10 +90,15 @@ class TestTrailingStop:
         pm, tracker, execute_fn = _make_pm(trailing_atr=2.0, flatten_time="23:59")
 
         # Open long position
-        tracker.update_fill(FillEvent(
-            order_id="1", symbol="SPY", side="buy",
-            filled_qty=100, avg_fill_price=450.0,
-        ))
+        tracker.update_fill(
+            FillEvent(
+                order_id="1",
+                symbol="SPY",
+                side="buy",
+                filled_qty=100,
+                avg_fill_price=450.0,
+            )
+        )
         pm.register_entry("SPY", price=450.0, atr=2.0)
 
         # Price goes up (updates high water mark)
@@ -105,12 +115,19 @@ class TestTrailingStop:
 class TestTimeStop:
     @pytest.mark.asyncio
     async def test_time_stop_after_n_bars(self):
-        pm, tracker, execute_fn = _make_pm(max_hold_bars=5, trailing_atr=0, flatten_time="23:59")
+        pm, tracker, execute_fn = _make_pm(
+            max_hold_bars=5, trailing_atr=0, flatten_time="23:59"
+        )
 
-        tracker.update_fill(FillEvent(
-            order_id="1", symbol="SPY", side="buy",
-            filled_qty=100, avg_fill_price=450.0,
-        ))
+        tracker.update_fill(
+            FillEvent(
+                order_id="1",
+                symbol="SPY",
+                side="buy",
+                filled_qty=100,
+                avg_fill_price=450.0,
+            )
+        )
         pm.register_entry("SPY", price=450.0, atr=2.0)
 
         # Process 4 bars — no exit
@@ -127,12 +144,19 @@ class TestTimeStop:
 class TestLossStop:
     @pytest.mark.asyncio
     async def test_loss_stop_on_2pct_drop(self):
-        pm, tracker, execute_fn = _make_pm(loss_stop_pct=0.02, trailing_atr=0, flatten_time="23:59")
+        pm, tracker, execute_fn = _make_pm(
+            loss_stop_pct=0.02, trailing_atr=0, flatten_time="23:59"
+        )
 
-        tracker.update_fill(FillEvent(
-            order_id="1", symbol="SPY", side="buy",
-            filled_qty=100, avg_fill_price=450.0,
-        ))
+        tracker.update_fill(
+            FillEvent(
+                order_id="1",
+                symbol="SPY",
+                side="buy",
+                filled_qty=100,
+                avg_fill_price=450.0,
+            )
+        )
         pm.register_entry("SPY", price=450.0, atr=2.0)
 
         # 2.1% drop from entry: 450 * 0.021 = 9.45 → price = 440.55
@@ -146,14 +170,24 @@ class TestFlattenAll:
     async def test_flatten_closes_all_positions(self):
         pm, tracker, execute_fn = _make_pm()
 
-        tracker.update_fill(FillEvent(
-            order_id="1", symbol="SPY", side="buy",
-            filled_qty=100, avg_fill_price=450.0,
-        ))
-        tracker.update_fill(FillEvent(
-            order_id="2", symbol="QQQ", side="buy",
-            filled_qty=50, avg_fill_price=380.0,
-        ))
+        tracker.update_fill(
+            FillEvent(
+                order_id="1",
+                symbol="SPY",
+                side="buy",
+                filled_qty=100,
+                avg_fill_price=450.0,
+            )
+        )
+        tracker.update_fill(
+            FillEvent(
+                order_id="2",
+                symbol="QQQ",
+                side="buy",
+                filled_qty=50,
+                avg_fill_price=380.0,
+            )
+        )
 
         pm.register_entry("SPY", price=450.0, atr=2.0)
         pm.register_entry("QQQ", price=380.0, atr=1.5)
@@ -175,10 +209,15 @@ class TestKillSwitch:
             kill_switch_fn=lambda: True,  # Always active
         )
 
-        tracker.update_fill(FillEvent(
-            order_id="1", symbol="SPY", side="buy",
-            filled_qty=100, avg_fill_price=450.0,
-        ))
+        tracker.update_fill(
+            FillEvent(
+                order_id="1",
+                symbol="SPY",
+                side="buy",
+                filled_qty=100,
+                avg_fill_price=450.0,
+            )
+        )
         pm.register_entry("SPY", price=450.0, atr=2.0)
 
         await pm.on_features(_make_features(close=450.0))

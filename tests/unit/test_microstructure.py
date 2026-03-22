@@ -5,16 +5,16 @@
 
 import numpy as np
 import pytest
-from quantcore.microstructure.impact_models import (
+from quantstack.core.microstructure.impact_models import (
     ImpactModel,
     ImpactParams,
     estimate_kyle_lambda,
     square_root_impact,
 )
-from quantcore.microstructure.matching_engine import (
+from quantstack.core.microstructure.matching_engine import (
     MatchingEngine,
 )
-from quantcore.microstructure.order_book import Order, OrderBook, OrderType, Side
+from quantstack.core.microstructure.order_book import Order, OrderBook, OrderType, Side
 
 
 class TestOrderBook:
@@ -323,7 +323,7 @@ class TestImpactModels:
 # ---------------------------------------------------------------------------
 
 import pandas as pd
-from quantcore.features.microstructure import OvernightGapPersistence
+from quantstack.core.features.microstructure import OvernightGapPersistence
 
 
 class TestOvernightGapPersistenceVolume:
@@ -336,7 +336,9 @@ class TestOvernightGapPersistenceVolume:
         # Open with gap: alternate gaps up and down
         open_ = close.shift(1) * (1 + np.where(np.arange(50) % 5 == 0, 0.015, 0.001))
         open_ = pd.Series(open_, index=dates)
-        volume = pd.Series(1_000_000 + np.random.randint(0, 200_000, 50).astype(float), index=dates)
+        volume = pd.Series(
+            1_000_000 + np.random.randint(0, 200_000, 50).astype(float), index=dates
+        )
         return open_, close, volume
 
     def test_volume_spike_column_present_when_volume_given(self, gap_data):
@@ -381,7 +383,9 @@ class TestOvernightGapPersistenceVolume:
         vol = [1_000_000.0] * 25
         vol[22] = 3_000_000.0
         volume = pd.Series(vol, index=dates)
-        result = OvernightGapPersistence(volume_spike_mult=2.0).compute(open_, close, volume)
+        result = OvernightGapPersistence(volume_spike_mult=2.0).compute(
+            open_, close, volume
+        )
         assert result["volume_spike"].iloc[22] == 1
 
     def test_existing_columns_unchanged_with_volume(self, gap_data):
@@ -390,4 +394,6 @@ class TestOvernightGapPersistenceVolume:
         without = OvernightGapPersistence().compute(open_, close)
         with_vol = OvernightGapPersistence().compute(open_, close, volume)
         for col in ("gap_pct", "gap_up", "gap_down", "gap_filled", "gap_persisted"):
-            pd.testing.assert_series_equal(without[col], with_vol[col], check_names=False)
+            pd.testing.assert_series_equal(
+                without[col], with_vol[col], check_names=False
+            )

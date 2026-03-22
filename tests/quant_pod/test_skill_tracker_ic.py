@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import duckdb
 import pytest
-from quant_pod.learning.skill_tracker import AgentSkill, SkillTracker
+from quantstack.learning.skill_tracker import AgentSkill, SkillTracker
 
 # ---------------------------------------------------------------------------
 # AgentSkill: IC / ICIR property tests (no DB required)
@@ -39,7 +39,18 @@ class TestAgentSkillICProperties:
         # IC observations with positive mean and some variance
         skill = AgentSkill(
             agent_id="a",
-            ic_observations=[0.05, 0.06, 0.04, 0.07, 0.05, 0.06, 0.04, 0.05, 0.06, 0.07],
+            ic_observations=[
+                0.05,
+                0.06,
+                0.04,
+                0.07,
+                0.05,
+                0.06,
+                0.04,
+                0.05,
+                0.06,
+                0.07,
+            ],
         )
         assert skill.icir > 0
 

@@ -6,7 +6,7 @@
 import math
 import pytest
 
-from quant_pod.signal_engine.collectors.options_flow import (
+from quantstack.signal_engine.collectors.options_flow import (
     _bs_charm,
     _bs_delta,
     _bs_gamma,
@@ -33,16 +33,23 @@ class TestBlackScholesHelpers:
 
     def test_bs_price_atm_call(self):
         """ATM call with 30 days, 20% vol should be a few % of spot."""
-        price = _bs_price(spot=100, strike=100, dte_years=30 / 365, iv=0.20, r=0.05, is_call=True)
+        price = _bs_price(
+            spot=100, strike=100, dte_years=30 / 365, iv=0.20, r=0.05, is_call=True
+        )
         assert 1.0 < price < 10.0
 
     def test_bs_price_deep_itm_call(self):
         """Deep ITM call ≈ spot - PV(strike)."""
-        price = _bs_price(spot=200, strike=100, dte_years=1 / 365, iv=0.20, r=0.05, is_call=True)
+        price = _bs_price(
+            spot=200, strike=100, dte_years=1 / 365, iv=0.20, r=0.05, is_call=True
+        )
         assert price > 95  # approximately spot - strike
 
     def test_bs_price_zero_dte(self):
-        assert _bs_price(spot=100, strike=100, dte_years=0, iv=0.20, r=0.05, is_call=True) == 0.0
+        assert (
+            _bs_price(spot=100, strike=100, dte_years=0, iv=0.20, r=0.05, is_call=True)
+            == 0.0
+        )
 
     def test_bs_gamma_positive(self):
         g = _bs_gamma(spot=100, strike=100, dte_years=30 / 365, iv=0.20, r=0.05)
@@ -55,15 +62,21 @@ class TestBlackScholesHelpers:
         assert g_atm > g_otm
 
     def test_bs_delta_call_in_zero_one(self):
-        d = _bs_delta(spot=100, strike=100, dte_years=30 / 365, iv=0.20, r=0.05, is_call=True)
+        d = _bs_delta(
+            spot=100, strike=100, dte_years=30 / 365, iv=0.20, r=0.05, is_call=True
+        )
         assert 0.0 < d < 1.0
 
     def test_bs_delta_put_in_neg_one_zero(self):
-        d = _bs_delta(spot=100, strike=100, dte_years=30 / 365, iv=0.20, r=0.05, is_call=False)
+        d = _bs_delta(
+            spot=100, strike=100, dte_years=30 / 365, iv=0.20, r=0.05, is_call=False
+        )
         assert -1.0 < d < 0.0
 
     def test_bs_delta_deep_itm_call_near_one(self):
-        d = _bs_delta(spot=200, strike=100, dte_years=1 / 365, iv=0.20, r=0.05, is_call=True)
+        d = _bs_delta(
+            spot=200, strike=100, dte_years=1 / 365, iv=0.20, r=0.05, is_call=True
+        )
         assert d > 0.99
 
 
@@ -72,7 +85,9 @@ class TestBlackScholesHelpers:
 # ---------------------------------------------------------------------------
 
 
-def _make_chain(spot: float, strikes: list[float], iv: float = 0.20, oi: int = 1000) -> list[dict]:
+def _make_chain(
+    spot: float, strikes: list[float], iv: float = 0.20, oi: int = 1000
+) -> list[dict]:
     """Build a synthetic chain with BS Greeks for testing."""
     contracts = []
     for st in strikes:
@@ -102,7 +117,14 @@ class TestComputeOptionsFlowSignals:
     def test_expected_keys(self):
         chain = _make_chain(spot=100, strikes=[95, 100, 105])
         result = compute_options_flow_signals(chain, spot=100)
-        for key in ("gex", "gamma_flip", "above_gamma_flip", "dex", "max_pain", "n_contracts"):
+        for key in (
+            "gex",
+            "gamma_flip",
+            "above_gamma_flip",
+            "dex",
+            "max_pain",
+            "n_contracts",
+        ):
             assert key in result
 
     def test_n_contracts_correct(self):
@@ -165,8 +187,22 @@ class TestComputeOptionsFlowSignals:
     def test_no_oi_contracts_filtered(self):
         """Contracts with open_interest=None or 0 should not crash."""
         chain = [
-            {"option_type": "call", "strike": 100, "open_interest": None, "gamma": 0.01, "delta": 0.5, "implied_volatility": 0.20},
-            {"option_type": "put", "strike": 100, "open_interest": 0, "gamma": 0.01, "delta": -0.5, "implied_volatility": 0.20},
+            {
+                "option_type": "call",
+                "strike": 100,
+                "open_interest": None,
+                "gamma": 0.01,
+                "delta": 0.5,
+                "implied_volatility": 0.20,
+            },
+            {
+                "option_type": "put",
+                "strike": 100,
+                "open_interest": 0,
+                "gamma": 0.01,
+                "delta": -0.5,
+                "implied_volatility": 0.20,
+            },
         ]
         result = compute_options_flow_signals(chain, spot=100)
         assert isinstance(result, dict)
@@ -211,26 +247,29 @@ def _make_full_contracts(spot: float = 100.0):
     Uses a far-future expiry so DTE > 0 regardless of when tests run.
     """
     from datetime import date, timedelta
+
     future_expiry = (date.today() + timedelta(days=60)).strftime("%Y-%m-%d")
     dte = 60.0 / 365.0
     contracts = []
     for strike, opt_type, iv, volume in [
-        (95,  "put",  0.30, 200),
+        (95, "put", 0.30, 200),
         (100, "call", 0.20, 300),
-        (100, "put",  0.22, 150),
+        (100, "put", 0.22, 150),
         (105, "call", 0.18, 100),
     ]:
         is_call = opt_type == "call"
-        contracts.append({
-            "option_type": opt_type,
-            "strike": float(strike),
-            "open_interest": 500,
-            "implied_volatility": iv,
-            "delta": _bs_delta(spot, float(strike), dte, iv, 0.05, is_call),
-            "gamma": _bs_gamma(spot, float(strike), dte, iv, 0.05),
-            "expiry": future_expiry,
-            "volume": float(volume),
-        })
+        contracts.append(
+            {
+                "option_type": opt_type,
+                "strike": float(strike),
+                "open_interest": 500,
+                "implied_volatility": iv,
+                "delta": _bs_delta(spot, float(strike), dte, iv, 0.05, is_call),
+                "gamma": _bs_gamma(spot, float(strike), dte, iv, 0.05),
+                "expiry": future_expiry,
+                "volume": float(volume),
+            }
+        )
     return contracts
 
 
@@ -305,10 +344,20 @@ class TestOSRatioAvemoney:
     def test_avemoney_above_1_when_all_calls_otm(self):
         """Contracts all have strike > spot → moneyness > 1 → avemoney > 1."""
         contracts = [
-            {"option_type": "call", "strike": 110.0, "open_interest": 500,
-             "volume": 100.0, "implied_volatility": 0.20},
-            {"option_type": "call", "strike": 115.0, "open_interest": 200,
-             "volume": 50.0, "implied_volatility": 0.22},
+            {
+                "option_type": "call",
+                "strike": 110.0,
+                "open_interest": 500,
+                "volume": 100.0,
+                "implied_volatility": 0.20,
+            },
+            {
+                "option_type": "call",
+                "strike": 115.0,
+                "open_interest": 200,
+                "volume": 50.0,
+                "implied_volatility": 0.22,
+            },
         ]
         result = compute_options_flow_signals(contracts, spot=100.0)
         if result["avemoney"] is not None:
@@ -317,10 +366,20 @@ class TestOSRatioAvemoney:
     def test_avemoney_below_1_when_all_puts_otm(self):
         """Contracts all have strike < spot → moneyness < 1 → avemoney < 1."""
         contracts = [
-            {"option_type": "put", "strike": 90.0, "open_interest": 500,
-             "volume": 100.0, "implied_volatility": 0.25},
-            {"option_type": "put", "strike": 85.0, "open_interest": 200,
-             "volume": 50.0, "implied_volatility": 0.28},
+            {
+                "option_type": "put",
+                "strike": 90.0,
+                "open_interest": 500,
+                "volume": 100.0,
+                "implied_volatility": 0.25,
+            },
+            {
+                "option_type": "put",
+                "strike": 85.0,
+                "open_interest": 200,
+                "volume": 50.0,
+                "implied_volatility": 0.28,
+            },
         ]
         result = compute_options_flow_signals(contracts, spot=100.0)
         if result["avemoney"] is not None:
@@ -349,24 +408,33 @@ class TestIVSkewZScore:
         # Build a contrived chain with distinct IV for puts vs calls at ≈25-delta
         # Using full contracts with explicit delta for reliable skew computation
         from datetime import date, timedelta
+
         future = (date.today() + timedelta(days=60)).strftime("%Y-%m-%d")
         dte = 60.0 / 365.0
         spot = 100.0
         contracts = [
             {
-                "option_type": "put", "strike": 95.0, "open_interest": 500,
-                "implied_volatility": 0.28, "delta": -0.25,
+                "option_type": "put",
+                "strike": 95.0,
+                "open_interest": 500,
+                "implied_volatility": 0.28,
+                "delta": -0.25,
                 "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05),
             },
             {
-                "option_type": "call", "strike": 105.0, "open_interest": 500,
-                "implied_volatility": 0.18, "delta": 0.25,
+                "option_type": "call",
+                "strike": 105.0,
+                "open_interest": 500,
+                "implied_volatility": 0.18,
+                "delta": 0.25,
                 "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05),
             },
         ]
         # iv_skew ≈ 0.28 - 0.18 = 0.10
         historical = [0.08, 0.09, 0.07, 0.10, 0.11, 0.09, 0.08]  # mean ~0.089
-        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=historical)
+        result = compute_options_flow_signals(
+            contracts, spot=spot, historical_skews=historical
+        )
         assert result["iv_skew"] is not None
         assert result["iv_skew_zscore"] is not None
 
@@ -375,15 +443,27 @@ class TestIVSkewZScore:
         dte = 60.0 / 365.0
         spot = 100.0
         contracts = [
-            {"option_type": "put", "strike": 95.0, "open_interest": 500,
-             "implied_volatility": 0.28, "delta": -0.25,
-             "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05)},
-            {"option_type": "call", "strike": 105.0, "open_interest": 500,
-             "implied_volatility": 0.18, "delta": 0.25,
-             "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05)},
+            {
+                "option_type": "put",
+                "strike": 95.0,
+                "open_interest": 500,
+                "implied_volatility": 0.28,
+                "delta": -0.25,
+                "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05),
+            },
+            {
+                "option_type": "call",
+                "strike": 105.0,
+                "open_interest": 500,
+                "implied_volatility": 0.18,
+                "delta": 0.25,
+                "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05),
+            },
         ]
         historical = [0.08, 0.09, 0.07, 0.10, 0.11, 0.09, 0.08]
-        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=historical)
+        result = compute_options_flow_signals(
+            contracts, spot=spot, historical_skews=historical
+        )
         if result["iv_skew_zscore"] is not None:
             assert isinstance(result["iv_skew_zscore"], float)
 
@@ -392,14 +472,26 @@ class TestIVSkewZScore:
         dte = 60.0 / 365.0
         spot = 100.0
         contracts = [
-            {"option_type": "put", "strike": 95.0, "open_interest": 500,
-             "implied_volatility": 0.28, "delta": -0.25,
-             "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05)},
-            {"option_type": "call", "strike": 105.0, "open_interest": 500,
-             "implied_volatility": 0.18, "delta": 0.25,
-             "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05)},
+            {
+                "option_type": "put",
+                "strike": 95.0,
+                "open_interest": 500,
+                "implied_volatility": 0.28,
+                "delta": -0.25,
+                "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05),
+            },
+            {
+                "option_type": "call",
+                "strike": 105.0,
+                "open_interest": 500,
+                "implied_volatility": 0.18,
+                "delta": 0.25,
+                "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05),
+            },
         ]
-        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=None)
+        result = compute_options_flow_signals(
+            contracts, spot=spot, historical_skews=None
+        )
         assert result["iv_skew_zscore"] is None
 
     def test_iv_skew_zscore_none_with_insufficient_history(self):
@@ -407,14 +499,26 @@ class TestIVSkewZScore:
         dte = 60.0 / 365.0
         spot = 100.0
         contracts = [
-            {"option_type": "put", "strike": 95.0, "open_interest": 500,
-             "implied_volatility": 0.28, "delta": -0.25,
-             "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05)},
-            {"option_type": "call", "strike": 105.0, "open_interest": 500,
-             "implied_volatility": 0.18, "delta": 0.25,
-             "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05)},
+            {
+                "option_type": "put",
+                "strike": 95.0,
+                "open_interest": 500,
+                "implied_volatility": 0.28,
+                "delta": -0.25,
+                "gamma": _bs_gamma(spot, 95, dte, 0.28, 0.05),
+            },
+            {
+                "option_type": "call",
+                "strike": 105.0,
+                "open_interest": 500,
+                "implied_volatility": 0.18,
+                "delta": 0.25,
+                "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05),
+            },
         ]
-        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=[0.08, 0.09])
+        result = compute_options_flow_signals(
+            contracts, spot=spot, historical_skews=[0.08, 0.09]
+        )
         assert result["iv_skew_zscore"] is None
 
     def test_iv_skew_zscore_sign_elevated_skew(self):
@@ -422,15 +526,27 @@ class TestIVSkewZScore:
         dte = 60.0 / 365.0
         spot = 100.0
         contracts = [
-            {"option_type": "put", "strike": 95.0, "open_interest": 500,
-             "implied_volatility": 0.40, "delta": -0.25,  # very high put IV
-             "gamma": _bs_gamma(spot, 95, dte, 0.40, 0.05)},
-            {"option_type": "call", "strike": 105.0, "open_interest": 500,
-             "implied_volatility": 0.18, "delta": 0.25,
-             "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05)},
+            {
+                "option_type": "put",
+                "strike": 95.0,
+                "open_interest": 500,
+                "implied_volatility": 0.40,
+                "delta": -0.25,  # very high put IV
+                "gamma": _bs_gamma(spot, 95, dte, 0.40, 0.05),
+            },
+            {
+                "option_type": "call",
+                "strike": 105.0,
+                "open_interest": 500,
+                "implied_volatility": 0.18,
+                "delta": 0.25,
+                "gamma": _bs_gamma(spot, 105, dte, 0.18, 0.05),
+            },
         ]
         # current skew ≈ 0.22; history mean ≈ 0.05 → z-score should be positive
         historical = [0.04, 0.05, 0.06, 0.05, 0.04, 0.05, 0.06]
-        result = compute_options_flow_signals(contracts, spot=spot, historical_skews=historical)
+        result = compute_options_flow_signals(
+            contracts, spot=spot, historical_skews=historical
+        )
         if result["iv_skew_zscore"] is not None:
             assert result["iv_skew_zscore"] > 0

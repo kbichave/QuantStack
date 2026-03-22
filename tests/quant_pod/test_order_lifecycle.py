@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import duckdb
 import pytest
-from quant_pod.execution.order_lifecycle import (
+from quantstack.execution.order_lifecycle import (
     ExecAlgoOMS,
     OrderLifecycle,
     OrderStatus,
@@ -25,7 +25,9 @@ def oms() -> OrderLifecycle:
     return OrderLifecycle(conn)
 
 
-def _submit(oms: OrderLifecycle, symbol="SPY", side="buy", quantity=100, adv=80_000_000):
+def _submit(
+    oms: OrderLifecycle, symbol="SPY", side="buy", quantity=100, adv=80_000_000
+):
     return oms.submit(
         symbol=symbol,
         side=side,

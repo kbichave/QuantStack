@@ -6,7 +6,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from quantcore.data.synthetic import (
+from quantstack.data.synthetic import (
     SyntheticMarketConfig,
     _get_bars_per_year,
     generate_synthetic_multi_symbol,

@@ -12,8 +12,8 @@ Tests verify:
 from datetime import datetime
 
 import pytest
-from quantcore.hierarchy.regime_classifier import RegimeType
-from quantcore.risk.controls import (
+from quantstack.core.hierarchy.regime_classifier import RegimeType
+from quantstack.core.risk.controls import (
     DrawdownProtection,
     ExposureManager,
     RiskController,
@@ -524,4 +524,7 @@ class TestRiskControlEdgeCases:
         # Should be able to trade again
         allowed, _ = exposure_manager.can_open_position("NEW", 5.0, 100000)
         # Still limited by concurrent trades, but daily limit reset
-        assert exposure_manager._daily_trades.get(datetime.now().strftime("%Y-%m-%d"), 0) <= 5
+        assert (
+            exposure_manager._daily_trades.get(datetime.now().strftime("%Y-%m-%d"), 0)
+            <= 5
+        )

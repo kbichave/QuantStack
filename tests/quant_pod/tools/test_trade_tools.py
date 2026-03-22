@@ -6,7 +6,7 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from quant_pod.tools.mcp_bridge import (
+from quantstack.tools.mcp_bridge import (
     MCPBridge,
     generate_trade_template_tool,
     score_trade_structure_tool,
@@ -19,7 +19,9 @@ class TestTradeTools:
 
     def test_validate_trade_tool(self):
         """Test validate_trade_tool returns validation result."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "is_valid": True,
                 "checks": {
@@ -45,7 +47,9 @@ class TestTradeTools:
 
     def test_score_trade_structure_tool(self):
         """Test score_trade_structure_tool returns score."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "total_score": 75,
                 "grade": "B",
@@ -71,7 +75,9 @@ class TestTradeTools:
 
     def test_generate_trade_template_tool(self):
         """Test generate_trade_template_tool returns template."""
-        with patch.object(MCPBridge, "call_quantcore", new_callable=AsyncMock) as mock_call:
+        with patch.object(
+            MCPBridge, "call_quantcore", new_callable=AsyncMock
+        ) as mock_call:
             mock_call.return_value = {
                 "symbol": "SPY",
                 "direction": "LONG",
@@ -86,7 +92,9 @@ class TestTradeTools:
             }
 
             tool = generate_trade_template_tool()
-            result = tool._run(symbol="SPY", direction="LONG", structure_type="VERTICAL_SPREAD")
+            result = tool._run(
+                symbol="SPY", direction="LONG", structure_type="VERTICAL_SPREAD"
+            )
 
             data = json.loads(result)
             assert "legs" in data

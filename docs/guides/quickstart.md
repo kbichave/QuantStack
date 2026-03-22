@@ -23,11 +23,11 @@ uv sync --all-extras
 ### 1. Compute Technical Indicators
 
 ```python
-import quantcore as qc
-from quantcore.features import TechnicalIndicators
+from quantstack.core.features import TechnicalIndicators
+from quantstack.core.config import Timeframe
 
 # Create indicator calculator
-ti = TechnicalIndicators(timeframe=qc.Timeframe.DAILY)
+ti = TechnicalIndicators(timeframe=Timeframe.DAILY)
 
 # Load your OHLCV data (pandas DataFrame)
 import pandas as pd
@@ -41,8 +41,8 @@ print(f"Computed {len(features.columns)} features")
 ### 2. Run a Backtest
 
 ```python
-from quantcore.backtesting import BacktestEngine
-from quantcore.strategy import MeanReversionStrategy
+from quantstack.core.backtesting import BacktestEngine
+from quantstack.core.strategy import MeanReversionStrategy
 
 # Create strategy
 strategy = MeanReversionStrategy(
@@ -68,8 +68,8 @@ print(f"Max Drawdown: {results['max_drawdown']:.2%}")
 ### 3. Train an ML Model
 
 ```python
-from quantcore.models import EnsembleModel
-from quantcore.labeling import EventLabeler
+from quantstack.core.models import EnsembleModel
+from quantstack.core.labeling import EventLabeler
 
 # Create labels (e.g., triple barrier)
 labeler = EventLabeler(
@@ -99,7 +99,7 @@ print(f"Test Accuracy: {accuracy:.2%}")
 ### 4. Price Options
 
 ```python
-from quantcore.options import BlackScholes
+from quantstack.core.options import BlackScholes
 
 # Create option pricer
 bs = BlackScholes(
@@ -121,49 +121,20 @@ print(f"Vega: {bs.vega:.4f}")
 
 ## Using MCP Servers
 
-### Start QuantCore MCP Server
+### Start MCP Server
 
 ```bash
-quantcore-mcp
+quantstack-mcp
 ```
 
 ### Query via CLI
 
 ```bash
 # Using mcp-cli (if installed)
-mcp call quantcore compute_indicator \
+mcp call quantstack compute_technical_indicators \
     --symbol SPY \
-    --indicator RSI \
+    --indicators '["RSI"]' \
     --period 14
-```
-
-## Running QuantArena
-
-### Backtest in Simulation
-
-```python
-from quant_arena.historical import Engine, ArenaConfig
-
-config = ArenaConfig(
-    start_date="2023-01-01",
-    end_date="2023-12-31",
-    initial_capital=100_000,
-    symbols=["SPY", "QQQ"]
-)
-
-engine = Engine(config)
-engine.register_strategy(your_strategy)
-results = engine.run()
-```
-
-### Launch UI
-
-```bash
-# Terminal 1: Backend
-uv run uvicorn examples.historical_quant_arena_ui.backend.api:app --port 8000
-
-# Terminal 2: Frontend
-uv run streamlit run examples/historical_quant_arena_ui/frontend/app.py
 ```
 
 ## Running Tests
@@ -176,12 +147,11 @@ uv run pytest tests/ -v
 uv run pytest tests/unit/test_features_base.py -v
 
 # With coverage
-uv run pytest tests/ --cov=packages/quantcore
+uv run pytest tests/ --cov=src/quantstack
 ```
 
 ## Next Steps
 
 - Read the [Architecture Overview](../architecture/README.md)
-- Explore [QuantCore modules](../architecture/quantcore.md)
-- Learn about [Multi-Agent Trading](../architecture/quant_pod.md)
-- Check out [Alpha Vantage API docs](../alphavantage_api.md)
+- Explore [Core library](../architecture/quantcore.md)
+- Learn about [Execution layer](../architecture/quant_pod.md)

@@ -6,7 +6,7 @@ Thank you for your interest in contributing to QuantStack! This guide will help 
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - Git
 - Virtual environment tool (venv, conda)
 
@@ -17,32 +17,24 @@ Thank you for your interest in contributing to QuantStack! This guide will help 
 git clone https://github.com/kbichave/QuantStack.git
 cd QuantStack
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate
-
-# Install in development mode with all dependencies
-pip install -e ".[all]"
-
-# Install pre-commit hooks
-pip install pre-commit
-pre-commit install
+# Install dependencies (creates .venv automatically)
+uv sync --all-extras
 ```
 
 ## Repository Structure
 
 ```
 QuantStack/
-├── packages/           # Python packages
-│   ├── quantcore/     # Core library
-│   ├── quant_pod/     # Multi-agent system
-│   ├── quant_arena/   # Simulation engine
-│   └── etrade_mcp/    # E-Trade integration
-├── configs/           # Configuration files
-├── scripts/           # Utility scripts
-├── tests/             # Test suite
+├── src/quantstack/    # Unified package (research + execution + ML)
+│   ├── core/          # Research library (indicators, backtesting, ML, options)
+│   ├── execution/     # Risk gate, order lifecycle, broker routers
+│   ├── mcp/           # Unified MCP server (120+ tools)
+│   └── ...            # signal_engine, coordination, ml, data, etc.
+├── adapters/          # Broker MCP servers (alpaca, ibkr, etrade)
+├── scripts/           # Scheduler, loop launchers
+├── tests/             # Test suite (unit + integration + regression)
 ├── docs/              # Documentation
-└── examples/          # Example applications
+└── .claude/           # Skills, agents, memory
 ```
 
 ## Code Style
@@ -53,13 +45,13 @@ We use `ruff` for linting and formatting:
 
 ```bash
 # Check code
-ruff check packages/
+ruff check src/
 
 # Auto-fix issues
-ruff check packages/ --fix
+ruff check src/ --fix
 
 # Format code
-ruff format packages/
+ruff format src/
 ```
 
 ### Type Hints
@@ -116,7 +108,7 @@ pytest tests/ -v
 pytest tests/unit/test_features_base.py -v
 
 # With coverage
-pytest tests/ --cov=packages/quantcore --cov-report=html
+pytest tests/ --cov=src/quantstack --cov-report=html
 
 # Run only fast tests
 pytest tests/ -v -m "not slow"
@@ -135,7 +127,7 @@ Example test:
 ```python
 # tests/unit/test_my_module.py
 import pytest
-from quantcore.features import TechnicalIndicators
+from quantstack.core.features import TechnicalIndicators
 
 class TestTechnicalIndicators:
     def test_rsi_returns_series(self, sample_ohlcv):
@@ -234,10 +226,10 @@ Then create a Pull Request on GitHub with:
 
 ### Adding a Technical Indicator
 
-1. Add implementation in `packages/quantcore/features/`:
+1. Add implementation in `src/quantstack/core/features/`:
 
 ```python
-# packages/quantcore/features/technical_indicators.py
+# src/quantstack/core/features/technical_indicators.py
 
 def my_indicator(self, data: pd.DataFrame, period: int = 14) -> pd.Series:
     """Calculate my custom indicator.
@@ -271,9 +263,9 @@ def test_my_indicator_calculation():
 1. Create strategy class:
 
 ```python
-# packages/quantcore/strategy/my_strategy.py
+# src/quantstack/core/strategy/my_strategy.py
 
-from quantcore.strategy.base import StrategyBase
+from quantstack.core.strategy.base import StrategyBase
 
 class MyStrategy(StrategyBase):
     def __init__(self, param1: float = 1.0):
@@ -292,7 +284,7 @@ class MyStrategy(StrategyBase):
 1. Add tool to server:
 
 ```python
-# packages/quantcore/mcp/server.py
+# src/quantstack/mcp/quantcore_tools/tools/my_tool.py
 
 @mcp.tool()
 def my_new_tool(param: str) -> dict:
@@ -312,7 +304,7 @@ def my_new_tool(param: str) -> dict:
 mkdocs serve
 
 # Or generate API docs with pdoc
-pdoc packages/quantcore -o docs/api/generated
+pdoc src/quantstack -o docs/api/generated
 ```
 
 ### Documentation Style

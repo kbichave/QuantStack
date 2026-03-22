@@ -1,113 +1,78 @@
 # API Reference
 
-This section provides API reference documentation for the QuantCore packages.
+This section provides API reference documentation for the QuantStack package.
 
-## Packages
+## Package: quantstack
 
-### quantcore
+The unified quantitative trading package at `src/quantstack/`.
 
-The core quantitative trading library.
+### Core Library (`quantstack.core`)
 
 | Module | Description |
 |--------|-------------|
-| `quantcore.features` | 200+ technical indicators |
-| `quantcore.backtesting` | Event-driven backtesting engine |
-| `quantcore.models` | ML model training and prediction |
-| `quantcore.rl` | Reinforcement learning agents |
-| `quantcore.options` | Options pricing and Greeks |
-| `quantcore.microstructure` | Order book and execution |
-| `quantcore.research` | Statistical tests and analysis |
-| `quantcore.risk` | Position sizing and controls |
-| `quantcore.validation` | Leakage detection |
+| `quantstack.core.features` | 200+ technical indicators |
+| `quantstack.core.backtesting` | Event-driven backtesting engine |
+| `quantstack.core.strategy` | Strategy base classes and rules |
+| `quantstack.ml` | ML model training and prediction |
+| `quantstack.rl` | Reinforcement learning agents |
+| `quantstack.core.options` | Options pricing and Greeks |
+| `quantstack.core.microstructure` | Order book and execution |
+| `quantstack.core.research` | Statistical tests and analysis |
+| `quantstack.core.risk` | Position sizing and controls |
+| `quantstack.core.validation` | Leakage detection |
+
+### Execution & Operations
+
+| Module | Description |
+|--------|-------------|
+| `quantstack.signal_engine` | 7 concurrent Python collectors |
+| `quantstack.execution` | Risk gate, order lifecycle, broker routers |
+| `quantstack.coordination` | Event bus, auto-promoter, supervisor |
+| `quantstack.autonomous` | Unattended trading loops |
+| `quantstack.alpha_discovery` | Strategy generation |
+| `quantstack.learning` | IC/ICIR tracking, drift detection |
+| `quantstack.monitoring` | Signal degradation detection |
+| `quantstack.flows` | Trading workflows |
+| `quantstack.knowledge` | Persistent knowledge store |
+| `quantstack.mcp` | Unified MCP server (120+ tools) |
+| `quantstack.api` | FastAPI REST server |
 
 **Quick Import:**
 ```python
-import quantcore as qc
-
-# Access timeframes
-qc.Timeframe.DAILY
-qc.Timeframe.HOURLY_4
-
-# Common types
-qc.OHLCV
-qc.Signal
-qc.Returns
+from quantstack.core.features import TechnicalIndicators
+from quantstack.core.config import Timeframe, Settings
+from quantstack.core.backtesting import BacktestEngine
+from quantstack.core.options import BlackScholes
+from quantstack.core.strategy.base import StrategyBase
 ```
-
-### quant_pod
-
-Multi-agent trading system.
-
-| Module | Description |
-|--------|-------------|
-| `quant_pod.crews` | Agent crew assembly |
-| `quant_pod.flows` | Trading workflows |
-| `quant_pod.knowledge` | Persistent knowledge store |
-| `quant_pod.memory` | Agent communication |
-| `quant_pod.tools` | MCP bridge and utilities |
-
-**Quick Import:**
-```python
-from quant_pod.crews import TradingCrew
-from quant_pod.flows import TradingDayFlow
-from quant_pod.knowledge import KnowledgeStore
-```
-
-### quant_arena
-
-Historical simulation engine.
-
-| Module | Description |
-|--------|-------------|
-| `quant_arena.historical` | Simulation components |
-
-**Quick Import:**
-```python
-from quant_arena.historical import Engine, SimBroker, DataLoader
-```
-
-### etrade_mcp
-
-E-Trade MCP server.
-
-| Module | Description |
-|--------|-------------|
-| `etrade_mcp.client` | E-Trade API client |
-| `etrade_mcp.auth` | OAuth authentication |
-| `etrade_mcp.models` | Data models |
-| `etrade_mcp.server` | MCP server |
 
 ## Type Definitions
 
 ```python
-from quantcore import (
+from quantstack.core import (
     OHLCV,          # DataFrame with OHLCV columns
     Signal,         # Series with values in [-1, 1]
     Returns,        # Series of returns
     FeatureMatrix,  # DataFrame of features
-    BacktestMetrics,# Dict of backtest results
-    TradeRecord,    # Single trade record
 )
 ```
 
 ## Configuration Classes
 
 ```python
-from quantcore.config import (
-    Timeframe,      # Enum of supported timeframes
-    Settings,       # Global settings
+from quantstack.core.config import (
+    Timeframe,         # Enum of supported timeframes
+    Settings,          # Global settings
     TIMEFRAME_PARAMS,  # Timeframe parameters
 )
 ```
 
 ## Generating Full API Docs
 
-For complete API documentation, use pdoc or sphinx:
-
 ```bash
 # Generate with pdoc
-pdoc packages/quantcore -o docs/api/quantcore
+pdoc src/quantstack -o docs/api/quantstack
 
 # Generate with sphinx
-cd docs && sphinx-apidoc -o api ../packages/quantcore
+cd docs && sphinx-apidoc -o api ../src/quantstack
 ```

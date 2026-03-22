@@ -1,124 +1,103 @@
 # QuantStack Architecture
 
-This document provides an overview of the QuantStack monorepo and how its packages interact.
+This document provides an overview of the QuantStack system and how its components interact.
 
 ## Repository Structure
 
 ```
 QuantStack/
-├── packages/
-│   ├── quantcore/          Core quantitative trading library (200+ indicators, backtesting, ML, RL)
-│   ├── quant_arena/        Historical simulation engine
-│   ├── quant_pod/          Multi-agent trading system (CrewAI)
-│   ├── alpaca_mcp/         Alpaca broker MCP server
-│   ├── ibkr_mcp/           Interactive Brokers MCP server
-│   └── etrade_mcp/         eTrade MCP server
-├── scripts/                Utility scripts (bootstrap RL, log decisions, Discord alerts)
-├── examples/               Example applications
-├── tests/                  Test suite (unit + integration)
-├── docs/                   Documentation
-│   ├── architecture/       System design (this folder)
-│   └── guides/             Setup and operational guides
-├── .mcp.json               MCP server config for Claude Code
-├── Dockerfile              Container image
-└── docker-compose.yml      Multi-service deployment
+├── src/quantstack/           # Unified package
+│   ├── core/                 # Research library (200+ indicators, backtesting, ML, options, RL)
+│   ├── signal_engine/        # 7 concurrent Python collectors (no LLM)
+│   ├── autonomous/           # Unattended trading loops
+│   ├── coordination/         # Inter-loop coordination (event bus, locks, promoter, supervisor)
+│   ├── alpha_discovery/      # Strategy generation (grid search + Grammar GP)
+│   ├── execution/            # Risk gate, order lifecycle, broker routers
+│   ├── ml/                   # ML pipeline (LightGBM, XGBoost, CatBoost, TFT)
+│   ├── data/                 # Data fetching, storage, streaming
+│   ├── learning/             # IC/ICIR tracking, drift detection
+│   ├── monitoring/           # AlphaMonitor, DegradationDetector
+│   ├── mcp/                  # Unified MCP server (120+ tools)
+│   ├── api/                  # FastAPI REST server
+│   ├── optimization/         # ReflexionMemory, CreditAssigner, TextGrad
+│   └── ...                   # flows, guardrails, risk, crews, features, intraday, knowledge
+├── adapters/                 # Broker MCP servers (alpaca_mcp, ibkr_mcp, etrade_mcp)
+├── .claude/                  # Skills, agents, memory
+├── prompts/                  # Ralph loop prompts
+├── scripts/                  # Scheduler, loop launchers
+├── tests/                    # Test suite
+└── docs/                     # Documentation
 ```
 
 ## Package Overview
 
-### quantcore — Core Library
+### quantstack.core — Research Library
 
 Foundation for all quantitative analysis:
 
 - **200+ Technical Indicators**: trend, momentum, volatility, volume, market structure
-- **Backtesting Engine**: event-driven with transaction cost modeling
-- **ML Integration**: LightGBM, XGBoost, CatBoost, SHAP
+- **Backtesting Engine**: event-driven with transaction cost modeling, multi-timeframe
+- **ML Integration**: LightGBM, XGBoost, CatBoost, SHAP explainability
 - **RL Agents**: PPO/DQN for execution, sizing, spread trading (experimental)
 - **Options Pricing**: Black-Scholes, Greeks, IV surface
-- **Market Microstructure**: order book simulation, impact models
-- **Execution**: SmartOrderRouter, TCA engine, kill switch, risk gate, unified broker models
+- **Market Microstructure**: order book simulation, impact models, OFI, VPIN
+- **Execution Models**: SmartOrderRouter, TCA engine, kill switch, risk gate
 
-See [quantcore.md](./quantcore.md) for module details.
+### quantstack.signal_engine — Signal Generation
 
-### quant_pod — Multi-Agent System
+Seven concurrent Python collectors produce a `SignalBrief` — structured output with market bias, conviction, risk environment, and regime detail. No LLM calls, 2–6 seconds. Fault-tolerant: individual collector failures don't block the brief.
 
-CrewAI-based trading system with 13 agents across 5 pods. Produces a `DailyBrief` that Claude Code uses to make trade decisions.
+### quantstack.execution — Trade Execution
 
-- **13 ICs**: data ingestion, regime detection, technicals, quant signals, risk, news/options flow/fundamentals
-- **Execution Layer**: risk gate, kill switch, signal cache, tick executor, smart order router
-- **DuckDB State**: ACID-safe consolidated database for positions, fills, audit, agent memory
-- **Dependency Injection**: `TradingContext` wires all services; `:memory:` for test isolation
-- **Audit & Monitoring**: structured decision logging, signal degradation detection
-- **MCP Server**: 30+ tools across 6 phases (analysis → strategy → execution → decode → meta → learning)
+- **RiskGate**: hard-coded pre-trade checks (position size, daily loss, liquidity, options DTE)
+- **KillSwitch**: file-sentinel emergency halt, survives restarts
+- **SmartOrderRouter**: auto-routes to best available broker
+- **OrderLifecycle**: state machine for order management
+- **PaperBroker**: zero-config fallback with slippage simulation
 
-See [quant_pod.md](./quant_pod.md) for agent hierarchy and execution layer details.
+### quantstack.coordination — Autonomous Operations
 
-### quant_arena — Simulation Engine
+- **UniverseRegistry**: SP500 + NASDAQ-100 + 50 ETFs (~700 symbols)
+- **EventBus**: DuckDB pub/sub for inter-loop communication
+- **AutoPromoter**: evidence-based forward_testing → live promotion
+- **LoopSupervisor**: heartbeat monitoring, crash recovery
+- **PortfolioOrchestrator**: correlation, sector cap, position gating
 
-Historical simulation harness for backtesting multi-agent systems with execution realism.
+### quantstack.mcp — Unified MCP Server
 
-- **SimBroker**: realistic fills with slippage, partial fills, and market impact
-- **Historical Clock**: time-synchronized OHLCV replay
-- **Risk Metrics**: Sharpe, drawdown, win rate, Calmar
-
-See [quant_arena.md](./quant_arena.md) for simulation details.
-
-### alpaca_mcp / ibkr_mcp / etrade_mcp — Broker MCP Servers
-
-Each broker is a separate MCP server. QuantPod's `SmartOrderRouter` auto-discovers and routes to the best available venue.
-
-| Server | Prerequisites |
-|--------|--------------|
-| `alpaca-mcp` | Alpaca API key + secret (free paper account available) |
-| `ibkr-mcp` | IB Gateway or TWS running locally |
-| `etrade-mcp` | eTrade developer keys + OAuth flow |
-
-See [mcp_servers.md](./mcp_servers.md) for tool listings and configuration.
+Single `quantstack-mcp` server exposes 120+ tools across all subsystems. Replaces the previous separate `quantcore-mcp` and `quantpod-mcp` servers.
 
 ---
 
 ## System Architecture Diagram
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        CLAUDE CODE (You)                             │
-│           Portfolio Manager · Strategy Researcher · Architect        │
-└──────────────────────────────┬──────────────────────────────────────┘
-                                │ MCP calls
-          ┌─────────────────────┼──────────────────────┐
-          ▼                     ▼                      ▼
-┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────┐
-│  quantpod-mcp    │  │  quantcore-mcp   │  │  Broker MCP servers  │
-│  (30+ tools)     │  │  (40+ tools)     │  │  alpaca / ibkr /     │
-│  execution +     │  │  indicators +    │  │  etrade              │
-│  strategy +      │  │  backtesting +   │  └──────────┬───────────┘
-│  learning loop   │  │  options + RL    │             │
-└────────┬─────────┘  └──────────────────┘             │
-         │                                              │
-         ▼                                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                       QuantPod Core                               │
-│  ┌──────────────┐  ┌─────────────────┐  ┌──────────────────────┐ │
-│  │ TradingCrew  │  │ Execution Layer  │  │  DuckDB State        │ │
-│  │ 13 ICs       │  │ RiskGate         │  │  positions/fills/    │ │
-│  │ 5 Pods       │  │ KillSwitch       │  │  audit/memory/       │ │
-│  │ DailyBrief   │  │ SignalCache       │  │  strategies/matrix   │ │
-│  └──────────────┘  │ TickExecutor     │  └──────────────────────┘ │
-│                    │ SmartOrderRouter │                             │
-│                    └─────────────────┘                             │
-└──────────────────────────────────────────────────────────────────┘
-         │
-         ▼
+│                     CLAUDE CODE (Portfolio Brain)                  │
+│        Skills: /trade  /invest  /options  /workshop  /review      │
+│        Memory: .claude/memory/ (strategy registry, trade journal) │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │ MCP calls
+                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                       QuantCore Library                           │
-│  Features · Backtesting · ML · RL · Options · Microstructure     │
-│  Execution Models · TCA · Portfolio Stats · Research Tools       │
-└──────────────────────────────────────────────────────────────────┘
-         │
-         ▼
+│                     quantstack-mcp (120+ tools)                   │
+│  signals · backtesting · ML · options · execution · coordination  │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+┌──────────────────┐ ┌─────────────────┐ ┌────────────────────┐
+│ SignalEngine      │ │ Execution Layer │ │ DuckDB State       │
+│ 7 collectors      │ │ RiskGate        │ │ positions/fills/   │
+│ No LLM, 2–6s     │ │ KillSwitch      │ │ audit/strategies/  │
+│ → SignalBrief     │ │ SmartOrderRouter│ │ universe/events    │
+└──────────────────┘ │ → Broker        │ └────────────────────┘
+                     └─────────────────┘
+                              │
+                              ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│                         Data Sources                              │
-│  Alpaca · Polygon · Alpha Vantage (priority: DATA_PROVIDER_PRIORITY)│
+│                        Data Sources                               │
+│  Alpha Vantage · FD.ai · Alpaca · Polygon (DATA_PROVIDER_PRIORITY)│
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -126,14 +105,14 @@ See [mcp_servers.md](./mcp_servers.md) for tool listings and configuration.
 
 ## Data Flow
 
-1. **Data Ingestion**: market data fetched via `DATA_PROVIDER_PRIORITY` (Alpaca → Polygon → Alpha Vantage)
-2. **Feature Engineering**: QuantCore computes indicators + multi-timeframe features
-3. **Signal Generation**: TradingCrew (13 ICs) produces `DailyBrief`
-4. **Decision**: Claude Code reads `DailyBrief` via `run_analysis` MCP, makes trade decision
+1. **Data Ingestion**: market data fetched via `DATA_PROVIDER_PRIORITY` (FD.ai → Alpaca → Alpha Vantage)
+2. **Feature Engineering**: `quantstack.core` computes 200+ indicators + multi-timeframe features
+3. **Signal Generation**: `SignalEngine` (7 collectors) produces `SignalBrief`
+4. **Decision**: Claude Code reads `SignalBrief` via `get_signal_brief` MCP, makes trade decision
 5. **Risk Check**: `RiskGate` enforces position size, daily loss, and liquidity limits
 6. **Execution**: `SmartOrderRouter` routes to best available broker (or `PaperBroker`)
-7. **Audit**: every decision and fill logged to `decision_events` and `fills` tables
-8. **Learning**: RL feedback + calibration records update agent skill scores
+7. **Audit**: every decision and fill logged to DuckDB audit trail
+8. **Learning**: IC/ICIR tracking, calibration, and optimization modules update from outcomes
 
 ---
 
@@ -142,17 +121,16 @@ See [mcp_servers.md](./mcp_servers.md) for tool listings and configuration.
 1. **Hard-coded risk controls**: `RiskGate` and `KillSwitch` are code-enforced, not prompt-enforced. No agent can bypass them.
 2. **ACID state**: single DuckDB connection prevents partial-failure state on crash.
 3. **Dependency injection**: `TradingContext` wires all services; `:memory:` gives fully isolated test environments.
-4. **MCP integration**: tools exposed via Model Context Protocol for Claude Code access.
+4. **Unified MCP**: single server exposes the entire tool surface — no split between research and execution.
 5. **Paper mode default**: `USE_REAL_TRADING=false` by default; live trading requires explicit opt-in.
+6. **No LLM in execution path**: SignalEngine and RiskGate are pure Python. LLMs assist in research and reasoning, not in the hot path.
 
 ---
 
 ## Further Reading
 
+- [quant_pod.md](./quant_pod.md) — Execution layer and autonomous loop details
 - [quantcore.md](./quantcore.md) — Core library modules
-- [quant_pod.md](./quant_pod.md) — Multi-agent system and execution layer
-- [quant_arena.md](./quant_arena.md) — Simulation engine
 - [mcp_servers.md](./mcp_servers.md) — MCP server tool listings
 - [../guides/execution_setup.md](../guides/execution_setup.md) — Broker config, risk limits, kill switch
-- [../guides/deployment.md](../guides/deployment.md) — Docker, CI/CD, data paths
 - [../guides/quickstart.md](../guides/quickstart.md) — Get started in 5 minutes

@@ -1,28 +1,49 @@
 # Changelog
 
-All notable changes to QuantCore will be documented in this file.
+All notable changes to QuantStack will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-22
+
+### Changed — Unified Package Architecture
+- **Breaking:** Consolidated 6 packages (`quantcore`, `quant_pod`, `quant_arena`, `alpaca_mcp`, `ibkr_mcp`, `etrade_mcp`) into single `quantstack` package at `src/quantstack/`
+- All imports changed: `quantcore.*` → `quantstack.core.*`, `quant_pod.*` → `quantstack.*`
+- Broker adapters remain at `adapters/` for `alpaca_mcp`, `ibkr_mcp`, `etrade_mcp`
+- Single MCP server (`quantstack-mcp`) replaces separate `quantcore-mcp` + `quantpod-mcp`
+- CLI entry points renamed: `quantpod-api` → `quantstack-api`, `quantpod-mcp` → `quantstack-mcp`, `quantpod-monitor` → `quantstack-monitor`
+- Python version requirement bumped from 3.10+ to 3.11+
+- CLAUDE.md trimmed from ~50KB to ~32KB for context efficiency
+- All test imports updated to `quantstack.*`
+- Agent prompts and skill files updated with new paths and enhanced pre-trade intelligence
+
 ### Added — Options Execution & Trading Operator
 - `execute_options_trade()` MCP tool — Black-Scholes paper fills with Greeks snapshot, Alpaca REST API for live options orders, premium-at-risk risk gate check, DTE bounds enforcement
-- Trading Operator prompt (`prompts/trading_operator.md`) — unified Ralph loop that autonomously handles strategy discovery, execution, position management, review, and ML research via priority-based decision tree
-- Production preflight gate (`packages/quant_pod/coordination/preflight.py`) — 11-point readiness check (DB, kill switch, cash, universe, strategies, risk limits, data provider, broker, paper mode, options execution)
+- Trading Operator prompt (`prompts/trading_operator.md`) — unified Ralph loop for autonomous strategy discovery, execution, position management, review, and ML research
+- Production preflight gate (`src/quantstack/coordination/preflight.py`) — 11-point readiness check
 
 ### Added — Slack Integration
-- `SlackClient` (`packages/quant_pod/coordination/slack_client.py`) — Bot Token API client with Block Kit formatting for 7 channels (#agent-activity, #trades, #portfolio, #signals, #alerts, #system, #strategies)
-- `ConversationLogger` (`packages/quant_pod/coordination/conversation_logger.py`) — dual-write to DuckDB + Slack for desk agent reports, PM decisions, signal snapshots, trades, alerts
-- 2 new DuckDB tables: `agent_conversations` (full agent reports), `signal_snapshots` (raw collector outputs)
+- `SlackClient` — Bot Token API client with Block Kit formatting for 7 channels
+- `ConversationLogger` — dual-write to DuckDB + Slack for desk agent reports, trades, alerts
+- 2 new DuckDB tables: `agent_conversations`, `signal_snapshots`
 - 3 new MCP tools: `log_agent_conversation`, `log_signal_snapshot`, `post_slack_message`
-- Slack MCP server (`@anthropic/slack-mcp`) configured for read-back — enables `/reflect` to search Slack history for prompt optimization
-- DegradationEnforcer and DailyDigest now post to Slack channels
 
-### Changed
-- `start_supervised_loops.sh` — added `operator` mode for unified Trading Operator loop
-- `.claude/settings.json` removed from git tracking (contains credentials); `.claude/settings.json.example` added as template
+### Added — Optimization Loop
+- `ReflexionMemory` — classifies trade loss root causes, injects lessons into debate filter
+- `CreditAssigner` — attributes losses to signal/regime/strategy/sizing step
+- `HypothesisJudge` — gates hypotheses against lookahead bias, known failures, data snooping
+- `TextGradOptimizer` — critiques losing trades, proposes prompt updates
+
+### Removed
+- `packages/` directory — all code moved to `src/quantstack/`
+- `packages/quant_arena/` — historical simulation engine (use `run_backtest` MCP tool)
+- `examples/historical_quant_arena_ui/` — Streamlit UI for quant_arena
+- Separate broker MCP packages from `packages/` (kept in `adapters/`)
+
+> **Note:** Entries prior to v1.0.0 reference the old `packages/` layout.
 
 ## [0.8.0] - 2026-03-18
 
@@ -405,7 +426,8 @@ The coordination layer enables the three Ralph loops (Strategy Factory, Live Tra
 
 - `0.1.0` - Initial release
 
-[Unreleased]: https://github.com/kbichave/QuantStack/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/kbichave/QuantStack/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/kbichave/QuantStack/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/kbichave/QuantStack/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kbichave/QuantStack/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kbichave/QuantStack/compare/v0.2.1...v0.6.0

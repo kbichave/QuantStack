@@ -47,6 +47,7 @@ Execution Engine (no LLM):
 - **Paper mode is default.** Live requires `USE_REAL_TRADING=true`.
 - **Audit trail is mandatory.** Every decision logged with reasoning.
 - **Never modify:** `risk_gate.py`, `kill_switch.py`, broker credentials, paper/live defaults.
+- **DB writes are short-lived.** DuckDB allows one writer at a time. All writes use `db_conn()` context manager (<100ms). If a write fails due to lock contention: log, retry once, skip.
 
 ---
 
@@ -102,7 +103,7 @@ Research loop reads optimization tables at iteration start to bias research dire
 
 ## 7. Memory Files
 
-All in `.claude/memory/`. Git-tracked. **Your future self has zero memory — these files ARE your memory.**
+All in `.claude/memory/`. Local (gitignored). Templates in `.claude/memory/templates/` (tracked). Copy templates on first run. **Your future self has zero memory — these files ARE your memory.**
 
 | File | Purpose |
 |------|---------|
@@ -145,11 +146,10 @@ USE_REAL_TRADING=true       # required for live execution
 
 ## 10. Scheduler
 
-`scripts/scheduler.py` triggers Claude Code sessions at market times (US/Eastern):
+`scripts/scheduler.py` runs deterministic (LLM-free) jobs only. The loops handle all LLM work.
 
-| Time | Days | Action |
-|------|------|--------|
-| 09:15 | Mon–Fri | `/review` → `/meta` → `/trade` |
-| 12:30 | Mon–Fri | `/review` |
-| 15:45 | Mon–Fri | `/review` |
-| 17:00 | Friday | `/reflect` |
+| Time | Days | Job |
+|------|------|-----|
+| 08:00 | Mon–Fri | Data refresh — Alpha Vantage cache (OHLCV, macro, news, insider) |
+| 09:35 | Mon–Fri | AutonomousRunner — deterministic signal → risk gate → broker |
+| 13:00 | Mon–Fri | AutonomousRunner — mid-day pass |

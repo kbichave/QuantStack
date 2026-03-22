@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0", "wheel>=0.46.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "quantcore"
-version = "0.7.0"
+name = "quantstack"
+version = "1.0.0"
 description = "Quantitative Trading Research Platform"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -112,23 +112,25 @@ vertex-ai = [
 
 # Convenience bundles
 all-providers = [
-    "quantcore[alpaca,polygon,ibkr,financial-datasets]",
+    "quantstack[alpaca,polygon,ibkr,financial-datasets]",
 ]
 all-llm = [
-    "quantcore[bedrock,anthropic-llm,vertex-ai]",
+    "quantstack[bedrock,anthropic-llm,vertex-ai]",
 ]
 all = [
-    "quantcore[dev,all-providers,all-llm]",
+    "quantstack[dev,all-providers,all-llm]",
 ]
 
 [project.scripts]
-quantcore-mcp    = "quantcore.mcp.server:main"
+quantstack-mcp     = "quantstack.mcp.server:main"
 alpaca-mcp       = "alpaca_mcp.server:main"
 ibkr-mcp         = "ibkr_mcp.server:main"
 etrade-mcp       = "etrade_mcp.server:main"
-quantpod-mcp     = "quant_pod.mcp.server:main"
-quantpod-api     = "quant_pod.api.server:app"
-quantpod-monitor = "quant_pod.flows.intraday_monitor_flow:main"
+quantstack-api     = "quantstack.api.server:app"
+quantstack-monitor = "quantstack.flows.intraday_monitor_flow:main"
+quantstack-bootstrap = "quantstack.flows.bootstrap:main"
+quantstack-log-decision = "quantstack.hooks.log_decision:main"
+quantstack-validate-brief = "quantstack.hooks.validate_brief_quality:main"
 
 [project.urls]
 Homepage = "https://github.com/kbichave/QuantStack"
@@ -137,10 +139,10 @@ Repository = "https://github.com/kbichave/QuantStack.git"
 Issues = "https://github.com/kbichave/QuantStack/issues"
 
 [tool.setuptools.packages.find]
-where = ["packages"]
+where = ["src", "adapters"]
 
 [tool.setuptools.package-data]
-quantcore = ["config/*.yaml"]
+quantstack = ["config/*.yaml"]
 
 [tool.ruff]
 target-version = "py311"
@@ -176,8 +178,8 @@ ignore_missing_imports = true
 # eTrade/IBKR broker modules use forward refs that mypy can't resolve without
 # the live broker dependencies installed in the type-check environment.
 module = [
-    "quant_pod.execution.etrade_broker",
-    "quant_pod.tools.etrade.*",
+    "quantstack.execution.etrade_broker",
+    "quantstack.tools.etrade.*",
     "ibkr_mcp.*",
     "alpaca_mcp.*",
 ]
@@ -219,107 +221,104 @@ constraint-dependencies = [
 # - LLM agents (require running LLM provider)
 omit = [
     # External market-data adapters and fetchers (require live API keys)
-    "packages/quantcore/data/adapters/*",
-    "packages/quantcore/data/streaming/*",
-    "packages/quantcore/data/polygon.py",
-    "packages/quantcore/data/earnings.py",
-    "packages/quantcore/data/economic_fetcher.py",
-    "packages/quantcore/data/options_storage.py",
-    "packages/quantcore/data/fetcher.py",
-    "packages/quantcore/data/storage.py",
-    "packages/quantcore/data/_schema.py",
-    "packages/quantcore/data/_ohlcv.py",
-    "packages/quantcore/data/_options_news.py",
-    "packages/quantcore/data/sec_edgar.py",
-    "packages/quantcore/data/validator.py",
-    "packages/quantcore/data/registry.py",
+    "src/quantstack/data/adapters/*",
+    "src/quantstack/data/streaming/*",
+    "src/quantstack/data/polygon.py",
+    "src/quantstack/data/earnings.py",
+    "src/quantstack/data/economic_fetcher.py",
+    "src/quantstack/data/options_storage.py",
+    "src/quantstack/data/fetcher.py",
+    "src/quantstack/data/storage.py",
+    "src/quantstack/data/_schema.py",
+    "src/quantstack/data/_ohlcv.py",
+    "src/quantstack/data/_options_news.py",
+    "src/quantstack/data/sec_edgar.py",
+    "src/quantstack/data/validator.py",
+    "src/quantstack/data/registry.py",
     # MCP server + tool modules (only exercised via MCP client in integration tests)
-    "packages/quantcore/mcp/server.py",
-    "packages/quantcore/mcp/_helpers.py",
-    "packages/quantcore/mcp/resources.py",
-    "packages/quantcore/mcp/tools/*",
-    # GPU/RL modules — all agent/environment/training code requires GPU + training loops
-    "packages/quantcore/rl/options/*",
-    "packages/quantcore/rl/base.py",
-    "packages/quantcore/rl/data_bridge.py",
-    "packages/quantcore/rl/training.py",
-    "packages/quantcore/rl/orchestrator.py",
-    "packages/quantcore/rl/execution/agent.py",
-    "packages/quantcore/rl/execution/environment.py",
-    "packages/quantcore/rl/meta/agent.py",
-    "packages/quantcore/rl/meta/environment.py",
-    "packages/quantcore/rl/sizing/agent.py",
-    "packages/quantcore/rl/sizing/environment.py",
-    "packages/quantcore/rl/spread/agent.py",
-    # Specialised regime models (HMM/TFT — require large training data)
-    "packages/quantcore/hierarchy/regime/hmm_model.py",
-    "packages/quantcore/hierarchy/regime/tft_regime.py",
-    # Options-specific modules (require options data)
-    "packages/quantcore/backtesting/options_engine.py",
-    "packages/quantcore/features/iv_calculator.py",
-    "packages/quantcore/features/options_features.py",
-    "packages/quantcore/risk/options_risk.py",
-    "packages/quantcore/strategy/options_ml.py",
-    "packages/quantcore/strategy/options_rules.py",
+    "src/quantstack/mcp/server.py",
+    "src/quantstack/mcp/tools/*",
+    # GPU/RL modules
+    "src/quantstack/rl/options/*",
+    "src/quantstack/rl/base.py",
+    "src/quantstack/rl/data_bridge.py",
+    "src/quantstack/rl/training.py",
+    "src/quantstack/rl/orchestrator.py",
+    "src/quantstack/rl/execution/agent.py",
+    "src/quantstack/rl/execution/environment.py",
+    "src/quantstack/rl/meta/agent.py",
+    "src/quantstack/rl/meta/environment.py",
+    "src/quantstack/rl/sizing/agent.py",
+    "src/quantstack/rl/sizing/environment.py",
+    "src/quantstack/rl/spread/agent.py",
+    # Specialised regime models (HMM/TFT)
+    "src/quantstack/core/hierarchy/regime/hmm_model.py",
+    "src/quantstack/core/hierarchy/regime/tft_regime.py",
+    # Options-specific modules
+    "src/quantstack/core/backtesting/options_engine.py",
+    "src/quantstack/core/features/iv_calculator.py",
+    "src/quantstack/core/features/options_features.py",
+    "src/quantstack/core/risk/options_risk.py",
+    "src/quantstack/core/strategy/options_ml.py",
+    "src/quantstack/core/strategy/options_rules.py",
     # Commodity-specific modules
-    "packages/quantcore/features/commodity/*",
-    "packages/quantcore/features/commodity_factory.py",
-    # Academic paper replications (no unit tests, verified analytically)
-    "packages/quantcore/research/paper_replications/*",
-    # Visualization (require display / large data)
-    "packages/quantcore/visualization/options_plots.py",
-    "packages/quantcore/visualization/trade_animation.py",
-    "packages/quantcore/visualization/plots.py",
-    "packages/quantcore/analysis/reporting.py",
-    # Microstructure low-level (integration-tested via higher layers)
-    "packages/quantcore/microstructure/events.py",
-    "packages/quantcore/microstructure/filters.py",
-    "packages/quantcore/microstructure/volume_profile.py",
+    "src/quantstack/core/features/commodity/*",
+    "src/quantstack/core/features/commodity_factory.py",
+    # Academic paper replications
+    "src/quantstack/core/research/paper_replications/*",
+    # Visualization
+    "src/quantstack/core/visualization/options_plots.py",
+    "src/quantstack/core/visualization/trade_animation.py",
+    "src/quantstack/core/visualization/plots.py",
+    "src/quantstack/core/analysis/reporting.py",
+    # Microstructure low-level
+    "src/quantstack/core/microstructure/events.py",
+    "src/quantstack/core/microstructure/filters.py",
+    "src/quantstack/core/microstructure/volume_profile.py",
     # Entry points
-    "packages/quantcore/main.py",
-    "packages/quantcore/mcp_server.py",
-    # Live-execution modules (require running broker)
-    "packages/quantcore/execution/paper_trading.py",
-    "packages/quant_pod/execution/etrade_broker.py",
-    "packages/quant_pod/execution/microstructure_pipeline.py",
-    # eTrade tools (live broker OAuth + REST — integration only)
-    "packages/quant_pod/tools/etrade/client.py",
-    "packages/quant_pod/tools/etrade/auth.py",
-    # FastAPI server (integration-tested via HTTP)
-    "packages/quant_pod/api/server.py",
-    # Full-system flows (require MCP + broker stack)
-    "packages/quant_pod/flows/*",
+    "src/quantstack/core/main.py",
+    "src/quantstack/core/mcp_server.py",
+    # Live-execution modules
+    "src/quantstack/core/execution/paper_trading.py",
+    "src/quantstack/execution/etrade_broker.py",
+    "src/quantstack/execution/microstructure_pipeline.py",
+    # eTrade tools
+    "src/quantstack/tools/etrade/client.py",
+    "src/quantstack/tools/etrade/auth.py",
+    # FastAPI server
+    "src/quantstack/api/server.py",
+    # Full-system flows
+    "src/quantstack/flows/*",
     # External services
-    "packages/quant_pod/tools/discord/*",
-    "packages/quant_pod/tools/alphavantage_tools.py",
-    "packages/quant_pod/memory/mem0_client.py",
-    "packages/quant_pod/knowledge/store.py",
-    "packages/quant_pod/knowledge/_schema.py",
-    "packages/quant_pod/knowledge/_trades.py",
-    "packages/quant_pod/knowledge/_waves_regime.py",
-    "packages/quant_pod/knowledge/_messages.py",
-    "packages/quant_pod/knowledge/_performance.py",
-    "packages/quant_pod/knowledge/_learning.py",
-    "packages/quant_pod/knowledge/policy_store.py",
+    "src/quantstack/tools/discord/*",
+    "src/quantstack/tools/alphavantage_tools.py",
+    "src/quantstack/memory/mem0_client.py",
+    "src/quantstack/knowledge/store.py",
+    "src/quantstack/knowledge/_schema.py",
+    "src/quantstack/knowledge/_trades.py",
+    "src/quantstack/knowledge/_waves_regime.py",
+    "src/quantstack/knowledge/_messages.py",
+    "src/quantstack/knowledge/_performance.py",
+    "src/quantstack/knowledge/_learning.py",
+    "src/quantstack/knowledge/policy_store.py",
     # Live WebSocket adapters
-    "packages/quant_pod/data/adapters/*",
-    # LLM agents (require running LLM provider)
-    "packages/quant_pod/agents/microstructure_signal_agent.py",
-    "packages/quant_pod/agents/portfolio_optimizer_agent.py",
-    "packages/quant_pod/agents/regime_detector.py",
-    # MCP server + tool modules (only exercised via MCP integration tests)
-    "packages/quant_pod/mcp/models.py",
-    "packages/quant_pod/mcp/_state.py",
-    "packages/quant_pod/mcp/tools/*",
-    # Runtime state/orchestration (require live session data)
-    "packages/quant_pod/mtf_context.py",
-    "packages/quant_pod/holding_period.py",
-    "packages/quant_pod/crews/regime_config.py",
-    "packages/quant_pod/learning/calibration.py",
+    "src/quantstack/data/adapters/*",
+    # LLM agents
+    "src/quantstack/agents/microstructure_signal_agent.py",
+    "src/quantstack/agents/portfolio_optimizer_agent.py",
+    "src/quantstack/agents/regime_detector.py",
+    # MCP state/models
+    "src/quantstack/mcp/models.py",
+    "src/quantstack/mcp/_state.py",
+    # Runtime state/orchestration
+    "src/quantstack/mtf_context.py",
+    "src/quantstack/holding_period.py",
+    "src/quantstack/crews/regime_config.py",
+    "src/quantstack/learning/calibration.py",
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "packages/quantcore/tests"]
+testpaths = ["tests", "src/quantstack/core/tests"]
 asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning",

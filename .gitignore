@@ -118,7 +118,11 @@ paper_trading/*.json
 # Scratch prompts (generated per session, never committed)
 tmp/
 
-# Claude memory (local brain — never committed)
-.claude/memory/
+# Claude memory (local brain — never committed, templates are tracked)
+.claude/memory/*.md
+!.claude/memory/templates/
 .claude/settings.json
 .claude/settings.local.json
+
+# Generated trading sheets (may contain position data)
+trading_sheets*.md

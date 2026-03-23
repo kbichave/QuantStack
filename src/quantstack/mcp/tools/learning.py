@@ -20,10 +20,6 @@ from typing import Any
 from loguru import logger
 
 
-def _call(tool_or_fn):
-    """Unwrap a FastMCP FunctionTool to get the raw async function."""
-    return tool_or_fn.fn if hasattr(tool_or_fn, "fn") else tool_or_fn
-
 from quantstack.mcp.server import mcp
 from quantstack.mcp._state import (
     require_ctx,
@@ -162,9 +158,9 @@ async def promote_strategy(
     if err:
         return err
     try:
-        from quantstack.mcp.tools.strategy import get_strategy
+        from quantstack.mcp.tools.strategy import _get_strategy_impl
 
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {"success": False, "error": "Strategy not found"}
 
@@ -290,10 +286,10 @@ async def get_strategy_performance(
     if err:
         return err
     try:
-        from quantstack.mcp.tools.strategy import get_strategy
+        from quantstack.mcp.tools.strategy import _get_strategy_impl
 
         # Get strategy record for backtest comparison
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {"success": False, "error": "Strategy not found"}
 
@@ -382,10 +378,10 @@ async def validate_strategy(strategy_id: str) -> dict[str, Any]:
         Dict with still_valid flag, current vs historical metrics, degradation.
     """
     try:
-        from quantstack.mcp.tools.strategy import get_strategy
+        from quantstack.mcp.tools.strategy import _get_strategy_impl
         from quantstack.mcp.tools.backtesting import run_backtest
 
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {"success": False, "error": "Strategy not found"}
 

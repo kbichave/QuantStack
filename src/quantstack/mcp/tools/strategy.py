@@ -140,21 +140,11 @@ async def list_strategies(
         return {"success": False, "error": str(e), "strategies": [], "total": 0}
 
 
-@mcp.tool()
-async def get_strategy(
+async def _get_strategy_impl(
     strategy_id: str | None = None,
     name: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Get full strategy details by ID or name.
-
-    Args:
-        strategy_id: Strategy UUID.
-        name: Strategy name (used if strategy_id is None).
-
-    Returns:
-        Full strategy record.
-    """
+    """Core logic for get_strategy — callable from other tool modules."""
     ctx, err = live_db_or_error()
     if err:
         return err
@@ -218,6 +208,24 @@ async def get_strategy(
     except Exception as e:
         logger.error(f"[quantpod_mcp] get_strategy failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+@mcp.tool()
+async def get_strategy(
+    strategy_id: str | None = None,
+    name: str | None = None,
+) -> dict[str, Any]:
+    """
+    Get full strategy details by ID or name.
+
+    Args:
+        strategy_id: Strategy UUID.
+        name: Strategy name (used if strategy_id is None).
+
+    Returns:
+        Full strategy record.
+    """
+    return await _get_strategy_impl(strategy_id=strategy_id, name=name)
 
 
 @mcp.tool()
@@ -309,7 +317,7 @@ async def update_strategy(
             _create_drift_baseline(strategy_id)
 
         # Return the updated record
-        return await get_strategy(strategy_id=strategy_id)
+        return await _get_strategy_impl(strategy_id=strategy_id)
     except Exception as e:
         logger.error(f"[quantpod_mcp] update_strategy failed: {e}")
         return {"success": False, "error": str(e)}

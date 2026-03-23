@@ -27,7 +27,8 @@ from quantstack.core.features.technical_indicators import TechnicalIndicators
 from quantstack.core.validation.purged_cv import WalkForwardValidator
 from quantstack.data.storage import DataStore
 from quantstack.mcp._state import require_ctx, live_db_or_error, _serialize
-from quantstack.mcp.server import get_strategy, mcp
+from quantstack.mcp.tools.strategy import _get_strategy_impl
+from quantstack.mcp.server import mcp
 
 
 # =============================================================================
@@ -93,7 +94,7 @@ async def run_backtest(
 
     try:
         # 1. Load strategy
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {
                 "success": False,
@@ -220,7 +221,7 @@ async def run_backtest_mtf(
 
     try:
         # 1. Load strategy
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {
                 "success": False,
@@ -534,7 +535,7 @@ async def run_walkforward(
 
     try:
         # 1. Load strategy
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {
                 "success": False,
@@ -787,7 +788,7 @@ async def run_walkforward_mtf(
 
     try:
         # 1. Load strategy and verify MTF params
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {
                 "success": False,
@@ -976,7 +977,7 @@ async def walk_forward_sparse_signal(
 
     try:
         # 1. Load strategy — detect if MTF
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {
                 "success": False,
@@ -1141,7 +1142,7 @@ async def run_backtest_options(
 
     try:
         # ── 1. Load strategy ──────────────────────────────────────────────────
-        strat_result = await get_strategy(strategy_id=strategy_id)
+        strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {
                 "success": False,

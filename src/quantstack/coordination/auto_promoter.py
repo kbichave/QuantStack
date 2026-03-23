@@ -22,6 +22,7 @@ Safety controls:
 from __future__ import annotations
 
 import json
+import math
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -238,8 +239,6 @@ class AutoPromoter:
         avg_return = sum(pnl_pcts) / len(pnl_pcts)
 
         # Approximate Sharpe (annualized from daily-ish returns)
-        import math
-
         if len(pnl_pcts) > 1:
             mean_r = sum(pnl_pcts) / len(pnl_pcts)
             var_r = sum((r - mean_r) ** 2 for r in pnl_pcts) / (len(pnl_pcts) - 1)

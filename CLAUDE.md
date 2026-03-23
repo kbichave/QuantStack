@@ -4,11 +4,11 @@
 
 You are the **sole operator** of an autonomous trading company. No humans in the loop. You research strategies, train models, execute trades, and learn from outcomes — all without human intervention.
 
-**Two loops run in tmux (PAUSED pending P&L attribution):**
+**Two loops run in tmux:**
 - **Research** (`prompts/research_loop.md`): Strategy discovery, ML training, parameter optimization. Spawns desk agents as sub-agents.
-- **Trading** (`prompts/trading_loop.md`): Position monitoring, entry scanning, execution. Deterministic signal engine, no LLM in execution path.
+- **Trading** (`prompts/trading_loop.md`): Full autonomous trading — position monitoring, entry scanning, instrument selection, execution. LLM-driven: MCP tools provide data, Claude provides ALL reasoning. Spawns position-monitor and trade-debater agents.
 
-Start: `FORCE_LOOPS=1 ./scripts/start_research_loop.sh` + `FORCE_LOOPS=1 ./scripts/start_trading_loop.sh`
+Start: `./scripts/start_research_loop.sh` + `./scripts/start_trading_loop.sh`
 
 ---
 
@@ -20,23 +20,30 @@ Research Loop (research_loop.md)          Desk Agents (.claude/agents/)
   ├─ Scores research programs               ├─ ml-scientist (opus)
   ├─ Spawns desk agents for compute         ├─ strategy-rd (opus)
   ├─ CTO verification (leakage/overfit)     ├─ execution-researcher (sonnet)
-  └─ Writes state + commits                 └─ risk (sonnet)
+  └─ Writes state + commits                 ├─ risk (sonnet)
+                                            ├─ position-monitor (sonnet)
+                                            └─ trade-debater (sonnet)
 
-Trading Loop (trading_loop.md)
-  ├─ Heartbeat + events
-  ├─ System check + portfolio state
-  ├─ Position monitoring (regime flip → risk desk)
-  ├─ Entry scan (signal brief → strategy rules → risk sizing)
-  ├─ Execution (risk gate → broker)
-  └─ After-market review
+Trading Loop (trading_loop.md) — LLM-DRIVEN, Claude is sole decision-maker
+  ├─ Step 0: Safety gate (kill switch + risk halt)
+  ├─ Step 1: Ingest context (events, portfolio, regime, calendar, news)
+  ├─ Step 2: Position monitoring — EACH position:
+  │     ├─ Hard auto-exits: DTE ≤ 2, daily loss limit, kill switch
+  │     └─ Soft exits: TradingAgents-style debate → HOLD/TRIM/CLOSE
+  ├─ Step 3: Entry scan (strategy-aligned OR opportunistic):
+  │     ├─ Bull/Bear/Risk debate per candidate
+  │     ├─ Instrument selection: equity vs options (Claude decides)
+  │     └─ Max 2 entries per iteration
+  ├─ Step 4: Bookkeeping (trade journal, heartbeat, git commit)
+  └─ Step 5: After-market review (fill quality, overnight analysis)
 
-Execution Engine (no LLM):
-  SignalEngine (15 collectors, ~2-6s) → DecisionRouter → risk_gate.py → Broker
+Data Pipeline (no LLM):
+  SignalEngine (15 collectors, ~2-6s) → MCP tools → Claude reasons → risk_gate.py → Broker
 ```
 
 **Data:** Alpha Vantage (premium, 75 calls/min) — OHLCV, options, fundamentals, macro, flow, sentiment. Alpaca = paper execution fallback.
 
-**LLM routing:** Claude Max (zero extra cost) for all agent work. Groq `llama-3.3-70b` for sentiment collector only. Execution engine is LLM-free.
+**LLM routing:** Claude Max (zero extra cost) for all agent work. Groq `llama-3.3-70b` for sentiment collector only. Trading loop is fully LLM-driven — MCP tools provide data, Claude provides ALL reasoning (entries, exits, instrument selection, sizing).
 
 ---
 
@@ -146,10 +153,10 @@ USE_REAL_TRADING=true       # required for live execution
 
 ## 10. Scheduler
 
-`scripts/scheduler.py` runs deterministic (LLM-free) jobs only. The loops handle all LLM work.
+`scripts/scheduler.py` runs deterministic (LLM-free) jobs only. The trading loop runs as a separate tmux session.
 
 | Time | Days | Job |
 |------|------|-----|
 | 08:00 | Mon–Fri | Data refresh — Alpha Vantage cache (OHLCV, macro, news, insider) |
-| 09:35 | Mon–Fri | AutonomousRunner — deterministic signal → risk gate → broker |
-| 13:00 | Mon–Fri | AutonomousRunner — mid-day pass |
+
+**Trading execution:** handled by `scripts/start_trading_loop.sh` — Claude tmux loop polling every 5 min during market hours. No longer uses the deterministic AutonomousRunner for live trading (kept for one-shot backtests).

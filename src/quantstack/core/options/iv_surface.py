@@ -13,6 +13,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from scipy import interpolate
+from scipy.interpolate import LinearNDInterpolator, Rbf
+from scipy.stats import norm
 
 
 @dataclass
@@ -172,8 +174,6 @@ class IVSurface:
         # If we don't have a nice grid, use scattered interpolation
         if len(unique_lm) < 3 or len(unique_st) < 3:
             # Use linear interpolation for scattered data
-            from scipy.interpolate import LinearNDInterpolator
-
             points = np.column_stack([log_moneyness, sqrt_time])
             self._interpolator = LinearNDInterpolator(points, ivs, fill_value=np.nan)
             self._log_moneyness_grid = unique_lm
@@ -187,8 +187,6 @@ class IVSurface:
             st_grid = np.linspace(sqrt_time.min(), sqrt_time.max(), 10)
 
             # Fit surface using thin plate spline for scattered data
-            from scipy.interpolate import Rbf
-
             rbf = Rbf(log_moneyness, sqrt_time, ivs, function="thin_plate", smooth=0.1)
 
             # Create interpolation on regular grid
@@ -210,8 +208,6 @@ class IVSurface:
         except Exception as e:
             logger.warning(f"Failed to build smooth surface: {e}")
             # Fallback to linear
-            from scipy.interpolate import LinearNDInterpolator
-
             points = np.column_stack([log_moneyness, sqrt_time])
             self._interpolator = LinearNDInterpolator(points, ivs, fill_value=np.nan)
 
@@ -300,8 +296,6 @@ class IVSurface:
 
         # Approximate OTM put strike for 25-delta
         # Using delta approximation: K ≈ S * exp(-0.5 * sigma^2 * T + sigma * sqrt(T) * N^-1(delta))
-        from scipy.stats import norm
-
         T = dte / 365
         sigma = atm_iv
 

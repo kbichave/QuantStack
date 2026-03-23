@@ -17,6 +17,19 @@ base URL used by ``TradingClient``; the data feed is the same.
 
 from __future__ import annotations
 
+import os
+
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockLatestQuoteRequest
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import OrderSide, OrderStatus, TimeInForce
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    LimitOrderRequest,
+    MarketOrderRequest,
+    StopLimitOrderRequest,
+    StopOrderRequest,
+)
 from loguru import logger
 from quantstack.core.execution.broker import (
     BrokerAuthError,
@@ -35,30 +48,6 @@ from quantstack.core.execution.unified_models import (
     UnifiedQuote,
 )
 
-try:
-    from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockLatestQuoteRequest
-    from alpaca.trading.client import TradingClient
-    from alpaca.trading.enums import OrderSide, OrderStatus, TimeInForce
-    from alpaca.trading.requests import (
-        GetOrdersRequest,
-        LimitOrderRequest,
-        MarketOrderRequest,
-        StopLimitOrderRequest,
-        StopOrderRequest,
-    )
-
-    _ALPACA_AVAILABLE = True
-except ImportError:
-    _ALPACA_AVAILABLE = False
-
-
-def _require_alpaca() -> None:
-    if not _ALPACA_AVAILABLE:
-        raise ImportError(
-            "alpaca-py is required for AlpacaBrokerClient. Run: uv pip install -e '.[alpaca]'"
-        )
-
 
 class AlpacaBrokerClient(BrokerInterface):
     """BrokerInterface implementation for Alpaca Markets.
@@ -75,9 +64,6 @@ class AlpacaBrokerClient(BrokerInterface):
         secret_key: str | None = None,
         paper: bool = True,
     ) -> None:
-        _require_alpaca()
-        import os
-
         self._api_key = api_key or os.getenv("ALPACA_API_KEY", "")
         self._secret_key = secret_key or os.getenv("ALPACA_SECRET_KEY", "")
         if not self._api_key or not self._secret_key:

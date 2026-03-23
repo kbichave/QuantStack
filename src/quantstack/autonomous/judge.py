@@ -31,6 +31,8 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.observability.tracing import trace_judge_verdict
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -180,7 +182,6 @@ class HypothesisJudge:
 
         # Langfuse tracing (best-effort)
         try:
-            from quantstack.observability.tracing import trace_judge_verdict
             trace_judge_verdict(
                 hypothesis.get("name", "?"), approved, score, flags,
             )

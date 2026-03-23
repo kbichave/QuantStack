@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+import ffn
+
 
 def compute_portfolio_stats_ffn(
     equity_curve: pd.Series | list[float] | np.ndarray,
@@ -55,107 +57,104 @@ def compute_portfolio_stats_ffn(
     if len(equity) < 2:
         return {"error": "Insufficient data points for statistics"}
 
+    # ffn.PerformanceStats requires a DatetimeIndex
+    if not isinstance(equity.index, pd.DatetimeIndex):
+        equity.index = pd.date_range(
+            start="2020-01-01", periods=len(equity), freq="D"
+        )
+
     # Calculate returns
     returns = equity.pct_change().dropna()
 
     if len(returns) < 1:
         return {"error": "Could not calculate returns"}
 
+    # Create PerformanceStats object
+    perf = ffn.PerformanceStats(equity)
+
+    # Extract all statistics
+    stats = {
+        # Return metrics
+        "total_return": (
+            float(perf.total_return)
+            if hasattr(perf, "total_return")
+            else _total_return(equity)
+        ),
+        "cagr": (
+            float(perf.cagr)
+            if hasattr(perf, "cagr")
+            else _cagr(equity, periods_per_year)
+        ),
+        "daily_mean": float(returns.mean()),
+        "daily_std": float(returns.std()),
+        "annualized_return": float(returns.mean() * periods_per_year),
+        "annualized_volatility": float(returns.std() * np.sqrt(periods_per_year)),
+        # Risk metrics
+        "max_drawdown": (
+            float(perf.max_drawdown)
+            if hasattr(perf, "max_drawdown")
+            else _max_drawdown(equity)
+        ),
+        "avg_drawdown": (
+            float(perf.avg_drawdown)
+            if hasattr(perf, "avg_drawdown")
+            else _avg_drawdown(equity)
+        ),
+        "avg_drawdown_days": (
+            float(perf.avg_drawdown_days)
+            if hasattr(perf, "avg_drawdown_days")
+            else None
+        ),
+        # Risk-adjusted ratios
+        "sharpe_ratio": (
+            float(perf.daily_sharpe)
+            if hasattr(perf, "daily_sharpe")
+            else _sharpe_ratio(returns, risk_free_rate, periods_per_year)
+        ),
+        "sortino_ratio": (
+            float(perf.daily_sortino)
+            if hasattr(perf, "daily_sortino")
+            else _sortino_ratio(returns, risk_free_rate, periods_per_year)
+        ),
+        "calmar_ratio": (
+            float(perf.calmar)
+            if hasattr(perf, "calmar")
+            else _calmar_ratio(equity, periods_per_year)
+        ),
+        # Distribution metrics
+        "skewness": float(returns.skew()),
+        "kurtosis": float(returns.kurtosis()),
+        "best_day": float(returns.max()),
+        "worst_day": float(returns.min()),
+        "positive_days_pct": float((returns > 0).sum() / len(returns) * 100),
+        # VaR metrics
+        "var_95": float(np.percentile(returns, 5)),
+        "var_99": float(np.percentile(returns, 1)),
+        "cvar_95": float(returns[returns <= np.percentile(returns, 5)].mean()),
+        # Time metrics
+        "num_periods": len(equity),
+        "periods_per_year": periods_per_year,
+    }
+
+    # Add monthly stats if available
     try:
-        import ffn
+        monthly_returns = _resample_returns(returns, "M")
+        if len(monthly_returns) > 1:
+            stats["monthly_mean"] = float(monthly_returns.mean())
+            stats["monthly_std"] = float(monthly_returns.std())
+            stats["best_month"] = float(monthly_returns.max())
+            stats["worst_month"] = float(monthly_returns.min())
+            stats["positive_months_pct"] = float(
+                (monthly_returns > 0).sum() / len(monthly_returns) * 100
+            )
+    except Exception:
+        pass
 
-        # Create PerformanceStats object
-        perf = ffn.PerformanceStats(equity)
+    # Add drawdown details
+    dd_info = _drawdown_details(equity)
+    stats.update(dd_info)
 
-        # Extract all statistics
-        stats = {
-            # Return metrics
-            "total_return": (
-                float(perf.total_return)
-                if hasattr(perf, "total_return")
-                else _total_return(equity)
-            ),
-            "cagr": (
-                float(perf.cagr)
-                if hasattr(perf, "cagr")
-                else _cagr(equity, periods_per_year)
-            ),
-            "daily_mean": float(returns.mean()),
-            "daily_std": float(returns.std()),
-            "annualized_return": float(returns.mean() * periods_per_year),
-            "annualized_volatility": float(returns.std() * np.sqrt(periods_per_year)),
-            # Risk metrics
-            "max_drawdown": (
-                float(perf.max_drawdown)
-                if hasattr(perf, "max_drawdown")
-                else _max_drawdown(equity)
-            ),
-            "avg_drawdown": (
-                float(perf.avg_drawdown)
-                if hasattr(perf, "avg_drawdown")
-                else _avg_drawdown(equity)
-            ),
-            "avg_drawdown_days": (
-                float(perf.avg_drawdown_days)
-                if hasattr(perf, "avg_drawdown_days")
-                else None
-            ),
-            # Risk-adjusted ratios
-            "sharpe_ratio": (
-                float(perf.daily_sharpe)
-                if hasattr(perf, "daily_sharpe")
-                else _sharpe_ratio(returns, risk_free_rate, periods_per_year)
-            ),
-            "sortino_ratio": (
-                float(perf.daily_sortino)
-                if hasattr(perf, "daily_sortino")
-                else _sortino_ratio(returns, risk_free_rate, periods_per_year)
-            ),
-            "calmar_ratio": (
-                float(perf.calmar)
-                if hasattr(perf, "calmar")
-                else _calmar_ratio(equity, periods_per_year)
-            ),
-            # Distribution metrics
-            "skewness": float(returns.skew()),
-            "kurtosis": float(returns.kurtosis()),
-            "best_day": float(returns.max()),
-            "worst_day": float(returns.min()),
-            "positive_days_pct": float((returns > 0).sum() / len(returns) * 100),
-            # VaR metrics
-            "var_95": float(np.percentile(returns, 5)),
-            "var_99": float(np.percentile(returns, 1)),
-            "cvar_95": float(returns[returns <= np.percentile(returns, 5)].mean()),
-            # Time metrics
-            "num_periods": len(equity),
-            "periods_per_year": periods_per_year,
-        }
-
-        # Add monthly stats if available
-        try:
-            monthly_returns = _resample_returns(returns, "M")
-            if len(monthly_returns) > 1:
-                stats["monthly_mean"] = float(monthly_returns.mean())
-                stats["monthly_std"] = float(monthly_returns.std())
-                stats["best_month"] = float(monthly_returns.max())
-                stats["worst_month"] = float(monthly_returns.min())
-                stats["positive_months_pct"] = float(
-                    (monthly_returns > 0).sum() / len(monthly_returns) * 100
-                )
-        except Exception:
-            pass
-
-        # Add drawdown details
-        dd_info = _drawdown_details(equity)
-        stats.update(dd_info)
-
-        return stats
-
-    except ImportError:
-        logger.warning("ffn not available, using internal calculations")
-        return _compute_stats_internal(
-            equity, returns, risk_free_rate, periods_per_year
-        )
+    return stats
 
 
 def _compute_stats_internal(
@@ -525,7 +524,7 @@ def _resample_returns(returns: pd.Series, freq: str) -> pd.Series:
             start="2020-01-01", periods=len(returns), freq="D"
         )
 
-    return (1 + returns).resample(freq).prod() - 1
+    return (1 + returns).resample({"M": "ME", "W": "W"}.get(freq, freq)).prod() - 1
 
 
 def _build_monthly_table(monthly_returns: pd.Series) -> dict[str, Any]:

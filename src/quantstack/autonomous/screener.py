@@ -24,18 +24,16 @@ Hard filters (applied before scoring):
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 import duckdb
 from loguru import logger
 
-try:
-    import numpy as np
-except ImportError:
-    np = None  # type: ignore[assignment]
+import numpy as np
 
 
 @dataclass
@@ -113,8 +111,6 @@ class AutonomousScreener:
         This is an async method but all work is CPU/DuckDB-bound (no I/O).
         It's async for compatibility with the runner's event loop.
         """
-        import asyncio
-
         return await asyncio.to_thread(self._screen_sync, regime)
 
     def _screen_sync(self, regime: str) -> ScreenerResult:
@@ -334,9 +330,7 @@ class AutonomousScreener:
         Today = 0 (skip via /earnings). 1-4 days = lower. >14 days = neutral.
         """
         try:
-            from datetime import date as date_type
-
-            today = date_type.today()
+            today = date.today()
             row = self._conn.execute(
                 """
                 SELECT MIN(report_date) FROM earnings_calendar
@@ -350,9 +344,7 @@ class AutonomousScreener:
 
             report_date = row[0]
             if isinstance(report_date, str):
-                from datetime import datetime as dt
-
-                report_date = dt.strptime(report_date, "%Y-%m-%d").date()
+                report_date = datetime.strptime(report_date, "%Y-%m-%d").date()
             elif isinstance(report_date, datetime):
                 report_date = report_date.date()
 

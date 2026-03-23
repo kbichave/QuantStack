@@ -16,6 +16,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from quantstack.context import create_trading_context
+from quantstack.mcp.server import get_strategy, register_strategy, run_backtest, run_walkforward
+from quantstack.strategies.signal_generator import generate_signals_from_rules as _generate_signals_from_rules
+import quantstack.mcp._state as _mcp_state
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -31,8 +34,6 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quantstack.mcp._state as _mcp_state
-
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
     yield ctx
@@ -72,8 +73,6 @@ def synthetic_data():
 @pytest.fixture
 async def registered_strategy(_inject_ctx):
     """Register a simple RSI mean-reversion strategy and return its ID."""
-    from quantstack.mcp.server import register_strategy
-
     result = await _fn(register_strategy)(
         name=f"test_rsi_mr_{uuid.uuid4().hex[:6]}",
         description="RSI mean reversion for testing",
@@ -103,8 +102,6 @@ async def registered_strategy(_inject_ctx):
 
 class TestSignalGeneration:
     def test_generates_signals_from_rsi_rules(self, synthetic_data):
-        from quantstack.strategies.signal_generator import generate_signals_from_rules as _generate_signals_from_rules
-
         entry_rules = [
             {
                 "indicator": "rsi",
@@ -129,8 +126,6 @@ class TestSignalGeneration:
         assert signals["signal"].sum() > 0
 
     def test_sma_crossover_generates_signals(self, synthetic_data):
-        from quantstack.strategies.signal_generator import generate_signals_from_rules as _generate_signals_from_rules
-
         entry_rules = [
             {
                 "indicator": "sma_crossover",
@@ -149,8 +144,6 @@ class TestSignalGeneration:
         assert signals["signal"].sum() > 0
 
     def test_breakout_generates_signals(self, synthetic_data):
-        from quantstack.strategies.signal_generator import generate_signals_from_rules as _generate_signals_from_rules
-
         entry_rules = [
             {"indicator": "breakout", "condition": "above", "direction": "long"},
         ]
@@ -181,8 +174,6 @@ class TestRunBacktest:
     async def test_backtest_returns_metrics(
         self, _inject_ctx, registered_strategy, synthetic_data
     ):
-        from quantstack.mcp.server import run_backtest
-
         with patch(
             "quantstack.mcp.tools.backtesting._fetch_price_data",
             return_value=synthetic_data,
@@ -206,8 +197,6 @@ class TestRunBacktest:
     async def test_backtest_updates_strategy_record(
         self, _inject_ctx, registered_strategy, synthetic_data
     ):
-        from quantstack.mcp.server import get_strategy, run_backtest
-
         with patch(
             "quantstack.mcp.tools.backtesting._fetch_price_data",
             return_value=synthetic_data,
@@ -220,8 +209,6 @@ class TestRunBacktest:
 
     @pytest.mark.asyncio
     async def test_backtest_no_data_fails(self, _inject_ctx, registered_strategy):
-        from quantstack.mcp.server import run_backtest
-
         with patch(
             "quantstack.mcp.tools.backtesting._fetch_price_data", return_value=None
         ):
@@ -233,15 +220,11 @@ class TestRunBacktest:
 
     @pytest.mark.asyncio
     async def test_backtest_bad_strategy_id(self, _inject_ctx):
-        from quantstack.mcp.server import run_backtest
-
         result = await _fn(run_backtest)(strategy_id="nonexistent", symbol="TEST")
         assert result["success"] is False
 
     @pytest.mark.asyncio
     async def test_backtest_no_entry_rules(self, _inject_ctx, synthetic_data):
-        from quantstack.mcp.server import register_strategy, run_backtest
-
         r = await _fn(register_strategy)(
             name="empty_rules",
             parameters={},
@@ -270,8 +253,6 @@ class TestRunWalkforward:
     async def test_walkforward_returns_fold_results(
         self, _inject_ctx, registered_strategy
     ):
-        from quantstack.mcp.server import run_walkforward
-
         # Need enough data: min_train_size(504) + n_splits(3) * test_size(60) = 684
         big_data = _make_trending_ohlcv(n_bars=800)
 
@@ -298,8 +279,6 @@ class TestRunWalkforward:
     async def test_walkforward_insufficient_data(
         self, _inject_ctx, registered_strategy
     ):
-        from quantstack.mcp.server import run_walkforward
-
         small_data = _make_trending_ohlcv(n_bars=100)
 
         with patch(
@@ -319,8 +298,6 @@ class TestRunWalkforward:
     async def test_walkforward_updates_strategy_record(
         self, _inject_ctx, registered_strategy
     ):
-        from quantstack.mcp.server import get_strategy, run_walkforward
-
         big_data = _make_trending_ohlcv(n_bars=800)
 
         with patch(
@@ -341,8 +318,6 @@ class TestRunWalkforward:
     async def test_walkforward_fold_metrics_have_expected_keys(
         self, _inject_ctx, registered_strategy
     ):
-        from quantstack.mcp.server import run_walkforward
-
         big_data = _make_trending_ohlcv(n_bars=800)
 
         with patch(

@@ -17,6 +17,13 @@ from quantstack.data.synthetic import (
     generate_synthetic_ohlcv,
     validate_synthetic_ohlcv,
 )
+from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
+from quantstack.core.features.factory import MultiTimeframeFeatureFactory
+from quantstack.core.features.technical_indicators import TechnicalIndicators
+from quantstack.core.labeling.event_labeler import EventLabeler
+from quantstack.data.resampler import TimeframeResampler
+from quantstack.ml.trainer import ModelTrainer, TrainingConfig
+import time
 
 
 def resample_all_timeframes(df_1h: pd.DataFrame) -> dict:
@@ -28,8 +35,6 @@ def resample_all_timeframes(df_1h: pd.DataFrame) -> dict:
     Returns:
         Dictionary of Timeframe -> DataFrame
     """
-    from quantstack.data.resampler import TimeframeResampler
-
     resampler = TimeframeResampler()
 
     return {
@@ -296,8 +301,6 @@ class TestSyntheticFeatures:
 
     def test_features_computed_without_error(self, small_config):
         """Feature computation should not raise errors."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -309,8 +312,6 @@ class TestSyntheticFeatures:
 
     def test_features_include_expected_columns(self, small_config):
         """Features should include key expected columns."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -331,8 +332,6 @@ class TestSyntheticMovingAverages:
 
     def test_sma_on_synthetic(self):
         """SMA should be computed correctly on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Use larger dataset for H1 timeframe only (enough for all indicators)
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
@@ -356,8 +355,6 @@ class TestSyntheticMovingAverages:
 
     def test_ema_on_synthetic(self):
         """EMA should be computed correctly on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Use larger dataset for H1 timeframe only
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
@@ -380,8 +377,6 @@ class TestSyntheticMovingAverages:
 
     def test_wma_dema_tema_on_synthetic(self):
         """WMA, DEMA, TEMA should be computed correctly on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Use larger dataset for H1 timeframe only
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
@@ -403,8 +398,6 @@ class TestSyntheticMovingAverages:
 
     def test_vwap_on_synthetic(self):
         """VWAP should be computed correctly on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Use larger dataset for H1 timeframe only
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
@@ -431,8 +424,6 @@ class TestSyntheticOscillators:
 
     def test_rsi_on_synthetic(self, small_config):
         """RSI should be bounded 0-100 on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -455,8 +446,6 @@ class TestSyntheticOscillators:
 
     def test_macd_on_synthetic(self, small_config):
         """MACD components should be computed correctly on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -494,8 +483,6 @@ class TestSyntheticOscillators:
 
     def test_stochastic_on_synthetic(self, small_config):
         """Stochastic oscillator should be bounded 0-100 on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -525,8 +512,6 @@ class TestSyntheticOscillators:
 
     def test_adx_on_synthetic(self, small_config):
         """ADX should be bounded 0-100 on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -548,8 +533,6 @@ class TestSyntheticOscillators:
 
     def test_williams_r_on_synthetic(self, small_config):
         """Williams %R should be bounded -100 to 0 on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -575,8 +558,6 @@ class TestSyntheticVolatility:
 
     def test_bollinger_bands_on_synthetic(self, small_config):
         """Bollinger Bands should maintain ordering on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -602,8 +583,6 @@ class TestSyntheticVolatility:
 
     def test_atr_on_synthetic(self, small_config):
         """ATR should be positive on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -631,8 +610,6 @@ class TestSyntheticVolatility:
 
     def test_sar_on_synthetic(self, small_config):
         """Parabolic SAR should exist on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -656,8 +633,6 @@ class TestSyntheticVolume:
 
     def test_obv_on_synthetic(self, small_config):
         """OBV should be computed correctly on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -679,8 +654,6 @@ class TestSyntheticVolume:
 
     def test_ad_on_synthetic(self, small_config):
         """Accumulation/Distribution should be finite on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -702,8 +675,6 @@ class TestSyntheticVolume:
 
     def test_mfi_on_synthetic(self, small_config):
         """Money Flow Index should be bounded 0-100 on synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -729,9 +700,6 @@ class TestSyntheticTAIntegration:
 
     def test_all_ta_indicators_computed(self):
         """All TA indicators should be computed in the full pipeline."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-        from quantstack.core.features.technical_indicators import TechnicalIndicators
-
         # Use larger dataset for H1 timeframe only
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
@@ -767,8 +735,6 @@ class TestSyntheticTAIntegration:
 
     def test_ta_no_lookahead_bias(self):
         """TA indicators should not have lookahead bias."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Use larger dataset for H1 timeframe only
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
@@ -794,10 +760,6 @@ class TestSyntheticTAIntegration:
     @pytest.mark.slow
     def test_ta_performance_on_synthetic(self):
         """TA computation should complete in reasonable time on synthetic data."""
-        import time
-
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Larger dataset for performance testing
         config = SyntheticMarketConfig(periods=500, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
@@ -818,8 +780,6 @@ class TestSyntheticTAIntegration:
 
     def test_ta_features_for_ml_extraction(self):
         """Should be able to extract TA features for ML model input."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Use larger dataset for H1 timeframe only
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
@@ -860,9 +820,6 @@ class TestSyntheticLabels:
 
     def test_labels_created(self, small_config):
         """Labels should be created for synthetic data."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-        from quantstack.core.labeling.event_labeler import EventLabeler
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -876,9 +833,6 @@ class TestSyntheticLabels:
 
     def test_labels_have_valid_values(self, small_config):
         """Labels should be 0 or 1 (or NaN for bars without labels)."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-        from quantstack.core.labeling.event_labeler import EventLabeler
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -894,9 +848,6 @@ class TestSyntheticLabels:
 
     def test_labels_statistics_available(self, small_config):
         """Should be able to get label statistics."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-        from quantstack.core.labeling.event_labeler import EventLabeler
-
         df_1h = generate_synthetic_ohlcv(small_config)
         data = resample_all_timeframes(df_1h)
 
@@ -922,10 +873,6 @@ class TestSyntheticEndToEnd:
 
     def test_full_pipeline_runs(self):
         """Full pipeline should run without errors."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-        from quantstack.core.labeling.event_labeler import EventLabeler
-        from quantstack.ml.trainer import ModelTrainer, TrainingConfig
-
         # 1. Generate data - need more bars for feature warmup periods
         config = SyntheticMarketConfig(
             periods=800,  # More bars to ensure enough valid samples after warmup
@@ -984,10 +931,6 @@ class TestSyntheticEndToEnd:
 
     def test_backtest_produces_trades(self, small_config):
         """Backtest should produce at least one trade."""
-        from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-        from quantstack.core.labeling.event_labeler import EventLabeler
-
         # Generate more bars to ensure we get trades
         config = SyntheticMarketConfig(
             periods=500,  # More bars
@@ -1041,8 +984,6 @@ class TestSyntheticEndToEnd:
 
     def test_backtest_metrics_are_finite(self, small_config):
         """Backtest metrics should be finite (not NaN/inf)."""
-        from quantstack.core.backtesting.engine import BacktestEngine
-
         config = SyntheticMarketConfig(periods=300, seed=42)
         df_1h = generate_synthetic_ohlcv(config)
         resample_all_timeframes(df_1h)

@@ -4,6 +4,7 @@ RL strategy for equity trading.
 Uses PPO from Stable Baselines3 with a simple equity trading environment.
 """
 
+import traceback
 import warnings
 from typing import Any
 
@@ -13,37 +14,13 @@ from loguru import logger
 
 from quantstack.core.equity.reports import StrategyResult, TickerStrategyResult
 
-# RL imports with fallback
-try:
-    import gymnasium as gym
-    from gymnasium import spaces
-
-    GYM_AVAILABLE = True
-except ImportError:
-    try:
-        import gym
-        from gym import spaces
-
-        GYM_AVAILABLE = True
-    except ImportError:
-        GYM_AVAILABLE = False
-        gym = None
-        spaces = None
-
-try:
-    from stable_baselines3 import PPO
-    from stable_baselines3.common.vec_env import DummyVecEnv
-
-    SB3_AVAILABLE = True
-except ImportError:
-    SB3_AVAILABLE = False
-    PPO = None
-    DummyVecEnv = None
-
-RL_AVAILABLE = GYM_AVAILABLE and SB3_AVAILABLE
+import gymnasium as gym
+from gymnasium import spaces
+from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv
 
 
-class EquityTradingEnv(gym.Env if GYM_AVAILABLE else object):
+class EquityTradingEnv(gym.Env):
     """
     Simple equity trading environment for RL.
 
@@ -64,8 +41,7 @@ class EquityTradingEnv(gym.Env if GYM_AVAILABLE else object):
         shares_per_trade: int = 100,
         initial_equity: float = 100000,
     ):
-        if GYM_AVAILABLE:
-            super().__init__()
+        super().__init__()
 
         self.data = data.copy()
         self.features = features.copy()
@@ -80,22 +56,21 @@ class EquityTradingEnv(gym.Env if GYM_AVAILABLE else object):
         ]
         self._feature_dim = len(self._feature_cols)
 
-        if GYM_AVAILABLE:
-            # Observation: features + [position, unrealized_pnl, equity_ratio]
-            self.observation_space = spaces.Box(
+        # Observation: features + [position, unrealized_pnl, equity_ratio]
+        self.observation_space = spaces.Box(
                 low=-np.inf,
                 high=np.inf,
                 shape=(self._feature_dim + 3,),
                 dtype=np.float32,
             )
 
-            # Action: position sizing from -1 to +1
-            self.action_space = spaces.Box(
-                low=-1.0,
-                high=1.0,
-                shape=(1,),
-                dtype=np.float32,
-            )
+        # Action: position sizing from -1 to +1
+        self.action_space = spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(1,),
+            dtype=np.float32,
+        )
 
         self._reset_state()
 
@@ -107,8 +82,7 @@ class EquityTradingEnv(gym.Env if GYM_AVAILABLE else object):
         self._unrealized_pnl = 0.0
 
     def reset(self, seed=None, options=None):
-        if GYM_AVAILABLE:
-            super().reset(seed=seed)
+        super().reset(seed=seed)
         self._reset_state()
         return self._get_obs(), {}
 
@@ -216,10 +190,6 @@ def run_rl_strategy(
     logger.info("\n" + "=" * 60)
     logger.info("RL STRATEGY (PPO)")
     logger.info("=" * 60)
-
-    if not RL_AVAILABLE:
-        logger.warning("RL not available - install gymnasium and stable-baselines3")
-        return None
 
     per_ticker = {}
     total_pnl = 0
@@ -339,8 +309,6 @@ def run_rl_strategy(
 
         except Exception as e:
             logger.error(f"  Error: {e}")
-            import traceback
-
             traceback.print_exc()
 
     if per_ticker:

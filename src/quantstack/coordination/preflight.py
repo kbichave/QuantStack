@@ -23,14 +23,19 @@ Usage (code):
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from pathlib import Path
+
 import duckdb
 from loguru import logger
+
+from quantstack.db import open_db, run_migrations
 
 
 @dataclass
@@ -175,8 +180,6 @@ class PreflightCheck:
                     "Kill switch is ACTIVE. Reset it before trading.",
                 )
             # Also check sentinel file
-            from pathlib import Path
-
             sentinel = Path("~/.quant_pod/KILL_SWITCH_ACTIVE").expanduser()
             if sentinel.exists():
                 return PreflightResult(
@@ -395,11 +398,11 @@ class PreflightCheck:
     def _check_options_execution(self) -> PreflightResult:
         """Verify options execution tool is available and wallet supports options."""
         try:
-            # Check if execute_options_trade is importable
-            from quantstack.mcp.tools.options_execution import execute_options_trade
-
-            tool_available = True
-        except ImportError:
+            tool_available = (
+                importlib.util.find_spec("quantstack.mcp.tools.options_execution")
+                is not None
+            )
+        except Exception:
             tool_available = False
 
         if not tool_available:
@@ -473,8 +476,6 @@ def run_preflight(
         {"ready": bool, "blockers": [...], "warnings": [...], "summary": "..."}
     """
     try:
-        from quantstack.db import open_db
-
         conn = open_db()
         check = PreflightCheck(conn, target_symbols, target_wallet)
         report = check.run()
@@ -510,10 +511,6 @@ if __name__ == "__main__":
             if line and not line.startswith("#") and "=" in line:
                 k, v = line.split("=", 1)
                 os.environ.setdefault(k.strip(), v.strip())
-
-    from pathlib import Path
-
-    from quantstack.db import open_db, run_migrations
 
     conn = open_db()
     run_migrations(conn)

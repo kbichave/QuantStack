@@ -14,61 +14,36 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
-# Import from quantcore hierarchy modules
-try:
-    from quantstack.config.timeframes import (
-        TIMEFRAME_HIERARCHY,  # noqa: F401
-        TIMEFRAME_PARAMS,  # noqa: F401
-        Timeframe,  # noqa: F401
-    )
-    from quantstack.core.hierarchy.alignment import (
-        AlignmentResult,
-        HierarchicalAlignment,
-    )  # noqa: F401
-    from quantstack.core.hierarchy.regime_classifier import (
-        RegimeContext,  # noqa: F401
-        RegimeType,
-        WeeklyRegimeClassifier,
-    )
-    from quantstack.core.hierarchy.swing_context import (
-        SwingContext,  # noqa: F401
-        SwingContextAnalyzer,
-        SwingPhase,
-    )
-    from quantstack.core.hierarchy.trend_filter import (
-        DailyTrendFilter,
-        TrendContext,  # noqa: F401
-        TrendDirection,
-    )
-
-    QUANTCORE_AVAILABLE = True
-except ImportError:
-    QUANTCORE_AVAILABLE = False
-
-    # Define fallback enums
-    class RegimeType(Enum):
-        BULL = "BULL"
-        BEAR = "BEAR"
-        SIDEWAYS = "SIDEWAYS"
-
-    class TrendDirection(Enum):
-        UP = "UP"
-        DOWN = "DOWN"
-        NEUTRAL = "NEUTRAL"
-
-    class SwingPhase(Enum):
-        IMPULSE_UP = "IMPULSE_UP"
-        CORRECTION_DOWN = "CORRECTION_DOWN"
-        IMPULSE_DOWN = "IMPULSE_DOWN"
-        CORRECTION_UP = "CORRECTION_UP"
-        CONSOLIDATION = "CONSOLIDATION"
+from quantstack.config.timeframes import (
+    TIMEFRAME_HIERARCHY,  # noqa: F401
+    TIMEFRAME_PARAMS,  # noqa: F401
+    Timeframe,  # noqa: F401
+)
+from quantstack.core.hierarchy.alignment import (
+    AlignmentResult,  # noqa: F401
+    HierarchicalAlignment,
+)
+from quantstack.core.hierarchy.regime_classifier import (
+    RegimeContext,  # noqa: F401
+    RegimeType,
+    WeeklyRegimeClassifier,
+)
+from quantstack.core.hierarchy.swing_context import (
+    SwingContext,  # noqa: F401
+    SwingContextAnalyzer,
+    SwingPhase,
+)
+from quantstack.core.hierarchy.trend_filter import (
+    DailyTrendFilter,
+    TrendContext,  # noqa: F401
+    TrendDirection,
+)
 
 
 # =============================================================================
@@ -315,32 +290,19 @@ class MTFContextBuilder:
     """
     Builder for constructing MTFContext from multi-timeframe data.
 
-    Uses quantcore hierarchy modules when available, otherwise
-    computes basic context from raw price data.
+    Uses quantcore hierarchy modules for regime classification,
+    trend filtering, swing analysis, and cross-timeframe alignment.
     """
 
     def __init__(self):
         """Initialize builder with hierarchy analyzers."""
-        self._regime_classifier = None
-        self._trend_filter = None
-        self._swing_analyzer = None
-        self._alignment_checker = None
-
-        if QUANTCORE_AVAILABLE:
-            try:
-                self._regime_classifier = WeeklyRegimeClassifier()
-                self._trend_filter = DailyTrendFilter()
-                self._swing_analyzer = SwingContextAnalyzer()
-                self._alignment_checker = HierarchicalAlignment()
-                logger.info(
-                    "MTFContextBuilder initialized with quantcore hierarchy modules"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to initialize quantcore modules: {e}")
-        else:
-            logger.warning(
-                "quantcore hierarchy modules not available, using basic analysis"
-            )
+        self._regime_classifier = WeeklyRegimeClassifier()
+        self._trend_filter = DailyTrendFilter()
+        self._swing_analyzer = SwingContextAnalyzer()
+        self._alignment_checker = HierarchicalAlignment()
+        logger.info(
+            "MTFContextBuilder initialized with quantcore hierarchy modules"
+        )
 
     def build(
         self,

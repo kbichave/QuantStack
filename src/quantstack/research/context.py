@@ -22,6 +22,11 @@ from typing import Any
 import duckdb
 from loguru import logger
 
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.storage import DataStore
+from quantstack.execution.strategy_breaker import StrategyBreaker
+from quantstack.signal_engine.collectors.regime import _rule_based_regime
+
 
 class ResearchContext:
     """
@@ -179,10 +184,6 @@ class ResearchContext:
     def get_regime_summary(self) -> dict:
         """Current and recent regime information."""
         try:
-            from quantstack.signal_engine.collectors.regime import _rule_based_regime
-            from quantstack.config.timeframes import Timeframe
-            from quantstack.data.storage import DataStore
-
             store = DataStore(read_only=True)
             df = store.load_ohlcv("SPY", Timeframe.D1)
             if df is not None and len(df) >= 60:
@@ -199,8 +200,6 @@ class ResearchContext:
     def get_strategy_breaker_states(self) -> list[dict]:
         """Which strategies are tripped or scaled."""
         try:
-            from quantstack.execution.strategy_breaker import StrategyBreaker
-
             breaker = StrategyBreaker()
             states = breaker.get_all_states()
             return [

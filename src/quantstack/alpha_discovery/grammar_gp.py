@@ -34,6 +34,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
 from quantstack.strategies.signal_generator import generate_signals_from_rules
 
 
@@ -587,8 +588,6 @@ class GrammarGP:
         for crossover).
         """
         try:
-            from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
-
             entry_rules = individual.get("entry_rules", [])
             exit_rules = individual.get("exit_rules", [])
             parameters = individual.get("parameters", {})

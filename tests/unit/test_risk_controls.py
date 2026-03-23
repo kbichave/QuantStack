@@ -219,8 +219,6 @@ class TestDrawdownProtection:
         """
         Verify RESTRICTED status when daily loss limit hit.
         """
-        from datetime import datetime
-
         initial_equity = 100000
         drawdown_protection.reset(initial_equity)
 

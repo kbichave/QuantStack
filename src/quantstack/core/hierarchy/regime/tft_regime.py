@@ -11,14 +11,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-try:
-    import torch
-    import torch.nn as nn
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    logger.warning("PyTorch not available. Install with: pip install torch")
+import torch
+import torch.nn as nn
 
 
 class TFTRegimeState(Enum):
@@ -42,122 +36,120 @@ class TFTRegimeResult:
 
 
 # Simple TFT-inspired model (full TFT is complex, this is a simplified version)
-if TORCH_AVAILABLE:
+class SimpleTFTModel(nn.Module):
+    """
+    Simplified Temporal Fusion Transformer for regime prediction.
 
-    class SimpleTFTModel(nn.Module):
+    Uses:
+    - LSTM for temporal encoding
+    - Multi-head attention for capturing dependencies
+    - Gated residual networks for feature processing
+    """
+
+    def __init__(
+        self,
+        n_features: int,
+        hidden_size: int = 64,
+        n_heads: int = 4,
+        n_layers: int = 2,
+        n_regimes: int = 4,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+
+        self.n_features = n_features
+        self.hidden_size = hidden_size
+        self.n_regimes = n_regimes
+
+        # Feature embedding
+        self.feature_embed = nn.Linear(n_features, hidden_size)
+
+        # LSTM encoder
+        self.lstm = nn.LSTM(
+            hidden_size,
+            hidden_size,
+            n_layers,
+            batch_first=True,
+            dropout=dropout if n_layers > 1 else 0,
+        )
+
+        # Multi-head attention
+        self.attention = nn.MultiheadAttention(
+            hidden_size,
+            n_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+
+        # Gated residual network
+        self.grn = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.ELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, hidden_size),
+        )
+        self.gate = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.Sigmoid(),
+        )
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+        # Output layer
+        self.output = nn.Linear(hidden_size, n_regimes)
+
+        # Feature importance (learnable)
+        self.feature_weights = nn.Parameter(torch.ones(n_features))
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        return_attention: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """
-        Simplified Temporal Fusion Transformer for regime prediction.
+        Forward pass.
 
-        Uses:
-        - LSTM for temporal encoding
-        - Multi-head attention for capturing dependencies
-        - Gated residual networks for feature processing
+        Args:
+            x: Input tensor [batch, seq_len, n_features]
+            return_attention: Whether to return attention weights
+
+        Returns:
+            Regime logits and optionally attention weights
         """
+        # Feature embedding with importance weighting
+        weighted_x = x * self.feature_weights.unsqueeze(0).unsqueeze(0)
+        embedded = self.feature_embed(weighted_x)
 
-        def __init__(
-            self,
-            n_features: int,
-            hidden_size: int = 64,
-            n_heads: int = 4,
-            n_layers: int = 2,
-            n_regimes: int = 4,
-            dropout: float = 0.1,
-        ):
-            super().__init__()
+        # LSTM encoding
+        lstm_out, _ = self.lstm(embedded)
 
-            self.n_features = n_features
-            self.hidden_size = hidden_size
-            self.n_regimes = n_regimes
+        # Self-attention
+        attn_out, attn_weights = self.attention(
+            lstm_out,
+            lstm_out,
+            lstm_out,
+            need_weights=return_attention,
+        )
 
-            # Feature embedding
-            self.feature_embed = nn.Linear(n_features, hidden_size)
+        # Gated residual connection
+        grn_out = self.grn(attn_out)
+        gate_out = self.gate(attn_out)
+        gated = self.layer_norm(attn_out + gate_out * grn_out)
 
-            # LSTM encoder
-            self.lstm = nn.LSTM(
-                hidden_size,
-                hidden_size,
-                n_layers,
-                batch_first=True,
-                dropout=dropout if n_layers > 1 else 0,
-            )
+        # Take last timestep
+        final = gated[:, -1, :]
 
-            # Multi-head attention
-            self.attention = nn.MultiheadAttention(
-                hidden_size,
-                n_heads,
-                dropout=dropout,
-                batch_first=True,
-            )
+        # Output
+        logits = self.output(final)
 
-            # Gated residual network
-            self.grn = nn.Sequential(
-                nn.Linear(hidden_size, hidden_size),
-                nn.ELU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_size, hidden_size),
-            )
-            self.gate = nn.Sequential(
-                nn.Linear(hidden_size, hidden_size),
-                nn.Sigmoid(),
-            )
-            self.layer_norm = nn.LayerNorm(hidden_size)
+        if return_attention:
+            return logits, attn_weights
+        return logits, None
 
-            # Output layer
-            self.output = nn.Linear(hidden_size, n_regimes)
-
-            # Feature importance (learnable)
-            self.feature_weights = nn.Parameter(torch.ones(n_features))
-
-        def forward(
-            self,
-            x: torch.Tensor,
-            return_attention: bool = False,
-        ) -> tuple[torch.Tensor, torch.Tensor | None]:
-            """
-            Forward pass.
-
-            Args:
-                x: Input tensor [batch, seq_len, n_features]
-                return_attention: Whether to return attention weights
-
-            Returns:
-                Regime logits and optionally attention weights
-            """
-            # Feature embedding with importance weighting
-            weighted_x = x * self.feature_weights.unsqueeze(0).unsqueeze(0)
-            embedded = self.feature_embed(weighted_x)
-
-            # LSTM encoding
-            lstm_out, _ = self.lstm(embedded)
-
-            # Self-attention
-            attn_out, attn_weights = self.attention(
-                lstm_out,
-                lstm_out,
-                lstm_out,
-                need_weights=return_attention,
-            )
-
-            # Gated residual connection
-            grn_out = self.grn(attn_out)
-            gate_out = self.gate(attn_out)
-            gated = self.layer_norm(attn_out + gate_out * grn_out)
-
-            # Take last timestep
-            final = gated[:, -1, :]
-
-            # Output
-            logits = self.output(final)
-
-            if return_attention:
-                return logits, attn_weights
-            return logits, None
-
-        def get_feature_importance(self) -> dict[str, float]:
-            """Get learned feature importance."""
-            weights = self.feature_weights.detach().cpu().numpy()
-            weights = np.abs(weights) / np.sum(np.abs(weights))
-            return {f"feature_{i}": float(w) for i, w in enumerate(weights)}
+    def get_feature_importance(self) -> dict[str, float]:
+        """Get learned feature importance."""
+        weights = self.feature_weights.detach().cpu().numpy()
+        weights = np.abs(weights) / np.sum(np.abs(weights))
+        return {f"feature_{i}": float(w) for i, w in enumerate(weights)}
 
 
 class TFTRegimeModel:
@@ -228,10 +220,6 @@ class TFTRegimeModel:
         Returns:
             Self for chaining
         """
-        if not TORCH_AVAILABLE:
-            logger.warning("PyTorch not available, using fallback")
-            return self
-
         # Prepare features
         features = self._prepare_features(df)
 

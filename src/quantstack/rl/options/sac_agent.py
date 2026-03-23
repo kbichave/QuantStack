@@ -17,31 +17,16 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-try:
-    import torch  # noqa: F401
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    logger.warning("PyTorch not available")
-
-try:
-    from stable_baselines3 import PPO, SAC, TD3
-    from stable_baselines3.common.callbacks import (
-        BaseCallback,
-        CheckpointCallback,
-        EvalCallback,
-    )
-    from stable_baselines3.common.evaluation import evaluate_policy
-    from stable_baselines3.common.monitor import Monitor
-    from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-
-    SB3_AVAILABLE = True
-except ImportError:
-    SB3_AVAILABLE = False
-    logger.warning(
-        "Stable Baselines3 not available. Install with: pip install stable-baselines3"
-    )
+import torch  # noqa: F401
+from stable_baselines3 import PPO, SAC, TD3
+from stable_baselines3.common.callbacks import (
+    BaseCallback,
+    CheckpointCallback,
+    EvalCallback,
+)
+from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from quantstack.rl.options.gym_env import OptionsTradingEnv, create_trading_env
 
@@ -138,11 +123,6 @@ class SACOptionsAgent:
             device: Device to use ("auto", "cuda", "cpu")
             verbose: Verbosity level
         """
-        if not SB3_AVAILABLE:
-            raise ImportError(
-                "Stable Baselines3 is required. Install with: pip install stable-baselines3"
-            )
-
         self.algorithm = algorithm.upper()
         self.hyperparams = {**self.DEFAULT_PARAMS, **(hyperparams or {})}
         self.device = device

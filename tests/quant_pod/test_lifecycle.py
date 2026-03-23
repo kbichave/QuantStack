@@ -12,6 +12,8 @@ import uuid
 
 import pytest
 from quantstack.context import create_trading_context
+from quantstack.mcp.server import get_regime_strategies, get_rl_status, get_strategy, get_strategy_performance, promote_strategy, register_strategy, retire_strategy, set_regime_allocation, update_regime_matrix_from_performance, update_strategy
+import quantstack.mcp._state as _mcp_state
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -27,8 +29,6 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quantstack.mcp._state as _mcp_state
-
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
     yield ctx
@@ -41,8 +41,6 @@ def _fn(tool_obj):
 
 async def _create_strategy(name, status="draft", bt_sharpe=None, wf_oos_sharpe=None):
     """Helper to register and configure a test strategy."""
-    from quantstack.mcp.server import register_strategy, update_strategy
-
     r = await _fn(register_strategy)(
         name=name,
         parameters={"rsi_period": 14},
@@ -75,8 +73,6 @@ async def _create_strategy(name, status="draft", bt_sharpe=None, wf_oos_sharpe=N
 class TestPromoteStrategy:
     @pytest.mark.asyncio
     async def test_promote_forward_testing_with_good_backtest(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy, promote_strategy
-
         sid = await _create_strategy(
             "promo_good", status="forward_testing", bt_sharpe=1.5, wf_oos_sharpe=0.8
         )
@@ -91,8 +87,6 @@ class TestPromoteStrategy:
 
     @pytest.mark.asyncio
     async def test_promote_fails_if_not_forward_testing(self, _inject_ctx):
-        from quantstack.mcp.server import promote_strategy
-
         sid = await _create_strategy("promo_draft", status="draft", bt_sharpe=1.5)
         result = await _fn(promote_strategy)(strategy_id=sid, evidence="test")
         assert result["success"] is False
@@ -100,8 +94,6 @@ class TestPromoteStrategy:
 
     @pytest.mark.asyncio
     async def test_promote_fails_if_no_backtest(self, _inject_ctx):
-        from quantstack.mcp.server import promote_strategy
-
         sid = await _create_strategy("promo_no_bt", status="forward_testing")
         result = await _fn(promote_strategy)(strategy_id=sid, evidence="test")
         assert result["success"] is False
@@ -109,8 +101,6 @@ class TestPromoteStrategy:
 
     @pytest.mark.asyncio
     async def test_promote_fails_if_negative_sharpe(self, _inject_ctx):
-        from quantstack.mcp.server import promote_strategy
-
         sid = await _create_strategy(
             "promo_neg_sharpe", status="forward_testing", bt_sharpe=-0.5
         )
@@ -126,8 +116,6 @@ class TestPromoteStrategy:
 class TestRetireStrategy:
     @pytest.mark.asyncio
     async def test_retire_updates_status(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy, retire_strategy
-
         sid = await _create_strategy("retire_test", status="live", bt_sharpe=0.5)
         result = await _fn(retire_strategy)(
             strategy_id=sid, reason="4 weeks underperformance, Sharpe 0.1"
@@ -140,12 +128,6 @@ class TestRetireStrategy:
 
     @pytest.mark.asyncio
     async def test_retire_removes_from_matrix(self, _inject_ctx, ctx):
-        from quantstack.mcp.server import (
-            get_regime_strategies,
-            retire_strategy,
-            set_regime_allocation,
-        )
-
         sid = await _create_strategy("retire_matrix", status="live")
 
         # Add to regime matrix
@@ -174,8 +156,6 @@ class TestRetireStrategy:
 class TestGetStrategyPerformance:
     @pytest.mark.asyncio
     async def test_no_trades_returns_zero(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy_performance
-
         sid = await _create_strategy("perf_empty", bt_sharpe=1.0)
         result = await _fn(get_strategy_performance)(strategy_id=sid, lookback_days=30)
         assert result["success"] is True
@@ -183,8 +163,6 @@ class TestGetStrategyPerformance:
 
     @pytest.mark.asyncio
     async def test_not_found(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy_performance
-
         result = await _fn(get_strategy_performance)(strategy_id="nonexistent")
         assert result["success"] is False
 
@@ -197,8 +175,6 @@ class TestGetStrategyPerformance:
 class TestGetRlStatus:
     @pytest.mark.asyncio
     async def test_returns_config(self, _inject_ctx):
-        from quantstack.mcp.server import get_rl_status
-
         result = await _fn(get_rl_status)()
         assert result["success"] is True
         assert "agents" in result
@@ -214,8 +190,6 @@ class TestGetRlStatus:
 class TestUpdateRegimeMatrixFromPerformance:
     @pytest.mark.asyncio
     async def test_no_trades_returns_note(self, _inject_ctx):
-        from quantstack.mcp.server import update_regime_matrix_from_performance
-
         result = await _fn(update_regime_matrix_from_performance)(lookback_days=30)
         assert result["success"] is True
         assert "No closed trades" in result.get("note", "")

@@ -40,6 +40,7 @@ that is emitted to registered callbacks.  The snapshot contains:
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -198,8 +199,6 @@ class OrderBookReconstructor:
         """Return a current snapshot without waiting for a new update."""
         if symbol not in self._bids:
             return None
-        import time
-
         return self._build_snapshot(symbol, time.time_ns())
 
     def best_bid(self, symbol: str) -> float | None:

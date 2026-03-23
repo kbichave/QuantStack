@@ -4,6 +4,7 @@ Application settings and configuration management.
 Uses pydantic-settings for validation and environment variable loading.
 """
 
+import logging
 from datetime import date
 from functools import lru_cache
 from pathlib import Path
@@ -229,8 +230,6 @@ class Settings(BaseSettings):
 
         # Warn early if the API key was not configured — avoids silent demo-mode data
         if self.alpha_vantage_api_key == "demo":
-            import logging
-
             logging.getLogger(__name__).warning(
                 "ALPHA_VANTAGE_API_KEY is not set — using the demo key. "
                 "Data fetches will be heavily rate-limited. "

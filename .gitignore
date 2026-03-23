@@ -1,51 +1,18 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
+build/
+dist/
 
-# Virtual environments
-venv/
-ENV/
-env/
+# Virtual environment
 .venv/
 
-# IDE
-.idea/
-.vscode/
-.cursor/
-*.swp
-*.swo
-*~
-
-# Data — ignore top-level data dirs but not source-code data modules
+# Data (preserve src/quantstack/data/ source module)
 data/
-!packages/*/data/
-!packages/*/data/**
-packages/*/data/**/__pycache__/
-# Nested data dirs inside prompts (IC pod subdirectory named "data")
-!packages/*/prompts/**/data/
-!packages/*/prompts/**/data/**
+!src/quantstack/data
 *.duckdb
 *.db
-*.parquet
-*.arrow
 
 # Logs
 logs/
@@ -54,75 +21,32 @@ logs/
 # Reports
 reports/
 
-# Models — ignore top-level models dirs but not source-code model modules
+# Models (serialized artifacts)
 models/
-!packages/*/models/
-!packages/*/models/**
-packages/*/models/**/__pycache__/
-*.pkl
 *.joblib
 
-# Environment — allow only the example template; block all real env files
+# Secrets — block all env files except the example
 .env
-.env.local
-.env.production
-.env.staging
-.env.live
-.env.test
-.env.backup
-.env.secret
+.env.*
+!.env.example
 
-# Private keys and certificates
-*.pem
-*.key
-*.p12
-*.pfx
-*.crt
-*.cer
-
-# Cloud credential files
-credentials.json
-service_account.json
-*_credentials.json
-*_service_account.json
-
-# MCP server config (contains machine-specific absolute paths)
+# MCP server config (machine-specific paths)
 .mcp.json
-
-# Jupyter
-.ipynb_checkpoints/
-*.ipynb
 
 # OS
 .DS_Store
-Thumbs.db
 
-# Testing
+# Testing / linting caches
 .pytest_cache/
 .coverage
 .ruff_cache/
-htmlcov/
 .mypy_cache/
 
-# Plan files
-*.plan.md
-
-# Generated documentation
-docs/crewai_docs_md/
-docs/alphavantage_api.md
-
-
-# Paper trading state (local only)
-paper_trading/*.json
-
-# Scratch prompts (generated per session, never committed)
+# Scratch / temp
 tmp/
 
-# Claude memory (local brain — never committed, templates are tracked)
+# Claude local state (templates are tracked)
 .claude/memory/*.md
 !.claude/memory/templates/
 .claude/settings.json
 .claude/settings.local.json
-
-# Generated trading sheets (may contain position data)
-trading_sheets*.md

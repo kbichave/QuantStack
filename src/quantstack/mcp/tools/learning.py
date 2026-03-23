@@ -1,12 +1,11 @@
 """Phase 6 — Learning Loop tools for the QuantPod MCP server.
 
-RL advisory, strategy lifecycle management (promote/retire), live
-performance tracking, strategy re-validation, and regime matrix updates
-from trade performance.
+Strategy lifecycle management (promote/retire), live performance tracking,
+strategy re-validation, and regime matrix updates from trade performance.
+
+RL model tools have moved to quantstack.mcp.tools.finrl_tools.
 
 Tools:
-  - get_rl_status                         — RL model status and config
-  - get_rl_recommendation                 — RL position size recommendation (advisory)
   - promote_strategy                      — promote forward_testing to live
   - retire_strategy                       — retire strategy + remove from matrix
   - get_strategy_performance              — live performance metrics vs backtest
@@ -14,122 +13,22 @@ Tools:
   - update_regime_matrix_from_performance — propose matrix updates from trade data
 """
 
-import asyncio
+from datetime import datetime as _dt
+from datetime import timedelta as _td
 from typing import Any
 
+import numpy as np
 from loguru import logger
 
-
-from quantstack.mcp.server import mcp
 from quantstack.mcp._state import (
+    _serialize,
+    live_db_or_error,
     require_ctx,
     require_live_db,
-    live_db_or_error,
-    _serialize,
 )
-
-
-@mcp.tool()
-async def get_rl_status() -> dict[str, Any]:
-    """
-    Get RL model status: which models are enabled, shadow vs live, config.
-
-    Returns:
-        Dict with RL config flags, shadow mode state, and agent statuses.
-    """
-    try:
-        from quantstack.rl.config import get_rl_config
-
-        cfg = get_rl_config()
-        return {
-            "success": True,
-            "config_version": cfg.config_version,
-            "shadow_mode_enabled": cfg.shadow_mode_enabled,
-            "agents": {
-                "execution_rl": {
-                    "enabled": cfg.enable_execution_rl,
-                    "shadow": cfg.execution_shadow,
-                },
-                "sizing_rl": {
-                    "enabled": cfg.enable_sizing_rl,
-                    "shadow": cfg.sizing_shadow,
-                },
-                "meta_rl": {"enabled": cfg.enable_meta_rl, "shadow": cfg.meta_shadow},
-                "spread_rl": {"enabled": cfg.enable_spread_rl},
-            },
-        }
-    except Exception as e:
-        logger.error(f"[quantpod_mcp] get_rl_status failed: {e}")
-        return {"success": False, "error": str(e)}
-
-
-@mcp.tool()
-async def get_rl_recommendation(
-    symbol: str,
-    direction: str,
-    signal_confidence: float = 0.5,
-    regime: str = "normal",
-    current_drawdown: float = 0.0,
-) -> dict[str, Any]:
-    """
-    Get RL-recommended position size adjustment for a trade.
-
-    Claude reads this as INPUT to its decision, not a directive.
-    All RL agents start in shadow mode — output is advisory only.
-
-    Args:
-        symbol: Ticker symbol.
-        direction: "LONG" or "SHORT".
-        signal_confidence: Signal confidence (0-1).
-        regime: Current market regime label.
-        current_drawdown: Current portfolio drawdown fraction.
-
-    Returns:
-        Dict with RL recommendations (tagged as shadow if applicable).
-    """
-    try:
-        from quantstack.rl.config import get_rl_config
-        from quantstack.rl.rl_tools import RLPositionSizeTool
-
-        cfg = get_rl_config()
-        if not cfg.enable_sizing_rl:
-            return {
-                "success": True,
-                "recommendation": None,
-                "note": "Sizing RL disabled in config",
-            }
-
-        tool = RLPositionSizeTool()
-        result_str = tool._run(
-            signal_confidence=signal_confidence,
-            signal_direction=direction,
-            regime=regime,
-            current_drawdown=current_drawdown,
-            current_position_pct=0.0,
-            portfolio_heat=0.0,
-            recent_win_rate=0.5,
-            atr_percentile=50.0,
-        )
-
-        import json as _json
-
-        try:
-            result = (
-                _json.loads(result_str) if isinstance(result_str, str) else result_str
-            )
-        except (ValueError, TypeError):
-            result = {"raw": str(result_str)}
-
-        return {
-            "success": True,
-            "symbol": symbol,
-            "recommendation": result,
-            "shadow_mode": cfg.shadow_mode_enabled,
-            "note": "[SHADOW — advisory only]" if cfg.shadow_mode_enabled else "LIVE",
-        }
-    except Exception as e:
-        logger.warning(f"[quantpod_mcp] get_rl_recommendation failed (graceful): {e}")
-        return {"success": True, "recommendation": None, "note": f"RL unavailable: {e}"}
+from quantstack.mcp.server import mcp
+from quantstack.mcp.tools.strategy import _get_strategy_impl
+from quantstack.mcp.tools.backtesting import run_backtest
 
 
 @mcp.tool()
@@ -158,8 +57,6 @@ async def promote_strategy(
     if err:
         return err
     try:
-        from quantstack.mcp.tools.strategy import _get_strategy_impl
-
         strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {"success": False, "error": "Strategy not found"}
@@ -286,8 +183,6 @@ async def get_strategy_performance(
     if err:
         return err
     try:
-        from quantstack.mcp.tools.strategy import _get_strategy_impl
-
         # Get strategy record for backtest comparison
         strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
@@ -297,9 +192,6 @@ async def get_strategy_performance(
         bt = strat.get("backtest_summary") or {}
 
         # Query closed trades in lookback period
-        from datetime import datetime as _dt
-        from datetime import timedelta as _td
-
         cutoff = _dt.now() - _td(days=lookback_days)
         rows = ctx.db.execute(
             """
@@ -329,8 +221,6 @@ async def get_strategy_performance(
         total_pnl = sum(pnls)
 
         # Simple Sharpe approximation
-        import numpy as np
-
         pnl_arr = np.array(pnls)
         live_sharpe = (
             float(np.mean(pnl_arr) / (np.std(pnl_arr) + 1e-10) * np.sqrt(252))
@@ -378,9 +268,6 @@ async def validate_strategy(strategy_id: str) -> dict[str, Any]:
         Dict with still_valid flag, current vs historical metrics, degradation.
     """
     try:
-        from quantstack.mcp.tools.strategy import _get_strategy_impl
-        from quantstack.mcp.tools.backtesting import run_backtest
-
         strat_result = await _get_strategy_impl(strategy_id=strategy_id)
         if not strat_result.get("success"):
             return {"success": False, "error": "Strategy not found"}
@@ -460,9 +347,6 @@ async def update_regime_matrix_from_performance(
         return err
     try:
         # Get all closed trades in the lookback period
-        from datetime import datetime as _dt
-        from datetime import timedelta as _td
-
         cutoff = _dt.now() - _td(days=lookback_days)
         rows = ctx.db.execute(
             """

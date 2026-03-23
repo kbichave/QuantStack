@@ -14,6 +14,7 @@ from unittest.mock import MagicMock
 import duckdb
 import numpy as np
 import pytest
+from quantstack.rl.shadow_mode import ShadowEvaluator
 
 
 def _make_store() -> MagicMock:
@@ -24,16 +25,12 @@ def _make_store() -> MagicMock:
 
 
 def _make_evaluator():
-    from quantstack.rl.shadow_mode import ShadowEvaluator
-
     return ShadowEvaluator(_make_store())
 
 
 class TestShadowEvaluatorInit:
     def test_creates_table(self):
         store = _make_store()
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         ShadowEvaluator(store)
         tables = store.conn.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_type='BASE TABLE'"
@@ -43,8 +40,6 @@ class TestShadowEvaluatorInit:
 
     def test_idempotent_init(self):
         store = _make_store()
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         ShadowEvaluator(store)
         ShadowEvaluator(store)  # should not raise
 
@@ -64,8 +59,6 @@ class TestRecordDecision:
 
     def test_decision_stored_in_db(self):
         store = _make_store()
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         ev = ShadowEvaluator(store)
         decision_id = ev.record_decision(
             tool_name="rl_position_size",
@@ -80,8 +73,6 @@ class TestRecordDecision:
 
     def test_multiple_decisions(self):
         store = _make_store()
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         ev = ShadowEvaluator(store)
         for i in range(5):
             ev.record_decision("rl_position_size", {"scale": i * 0.1})
@@ -94,8 +85,6 @@ class TestRecordDecision:
 class TestRecordOutcome:
     def test_updates_pnl(self):
         store = _make_store()
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         ev = ShadowEvaluator(store)
         did = ev.record_decision("rl_position_size", {"scale": 0.5})
         ev.record_outcome(did, pnl=250.0, slippage_bps=3.2)
@@ -129,8 +118,6 @@ class TestEvaluateShadowPeriod:
             ev.record_outcome(did, pnl=pnl_func(i), slippage_bps=3.0)
 
     def test_insufficient_observations(self):
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         store = _make_store()
         ev = ShadowEvaluator(store)
         # Only 5 decisions — below 63 minimum
@@ -142,8 +129,6 @@ class TestEvaluateShadowPeriod:
         assert result.n_observations == 5
 
     def test_sufficient_observations_returns_metrics(self):
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         store = _make_store()
         ev = ShadowEvaluator(store)
         self._fill_decisions(ev, "rl_position_size", n=70)
@@ -154,8 +139,6 @@ class TestEvaluateShadowPeriod:
         assert result.rl_simulated_max_drawdown is not None
 
     def test_get_observation_count(self):
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         store = _make_store()
         ev = ShadowEvaluator(store)
         for _ in range(10):
@@ -168,8 +151,6 @@ class TestEvaluateShadowPeriod:
 
     def test_tool_map_routing(self):
         """Decisions for rl_execution_strategy are picked up under agent_type='execution'."""
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         store = _make_store()
         ev = ShadowEvaluator(store)
         for _ in range(5):
@@ -178,8 +159,6 @@ class TestEvaluateShadowPeriod:
         assert ev.get_observation_count("sizing") == 0
 
     def test_evaluation_metrics_are_finite(self):
-        from quantstack.rl.shadow_mode import ShadowEvaluator
-
         store = _make_store()
         ev = ShadowEvaluator(store)
         np.random.seed(42)

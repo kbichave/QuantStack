@@ -18,6 +18,8 @@ import uuid
 import pytest
 from quantstack.context import create_trading_context
 from quantstack.execution.portfolio_state import Position
+from quantstack.mcp.server import close_position, execute_trade, get_audit_trail, get_fills, get_risk_metrics
+import quantstack.mcp._state as _mcp_state
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -33,8 +35,6 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quantstack.mcp._state as _mcp_state
-
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
     yield ctx
@@ -69,8 +69,6 @@ def _fn(tool_obj):
 class TestExecuteTradeHappyPath:
     @pytest.mark.asyncio
     async def test_buy_fills_successfully(self, _inject_ctx, ctx_with_position):
-        from quantstack.mcp.server import execute_trade
-
         result = await _fn(execute_trade)(
             symbol="SPY",
             action="buy",
@@ -87,8 +85,6 @@ class TestExecuteTradeHappyPath:
 
     @pytest.mark.asyncio
     async def test_sell_fills_successfully(self, _inject_ctx, ctx_with_position):
-        from quantstack.mcp.server import execute_trade
-
         result = await _fn(execute_trade)(
             symbol="SPY",
             action="sell",
@@ -100,8 +96,6 @@ class TestExecuteTradeHappyPath:
 
     @pytest.mark.asyncio
     async def test_fill_logged_in_audit(self, _inject_ctx, ctx_with_position, ctx):
-        from quantstack.mcp.server import execute_trade, get_audit_trail
-
         await _fn(execute_trade)(
             symbol="SPY",
             action="buy",
@@ -120,8 +114,6 @@ class TestExecuteTradeHappyPath:
 
     @pytest.mark.asyncio
     async def test_auto_calculates_quantity(self, _inject_ctx, ctx_with_position):
-        from quantstack.mcp.server import execute_trade
-
         result = await _fn(execute_trade)(
             symbol="SPY",
             action="buy",
@@ -142,8 +134,6 @@ class TestExecuteTradeRiskRejection:
     @pytest.mark.asyncio
     async def test_rejected_when_no_price(self, _inject_ctx, ctx):
         """No position = no current_price = rejection."""
-        from quantstack.mcp.server import execute_trade
-
         result = await _fn(execute_trade)(
             symbol="UNKNOWN",
             action="buy",
@@ -158,8 +148,6 @@ class TestExecuteTradeRiskRejection:
     async def test_rejected_when_kill_switch_active(
         self, _inject_ctx, ctx_with_position, ctx
     ):
-        from quantstack.mcp.server import execute_trade
-
         ctx.kill_switch.trigger("test halt")
         try:
             result = await _fn(execute_trade)(
@@ -179,8 +167,6 @@ class TestExecuteTradeRiskRejection:
         self, _inject_ctx, ctx_with_position, ctx
     ):
         """Buying a huge position should trigger risk gate rejection + audit log."""
-        from quantstack.mcp.server import execute_trade, get_audit_trail
-
         # Try to buy way too much: 500 shares @ $100 = $50,000
         # Max position is 10% of $100k = $10,000, so this should be rejected or scaled
         result = await _fn(execute_trade)(
@@ -212,8 +198,6 @@ class TestExecuteTradeRiskRejection:
 class TestPaperModeDefault:
     @pytest.mark.asyncio
     async def test_paper_mode_is_default(self, _inject_ctx, ctx_with_position):
-        from quantstack.mcp.server import execute_trade
-
         # Default paper_mode=True should work
         result = await _fn(execute_trade)(
             symbol="SPY",
@@ -229,8 +213,6 @@ class TestPaperModeDefault:
     async def test_live_mode_rejected_without_env_var(
         self, _inject_ctx, ctx_with_position
     ):
-        from quantstack.mcp.server import execute_trade
-
         # Ensure USE_REAL_TRADING is not set
         old_val = os.environ.pop("USE_REAL_TRADING", None)
         try:
@@ -257,8 +239,6 @@ class TestPaperModeDefault:
 class TestClosePosition:
     @pytest.mark.asyncio
     async def test_close_existing_position(self, _inject_ctx, ctx_with_position):
-        from quantstack.mcp.server import close_position
-
         result = await _fn(close_position)(
             symbol="SPY",
             reasoning="Taking profit",
@@ -268,8 +248,6 @@ class TestClosePosition:
 
     @pytest.mark.asyncio
     async def test_close_nonexistent_position(self, _inject_ctx, ctx):
-        from quantstack.mcp.server import close_position
-
         result = await _fn(close_position)(
             symbol="NOPOS",
             reasoning="Test",
@@ -286,16 +264,12 @@ class TestClosePosition:
 class TestGetFills:
     @pytest.mark.asyncio
     async def test_empty_initially(self, _inject_ctx):
-        from quantstack.mcp.server import get_fills
-
         result = await _fn(get_fills)()
         assert result["success"] is True
         assert result["total"] == 0
 
     @pytest.mark.asyncio
     async def test_returns_fills_after_trade(self, _inject_ctx, ctx_with_position):
-        from quantstack.mcp.server import execute_trade, get_fills
-
         await _fn(execute_trade)(
             symbol="SPY",
             action="buy",
@@ -317,8 +291,6 @@ class TestGetFills:
 class TestGetRiskMetrics:
     @pytest.mark.asyncio
     async def test_returns_all_fields(self, _inject_ctx):
-        from quantstack.mcp.server import get_risk_metrics
-
         result = await _fn(get_risk_metrics)()
         assert result["success"] is True
         assert "cash" in result
@@ -333,8 +305,6 @@ class TestGetRiskMetrics:
 
     @pytest.mark.asyncio
     async def test_shows_position_exposure(self, _inject_ctx, ctx_with_position):
-        from quantstack.mcp.server import get_risk_metrics
-
         result = await _fn(get_risk_metrics)()
         assert result["position_count"] == 1
         assert result["gross_exposure"] > 0
@@ -348,8 +318,6 @@ class TestGetRiskMetrics:
 class TestGetAuditTrail:
     @pytest.mark.asyncio
     async def test_empty_initially(self, _inject_ctx):
-        from quantstack.mcp.server import get_audit_trail
-
         result = await _fn(get_audit_trail)()
         assert result["success"] is True
         assert result["total"] == 0

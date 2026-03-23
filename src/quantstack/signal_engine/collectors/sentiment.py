@@ -22,7 +22,15 @@ import asyncio
 import json
 from typing import Any
 
+import os
+
 from loguru import logger
+
+from quantstack.data.adapters.financial_datasets_client import (
+    FinancialDatasetsClient,
+)
+
+import litellm
 
 
 _SENTIMENT_TIMEOUT = 8.0  # seconds — lower than other collectors (network + LLM)
@@ -63,8 +71,6 @@ def _collect_sentiment_sync(symbol: str) -> dict[str, Any]:
     prompt = _build_prompt(symbol, truncated)
 
     try:
-        import litellm
-
         response = litellm.completion(
             model="groq/llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
@@ -84,12 +90,6 @@ def _fetch_headlines(symbol: str) -> list[str]:
     Falls back to empty list if the API key is missing or the call fails.
     """
     try:
-        import os
-
-        from quantstack.data.adapters.financial_datasets_client import (
-            FinancialDatasetsClient,
-        )
-
         api_key = os.environ.get("FINANCIAL_DATASETS_API_KEY", "")
         if not api_key:
             logger.debug(

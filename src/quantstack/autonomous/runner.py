@@ -41,9 +41,21 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.audit.decision_log import DecisionLog
+from quantstack.audit.models import DecisionEvent
 from quantstack.autonomous.debate import DebateFilter
 from quantstack.autonomous.decision import DecisionPath, DecisionRouter, RouteContext
+from quantstack.autonomous.watchlist import WatchlistLoader
+from quantstack.db import db_conn, open_db_readonly
+from quantstack.execution.broker_factory import get_broker
+from quantstack.execution.kill_switch import get_kill_switch
+from quantstack.execution.portfolio_state import get_portfolio_state, get_portfolio_state_readonly
+from quantstack.execution.risk_gate import RiskGate, get_risk_gate
+from quantstack.execution.trade_service import execute_trade
+from quantstack.hooks.trade_hooks import get_reflexion_episodes
+from quantstack.learning.drift_detector import DriftDetector
 from quantstack.observability.trace import TraceContext
+from quantstack.signal_engine import SignalEngine
 
 
 # =============================================================================
@@ -164,8 +176,6 @@ class AutonomousRunner:
 
         # --- Step 2: Symbols + Strategies ----------------------------------
         if symbols is None:
-            from quantstack.autonomous.watchlist import WatchlistLoader
-
             symbols = await asyncio.to_thread(WatchlistLoader().load)
 
         if not symbols:
@@ -242,8 +252,6 @@ class AutonomousRunner:
     def _init_auto_trigger():
         """Lazy-load AutoTriggerMonitor. Returns None if import fails."""
         try:
-            from quantstack.execution.kill_switch import get_kill_switch
-
             return get_kill_switch().create_auto_trigger()
         except Exception as exc:
             logger.debug(f"[AutonomousRunner] AutoTriggerMonitor not available: {exc}")
@@ -253,8 +261,6 @@ class AutonomousRunner:
     def _init_drift_detector():
         """Lazy-load DriftDetector. Returns None if import fails."""
         try:
-            from quantstack.learning.drift_detector import DriftDetector
-
             return DriftDetector()
         except Exception as exc:
             logger.debug(f"[AutonomousRunner] DriftDetector not available: {exc}")
@@ -335,8 +341,6 @@ class AutonomousRunner:
         t0: float,
     ) -> SymbolResult:
         """SignalEngine → DriftCheck → DecisionRouter → execute / Groq / skip."""
-        from quantstack.signal_engine import SignalEngine
-
         # --- Signal analysis ---
         brief = await SignalEngine().run(symbol)
 
@@ -404,7 +408,6 @@ class AutonomousRunner:
         # Retrieve reflexion episodes for debate injection (Reflexion, NeurIPS 2023)
         past_lessons = []
         try:
-            from quantstack.autonomous.hooks import get_reflexion_episodes
             regime_detail = getattr(brief, "regime_detail", {}) or {}
             current_regime = regime_detail.get("trend_regime", "unknown")
             strategy_id = symbol_strategies[0].get("strategy_id", "") if symbol_strategies else ""
@@ -570,9 +573,20 @@ class AutonomousRunner:
             return {"success": True, "dry_run": True, "action": action}
 
         try:
-            from quantstack.mcp.tools.execution import execute_trade
+            with db_conn() as conn:
+                portfolio = get_portfolio_state(conn)
+                risk_gate = RiskGate(conn)
+                broker = get_broker(conn, portfolio)
+                audit = DecisionLog(conn=conn)
+                ks = get_kill_switch()
 
             result = await execute_trade(
+                portfolio=portfolio,
+                risk_gate=risk_gate,
+                broker=broker,
+                audit=audit,
+                kill_switch=ks,
+                session_id=f"autonomous_{run_id}",
                 symbol=symbol,
                 action=action,
                 reasoning=f"[autonomous run={run_id}] {reasoning}",
@@ -613,8 +627,6 @@ class AutonomousRunner:
         for size drift, correlation, regime flips, and daily loss proximity.
         """
         try:
-            from quantstack.execution.risk_gate import get_risk_gate
-
             gate = get_risk_gate()
 
             # Build current_regimes from signal briefs we just computed
@@ -653,26 +665,24 @@ class AutonomousRunner:
     ) -> None:
         """Write a SKIP event to the audit log (best-effort, never raises)."""
         try:
-            from quantstack.mcp._state import require_live_db
-            from quantstack.audit.models import DecisionEvent
-
-            ctx = require_live_db()
-            ctx.audit.record(
-                DecisionEvent(
-                    event_id=str(uuid.uuid4()),
-                    session_id=f"autonomous_{run_id}",
-                    event_type="skip",
-                    agent_name="AutonomousRunner",
-                    agent_role="autonomous_pm",
-                    symbol=symbol,
-                    action="skip",
-                    confidence=getattr(brief, "market_conviction", 0.0),
-                    output_summary=reason,
-                    risk_approved=False,
-                    risk_violations=[reason],
-                    portfolio_snapshot={},
+            with db_conn() as conn:
+                audit = DecisionLog(conn=conn)
+                audit.record(
+                    DecisionEvent(
+                        event_id=str(uuid.uuid4()),
+                        session_id=f"autonomous_{run_id}",
+                        event_type="skip",
+                        agent_name="AutonomousRunner",
+                        agent_role="autonomous_pm",
+                        symbol=symbol,
+                        action="skip",
+                        confidence=getattr(brief, "market_conviction", 0.0),
+                        output_summary=reason,
+                        risk_approved=False,
+                        risk_violations=[reason],
+                        portfolio_snapshot={},
+                    )
                 )
-            )
         except Exception as exc:
             logger.debug(f"[AutonomousRunner] audit_skip failed (non-critical): {exc}")
 
@@ -683,8 +693,6 @@ class AutonomousRunner:
     def _load_active_strategies(self) -> list[dict]:
         """Load live + forward_testing strategies from DB (read-only)."""
         try:
-            from quantstack.db import open_db_readonly
-
             conn = open_db_readonly()
             rows = conn.execute(
                 """
@@ -733,11 +741,9 @@ class AutonomousRunner:
     def _load_portfolio_snapshot(self) -> dict:
         """Load current portfolio state for DecisionRouter."""
         try:
-            from quantstack.mcp._state import require_ctx
-
-            ctx = require_ctx()
-            snapshot = ctx.portfolio.get_snapshot()
-            positions_raw = ctx.portfolio.get_all_positions()
+            portfolio = get_portfolio_state_readonly()
+            snapshot = portfolio.get_snapshot()
+            positions_raw = portfolio.get_all_positions()
             positions = {
                 p.symbol: {
                     "quantity": p.quantity,
@@ -766,14 +772,18 @@ class AutonomousRunner:
     # -------------------------------------------------------------------------
 
     async def _get_system_status(self) -> dict:
-        """Fetch system status from MCP tool."""
+        """Check system status directly via kill switch and risk gate."""
         try:
-            from quantstack.mcp.tools.analysis import get_system_status
-
-            return await get_system_status()
+            ks = get_kill_switch()
+            ks_status = ks.status()
+            return {
+                "success": True,
+                "kill_switch_active": ks_status.active,
+                "kill_switch_reason": ks_status.reason,
+                "risk_halted": False,  # checked separately by the runner
+            }
         except Exception as exc:
             logger.warning(f"[AutonomousRunner] get_system_status failed: {exc}")
-            # Return safe defaults — treat as healthy, let kill_switch direct check decide
             return {"kill_switch_active": False, "risk_halted": False}
 
     @staticmethod
@@ -872,8 +882,6 @@ def _parse_args() -> Any:
 
 
 if __name__ == "__main__":
-    import asyncio
-
     args = _parse_args()
     runner = AutonomousRunner(dry_run=args.dry_run, paper_only=args.paper_only)
     report = asyncio.run(runner.run(symbols=args.symbols))

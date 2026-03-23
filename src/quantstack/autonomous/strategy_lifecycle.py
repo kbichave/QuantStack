@@ -26,12 +26,15 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import duckdb
 from loguru import logger
+
+from quantstack.core.backtesting.walkforward_service import run_walkforward
 
 
 # Strategy templates — the building blocks for automated hypothesis generation.
@@ -212,8 +215,6 @@ class StrategyLifecycle:
             for row in rows:
                 affinity = row[0]
                 if affinity:
-                    import json
-
                     try:
                         regimes = (
                             json.loads(affinity)
@@ -240,8 +241,6 @@ class StrategyLifecycle:
 
         Returns True if the candidate passes thresholds and gets registered.
         """
-        import json
-
         strategy_name = f"{template['name_prefix']}_{target_regime}_{date.today().strftime('%Y%m%d')}"
 
         # Register as draft
@@ -315,9 +314,7 @@ class StrategyLifecycle:
     async def _run_walkforward(self, strategy_id: str, symbol: str) -> dict | None:
         """Run walk-forward validation for a strategy on a symbol."""
         try:
-            from quantstack.mcp.tools.backtesting import run_walkforward
-
-            return await run_walkforward.fn(
+            return await run_walkforward(
                 strategy_id=strategy_id,
                 symbol=symbol,
                 n_splits=5,
@@ -409,8 +406,6 @@ class StrategyLifecycle:
                 # Get backtest Sharpe
                 bt_sharpe = 0.0
                 if backtest_json:
-                    import json
-
                     try:
                         bt = (
                             json.loads(backtest_json)

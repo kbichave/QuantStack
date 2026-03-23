@@ -23,7 +23,10 @@ from typing import Any
 import litellm
 from loguru import logger
 
+from quantstack.llm_config import get_llm_for_role
 from quantstack.mcp.server import mcp
+
+from transformers import pipeline as _transformers_pipeline
 
 _MAX_TEXT_CHARS = 2000
 _GROQ_MODEL_DEFAULT = "groq/llama-3.3-70b-versatile"
@@ -36,8 +39,6 @@ def _resolve_sentiment_model() -> str:
     hardcoded Groq model if the LLM config system is unavailable.
     """
     try:
-        from quantstack.llm_config import get_llm_for_role
-
         return get_llm_for_role("ic")
     except Exception:
         return _GROQ_MODEL_DEFAULT
@@ -127,19 +128,8 @@ def _parse_groq_response(raw: str) -> dict[str, Any]:
 
 def _finbert_sentiment(text: str) -> dict[str, Any]:
     """Run sentiment analysis via HuggingFace FinBERT."""
-    try:
-        from transformers import pipeline
-    except ImportError:
-        return {
-            "error": (
-                "transformers library not installed. "
-                "Install with: pip install transformers torch"
-            ),
-            "method": "finbert",
-        }
-
     truncated = text[:_MAX_TEXT_CHARS]
-    classifier = pipeline(
+    classifier = _transformers_pipeline(
         "sentiment-analysis",
         model="ProsusAI/finbert",
         top_k=3,

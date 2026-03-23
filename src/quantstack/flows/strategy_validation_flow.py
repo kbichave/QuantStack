@@ -55,7 +55,16 @@ import pandas as pd
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.research.overfitting import (
+    deflated_sharpe_ratio,
+    probability_of_backtest_overfitting,
+    returns_statistics,
+)
+from quantstack.core.research.walkforward import WalkForwardValidator
 from quantstack.crewai_compat import Flow, listen, router, start
+from quantstack.data.storage import DataStore
+from quantstack.knowledge.store import KnowledgeStore
 
 # Minimum bars before we trust the statistics (≈2 years of daily data)
 _MIN_BARS = int(os.getenv("VALIDATION_MIN_BARS", "504"))
@@ -128,9 +137,6 @@ class StrategyValidationFlow(Flow[ValidationState]):
 
         returns_dict: dict[str, pd.Series] = {}
         try:
-            from quantstack.config.timeframes import Timeframe
-            from quantstack.data.storage import DataStore
-
             store = DataStore()
             for sym in symbols:
                 try:
@@ -204,8 +210,6 @@ class StrategyValidationFlow(Flow[ValidationState]):
         data = pd.DataFrame({"r": returns_series})
 
         try:
-            from quantstack.core.research.walkforward import WalkForwardValidator
-
             validator = WalkForwardValidator(
                 n_splits=_N_SPLITS,
                 test_size=_TEST_SIZE,
@@ -271,11 +275,6 @@ class StrategyValidationFlow(Flow[ValidationState]):
 
         # ---- Deflated Sharpe Ratio ----
         try:
-            from quantstack.core.research.overfitting import (
-                deflated_sharpe_ratio,
-                returns_statistics,
-            )
-
             sr_obs, skew, kurt, sr_std = returns_statistics(portfolio_returns)
             dsr_result = deflated_sharpe_ratio(
                 observed_sharpe=sr_obs,
@@ -298,10 +297,6 @@ class StrategyValidationFlow(Flow[ValidationState]):
         # ---- Probability of Backtest Overfitting ----
         # Matrix: each WF fold's OOS returns becomes a column (temporal variants)
         try:
-            from quantstack.core.research.overfitting import (
-                probability_of_backtest_overfitting,
-            )
-
             if (
                 self.state.returns_df is not None
                 and len(self.state.returns_df.columns) >= 2
@@ -437,8 +432,6 @@ class StrategyValidationFlow(Flow[ValidationState]):
     def _save_validation_lesson(self, verdict: str) -> None:
         """Persist validation result to KnowledgeStore as a durable lesson."""
         try:
-            from quantstack.knowledge.store import KnowledgeStore
-
             store = KnowledgeStore()
             wf = self.state.wf_result or {}
             dsr_str = (

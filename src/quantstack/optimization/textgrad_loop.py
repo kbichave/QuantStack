@@ -35,6 +35,8 @@ from typing import Any
 
 from loguru import logger
 
+import litellm
+
 from quantstack.optimization.credit_assignment import CreditAssigner, StepCredit
 
 
@@ -196,29 +198,27 @@ class TextGradOptimizer:
         worst_step: StepCredit | None,
     ) -> str:
         """Generate a textual critique for a single node via LLM."""
-        try:
-            import litellm
-
-            prompt = (
-                f"You are analyzing a losing trade to identify what went wrong at "
-                f"the '{node.name}' step of the decision chain.\n\n"
-                f"## Node: {node.name}\n"
-                f"Current rules/prompt: {node.prompt_text}\n"
-                f"Output at decision time: {node.output_text}\n\n"
-                f"## Trade outcome\n{loss_context}\n\n"
-            )
-            if worst_step:
-                prompt += (
-                    f"## Credit assignment indicates this step is most culpable\n"
-                    f"Evidence: {worst_step.evidence}\n"
-                    f"Credit score: {worst_step.credit_score:.2f}\n\n"
-                )
+        prompt = (
+            f"You are analyzing a losing trade to identify what went wrong at "
+            f"the '{node.name}' step of the decision chain.\n\n"
+            f"## Node: {node.name}\n"
+            f"Current rules/prompt: {node.prompt_text}\n"
+            f"Output at decision time: {node.output_text}\n\n"
+            f"## Trade outcome\n{loss_context}\n\n"
+        )
+        if worst_step:
             prompt += (
-                "Generate a concise critique (2-3 sentences) of what this step "
-                "did wrong and what specific change to its rules/prompt would "
-                "prevent this type of loss. Be specific and actionable."
+                f"## Credit assignment indicates this step is most culpable\n"
+                f"Evidence: {worst_step.evidence}\n"
+                f"Credit score: {worst_step.credit_score:.2f}\n\n"
             )
+        prompt += (
+            "Generate a concise critique (2-3 sentences) of what this step "
+            "did wrong and what specific change to its rules/prompt would "
+            "prevent this type of loss. Be specific and actionable."
+        )
 
+        try:
             response = litellm.completion(
                 model=self._engine,
                 messages=[{"role": "user", "content": prompt}],
@@ -226,10 +226,6 @@ class TextGradOptimizer:
                 temperature=0.3,
             )
             return response.choices[0].message.content.strip()
-
-        except ImportError:
-            logger.debug("[TextGrad] litellm not available, using heuristic critique")
-            return self._heuristic_critique(node, worst_step)
         except Exception as exc:
             logger.warning(f"[TextGrad] LLM critique failed for {node.name}: {exc}")
             return self._heuristic_critique(node, worst_step)

@@ -19,6 +19,7 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 from datetime import datetime, timezone
@@ -26,6 +27,18 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
+from quantstack.data.adapters.alpaca import AlpacaAdapter
+from quantstack.data.macro_calendar import MacroCalendarGenerator
+from quantstack.data.storage import DataStore
+from quantstack.db import open_db, run_migrations
+from quantstack.performance.equity_tracker import EquityTracker
+from quantstack.performance.trading_sheet import TradingSheetGenerator
+
+from alpaca.trading.client import TradingClient as _AlpacaTradingClient
+from dotenv import load_dotenv as _load_dotenv
 
 DEFAULT_SYMBOLS = ["SPY", "QQQ", "IWM", "TSLA", "NVDA"]
 
@@ -73,36 +86,28 @@ class BootstrapFlow:
     async def _load_ohlcv(self) -> None:
         logger.info("STEP 1: Loading OHLCV")
 
-        from quantstack.data.storage import DataStore
-
         store = DataStore()
 
         # Try Alpaca first
         api_key = os.environ.get("ALPACA_API_KEY", "")
         if api_key:
-            try:
-                from quantstack.config.timeframes import Timeframe
-                from quantstack.data.adapters.alpaca import AlpacaAdapter
+            secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
+            adapter = AlpacaAdapter(api_key=api_key, secret_key=secret_key)
+            start = datetime(2022, 1, 1, tzinfo=timezone.utc)
+            end = datetime.now(timezone.utc)
 
-                secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
-                adapter = AlpacaAdapter(api_key=api_key, secret_key=secret_key)
-                start = datetime(2022, 1, 1, tzinfo=timezone.utc)
-                end = datetime.now(timezone.utc)
+            for symbol in self.symbols:
+                for tf in [Timeframe.D1, Timeframe.M15]:
+                    try:
+                        df = adapter.fetch_ohlcv(symbol, tf, start_date=start, end_date=end)
+                        if df is not None and not df.empty:
+                            rows = store.save_ohlcv(df, symbol, tf, replace=False)
+                            logger.info(f"  {symbol} {tf.value}: {len(df)} bars, {rows} new")
+                    except Exception as exc:
+                        logger.warning(f"  {symbol} {tf.value}: {exc}")
 
-                for symbol in self.symbols:
-                    for tf in [Timeframe.D1, Timeframe.M15]:
-                        try:
-                            df = adapter.fetch_ohlcv(symbol, tf, start_date=start, end_date=end)
-                            if df is not None and not df.empty:
-                                rows = store.save_ohlcv(df, symbol, tf, replace=False)
-                                logger.info(f"  {symbol} {tf.value}: {len(df)} bars, {rows} new")
-                        except Exception as exc:
-                            logger.warning(f"  {symbol} {tf.value}: {exc}")
-
-                self.results["ohlcv"] = "alpaca"
-                return
-            except ImportError:
-                logger.warning("alpaca-py not available — falling back to Alpha Vantage")
+            self.results["ohlcv"] = "alpaca"
+            return
 
         # Fallback: Alpha Vantage
         await self._load_ohlcv_alphavantage(store)
@@ -113,9 +118,6 @@ class BootstrapFlow:
             logger.error("No ALPHA_VANTAGE_API_KEY — cannot load OHLCV")
             self.results["ohlcv"] = "skipped"
             return
-
-        from quantstack.config.timeframes import Timeframe
-        from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
 
         adapter = AlphaVantageAdapter(api_key=api_key)
         for symbol in self.symbols:
@@ -142,8 +144,6 @@ class BootstrapFlow:
             self.results["options_macro"] = "skipped"
             return
 
-        from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
-
         adapter = AlphaVantageAdapter(api_key=api_key)
 
         for symbol in self.symbols:
@@ -154,9 +154,6 @@ class BootstrapFlow:
                 logger.warning(f"  {symbol} options: {exc}")
 
         try:
-            from quantstack.data.macro_calendar import MacroCalendarGenerator
-            from quantstack.db import open_db
-
             conn = open_db()
             results = MacroCalendarGenerator().fetch_economic_history(conn)
             logger.info(f"  Macro: {results}")
@@ -174,9 +171,6 @@ class BootstrapFlow:
         logger.info("STEP 3: Equity snapshot")
 
         try:
-            from quantstack.db import open_db, run_migrations
-            from quantstack.performance.equity_tracker import EquityTracker
-
             conn = open_db()
             run_migrations(conn)
             result = EquityTracker(conn).snapshot_daily()
@@ -195,8 +189,6 @@ class BootstrapFlow:
         logger.info("STEP 4: Trading sheets")
 
         try:
-            from quantstack.performance.trading_sheet import TradingSheetGenerator
-
             generator = TradingSheetGenerator()
             sheets = await generator.generate_all(self.symbols)
 
@@ -227,10 +219,8 @@ class BootstrapFlow:
                 self.results["broker_test"] = "skipped"
                 return
 
-            from alpaca.trading.client import TradingClient
-
             secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
-            client = TradingClient(api_key, secret_key, paper=True)
+            client = _AlpacaTradingClient(api_key, secret_key, paper=True)
             account = client.get_account()
             logger.info(f"  Equity=${float(account.equity):,.2f} Cash=${float(account.cash):,.2f}")
             self.results["broker_test"] = "ready"
@@ -241,18 +231,12 @@ class BootstrapFlow:
 
 def main() -> None:
     """CLI entry point for quantpod-bootstrap."""
-    import argparse
-
     parser = argparse.ArgumentParser(description="QuantPod bootstrap — first-run setup")
     parser.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS, help="Symbols to bootstrap")
     parser.add_argument("--skip-broker-test", action="store_true", help="Skip Alpaca connectivity check")
     args = parser.parse_args()
 
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
+    _load_dotenv()
 
     flow = BootstrapFlow(symbols=args.symbols, skip_broker_test=args.skip_broker_test)
     asyncio.run(flow.run())

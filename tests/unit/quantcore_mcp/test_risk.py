@@ -4,6 +4,10 @@
 """Tests for risk tools: VaR, stress testing, risk controls."""
 
 import numpy as np
+from quantstack.core.options.models import OptionType
+from quantstack.core.options.pricing import black_scholes_price
+from quantstack.core.risk.controls import ExposureManager
+from quantstack.core.risk.stress_testing import STRESS_SCENARIOS
 
 
 class TestVaRCalculation:
@@ -37,9 +41,6 @@ class TestStressTesting:
 
     def test_stress_scenario_pnl(self):
         """Test stress scenario P&L calculation."""
-        from quantstack.core.options.models import OptionType
-        from quantstack.core.options.pricing import black_scholes_price
-
         # Initial position: ATM call
         # Signature: black_scholes_price(S, K, T, r, sigma, option_type, q=0.0)
         S0, K, T, vol, r = 100, 100, 0.25, 0.20, 0.05
@@ -57,8 +58,6 @@ class TestStressTesting:
 
     def test_stress_scenarios_exist(self):
         """Test predefined stress scenarios exist."""
-        from quantstack.core.risk.stress_testing import STRESS_SCENARIOS
-
         assert "2008_lehman" in STRESS_SCENARIOS
         assert "2020_covid_crash" in STRESS_SCENARIOS
         assert "2018_volmageddon" in STRESS_SCENARIOS
@@ -69,8 +68,6 @@ class TestRiskControls:
 
     def test_normal_state(self):
         """Test normal risk state."""
-        from quantstack.core.risk.controls import ExposureManager
-
         manager = ExposureManager(
             max_concurrent_trades=5,
             max_exposure_per_symbol_pct=20.0,
@@ -82,8 +79,6 @@ class TestRiskControls:
 
     def test_position_limit_breach(self):
         """Test position limit enforcement."""
-        from quantstack.core.risk.controls import ExposureManager
-
         manager = ExposureManager(max_concurrent_trades=2)
 
         # Fill up positions

@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import json
 import os
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import duckdb
 from loguru import logger
+
+from quantstack.coordination.slack_client import SlackClient
 
 
 @dataclass
@@ -220,8 +223,6 @@ class DailyDigest:
     def send_slack(self, report: DigestReport) -> bool:
         """Send the digest to Slack #system channel. Returns True on success."""
         try:
-            from quantstack.coordination.slack_client import SlackClient
-
             client = SlackClient()
             if not client.is_configured:
                 return False
@@ -245,8 +246,6 @@ class DailyDigest:
             return False
 
         try:
-            import urllib.request
-
             payload = json.dumps(self.format_discord(report)).encode("utf-8")
             req = urllib.request.Request(
                 webhook_url,

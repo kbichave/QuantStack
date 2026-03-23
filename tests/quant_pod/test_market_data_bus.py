@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 from quantstack.data.market_data_bus import RestPollingBus
 from quantstack.execution.tick_executor import Tick
+from datetime import datetime
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -243,8 +244,6 @@ class TestTickDataclass:
         assert tick.mid == pytest.approx(450.0)
 
     def test_timestamp_defaults_to_now(self):
-        from datetime import datetime
-
         before = datetime.now(UTC)
         tick = Tick(symbol="SPY", price=450.0, volume=1000)
         after = datetime.now(UTC)

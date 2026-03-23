@@ -36,6 +36,11 @@ from enum import Enum
 import requests
 from loguru import logger
 
+from quantstack.knowledge.store import KnowledgeStore
+from quantstack.learning.skill_tracker import SkillTracker
+
+from quantstack.learning.drift_detector import DriftDetector
+
 
 class AlertSeverity(str, Enum):
     CRITICAL = "critical"  # rolling IC negative — signal is destroying value
@@ -133,9 +138,6 @@ class AlphaMonitor:
 
         Returns DegradationReport — also exposed via /skills/degradation API.
         """
-        from quantstack.knowledge.store import KnowledgeStore
-        from quantstack.learning.skill_tracker import SkillTracker
-
         store = KnowledgeStore()
         tracker = SkillTracker(store)
         ic_summary = tracker.ic_summary()  # sorted by ICIR desc
@@ -175,9 +177,6 @@ class AlphaMonitor:
 
         Useful for post-trade checks in TradingDayFlow without loading all agents.
         """
-        from quantstack.knowledge.store import KnowledgeStore
-        from quantstack.learning.skill_tracker import SkillTracker
-
         store = KnowledgeStore()
         tracker = SkillTracker(store)
         ic_summary = tracker.ic_summary()
@@ -369,11 +368,6 @@ class AlphaMonitor:
             List of DegradationAlert for strategies with drift.
         """
         if signal_features is None:
-            return []
-
-        try:
-            from quantstack.learning.drift_detector import DriftDetector
-        except ImportError:
             return []
 
         detector = DriftDetector()

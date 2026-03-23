@@ -41,6 +41,8 @@ from typing import Any
 import duckdb
 from loguru import logger
 
+from quantstack.db import open_db, run_migrations
+
 # ---------------------------------------------------------------------------
 # Data model — same interface as the old BlackboardEntry
 # ---------------------------------------------------------------------------
@@ -94,8 +96,6 @@ class Blackboard:
         if conn is not None:
             self._conn = conn
         else:
-            from quantstack.db import open_db, run_migrations
-
             self._conn = open_db()
             run_migrations(self._conn)
 

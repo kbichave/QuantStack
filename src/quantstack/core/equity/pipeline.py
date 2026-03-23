@@ -9,13 +9,15 @@ Provides:
 """
 
 import time
+import traceback
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
 from loguru import logger
 
+from quantstack.config.settings import get_settings
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.base import AssetClass
 from quantstack.data.fetcher import (
@@ -42,12 +44,7 @@ from quantstack.core.equity.strategies import (
 from quantstack.core.equity.tuning import TunedParams, tune_all_tickers
 from quantstack.core.features.factory import MultiTimeframeFeatureFactory
 
-# Try to import RL strategy
-try:
-    from quantstack.core.equity.rl_strategy import RL_AVAILABLE, run_rl_strategy
-except ImportError:
-    RL_AVAILABLE = False
-    run_rl_strategy = None
+from quantstack.core.equity.rl_strategy import run_rl_strategy
 
 
 @dataclass
@@ -396,8 +393,6 @@ def fetch_news_sentiment_for_symbols(
                     continue
 
             # Fetch from API
-            from datetime import timedelta
-
             start_date = datetime.now() - timedelta(days=365 * 2)
 
             news = fetcher.fetch_historical_news_sentiment(
@@ -544,8 +539,6 @@ def build_features(
 
         except Exception as e:
             logger.error(f"  [ERROR] {e}")
-            import traceback
-
             traceback.print_exc()
 
     return features
@@ -752,9 +745,6 @@ def run_pipeline(
     logger.info(f"Fetch News: {fetch_news}")
     logger.info("Trade Size: 100 shares, $0 commission")
 
-    from quantstack.config.settings import get_settings
-    from quantstack.data.registry import DataProviderRegistry
-
     fetcher = DataProviderRegistry.from_settings(get_settings())
     data_store = DataStore()
 
@@ -817,7 +807,7 @@ def run_pipeline(
         all_results[ml_result.strategy_name] = ml_result
 
     # Phase 6: RL strategy
-    if run_rl and RL_AVAILABLE and run_rl_strategy:
+    if run_rl:
         rl_result = run_rl_strategy(
             symbol_data,
             initial_equity,
@@ -826,8 +816,6 @@ def run_pipeline(
         )
         if rl_result:
             all_results[rl_result.strategy_name] = rl_result
-    elif run_rl and not RL_AVAILABLE:
-        logger.warning("RL not available - install gymnasium and stable-baselines3")
 
     # Build ticker breakdown
     ticker_breakdown = {}

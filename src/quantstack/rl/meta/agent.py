@@ -11,17 +11,16 @@ from loguru import logger
 
 from quantstack.rl.base import (
     MLP,
-    TORCH_AVAILABLE,
+
     Action,
     Experience,
     RLAgent,
     State,
 )
 
-if TORCH_AVAILABLE:
-    import torch
-    import torch.nn.functional as F
-    import torch.optim as optim
+import torch
+import torch.nn.functional as F
+import torch.optim as optim
 
 
 class AlphaSelectionAgent(RLAgent):
@@ -87,12 +86,6 @@ class AlphaSelectionAgent(RLAgent):
 
     def _build_networks(self) -> None:
         """Build neural networks."""
-        if not TORCH_AVAILABLE:
-            logger.warning("PyTorch not available, using fallback agent")
-            self.q_network = None
-            self.optimizer = None
-            return
-
         self.q_network = MLP(
             self.state_dim,
             self.action_dim,
@@ -115,7 +108,7 @@ class AlphaSelectionAgent(RLAgent):
         Returns:
             Selected action
         """
-        if TORCH_AVAILABLE and self.q_network is not None:
+        if self.q_network is not None:
             with torch.no_grad():
                 state_tensor = state.to_tensor().unsqueeze(0).to(self.device)
                 q_values = self.q_network(state_tensor).cpu().numpy().flatten()
@@ -183,7 +176,7 @@ class AlphaSelectionAgent(RLAgent):
         Returns:
             Loss information
         """
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             # Update UCB statistics
             for exp in experiences:
                 action = int(exp.action.value)
@@ -264,7 +257,7 @@ class AlphaSelectionAgent(RLAgent):
 
     def save(self, path: str) -> None:
         """Save agent to file."""
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             return
 
         torch.save(
@@ -283,7 +276,7 @@ class AlphaSelectionAgent(RLAgent):
 
     def load(self, path: str) -> None:
         """Load agent from file."""
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             return
 
         checkpoint = torch.load(path, map_location=self.device)

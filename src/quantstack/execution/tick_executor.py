@@ -41,8 +41,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 
 from loguru import logger
 
@@ -50,32 +49,13 @@ from quantstack.execution.kill_switch import KillSwitch
 from quantstack.execution.paper_broker import OrderRequest, PaperBroker
 from quantstack.execution.risk_state import RiskState
 from quantstack.execution.signal_cache import SignalCache
+from quantstack.observability.metrics import record_fill, record_tick_latency
 
 # ---------------------------------------------------------------------------
-# Tick data model
+# Tick data model — canonical location is quantstack.shared.models
 # ---------------------------------------------------------------------------
 
-
-@dataclass
-class Tick:
-    """
-    A single market tick from the data bus.
-
-    Produced by MarketDataBus and consumed by TickExecutor.
-    """
-
-    symbol: str
-    price: float
-    volume: int
-    bid: float | None = None
-    ask: float | None = None
-    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
-
-    @property
-    def mid(self) -> float:
-        if self.bid and self.ask:
-            return (self.bid + self.ask) / 2
-        return self.price
+from quantstack.shared.models import Tick  # noqa: F401, E402
 
 
 # ---------------------------------------------------------------------------
@@ -250,10 +230,8 @@ class TickExecutor:
         )
         self._record_latency(start_ns)
 
-        # Prometheus: record fill + hot-path latency (no-op if prometheus_client absent)
+        # Prometheus: record fill + hot-path latency
         try:
-            from quantstack.monitoring.metrics import record_fill, record_tick_latency
-
             record_fill(symbol=sym, side=order.side, speed="tick")
             record_tick_latency(latency_ns / 1e9)
         except Exception:

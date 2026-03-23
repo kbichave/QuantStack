@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 from loguru import logger
+from statsmodels.tsa.stattools import adfuller
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
@@ -151,8 +152,6 @@ def _ols_slope(x: np.ndarray, y: np.ndarray) -> float:
 def _run_adf(spread: np.ndarray) -> float | None:
     """Run Augmented Dickey-Fuller test. Returns p-value or None on failure."""
     try:
-        from statsmodels.tsa.stattools import adfuller
-
         result = adfuller(spread, maxlag=None, autolag="AIC")
         return float(result[1])  # p-value
     except Exception as exc:

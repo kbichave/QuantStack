@@ -26,6 +26,8 @@ from typing import Any
 import duckdb
 from loguru import logger
 
+from quantstack.execution.hook_registry import fire as _fire_hook
+
 
 class EquityTracker:
     """
@@ -133,19 +135,15 @@ class EquityTracker:
             f"DD={drawdown_pct:.2f}%"
         )
 
-        # Fire daily reflection hook (non-blocking, best-effort)
-        try:
-            from quantstack.autonomous.hooks import on_daily_close
-
-            closed_today = self._get_closed_trades_for_date(snapshot_date)
-            on_daily_close(
-                snapshot_date=snapshot_date,
-                daily_pnl=daily_pnl,
-                daily_return_pct=daily_return_pct,
-                closed_trades=closed_today,
-            )
-        except Exception:
-            pass  # Never block equity snapshot on reflection failure
+        # Fire daily reflection hook via registry (non-blocking, best-effort)
+        closed_today = self._get_closed_trades_for_date(snapshot_date)
+        _fire_hook(
+            "daily_close",
+            snapshot_date=snapshot_date,
+            daily_pnl=daily_pnl,
+            daily_return_pct=daily_return_pct,
+            closed_trades=closed_today,
+        )
 
         return result
 

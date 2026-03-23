@@ -19,13 +19,15 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.mcp.server import mcp
-from quantstack.mcp._state import (
-    require_ctx,
-    live_db_or_error,
-    _serialize,
-)
+from quantstack.agents.regime_detector import RegimeDetectorAgent
+from quantstack.audit.models import AuditQuery
 from quantstack.execution.broker_factory import get_broker_mode
+from quantstack.mcp._state import (
+    _serialize,
+    live_db_or_error,
+    require_ctx,
+)
+from quantstack.mcp.server import mcp
 
 
 # =============================================================================
@@ -83,8 +85,6 @@ async def get_regime(symbol: str) -> dict[str, Any]:
         confidence, adx, atr, atr_percentile, error.
     """
     try:
-        from quantstack.agents.regime_detector import RegimeDetectorAgent
-
         detector = RegimeDetectorAgent(symbols=[symbol])
         result = await asyncio.get_event_loop().run_in_executor(
             None, detector.detect_regime, symbol
@@ -119,8 +119,6 @@ async def get_recent_decisions(
     if err:
         return err
     try:
-        from quantstack.audit.models import AuditQuery
-
         query = AuditQuery(symbol=symbol or "", limit=limit)
         events = ctx.audit.query(query)
         summaries = [

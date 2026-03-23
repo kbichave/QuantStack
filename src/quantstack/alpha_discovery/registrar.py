@@ -22,6 +22,8 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.db import db_conn
+
 
 class StrategyRegistrar:
     """Writes draft strategies discovered by AlphaDiscoveryEngine to the DB."""
@@ -58,29 +60,27 @@ class StrategyRegistrar:
         }
 
         try:
-            from quantstack.mcp._state import require_live_db
-
-            ctx = require_live_db()
-            ctx.db.execute(
-                """
-                INSERT INTO strategies
-                    (strategy_id, name, description, asset_class, regime_affinity,
-                     parameters, entry_rules, exit_rules, risk_params, status, source)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
-                """,
-                [
-                    strategy_id,
-                    name,
-                    description,
-                    "equities",
-                    json.dumps(regime_affinity),
-                    json.dumps(parameters),
-                    json.dumps(entry_rules),
-                    json.dumps(exit_rules),
-                    json.dumps(risk_params),
-                    source,
-                ],
-            )
+            with db_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO strategies
+                        (strategy_id, name, description, asset_class, regime_affinity,
+                         parameters, entry_rules, exit_rules, risk_params, status, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                    """,
+                    [
+                        strategy_id,
+                        name,
+                        description,
+                        "equities",
+                        json.dumps(regime_affinity),
+                        json.dumps(parameters),
+                        json.dumps(entry_rules),
+                        json.dumps(exit_rules),
+                        json.dumps(risk_params),
+                        source,
+                    ],
+                )
             logger.info(
                 f"[StrategyRegistrar] registered draft {strategy_id}: {name} "
                 f"(IS={is_sharpe:.2f} OOS={oos_sharpe_mean:.2f})"

@@ -14,9 +14,7 @@ Instruments:
   - kill_switch_active           gauge    (1 = active, 0 = inactive)
   - tick_executor_lag_seconds    histogram  (tick arrival → order submit)
 
-All metrics are lazily registered on first use so the module can be imported
-even in environments without `prometheus_client` installed.  In that case
-every record*() call is a no-op.
+All metrics are lazily registered on first use.
 
 Usage:
     from quantstack.monitoring.metrics import record_fill, record_risk_rejection
@@ -44,44 +42,34 @@ Usage:
     record_tick_latency(latency_seconds=0.0012)
 
 Exposition:
-    Metrics are served at GET /metrics by the FastAPI server when
-    prometheus_client is installed.  The endpoint returns text/plain in
-    Prometheus text exposition format.
+    Metrics are served at GET /metrics by the FastAPI server.
+    The endpoint returns text/plain in Prometheus text exposition format.
 """
 
 from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Lazy import — graceful degradation when prometheus_client is absent
-# ---------------------------------------------------------------------------
-
-try:
-    from prometheus_client import (
-        CONTENT_TYPE_LATEST,
-        REGISTRY,
-        Counter,
-        Gauge,
-        Histogram,
-        generate_latest,
-    )
-
-    _PROMETHEUS_AVAILABLE = True
-except ImportError:
-    _PROMETHEUS_AVAILABLE = False
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
 
 
 # ---------------------------------------------------------------------------
 # Metric registry
 # ---------------------------------------------------------------------------
 
-_trades_executed: object | None = None
-_risk_rejections: object | None = None
-_agent_latency: object | None = None
-_signal_staleness: object | None = None
-_portfolio_nav: object | None = None
-_daily_pnl: object | None = None
-_kill_switch: object | None = None
-_tick_lag: object | None = None
+_trades_executed: Counter | None = None
+_risk_rejections: Counter | None = None
+_agent_latency: Histogram | None = None
+_signal_staleness: Gauge | None = None
+_portfolio_nav: Gauge | None = None
+_daily_pnl: Gauge | None = None
+_kill_switch: Gauge | None = None
+_tick_lag: Histogram | None = None
 
 
 def _init_metrics() -> None:
@@ -89,7 +77,7 @@ def _init_metrics() -> None:
     global _trades_executed, _risk_rejections, _agent_latency
     global _signal_staleness, _portfolio_nav, _daily_pnl
     global _kill_switch, _tick_lag
-    if not _PROMETHEUS_AVAILABLE or _trades_executed is not None:
+    if _trades_executed is not None:
         return
 
     _trades_executed = Counter(
@@ -138,61 +126,51 @@ def _init_metrics() -> None:
 
 
 def record_fill(symbol: str, side: str, speed: str = "tick") -> None:
-    """Increment the fill counter.  speed ∈ {"tick", "minute"}."""
+    """Increment the fill counter.  speed in {"tick", "minute"}."""
     _init_metrics()
-    if _trades_executed is not None:
-        _trades_executed.labels(
-            symbol=symbol.upper(), side=side.lower(), speed=speed
-        ).inc()
+    _trades_executed.labels(symbol=symbol.upper(), side=side.lower(), speed=speed).inc()
 
 
 def record_risk_rejection(violation_type: str) -> None:
     """Increment the risk-rejection counter."""
     _init_metrics()
-    if _risk_rejections is not None:
-        _risk_rejections.labels(violation_type=violation_type).inc()
+    _risk_rejections.labels(violation_type=violation_type).inc()
 
 
 def record_agent_latency(agent_name: str, latency_seconds: float) -> None:
     """Record a single LLM agent decision latency observation."""
     _init_metrics()
-    if _agent_latency is not None:
-        _agent_latency.labels(agent_name=agent_name).observe(latency_seconds)
+    _agent_latency.labels(agent_name=agent_name).observe(latency_seconds)
 
 
 def record_signal_staleness(symbol: str, staleness_seconds: float) -> None:
     """Set the current staleness gauge for a symbol."""
     _init_metrics()
-    if _signal_staleness is not None:
-        _signal_staleness.labels(symbol=symbol.upper()).set(staleness_seconds)
+    _signal_staleness.labels(symbol=symbol.upper()).set(staleness_seconds)
 
 
 def record_nav(nav_dollars: float) -> None:
     """Set the current portfolio NAV gauge."""
     _init_metrics()
-    if _portfolio_nav is not None:
-        _portfolio_nav.set(nav_dollars)
+    _portfolio_nav.set(nav_dollars)
 
 
 def record_daily_pnl(pnl_dollars: float) -> None:
     """Set the current daily P&L gauge."""
     _init_metrics()
-    if _daily_pnl is not None:
-        _daily_pnl.set(pnl_dollars)
+    _daily_pnl.set(pnl_dollars)
 
 
 def record_kill_switch_active(active: bool) -> None:
     """Set the kill switch state gauge (1.0 = active, 0.0 = inactive)."""
     _init_metrics()
-    if _kill_switch is not None:
-        _kill_switch.set(1.0 if active else 0.0)
+    _kill_switch.set(1.0 if active else 0.0)
 
 
 def record_tick_latency(latency_seconds: float) -> None:
     """Record a single tick-executor hot-path latency observation."""
     _init_metrics()
-    if _tick_lag is not None:
-        _tick_lag.observe(latency_seconds)
+    _tick_lag.observe(latency_seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -201,19 +179,11 @@ def record_tick_latency(latency_seconds: float) -> None:
 
 
 def get_metrics_text() -> str:
-    """
-    Return current metric values in Prometheus text exposition format.
-
-    Returns an empty string if prometheus_client is not installed.
-    """
-    if not _PROMETHEUS_AVAILABLE:
-        return ""
+    """Return current metric values in Prometheus text exposition format."""
     _init_metrics()
     return generate_latest(REGISTRY).decode("utf-8")
 
 
 def get_metrics_content_type() -> str:
     """Return the Content-Type header value for /metrics responses."""
-    if not _PROMETHEUS_AVAILABLE:
-        return "text/plain"
     return CONTENT_TYPE_LATEST

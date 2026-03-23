@@ -2836,14 +2836,7 @@ def _train_deep_sync(
     epochs: int,
 ) -> dict[str, Any]:
     """Synchronous deep model training. Runs in a thread."""
-    try:
-        import torch  # noqa: F811 — runtime availability check
-    except ImportError:
-        return {
-            "success": False,
-            "error": "PyTorch not installed. Run: pip install torch",
-            "symbol": symbol,
-        }
+    import torch
 
     if architecture != "tft":
         return {

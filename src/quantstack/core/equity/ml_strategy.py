@@ -13,6 +13,7 @@ from sklearn.feature_selection import VarianceThreshold
 
 from quantstack.core.equity.backtester import backtest_signals
 from quantstack.core.equity.reports import StrategyResult, TickerStrategyResult
+from quantstack.core.validation.causal_filter import CausalFilter
 
 
 def run_ml_strategy(
@@ -87,8 +88,6 @@ def run_ml_strategy(
             ]
 
             if len(selected_features) > 30:
-                from quantstack.core.validation.causal_filter import CausalFilter
-
                 causal = CausalFilter(max_lag=5, significance_level=0.05)
                 X_causal = causal.fit_transform(
                     train_features[selected_features], train_features["label"]

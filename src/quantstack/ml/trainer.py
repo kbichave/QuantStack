@@ -4,6 +4,7 @@ Model training pipeline for trade classification.
 Supports LightGBM, XGBoost, and CatBoost with hyperparameter tuning.
 """
 
+import copy
 import json
 import pickle
 from dataclasses import dataclass
@@ -24,6 +25,8 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
+
+from quantstack.core.validation.purged_cv import PurgedKFoldCV
 
 
 @dataclass
@@ -342,15 +345,13 @@ class ModelTrainer:
         """
         # Build fold splits
         try:
-            from quantstack.core.validation.purged_cv import PurgedKFoldCV
-
             purged_cv = PurgedKFoldCV(
                 n_splits=self.config.n_splits,
                 embargo_pct=0.01,
             )
             splits = list(purged_cv.split(X))
             cv_iter = [(s.train_indices, s.test_indices) for s in splits]
-        except (ImportError, Exception) as exc:
+        except Exception as exc:
             logger.warning(
                 f"PurgedKFoldCV failed ({exc}), falling back to TimeSeriesSplit"
             )
@@ -359,8 +360,6 @@ class ModelTrainer:
 
         # Manual fold evaluation -- avoids sklearn's response_method detection
         # which misidentifies XGBClassifier 2.x as a regressor.
-        import copy
-
         scores: list[float] = []
         for train_idx, test_idx in cv_iter:
             X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]

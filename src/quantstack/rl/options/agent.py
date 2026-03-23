@@ -14,15 +14,9 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
-try:
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    logger.warning("PyTorch not available. RL agent will use random policy.")
+import torch
+import torch.nn as nn
+import torch.optim as optim
 
 from quantstack.rl.base import Action, Experience, RLAgent
 from quantstack.rl.options.environment import OptionsAction, OptionsEnvironment
@@ -62,26 +56,24 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-if TORCH_AVAILABLE:
+class DQNNetwork(nn.Module):
+    """Deep Q-Network for direction prediction."""
 
-    class DQNNetwork(nn.Module):
-        """Deep Q-Network for direction prediction."""
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128):
+        super().__init__()
 
-        def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128):
-            super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(hidden_dim, action_dim),
+        )
 
-            self.network = nn.Sequential(
-                nn.Linear(state_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(0.2),
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(0.2),
-                nn.Linear(hidden_dim, action_dim),
-            )
-
-        def forward(self, x):
-            return self.network(x)
+    def forward(self, x):
+        return self.network(x)
 
 
 class DirectionAgent(RLAgent, Strategy):
@@ -141,21 +133,15 @@ class DirectionAgent(RLAgent, Strategy):
         self.target_update_freq = target_update_freq
 
         # Networks
-        if TORCH_AVAILABLE:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            self.policy_net = DQNNetwork(state_dim, action_dim, hidden_dim).to(
-                self.device
-            )
-            self.target_net = DQNNetwork(state_dim, action_dim, hidden_dim).to(
-                self.device
-            )
-            self.target_net.load_state_dict(self.policy_net.state_dict())
-            self.optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate)
-        else:
-            self.device = None
-            self.policy_net = None
-            self.target_net = None
-            self.optimizer = None
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.policy_net = DQNNetwork(state_dim, action_dim, hidden_dim).to(
+            self.device
+        )
+        self.target_net = DQNNetwork(state_dim, action_dim, hidden_dim).to(
+            self.device
+        )
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=learning_rate)
 
         # Replay buffer
         self.replay_buffer = ReplayBuffer()
@@ -178,11 +164,6 @@ class DirectionAgent(RLAgent, Strategy):
         Returns:
             Selected action
         """
-        if not TORCH_AVAILABLE:
-            # Random policy fallback
-            action_idx = random.randint(0, self.action_dim - 1)
-            return Action(value=action_idx)
-
         # Epsilon-greedy exploration
         if training and random.random() < self.epsilon:
             action_idx = random.randint(0, self.action_dim - 1)
@@ -226,7 +207,7 @@ class DirectionAgent(RLAgent, Strategy):
         )
         self.replay_buffer.push(exp)
 
-        if not TORCH_AVAILABLE or len(self.replay_buffer) < self.batch_size:
+        if len(self.replay_buffer) < self.batch_size:
             return {"buffer_size": len(self.replay_buffer)}
 
         # Sample batch
@@ -284,7 +265,7 @@ class DirectionAgent(RLAgent, Strategy):
         for exp in experiences:
             self.replay_buffer.push(exp)
 
-        if not TORCH_AVAILABLE or len(self.replay_buffer) < self.batch_size:
+        if len(self.replay_buffer) < self.batch_size:
             return {"buffer_size": len(self.replay_buffer)}
 
         # Sample batch and train
@@ -391,31 +372,29 @@ class DirectionAgent(RLAgent, Strategy):
 
     def save(self, path: str) -> None:
         """Save model weights."""
-        if TORCH_AVAILABLE and self.policy_net is not None:
-            torch.save(
-                {
-                    "policy_net": self.policy_net.state_dict(),
-                    "target_net": self.target_net.state_dict(),
-                    "optimizer": self.optimizer.state_dict(),
-                    "epsilon": self.epsilon,
-                    "training_steps": self.training_steps,
-                    "episode_count": self.episode_count,
-                },
-                path,
-            )
-            logger.info(f"Saved agent to {path}")
+        torch.save(
+            {
+                "policy_net": self.policy_net.state_dict(),
+                "target_net": self.target_net.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "epsilon": self.epsilon,
+                "training_steps": self.training_steps,
+                "episode_count": self.episode_count,
+            },
+            path,
+        )
+        logger.info(f"Saved agent to {path}")
 
     def load(self, path: str) -> None:
         """Load model weights."""
-        if TORCH_AVAILABLE and self.policy_net is not None:
-            checkpoint = torch.load(path, map_location=self.device)
-            self.policy_net.load_state_dict(checkpoint["policy_net"])
-            self.target_net.load_state_dict(checkpoint["target_net"])
-            self.optimizer.load_state_dict(checkpoint["optimizer"])
-            self.epsilon = checkpoint["epsilon"]
-            self.training_steps = checkpoint["training_steps"]
-            self.episode_count = checkpoint["episode_count"]
-            logger.info(f"Loaded agent from {path}")
+        checkpoint = torch.load(path, map_location=self.device)
+        self.policy_net.load_state_dict(checkpoint["policy_net"])
+        self.target_net.load_state_dict(checkpoint["target_net"])
+        self.optimizer.load_state_dict(checkpoint["optimizer"])
+        self.epsilon = checkpoint["epsilon"]
+        self.training_steps = checkpoint["training_steps"]
+        self.episode_count = checkpoint["episode_count"]
+        logger.info(f"Loaded agent from {path}")
 
 
 def train_direction_agent(

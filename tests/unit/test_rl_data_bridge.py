@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 import duckdb
 import numpy as np
 import pandas as pd
+from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -130,16 +131,12 @@ def _make_store_with_signals(n_signals: int = 50) -> Any:
 
 class TestKnowledgeStoreRLBridgeFactory:
     def test_from_knowledge_store(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = MagicMock()
         store.conn = duckdb.connect(":memory:")
         bridge = KnowledgeStoreRLBridge.from_knowledge_store(store)
         assert bridge is not None
 
     def test_direct_init(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = MagicMock()
         store.conn = duckdb.connect(":memory:")
         bridge = KnowledgeStoreRLBridge(store=store)
@@ -148,8 +145,6 @@ class TestKnowledgeStoreRLBridgeFactory:
 
 class TestGetAlphaReturnHistory:
     def test_returns_dict_of_series(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = _make_store_with_trades(30)
         bridge = KnowledgeStoreRLBridge(store=store)
         histories = bridge.get_alpha_return_history(
@@ -159,8 +154,6 @@ class TestGetAlphaReturnHistory:
         assert isinstance(histories, dict)
 
     def test_returns_series_for_matched_alpha(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = _make_store_with_trades(30)
         bridge = KnowledgeStoreRLBridge(store=store)
         histories = bridge.get_alpha_return_history(
@@ -171,8 +164,6 @@ class TestGetAlphaReturnHistory:
             assert isinstance(histories["TREND"], pd.Series)
 
     def test_missing_table_returns_empty(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         # Store with no trade_journal table
         store = MagicMock()
         store.conn = duckdb.connect(":memory:")
@@ -181,8 +172,6 @@ class TestGetAlphaReturnHistory:
         assert isinstance(result, dict)
 
     def test_has_sufficient_alpha_history_false_when_empty(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = MagicMock()
         store.conn = duckdb.connect(":memory:")
         bridge = KnowledgeStoreRLBridge(store=store)
@@ -191,8 +180,6 @@ class TestGetAlphaReturnHistory:
         )
 
     def test_has_sufficient_alpha_history_true_with_data(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = _make_store_with_trades(30)
         bridge = KnowledgeStoreRLBridge(store=store)
         result = bridge.has_sufficient_alpha_history(["TREND"], min_observations=5)
@@ -202,16 +189,12 @@ class TestGetAlphaReturnHistory:
 
 class TestGetOHLCVForExecution:
     def test_returns_dataframe(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = _make_store_with_ohlcv(100)
         bridge = KnowledgeStoreRLBridge(store=store)
         df = bridge.get_ohlcv_for_execution("SPY", lookback_days=90)
         assert isinstance(df, pd.DataFrame)
 
     def test_missing_table_returns_empty_df(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = MagicMock()
         store.conn = duckdb.connect(":memory:")
         bridge = KnowledgeStoreRLBridge(store=store)
@@ -220,8 +203,6 @@ class TestGetOHLCVForExecution:
         assert df.empty
 
     def test_has_sufficient_signal_history_false_when_empty(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = MagicMock()
         store.conn = duckdb.connect(":memory:")
         bridge = KnowledgeStoreRLBridge(store=store)
@@ -230,16 +211,12 @@ class TestGetOHLCVForExecution:
 
 class TestGetSignalHistory:
     def test_returns_list(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = _make_store_with_signals(50)
         bridge = KnowledgeStoreRLBridge(store=store)
         signals = bridge.get_signal_history(lookback_days=90)
         assert isinstance(signals, list)
 
     def test_missing_table_returns_empty_list(self):
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = MagicMock()
         store.conn = duckdb.connect(":memory:")
         bridge = KnowledgeStoreRLBridge(store=store)
@@ -250,8 +227,6 @@ class TestGetSignalHistory:
 class TestBootstrapRateLimiting:
     def test_bootstrap_skips_existing_symbols(self):
         """bootstrap_from_alphavantage should not re-fetch already-stored symbols."""
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         store = _make_store_with_ohlcv(100)
         bridge = KnowledgeStoreRLBridge(store=store)
 

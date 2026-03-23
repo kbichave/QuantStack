@@ -19,9 +19,11 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any
 
+import ib_insync as iblib
 from fastmcp import FastMCP
 from loguru import logger
 
+from ibkr_mcp.connection import IBKRConnectionManager
 from quantstack.shared.mcp_toolkit import require_resource
 
 # ---------------------------------------------------------------------------
@@ -41,8 +43,6 @@ _ctx = _Ctx()
 async def lifespan(server: FastMCP):
     logger.info("[ibkr_mcp] Starting…")
     try:
-        from ibkr_mcp.connection import IBKRConnectionManager
-
         _ctx.mgr = IBKRConnectionManager.get_instance(
             host=os.getenv("IBKR_HOST", "127.0.0.1"),
             port=int(os.getenv("IBKR_PORT", "4001")),
@@ -101,8 +101,6 @@ def connect_gateway(
         port: 4001 for IB Gateway, 7497 for TWS.
     """
     try:
-        from ibkr_mcp.connection import IBKRConnectionManager
-
         mgr = IBKRConnectionManager.get_instance(host=host, port=port)
         mgr.connect()
         accounts = mgr.ib.managedAccounts()
@@ -210,8 +208,6 @@ def get_quote(symbols: list[str]) -> dict:
         symbols: List of ticker symbols.
     """
     try:
-        import ib_insync as iblib
-
         ib = _require_ib()
         contracts = [iblib.Stock(s, "SMART", "USD") for s in symbols]
         tickers = ib.reqTickers(*contracts)
@@ -245,8 +241,6 @@ def get_historical_bars(
         duration:  IB duration string, e.g. \"30 D\", \"1 W\", \"3 M\".
     """
     try:
-        import ib_insync as iblib
-
         ib = _require_ib()
         contract = iblib.Stock(symbol, "SMART", "USD")
         bars = ib.reqHistoricalData(
@@ -288,8 +282,6 @@ def get_option_chains(
         expiry: Target expiry YYYYMMDD (returns all expirations if omitted).
     """
     try:
-        import ib_insync as iblib
-
         ib = _require_ib()
         contract = iblib.Stock(symbol, "SMART", "USD")
         chains = ib.reqSecDefOptParams(symbol, "", "STK", contract.conId or 0)
@@ -328,8 +320,6 @@ def place_order(
         account_id:  IB account ID (uses default if omitted).
     """
     try:
-        import ib_insync as iblib
-
         ib = _require_ib()
         acct = account_id or _ctx.account_id
         contract = iblib.Stock(symbol, "SMART", "USD")

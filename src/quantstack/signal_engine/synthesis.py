@@ -31,7 +31,7 @@ from typing import Any, Literal
 
 from loguru import logger
 
-from quantstack.crews.schemas import KeyLevel, SymbolBrief
+from quantstack.shared.schemas import KeyLevel, SymbolBrief
 
 # Type aliases for readability
 _Bias = Literal["strong_bullish", "bullish", "neutral", "bearish", "strong_bearish"]

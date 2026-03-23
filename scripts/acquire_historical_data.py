@@ -40,13 +40,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from loguru import logger
 
+from quantstack.data.adapters.alpaca import AlpacaAdapter
 from quantstack.data.acquisition_pipeline import (
     ALL_PHASES,
     M5_LOOKBACK_MONTHS,
@@ -59,6 +56,7 @@ from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
 # AV calls per phase per symbol (used in dry-run estimates)
 _CALLS_PER_SYMBOL = {
     "ohlcv_5min": None,  # computed separately (months × symbols)
+    "ohlcv_1h": 24,      # 24 monthly slices via intraday_extended
     "ohlcv_daily": 1,
     "financials": 3,
     "earnings_history": 1,
@@ -158,11 +156,9 @@ async def main() -> int:
 
     alpaca = None
     try:
-        from quantstack.data.adapters.alpaca import AlpacaAdapter
-
         alpaca = AlpacaAdapter()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning(f"AlpacaAdapter init failed: {exc}")
 
     pipeline = AcquisitionPipeline(av_client=av_client, store=store, alpaca=alpaca)
 

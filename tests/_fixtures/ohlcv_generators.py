@@ -26,6 +26,8 @@ from typing import Literal
 
 import numpy as np
 import pandas as pd
+from dataclasses import dataclass
+from quantstack.core.features.waves import SwingLeg, SwingPoint
 
 
 # =============================================================================
@@ -195,8 +197,6 @@ def make_swing_leg(
     ``start_price``, ``end_price``, ``direction``, ``n_bars``, ``ret_pct``,
     and ``length_bars``.
     """
-    from dataclasses import dataclass
-
     @dataclass
     class MockSwingLeg:
         start_idx: int
@@ -664,8 +664,6 @@ def make_typed_swing_leg(
 
     Computes ret_pct and length_bars automatically.
     """
-    from quantstack.core.features.waves import SwingLeg
-
     ret_pct = (end_price - start_price) / start_price if start_price != 0 else 0
     return SwingLeg(
         start_idx=start_idx,
@@ -736,8 +734,6 @@ def make_swing_point(
     """
     Create a SwingPoint (from quantstack.core.features.waves) for testing.
     """
-    from quantstack.core.features.waves import SwingPoint
-
     if time is None:
         time = pd.Timestamp("2024-01-01 09:00") + pd.Timedelta(hours=idx)
     return SwingPoint(idx=idx, time=time, price=price, direction=direction)

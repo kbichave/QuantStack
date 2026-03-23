@@ -36,6 +36,8 @@ from enum import Enum
 import numpy as np
 from loguru import logger
 
+from quantstack.execution.portfolio_state import get_portfolio_state
+
 
 class DegradationStatus(str, Enum):
     CLEAN = "clean"
@@ -448,8 +450,6 @@ class DegradationDetector:
         if self._conn is not None:
             return self._conn
         try:
-            from quantstack.execution.portfolio_state import get_portfolio_state
-
             return get_portfolio_state().conn
         except Exception as e:
             logger.warning(f"[DEGRADE] Could not get portfolio DB conn: {e}")

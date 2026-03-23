@@ -11,6 +11,8 @@ Uses mock ShadowEvaluationResult objects to avoid needing a live store.
 from __future__ import annotations
 
 import numpy as np
+from quantstack.rl.promotion_gate import PromotionGate
+from quantstack.rl.shadow_mode import ShadowEvaluationResult
 
 
 def _make_shadow_result(
@@ -22,8 +24,6 @@ def _make_shadow_result(
     ready_for_promotion=True,
     agent_type="sizing",
 ):
-    from quantstack.rl.shadow_mode import ShadowEvaluationResult
-
     return ShadowEvaluationResult(
         agent_type=agent_type,
         n_observations=n_observations,
@@ -37,23 +37,17 @@ def _make_shadow_result(
 
 class TestObservationCheck:
     def test_passes_when_sufficient(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         result = gate._check_observations(n=70, min_required=63)
         assert result.passed is True
         assert result.value == 70.0
 
     def test_fails_when_insufficient(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         result = gate._check_observations(n=10, min_required=63)
         assert result.passed is False
 
     def test_exactly_at_threshold_passes(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         result = gate._check_observations(n=63, min_required=63)
         assert result.passed is True
@@ -61,22 +55,16 @@ class TestObservationCheck:
 
 class TestDrawdownCheck:
     def test_passes_under_limit(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         result = gate._check_drawdown(max_dd=0.05)
         assert result.passed is True
 
     def test_fails_over_limit(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         result = gate._check_drawdown(max_dd=0.15)
         assert result.passed is False
 
     def test_exactly_at_limit_passes(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         result = gate._check_drawdown(max_dd=gate.MAX_DRAWDOWN)
         assert result.passed is True
@@ -84,15 +72,11 @@ class TestDrawdownCheck:
 
 class TestAgreementCheck:
     def test_passes_above_min(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         result = gate._check_agreement(agreement=0.65)
         assert result.passed is True
 
     def test_fails_below_min(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         result = gate._check_agreement(agreement=0.45)
         assert result.passed is False
@@ -100,8 +84,6 @@ class TestAgreementCheck:
 
 class TestWalkForwardCheck:
     def test_passes_with_good_folds(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         # All 5 folds: IS Sharpe 1.0, OOS Sharpe 0.8 → positive, low degradation
         folds = [(1.0, 0.8)] * 5
@@ -109,8 +91,6 @@ class TestWalkForwardCheck:
         assert result.passed is True
 
     def test_fails_with_mostly_negative_oos(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         # 4/5 negative OOS → 20% positive < 60% threshold
         folds = [(1.0, 0.5), (1.0, -0.3), (1.0, -0.5), (1.0, -0.2), (1.0, -0.1)]
@@ -118,8 +98,6 @@ class TestWalkForwardCheck:
         assert result.passed is False
 
     def test_fails_with_high_degradation(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         # IS=2.0, OOS=0.1 → 95% degradation >> 30% threshold
         folds = [(2.0, 0.1)] * 5
@@ -129,16 +107,12 @@ class TestWalkForwardCheck:
 
 class TestExecutionShortfallCheck:
     def test_passes_with_good_improvement(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         # agreement=0.75 → improvement = 0.75 - 0.50 = 0.25 >= 0.20
         result = gate._check_execution_shortfall(agreement=0.75)
         assert result.passed is True
 
     def test_fails_with_poor_improvement(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         # agreement=0.55 → improvement = 0.05 < 0.20
         result = gate._check_execution_shortfall(agreement=0.55)
@@ -147,8 +121,6 @@ class TestExecutionShortfallCheck:
 
 class TestEvaluateGating:
     def test_gate_blocks_on_insufficient_observations(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         shadow = _make_shadow_result(n_observations=5)
         result = gate.evaluate("sizing", shadow)
@@ -157,8 +129,6 @@ class TestEvaluateGating:
         assert len(result.checks) == 1
 
     def test_passes_with_ideal_sizing_metrics(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         shadow = _make_shadow_result(
             n_observations=70,
@@ -182,8 +152,6 @@ class TestEvaluateGating:
         assert result.passes == all(c.passed for c in result.checks)
 
     def test_fails_on_high_drawdown(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         shadow = _make_shadow_result(
             n_observations=70,
@@ -195,8 +163,6 @@ class TestEvaluateGating:
         assert dd_check.passed is False
 
     def test_execution_agent_gets_shortfall_check(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         shadow = _make_shadow_result(
             agent_type="execution",
@@ -211,8 +177,6 @@ class TestEvaluateGating:
         assert shortfall_check is not None
 
     def test_summary_returns_string(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         shadow = _make_shadow_result(n_observations=70)
         result = gate.evaluate("sizing", shadow)
@@ -221,8 +185,6 @@ class TestEvaluateGating:
         assert "sizing" in summary.lower()
 
     def test_passed_failed_check_properties(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         shadow = _make_shadow_result(
             n_observations=70,
@@ -233,8 +195,6 @@ class TestEvaluateGating:
         assert len(result.passed_checks) + len(result.failed_checks) == len(all_checks)
 
     def test_meta_agent_requires_more_observations(self):
-        from quantstack.rl.promotion_gate import PromotionGate
-
         gate = PromotionGate()
         # 70 observations fine for sizing (63), but not for meta (126)
         shadow = _make_shadow_result(n_observations=70, agent_type="meta")

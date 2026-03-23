@@ -11,18 +11,8 @@ Provides:
 from quantstack.rl.options.agent import DirectionAgent
 from quantstack.rl.options.environment import OptionsEnvironment
 
-# Try to import Gymnasium-based components (require extra dependencies)
-try:
-    from quantstack.rl.options.gym_env import OptionsTradingEnv, create_trading_env
-    from quantstack.rl.options.sac_agent import SACOptionsAgent, train_sac_agent
-
-    _SB3_AVAILABLE = True
-except ImportError:
-    _SB3_AVAILABLE = False
-    OptionsTradingEnv = None
-    create_trading_env = None
-    SACOptionsAgent = None
-    train_sac_agent = None
+from quantstack.rl.options.gym_env import OptionsTradingEnv, create_trading_env
+from quantstack.rl.options.sac_agent import SACOptionsAgent, train_sac_agent
 
 __all__ = [
     "OptionsEnvironment",

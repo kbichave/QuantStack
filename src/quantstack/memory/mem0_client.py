@@ -23,6 +23,8 @@ from typing import Any
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from mem0 import Memory as Mem0Memory
+
 
 class MemoryCategory(str, Enum):
     """Categories for organizing agent memories."""
@@ -109,8 +111,6 @@ class Mem0Client:
             # Disable posthog telemetry
             os.environ["POSTHOG_DISABLED"] = "true"
             os.environ["ANONYMIZED_TELEMETRY"] = "false"
-
-            from mem0 import Memory as Mem0Memory
 
             # Configure Mem0 with local Qdrant - disable graph store to avoid SQLite threading issues
             config = {

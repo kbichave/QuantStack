@@ -26,14 +26,18 @@ Weekly cycle:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+import litellm
+
 import duckdb
 from loguru import logger
 
+from quantstack.llm_config import get_llm_for_role
 from quantstack.research.context import ResearchContext
 from quantstack.research.schemas import (
     FailureAnalysis,
@@ -242,16 +246,10 @@ class AlphaResearcher:
 
     async def _call_llm(self, prompt: str) -> str | None:
         """Call the LLM for research plan generation."""
-        import asyncio
-
         try:
-            from quantstack.llm_config import get_llm_for_role
-
             model = get_llm_for_role("research")
             if not model:
                 model = "groq/llama-3.3-70b-versatile"
-
-            import litellm
 
             response = await asyncio.wait_for(
                 asyncio.to_thread(

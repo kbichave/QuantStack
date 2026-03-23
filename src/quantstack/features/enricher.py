@@ -27,6 +27,9 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
+from quantstack.core.features.fundamental_features import EarningsFeatures
+from quantstack.core.features.economic_features import EconomicFeatureEngineer
+from quantstack.data.storage import DataStore
 from quantstack.features.flow_features import (
     compute_insider_flow,
     compute_institutional_flow,
@@ -173,8 +176,6 @@ class FeatureEnricher:
     def _merge_fundamentals(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         """Load fundamental metrics from DuckDB cache and forward-fill to daily."""
         try:
-            from quantstack.data.storage import DataStore
-
             store = DataStore()
             metrics = store.load_financial_metrics(symbol)
 
@@ -239,8 +240,6 @@ class FeatureEnricher:
     def _merge_earnings(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         """Load earnings features using CombinedFundamentalFeatures."""
         try:
-            from quantstack.core.features.fundamental_features import EarningsFeatures
-
             earner = EarningsFeatures()
             result = earner.compute(df, symbol=symbol)
             logger.debug(f"[enricher] Merged earnings features for {symbol}")
@@ -253,8 +252,6 @@ class FeatureEnricher:
     def _merge_macro(self, df: pd.DataFrame) -> pd.DataFrame:
         """Load economic features from EconomicFeatureEngineer."""
         try:
-            from quantstack.core.features.economic_features import EconomicFeatureEngineer
-
             engineer = EconomicFeatureEngineer()
             macro_df = engineer.create_daily_features(df.index)
 
@@ -277,8 +274,6 @@ class FeatureEnricher:
     def _merge_flow(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         """Load insider and institutional flow features from DuckDB cache."""
         try:
-            from quantstack.data.storage import DataStore
-
             store = DataStore()
             result = df
 

@@ -31,6 +31,10 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.storage import DataStore
+from quantstack.signal_engine.engine import SignalEngine
+
 
 @dataclass
 class TradingSheet:
@@ -238,8 +242,6 @@ class TradingSheetGenerator:
         as_of_date: date | None = None,
     ) -> TradingSheet:
         """Generate a complete trading sheet for one symbol."""
-        from quantstack.signal_engine.engine import SignalEngine
-
         sheet = TradingSheet(symbol=symbol, as_of_date=as_of_date or date.today())
 
         # Run SignalEngine for full analysis
@@ -265,9 +267,6 @@ class TradingSheetGenerator:
 
         # Get raw technical data from a fresh collector run
         try:
-            from quantstack.config.timeframes import Timeframe
-            from quantstack.data.storage import DataStore
-
             store = DataStore(read_only=True)
             df = store.load_ohlcv(symbol, Timeframe.D1)
             if df is not None and len(df) >= 200:

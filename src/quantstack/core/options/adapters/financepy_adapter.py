@@ -14,11 +14,23 @@ FinancePy is a comprehensive derivatives pricing library that supports
 a wide range of instruments and models.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
 import numpy as np
 from loguru import logger
+from scipy.stats import norm
+
+from financepy.market.curves.discount_curve_flat import DiscountCurveFlat
+from financepy.models.black_scholes import BlackScholes
+from financepy.products.equity.equity_american_option import EquityAmericanOption
+from financepy.products.equity.equity_one_touch_option import EquityOneTouchOption  # noqa: F401
+from financepy.products.equity.equity_vanilla_option import EquityVanillaOption
+from financepy.utils.date import Date
+from financepy.utils.global_types import OptionTypes, TouchOptionTypes  # noqa: F401
+
+from quantstack.core.options.models import OptionType
+from quantstack.core.options.pricing import black_scholes_price
 
 # Type aliases
 OptionTypeStr = Literal["call", "put", "c", "p"]
@@ -38,26 +50,19 @@ def _normalize_option_type(option_type: OptionTypeStr) -> str:
 
 def _to_financepy_date(dt: date | datetime | str | float) -> Any:
     """Convert to FinancePy Date object."""
-    try:
-        from financepy.utils.date import Date
-
-        if isinstance(dt, float):
-            # Assume it's time to expiry in years, convert to date
-            from datetime import timedelta
-
-            expiry_date = datetime.now() + timedelta(days=int(dt * 365))
-            return Date(expiry_date.day, expiry_date.month, expiry_date.year)
-        elif isinstance(dt, str):
-            parsed = datetime.strptime(dt, "%Y-%m-%d")
-            return Date(parsed.day, parsed.month, parsed.year)
-        elif isinstance(dt, datetime):
-            return Date(dt.day, dt.month, dt.year)
-        elif isinstance(dt, date):
-            return Date(dt.day, dt.month, dt.year)
-        else:
-            raise ValueError(f"Cannot convert {type(dt)} to FinancePy Date")
-    except ImportError:
-        return dt
+    if isinstance(dt, float):
+        # Assume it's time to expiry in years, convert to date
+        expiry_date = datetime.now() + timedelta(days=int(dt * 365))
+        return Date(expiry_date.day, expiry_date.month, expiry_date.year)
+    elif isinstance(dt, str):
+        parsed = datetime.strptime(dt, "%Y-%m-%d")
+        return Date(parsed.day, parsed.month, parsed.year)
+    elif isinstance(dt, datetime):
+        return Date(dt.day, dt.month, dt.year)
+    elif isinstance(dt, date):
+        return Date(dt.day, dt.month, dt.year)
+    else:
+        raise ValueError(f"Cannot convert {type(dt)} to FinancePy Date")
 
 
 def price_vanilla_financepy(
@@ -98,12 +103,6 @@ def price_vanilla_financepy(
             return max(0.0, strike - spot)
 
     try:
-        from financepy.market.curves.discount_curve_flat import DiscountCurveFlat
-        from financepy.models.black_scholes import BlackScholes
-        from financepy.products.equity.equity_vanilla_option import EquityVanillaOption
-        from financepy.utils.date import Date
-        from financepy.utils.global_types import OptionTypes
-
         # Create dates
         today = datetime.now()
         valuation_date = Date(today.day, today.month, today.year)
@@ -149,19 +148,6 @@ def price_vanilla_financepy(
 
         return float(price)
 
-    except ImportError:
-        logger.warning("financepy not available, falling back to internal pricing")
-        return _price_internal(
-            spot,
-            strike,
-            time_to_expiry,
-            vol,
-            rate,
-            dividend_yield,
-            opt_type,
-            exercise_style,
-            num_steps,
-        )
     except Exception as e:
         logger.error(f"FinancePy pricing failed: {e}")
         return _price_internal(
@@ -175,10 +161,6 @@ def price_vanilla_financepy(
             exercise_style,
             num_steps,
         )
-
-
-# Need to import timedelta
-from datetime import timedelta  # noqa: E402
 
 
 def price_american_option(
@@ -232,14 +214,6 @@ def price_american_option(
         }
 
     try:
-        from financepy.market.curves.discount_curve_flat import DiscountCurveFlat
-        from financepy.models.black_scholes import BlackScholes
-        from financepy.products.equity.equity_american_option import (
-            EquityAmericanOption,
-        )
-        from financepy.utils.date import Date
-        from financepy.utils.global_types import OptionTypes
-
         today = datetime.now()
         valuation_date = Date(today.day, today.month, today.year)
 
@@ -272,8 +246,6 @@ def price_american_option(
         )
 
         # Get European price for comparison
-        from financepy.products.equity.equity_vanilla_option import EquityVanillaOption
-
         eu_type = (
             OptionTypes.EUROPEAN_CALL
             if opt_type == "call"
@@ -315,11 +287,6 @@ def price_american_option(
             "num_steps": num_steps,
         }
 
-    except ImportError:
-        logger.warning("financepy not available, using internal binomial tree")
-        return _price_american_binomial(
-            spot, strike, time_to_expiry, vol, rate, dividend_yield, opt_type, num_steps
-        )
     except Exception as e:
         logger.error(f"FinancePy American pricing failed: {e}")
         return _price_american_binomial(
@@ -353,9 +320,6 @@ def _price_internal(
         return result["price"]
     else:
         # Use internal Black-Scholes
-        from quantstack.core.options.models import OptionType
-        from quantstack.core.options.pricing import black_scholes_price
-
         opt_enum = OptionType.CALL if option_type == "call" else OptionType.PUT
         return black_scholes_price(
             S=spot,
@@ -424,9 +388,6 @@ def _price_american_binomial(
     american_price = option_values[0]
 
     # European price using Black-Scholes for comparison
-    from quantstack.core.options.models import OptionType
-    from quantstack.core.options.pricing import black_scholes_price
-
     opt_enum = OptionType.CALL if option_type == "call" else OptionType.PUT
     european_price = black_scholes_price(
         S=spot,
@@ -549,24 +510,8 @@ def price_barrier_option(
     """
     opt_type = _normalize_option_type(option_type)
 
-    try:
-        from financepy.market.curves.discount_curve_flat import (
-            DiscountCurveFlat,
-        )  # noqa: F401
-        from financepy.models.black_scholes import BlackScholes  # noqa: F401
-        from financepy.products.equity.equity_one_touch_option import (
-            EquityOneTouchOption,  # noqa: F401
-        )
-        from financepy.utils.date import Date  # noqa: F401
-        from financepy.utils.global_types import TouchOptionTypes  # noqa: F401
-
-        # Note: Full barrier option support requires additional FinancePy setup
-        # This is a placeholder for future implementation
-        logger.info("Barrier option pricing - using analytical approximation")
-
-    except ImportError:
-        pass
-
+    # Note: Full barrier option support requires additional FinancePy setup
+    # This is a placeholder for future implementation — using analytical approximation
     # Use analytical approximation for single barriers
     price = _price_barrier_analytical(
         spot,
@@ -603,8 +548,6 @@ def _price_barrier_analytical(
     """
     Analytical barrier option pricing using Reiner-Rubinstein formula.
     """
-    from scipy.stats import norm
-
     if time_to_expiry <= 0:
         # At expiry
         if option_type == "call":
@@ -634,9 +577,6 @@ def _price_barrier_analytical(
     lam = (r - q + sigma**2 / 2) / sigma**2
 
     # Get vanilla price first
-    from quantstack.core.options.models import OptionType
-    from quantstack.core.options.pricing import black_scholes_price
-
     opt_enum = OptionType.CALL if option_type == "call" else OptionType.PUT
     vanilla_price = black_scholes_price(S, K, T, r, sigma, opt_enum, q)
 

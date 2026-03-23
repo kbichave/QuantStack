@@ -41,6 +41,18 @@ from datetime import datetime
 
 from loguru import logger
 
+from quantstack.execution.adapters.etrade.auth import ETradeAuthManager
+from quantstack.execution.adapters.etrade.client import ETradeClient
+from quantstack.execution.adapters.etrade.models import (
+    OrderAction,
+    OrderDuration,
+    OrderLeg,
+    OrderRequest as ETradeOrderRequest,
+    OrderStatus,
+    OrderType,
+    SecurityType,
+)
+from quantstack.execution.kill_switch import get_kill_switch
 from quantstack.execution.paper_broker import Fill, OrderRequest
 from quantstack.execution.portfolio_state import Position, get_portfolio_state
 
@@ -69,16 +81,6 @@ class EtradeBroker:
     FILL_POLL_INTERVAL = 2  # seconds between status polls
 
     def __init__(self):
-        # Lazy import — only fails if etrade tools aren't available and USE_REAL_TRADING=true
-        try:
-            from quantstack.tools.etrade.auth import ETradeAuthManager
-            from quantstack.tools.etrade.client import ETradeClient
-        except ImportError as e:
-            raise RuntimeError(
-                "quant_pod.tools.etrade not found. "
-                "Set USE_REAL_TRADING=false to use PaperBroker instead."
-            ) from e
-
         self._auth = ETradeAuthManager()
         self._client = ETradeClient(self._auth)
         self._portfolio = get_portfolio_state()
@@ -129,17 +131,6 @@ class EtradeBroker:
         )
 
         try:
-            from quantstack.tools.etrade.models import (
-                OrderAction,
-                OrderDuration,
-                OrderLeg,
-                OrderType,
-                SecurityType,
-            )
-            from quantstack.tools.etrade.models import (
-                OrderRequest as ETradeOrderRequest,
-            )
-
             # Get live quote to use as reference price (override stale cached price)
             live_price = self._get_live_price(req.symbol) or req.current_price
 
@@ -305,8 +296,6 @@ class EtradeBroker:
         Market orders on equities typically fill within 1–2 seconds during
         market hours. We poll for up to FILL_TIMEOUT_SECONDS.
         """
-        from quantstack.tools.etrade.models import OrderStatus
-
         deadline = time.time() + self.FILL_TIMEOUT_SECONDS
         while time.time() < deadline:
             try:
@@ -344,8 +333,6 @@ class EtradeBroker:
         """Translate eTrade Order → internal Fill model."""
         if order is None:
             return self._reject(req, "Order object not returned from eTrade")
-
-        from quantstack.tools.etrade.models import OrderStatus
 
         if order.status in (
             OrderStatus.REJECTED,
@@ -520,8 +507,6 @@ class EtradeBroker:
         When triggered: cancel all open eTrade orders, then market-sell
         all long positions. This runs in < 5 seconds for typical portfolios.
         """
-        from quantstack.execution.kill_switch import get_kill_switch
-
         def close_all_etrade_positions() -> None:
             """Emergency close: cancel orders → market sell all longs."""
             logger.critical("[ETRADE] Kill switch triggered — closing all positions")

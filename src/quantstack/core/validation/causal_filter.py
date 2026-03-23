@@ -14,7 +14,7 @@ import pandas as pd
 from loguru import logger
 from statsmodels.tsa.stattools import grangercausalitytests
 
-from quantstack.core.research.stat_tests import adf_test
+from quantstack.core.math.stat_tests import adf_test
 
 
 @dataclass

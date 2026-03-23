@@ -30,6 +30,8 @@ from typing import Any
 
 from loguru import logger
 
+import litellm
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -201,8 +203,6 @@ class OPROLoop:
         # Try LLM generation
         candidates = []
         try:
-            import litellm
-
             response = litellm.completion(
                 model=self._engine,
                 messages=[{"role": "user", "content": meta_prompt}],
@@ -227,8 +227,6 @@ class OPROLoop:
             self._persist_candidate(candidate)
             candidates.append(candidate)
 
-        except ImportError:
-            logger.debug("[OPRO] litellm not available, skipping LLM generation")
         except Exception as exc:
             logger.warning(f"[OPRO] LLM generation failed for {node_name}: {exc}")
 

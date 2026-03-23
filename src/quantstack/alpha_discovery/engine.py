@@ -32,14 +32,24 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from quantstack.alpha_discovery.hypothesis_agent import HypothesisAgent
-
 from loguru import logger
+
+from quantstack.alpha_discovery.filter import CandidateFilter, IS_MIN_TRADES
+from quantstack.alpha_discovery.grammar_gp import GrammarGP
+from quantstack.alpha_discovery.hypothesis_agent import HypothesisAgent
+from quantstack.alpha_discovery.registrar import StrategyRegistrar
+from quantstack.alpha_discovery.search_space import ParameterGrid, get_templates_for_regime
+from quantstack.alpha_discovery.watchlist import WatchlistLoader
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.hierarchy.regime_classifier import WeeklyRegimeClassifier
+from quantstack.data.storage import DataStore
 
 
 # =============================================================================
@@ -99,8 +109,6 @@ class AlphaDiscoveryEngine:
         Args:
             symbols: Symbols to search. Defaults to WatchlistLoader output.
         """
-        import uuid
-
         run_id = uuid.uuid4().hex[:12]
         started_at = datetime.now(timezone.utc)
 
@@ -109,8 +117,6 @@ class AlphaDiscoveryEngine:
         )
 
         if symbols is None:
-            from quantstack.autonomous.watchlist import WatchlistLoader
-
             symbols = WatchlistLoader().load()
 
         result = DiscoveryResult(
@@ -165,16 +171,11 @@ class AlphaDiscoveryEngine:
             templates = self._get_templates(trend_regime)
             regime_affinity = {trend_regime: 0.8} if trend_regime != "unknown" else {}
 
-            from quantstack.alpha_discovery.filter import CandidateFilter
-            from quantstack.alpha_discovery.registrar import StrategyRegistrar
-            from quantstack.alpha_discovery.search_space import ParameterGrid
-
             filt = CandidateFilter()
             reg = StrategyRegistrar()
 
             # Collect seeds for GP: specs with sufficient trades (even if
             # they failed Sharpe/PF — structurally interesting seeds).
-            from quantstack.alpha_discovery.filter import IS_MIN_TRADES
 
             seed_specs: list[dict] = []
             grid_total_combinations = 0
@@ -290,8 +291,6 @@ class AlphaDiscoveryEngine:
             # --- GP evolution: seeded by IS survivors ---
             if self._enable_gp and len(price_data) >= 252:
                 try:
-                    from quantstack.alpha_discovery.grammar_gp import GrammarGP
-
                     gp = GrammarGP()
                     gp_survivors, gp_evals = gp.evolve(
                         seed_population=seed_specs,
@@ -366,9 +365,6 @@ class AlphaDiscoveryEngine:
     def _load_price_data(self, symbol: str) -> Any:
         """Load daily OHLCV from DataStore (read-only, no network calls)."""
         try:
-            from quantstack.config.timeframes import Timeframe
-            from quantstack.data.storage import DataStore
-
             with DataStore(read_only=True) as store:
                 df = store.load_ohlcv(symbol, Timeframe.D1)
                 if df is not None and not df.empty:
@@ -383,10 +379,6 @@ class AlphaDiscoveryEngine:
     def _detect_regime(self, price_data: Any) -> dict[str, Any]:
         """Classify regime from loaded OHLCV (no re-fetch)."""
         try:
-            from quantstack.core.hierarchy.regime.regime_classifier import (
-                WeeklyRegimeClassifier,
-            )
-
             classifier = WeeklyRegimeClassifier()
             ctx = classifier.classify(price_data)
             if ctx is None:
@@ -422,8 +414,6 @@ class AlphaDiscoveryEngine:
         The entry/exit rules here are TEMPLATES — parameter substitution
         happens in _process_symbol when iterating the ParameterGrid.
         """
-        from quantstack.alpha_discovery.search_space import get_templates_for_regime
-
         regime_templates = get_templates_for_regime(trend_regime)
         result = []
         for name, param_space in regime_templates:
@@ -678,8 +668,6 @@ def _parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    import logging
-
     logging.basicConfig(level=logging.INFO)
     args = _parse_args()
     engine = AlphaDiscoveryEngine(dry_run=args.dry_run, enable_gp=not args.no_gp)

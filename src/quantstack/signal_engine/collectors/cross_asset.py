@@ -14,6 +14,7 @@ import asyncio
 import math
 from typing import Any
 
+import pandas as pd
 from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
@@ -79,8 +80,6 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     try:
         es_df = store.load_ohlcv("ES=F", Timeframe.D1)
         if es_df is not None and len(es_df) >= _MIN_BARS:
-            import pandas as pd
-
             fb_df = FuturesBasis(roll_period=20).compute(
                 futures=es_df["close"].rename("ES"),
                 spot=spy_df["close"].rename("SPY"),
@@ -132,8 +131,6 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             else store.load_ohlcv("QQQ", Timeframe.D1)
         )
         if sym_df_rrg is not None and len(sym_df_rrg) >= 20 and len(spy_df) >= 20:
-            import pandas as pd
-
             n_rrg = min(len(sym_df_rrg), len(spy_df))
             sym_slice = sym_df_rrg.iloc[-n_rrg:].copy()
             spy_slice = spy_df.iloc[-n_rrg:].copy()

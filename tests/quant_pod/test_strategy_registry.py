@@ -13,6 +13,8 @@ import uuid
 
 import pytest
 from quantstack.context import create_trading_context
+from quantstack.mcp.server import get_strategy, list_strategies, register_strategy, update_strategy
+import quantstack.mcp._state as _mcp_state
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -28,8 +30,6 @@ def ctx():
 
 @pytest.fixture
 def _inject_ctx(ctx):
-    import quantstack.mcp._state as _mcp_state
-
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
     yield ctx
@@ -49,8 +49,6 @@ def _fn(tool_obj):
 class TestRegisterStrategy:
     @pytest.mark.asyncio
     async def test_register_returns_success(self, _inject_ctx):
-        from quantstack.mcp.server import register_strategy
-
         result = await _fn(register_strategy)(
             name="test_momentum",
             parameters={"rsi_period": 14},
@@ -72,8 +70,6 @@ class TestRegisterStrategy:
 
     @pytest.mark.asyncio
     async def test_register_with_all_fields(self, _inject_ctx):
-        from quantstack.mcp.server import register_strategy
-
         result = await _fn(register_strategy)(
             name="full_strategy",
             description="A comprehensive test strategy",
@@ -97,8 +93,6 @@ class TestRegisterStrategy:
 
     @pytest.mark.asyncio
     async def test_duplicate_name_fails(self, _inject_ctx):
-        from quantstack.mcp.server import register_strategy
-
         await _fn(register_strategy)(
             name="unique_name",
             parameters={},
@@ -136,16 +130,12 @@ class TestRegisterStrategy:
 class TestListStrategies:
     @pytest.mark.asyncio
     async def test_empty_initially(self, _inject_ctx):
-        from quantstack.mcp.server import list_strategies
-
         result = await _fn(list_strategies)()
         assert result["success"] is True
         assert result["total"] == 0
 
     @pytest.mark.asyncio
     async def test_returns_registered_strategies(self, _inject_ctx):
-        from quantstack.mcp.server import list_strategies, register_strategy
-
         await _fn(register_strategy)(
             name="s1",
             parameters={},
@@ -178,12 +168,6 @@ class TestListStrategies:
 
     @pytest.mark.asyncio
     async def test_filter_by_status(self, _inject_ctx):
-        from quantstack.mcp.server import (
-            list_strategies,
-            register_strategy,
-            update_strategy,
-        )
-
         r = await _fn(register_strategy)(
             name="s_draft",
             parameters={},
@@ -229,8 +213,6 @@ class TestListStrategies:
 class TestGetStrategy:
     @pytest.mark.asyncio
     async def test_get_by_id(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy, register_strategy
-
         r = await _fn(register_strategy)(
             name="get_test",
             parameters={"rsi_period": 14},
@@ -253,8 +235,6 @@ class TestGetStrategy:
 
     @pytest.mark.asyncio
     async def test_get_by_name(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy, register_strategy
-
         await _fn(register_strategy)(
             name="by_name_test",
             parameters={},
@@ -274,8 +254,6 @@ class TestGetStrategy:
 
     @pytest.mark.asyncio
     async def test_not_found(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy
-
         result = await _fn(get_strategy)(strategy_id="nonexistent")
         assert result["success"] is False
         assert "not found" in result["error"]
@@ -289,8 +267,6 @@ class TestGetStrategy:
 class TestUpdateStrategy:
     @pytest.mark.asyncio
     async def test_update_status(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy, register_strategy, update_strategy
-
         r = await _fn(register_strategy)(
             name="update_test",
             parameters={},
@@ -311,8 +287,6 @@ class TestUpdateStrategy:
 
     @pytest.mark.asyncio
     async def test_update_backtest_summary(self, _inject_ctx):
-        from quantstack.mcp.server import get_strategy, register_strategy, update_strategy
-
         r = await _fn(register_strategy)(
             name="bt_summary_test",
             parameters={},
@@ -337,8 +311,6 @@ class TestUpdateStrategy:
 
     @pytest.mark.asyncio
     async def test_update_no_fields_fails(self, _inject_ctx):
-        from quantstack.mcp.server import register_strategy, update_strategy
-
         r = await _fn(register_strategy)(
             name="no_fields",
             parameters={},

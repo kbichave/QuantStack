@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from loguru import logger
+from scipy import stats
 from sklearn.metrics import roc_auc_score
 
 
@@ -268,8 +269,6 @@ class DistributionTest:
         Returns:
             LeakageTestResult
         """
-        from scipy import stats
-
         if X_train.empty or X_test.empty:
             return LeakageTestResult(
                 test_name="distribution_test",
@@ -419,8 +418,6 @@ class LeakageDetector:
                 continue
 
             # KS test for distribution difference
-            from scipy import stats
-
             ks_stat, p_value = stats.ks_2samp(train_vals, test_vals)
 
             # Significant difference might indicate issue

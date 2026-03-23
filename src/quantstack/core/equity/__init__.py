@@ -37,17 +37,10 @@ from quantstack.core.equity.tuning import (
     tune_ticker_params,
 )
 
-# RL is optional (requires gymnasium + stable-baselines3)
-try:
-    from quantstack.core.equity.rl_strategy import (
-        RL_AVAILABLE,
-        EquityTradingEnv,
-        run_rl_strategy,
-    )
-except ImportError:
-    RL_AVAILABLE = False
-    EquityTradingEnv = None
-    run_rl_strategy = None
+from quantstack.core.equity.rl_strategy import (
+    EquityTradingEnv,
+    run_rl_strategy,
+)
 
 from quantstack.core.equity.pipeline import (
     run_pipeline,
@@ -74,7 +67,6 @@ __all__ = [
     # ML
     "run_ml_strategy",
     # RL
-    "RL_AVAILABLE",
     "EquityTradingEnv",
     "run_rl_strategy",
     # Tuning

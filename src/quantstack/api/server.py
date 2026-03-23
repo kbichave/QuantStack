@@ -52,6 +52,7 @@ from quantstack.audit.decision_log import (
 from quantstack.audit.models import AuditQuery
 from quantstack.db import open_db_readonly
 from quantstack.execution.broker_factory import get_broker, get_broker_mode
+from quantstack.execution.etrade_broker import get_etrade_broker
 from quantstack.execution.kill_switch import get_kill_switch
 from quantstack.execution.order_lifecycle import get_order_lifecycle
 from quantstack.execution.portfolio_state import (
@@ -681,8 +682,6 @@ def etrade_status() -> dict[str, Any]:
         }
 
     try:
-        from quantstack.execution.etrade_broker import get_etrade_broker
-
         broker = get_etrade_broker()
         status = broker.auth_status()
         status["broker_mode"] = mode
@@ -716,8 +715,6 @@ def etrade_auth(req: ETradeAuthRequest) -> dict[str, Any]:
         )
 
     try:
-        from quantstack.execution.etrade_broker import get_etrade_broker
-
         broker = get_etrade_broker()
 
         if req.verifier_code is None:
@@ -768,8 +765,6 @@ def etrade_reconcile() -> dict[str, Any]:
         )
 
     try:
-        from quantstack.execution.etrade_broker import get_etrade_broker
-
         broker = get_etrade_broker()
 
         if not broker._auth.is_authenticated():

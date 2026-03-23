@@ -17,7 +17,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 # Import shared schema types — do NOT redefine them here.
-from quantstack.crews.schemas import DailyBrief, KeyLevel, SymbolBrief  # noqa: F401
+from quantstack.shared.schemas import DailyBrief, KeyLevel, SymbolBrief  # noqa: F401
 
 
 class SignalBrief(BaseModel):

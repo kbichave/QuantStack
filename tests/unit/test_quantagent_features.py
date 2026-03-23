@@ -15,6 +15,7 @@ from quantstack.core.features.candlestick_patterns import CandlestickPatternFeat
 from quantstack.core.features.trendlines import TrendlineFeatures
 
 from tests.conftest import make_ohlcv_df
+from quantstack.core.features.factory import MultiTimeframeFeatureFactory
 
 
 class TestTrendlineFeatures:
@@ -312,8 +313,6 @@ class TestQuantAgentIntegration:
 
     def test_features_in_ml_pipeline(self):
         """Test that QuantAgent features can be used in ML pipeline."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Generate test data
         prices = np.linspace(100, 150, 100)
         df = make_ohlcv_df(prices.tolist())
@@ -363,8 +362,6 @@ class TestQuantAgentIntegration:
 
     def test_multitrimeframe_context_injection(self):
         """Test that QuantAgent features are injected to lower timeframes."""
-        from quantstack.core.features.factory import MultiTimeframeFeatureFactory
-
         # Generate data for multiple timeframes
         prices_h1 = np.linspace(100, 150, 200)
         prices_h4 = np.linspace(100, 150, 50)

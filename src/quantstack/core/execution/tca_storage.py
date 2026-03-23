@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import duckdb
 from loguru import logger
 
 from quantstack.core.execution.tca_engine import (
@@ -57,13 +58,6 @@ class TCAStore:
     """
 
     def __init__(self, db_path: str | None = None) -> None:
-        try:
-            import duckdb
-        except ImportError as exc:
-            raise ImportError(
-                "duckdb is required for TCAStore. Install it with: pip install duckdb"
-            ) from exc
-
         resolved_path = db_path or str(_DEFAULT_DB_PATH)
 
         # Ensure parent directory exists for file-backed databases

@@ -14,6 +14,7 @@ from quantstack.optimization.trajectory_evolution import (
     TrajectoryEvolution,
     TrajectorySegment,
 )
+import uuid
 
 
 @pytest.fixture
@@ -43,7 +44,6 @@ def _make_trajectory(
     hypothesis_fitness: float = 0.6,
     feature_fitness: float = 0.4,
 ) -> Trajectory:
-    import uuid
     return Trajectory(
         trajectory_id=str(uuid.uuid4()),
         generation=generation,

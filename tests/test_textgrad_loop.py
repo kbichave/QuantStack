@@ -16,6 +16,7 @@ from quantstack.optimization.textgrad_loop import (
     PromptProposal,
     TextGradOptimizer,
 )
+from quantstack.optimization.credit_assignment import StepCredit
 
 
 @pytest.fixture
@@ -67,8 +68,6 @@ class TestBuildChain:
 
 class TestBackwardPass:
     def test_focuses_on_worst_step(self, optimizer):
-        from quantstack.optimization.credit_assignment import StepCredit
-
         chain = optimizer.build_chain(_make_trade())
         worst = StepCredit("regime", "shifted", -0.5, "heuristic", "Regime shifted")
 
@@ -80,7 +79,6 @@ class TestBackwardPass:
 
     def test_heuristic_fallback_when_no_litellm(self, optimizer):
         chain = optimizer.build_chain(_make_trade())
-        from quantstack.optimization.credit_assignment import StepCredit
         worst = StepCredit("regime", "shifted", -0.5, "heuristic", "Regime shifted")
 
         # This will use heuristic fallback since litellm may not have API keys

@@ -188,14 +188,13 @@ from quantstack.mcp.tools.ml import (  # noqa: E402, F401
     predict_ml_signal,
 )
 from quantstack.mcp.tools.learning import (  # noqa: E402, F401
-    get_rl_status,
-    get_rl_recommendation,
     promote_strategy,
     retire_strategy,
     get_strategy_performance,
     validate_strategy,
     update_regime_matrix_from_performance,
 )
+import quantstack.mcp.tools.finrl_tools  # noqa: E402, F401
 from quantstack.mcp.tools.feedback import (  # noqa: E402, F401
     get_fill_quality,
     get_position_monitor,
@@ -214,6 +213,7 @@ from quantstack.mcp.tools.portfolio import (  # noqa: E402, F401
     compute_hrp_weights,
 )
 from quantstack.mcp.tools.nlp import analyze_text_sentiment  # noqa: E402, F401
+import quantstack.mcp.tools.coordination  # noqa: E402, F401
 
 # --- Research tools (formerly quantcore MCP) ---
 import quantstack.mcp.tools.qc_data  # noqa: E402, F401

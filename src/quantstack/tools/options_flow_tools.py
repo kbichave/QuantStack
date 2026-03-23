@@ -39,19 +39,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
+import httpx
 from loguru import logger
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
 
-try:
-    from quantstack.crewai_compat import BaseTool
-
-    _CREWAI_AVAILABLE = True
-except ImportError:
-    _CREWAI_AVAILABLE = False
-    BaseTool = object
+from quantstack.crewai_compat import BaseTool
 
 
 # =============================================================================
@@ -192,8 +187,6 @@ class OptionsFlowClient:
     def _fetch_chain(self, symbol: str) -> list[dict]:
         """Fetch raw options chain from Alpha Vantage."""
         try:
-            import httpx
-
             params = {
                 "function": "REALTIME_OPTIONS",
                 "symbol": symbol.upper(),
@@ -233,9 +226,7 @@ class OptionsFlowClient:
         """Parse raw Alpha Vantage options contracts, filtering by expiry and volume."""
         contracts = []
         today = date.today()
-        cutoff = (
-            datetime.today() + __import__("datetime").timedelta(days=expiry_within_days)
-        ).date()
+        cutoff = (datetime.today() + timedelta(days=expiry_within_days)).date()
 
         for row in raw_chain:
             try:
@@ -416,9 +407,7 @@ class OptionsFlowClient:
 
 
 def _make_options_flow_tool():
-    """Factory for the CrewAI OptionsFlowTool — avoids import-time crash if crewai absent."""
-    if not _CREWAI_AVAILABLE:
-        return None
+    """Factory for the CrewAI OptionsFlowTool."""
 
     class OptionsFlowInput(PydanticBaseModel):
         symbol: str = PydanticField(
@@ -460,8 +449,6 @@ def _make_options_flow_tool():
 
 def _make_put_call_ratio_tool():
     """Factory for the CrewAI PutCallRatioTool."""
-    if not _CREWAI_AVAILABLE:
-        return None
 
     class PCRInput(PydanticBaseModel):
         symbol: str = PydanticField(..., description="Ticker symbol")
@@ -509,19 +496,11 @@ def _make_put_call_ratio_tool():
     return PutCallRatioTool
 
 
-# Instantiate tools — only if crewai is available
-_OptionsFlowToolClass = _make_options_flow_tool()
-_PutCallRatioToolClass = _make_put_call_ratio_tool()
-
-OptionsFlowTool = _OptionsFlowToolClass() if _OptionsFlowToolClass else None
-PutCallRatioTool = _PutCallRatioToolClass() if _PutCallRatioToolClass else None
+# Instantiate tools
+OptionsFlowTool = _make_options_flow_tool()()
+PutCallRatioTool = _make_put_call_ratio_tool()()
 
 
 def get_options_tools() -> list:
-    """Return all available options flow tools for agent registration."""
-    tools = []
-    if OptionsFlowTool is not None:
-        tools.append(OptionsFlowTool)
-    if PutCallRatioTool is not None:
-        tools.append(PutCallRatioTool)
-    return tools
+    """Return all options flow tools for agent registration."""
+    return [OptionsFlowTool, PutCallRatioTool]

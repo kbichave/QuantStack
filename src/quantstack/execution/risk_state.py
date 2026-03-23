@@ -36,6 +36,7 @@ Usage:
 
 from __future__ import annotations
 
+import json as _json
 from dataclasses import dataclass, field
 from threading import RLock
 
@@ -109,8 +110,6 @@ class RiskState:
 
         Called once at session start; subsequent updates via apply_fill().
         """
-        from quantstack.execution.portfolio_state import PortfolioState  # noqa: F401
-
         snapshot = portfolio.get_snapshot()
         db_positions = portfolio.get_positions()
 
@@ -328,8 +327,6 @@ class RiskState:
 
         Called periodically by the background flusher, never in the hot path.
         """
-        import json as _json
-
         with self._lock:
             conn.execute(
                 """

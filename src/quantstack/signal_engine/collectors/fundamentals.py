@@ -23,6 +23,25 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.earnings_signals import (
+    AnalystRevisionSignals,
+    EarningsSurpriseSignals,
+)
+from quantstack.core.features.fundamental import (
+    AssetGrowthAnomaly,
+    BeneishMScore,
+    EarningsMomentumComposite,
+    FCFYield,
+    NovyMarxGP,
+    OperatingLeverage,
+    PiotroskiFScore,
+    QualityMomentumComposite,
+    RevenueAcceleration,
+    SloanAccruals,
+)
+from quantstack.core.features.insider_signals import InsiderSignals
+from quantstack.core.features.institutional_signals import LSVHerding
 from quantstack.data.storage import DataStore
 
 
@@ -182,8 +201,6 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
         # so the class can run without modification.
         if "gross_profit" in df.columns and "total_assets" in df.columns:
             try:
-                from quantstack.core.features.fundamental import NovyMarxGP
-
                 gp_input = df.copy()
                 if (
                     "cost_of_revenue" not in gp_input.columns
@@ -200,8 +217,6 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
         # AssetGrowthAnomaly: total_assets growth rate
         if "total_assets" in df.columns:
             try:
-                from quantstack.core.features.fundamental import AssetGrowthAnomaly
-
                 ag_df = AssetGrowthAnomaly().compute(df)
                 result["asset_growth"] = _sf(ag_df["asset_growth"].iloc[-1])
             except Exception as exc:
@@ -212,8 +227,6 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
         # RevenueAcceleration: QoQ revenue growth delta
         if "revenue" in df.columns and len(df) >= 4:
             try:
-                from quantstack.core.features.fundamental import RevenueAcceleration
-
                 ra_df = RevenueAcceleration().compute(df)
                 result["revenue_acceleration"] = _sf(
                     ra_df["revenue_acceleration"].iloc[-1]
@@ -233,8 +246,6 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
             )
             if ebitda_col:
                 try:
-                    from quantstack.core.features.fundamental import OperatingLeverage
-
                     ol_input = df.copy()
                     if ebitda_col != "ebitda":
                         ol_input["ebitda"] = ol_input[ebitda_col]
@@ -252,8 +263,6 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
             for c in ("net_income", "operating_cash_flow", "total_assets")
         ):
             try:
-                from quantstack.core.features.fundamental import SloanAccruals
-
                 sloan_df = SloanAccruals().compute(df)
                 result["sloan_accruals"] = _sf(sloan_df["accruals"].iloc[-1])
                 result["sloan_accruals_high"] = int(sloan_df["accruals_high"].iloc[-1])
@@ -267,8 +276,6 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
             try:
                 mcap = result.get("market_cap")
                 if mcap:
-                    from quantstack.core.features.fundamental import FCFYield
-
                     fcf_input = df.copy()
                     fcf_input["market_cap"] = mcap
                     fcf_df = FCFYield().compute(fcf_input)
@@ -291,8 +298,6 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
         )
         if all(c in df.columns for c in _piotroski_cols) and len(df) >= 2:
             try:
-                from quantstack.core.features.fundamental import PiotroskiFScore
-
                 pio_input = df.copy()
                 if (
                     "cost_of_revenue" not in pio_input.columns
@@ -330,8 +335,6 @@ def _add_statement_signals(symbol: str, store: DataStore, result: dict) -> None:
         )
         if all(c in df.columns for c in _beneish_cols) and len(df) >= 5:
             try:
-                from quantstack.core.features.fundamental import BeneishMScore
-
                 ben_df = BeneishMScore().compute(df)
                 result["beneish_m_score"] = _sf(ben_df["m_score"].iloc[-1])
                 result["beneish_manipulation"] = int(
@@ -390,8 +393,6 @@ def _add_analyst_signals(symbol: str, store: DataStore, result: dict) -> None:
         if "analyst_count" not in mapped.columns:
             mapped["analyst_count"] = 1  # fallback
 
-        from quantstack.core.features.earnings_signals import AnalystRevisionSignals
-
         rev_df = AnalystRevisionSignals().compute(mapped)
 
         rev_mom = rev_df["revision_momentum"].dropna()
@@ -444,8 +445,6 @@ def _add_insider_signals(symbol: str, store: DataStore, result: dict) -> None:
             mapped["price"] = 1.0
         if "is_plan_trade" not in mapped.columns:
             mapped["is_plan_trade"] = False
-
-        from quantstack.core.features.insider_signals import InsiderSignals
 
         ins_df = InsiderSignals().compute(mapped)
 
@@ -524,8 +523,6 @@ def _add_herding_signals(symbol: str, store: DataStore, result: dict) -> None:
         if len(period_df) < 4:
             return
 
-        from quantstack.core.features.institutional_signals import LSVHerding
-
         herding_df = LSVHerding().compute(period_df)
 
         last = herding_df.iloc[-1]
@@ -579,8 +576,6 @@ def _add_earnings_surprise_signals(symbol: str, store: DataStore, result: dict) 
         if len(earnings_df) < 4:
             return
 
-        from quantstack.core.features.earnings_signals import EarningsSurpriseSignals
-
         sue_df = EarningsSurpriseSignals().compute(earnings_df)
 
         last = sue_df.iloc[-1]
@@ -619,14 +614,10 @@ def _add_composite_signals(symbol: str, store: DataStore, result: dict) -> None:
             return
         df = _expand_json_blob(df)
 
-        from quantstack.config.timeframes import Timeframe
-
         price_df = store.load_ohlcv(symbol, Timeframe.D1)
         if price_df is None or price_df.empty:
             return
         price_series = price_df["close"]
-
-        from quantstack.core.features.fundamental import QualityMomentumComposite
 
         qm_df = QualityMomentumComposite().compute(df, price_series)
         if not qm_df.empty:
@@ -651,14 +642,10 @@ def _add_composite_signals(symbol: str, store: DataStore, result: dict) -> None:
         if earnings_df is None or earnings_df.empty or len(earnings_df) < 2:
             return
 
-        from quantstack.config.timeframes import Timeframe
-
         price_df = store.load_ohlcv(symbol, Timeframe.D1)
         if price_df is None or price_df.empty:
             return
         price_series = price_df["close"]
-
-        from quantstack.core.features.fundamental import EarningsMomentumComposite
 
         em_df = EarningsMomentumComposite().compute(earnings_df, price_series)
         if not em_df.empty:

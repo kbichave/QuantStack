@@ -12,6 +12,11 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.data.acquisition_pipeline import ALL_PHASES, AcquisitionPipeline
+from quantstack.data.adapters.alpaca import AlpacaAdapter
+from quantstack.data.fetcher import AlphaVantageClient
+from quantstack.data.storage import DataStore
+from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
 from quantstack.mcp.server import mcp
 
 
@@ -48,14 +53,6 @@ async def acquire_historical_data(
         }
     """
     try:
-        from quantstack.data.acquisition_pipeline import (
-            ALL_PHASES,
-            AcquisitionPipeline,
-        )
-        from quantstack.data.fetcher import AlphaVantageClient
-        from quantstack.data.storage import DataStore
-        from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
-
         selected_phases = phases or list(ALL_PHASES)
         selected_symbols = (
             [s.upper() for s in symbols]
@@ -91,8 +88,6 @@ async def acquire_historical_data(
 
         alpaca = None
         try:
-            from quantstack.data.adapters.alpaca import AlpacaAdapter
-
             alpaca = AlpacaAdapter()
         except Exception:
             pass

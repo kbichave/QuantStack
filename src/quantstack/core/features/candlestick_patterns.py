@@ -21,14 +21,7 @@ from loguru import logger
 from quantstack.config.timeframes import Timeframe
 from quantstack.core.features.base import FeatureBase
 
-# Import TA-Lib (optional dependency)
-try:
-    import talib
-
-    TALIB_AVAILABLE = True
-except ImportError:
-    TALIB_AVAILABLE = False
-    logger.warning("TA-Lib not available, candlestick patterns will be disabled")
+import talib
 
 
 class CandlestickPatternFeatures(FeatureBase):
@@ -70,13 +63,6 @@ class CandlestickPatternFeatures(FeatureBase):
         Returns:
             DataFrame with pattern features added
         """
-        if not TALIB_AVAILABLE:
-            result = df.copy()
-            # Add dummy columns
-            for col in self.get_feature_names():
-                result[col] = 0
-            return result
-
         result = df.copy()
 
         if len(result) < 10:

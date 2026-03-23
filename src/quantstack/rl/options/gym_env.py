@@ -14,24 +14,8 @@ from loguru import logger
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="gym")
 
-try:
-    import gymnasium as gym
-    from gymnasium import spaces
-
-    GYM_AVAILABLE = True
-except ImportError:
-    try:
-        # Fallback to gym if gymnasium not available
-        import gym
-        from gym import spaces
-
-        GYM_AVAILABLE = True
-        logger.info("Using legacy gym instead of gymnasium")
-    except ImportError:
-        GYM_AVAILABLE = False
-        logger.warning(
-            "Neither gymnasium nor gym available. Install with: pip install gymnasium"
-        )
+import gymnasium as gym
+from gymnasium import spaces
 
 
 class OptionsTradingEnv(gym.Env):
@@ -89,11 +73,6 @@ class OptionsTradingEnv(gym.Env):
             render_mode: Rendering mode
         """
         super().__init__()
-
-        if not GYM_AVAILABLE:
-            raise ImportError(
-                "Gymnasium is required. Install with: pip install gymnasium"
-            )
 
         self.data = data.copy()
         self.features = features.copy()

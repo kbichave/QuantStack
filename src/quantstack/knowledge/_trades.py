@@ -4,6 +4,7 @@
 """Trades mixin — Trade, observation, and signal CRUD for KnowledgeStore."""
 
 import json
+import uuid
 from datetime import datetime, timedelta
 
 import duckdb
@@ -229,8 +230,6 @@ class TradesMixin:
 
     def save_signal(self, signal: TradingSignal) -> str:
         """Save a trading signal."""
-        import uuid
-
         if signal.id is None:
             signal.id = str(uuid.uuid4())[:8]
 

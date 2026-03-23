@@ -20,14 +20,8 @@ from quantstack.core.strategy.base import (
     TargetPosition,
 )
 
-try:
-    from sklearn.ensemble import GradientBoostingClassifier
-    from sklearn.preprocessing import StandardScaler
-
-    SKLEARN_AVAILABLE = True
-except ImportError:
-    SKLEARN_AVAILABLE = False
-    logger.warning("scikit-learn not available. ML strategy will use fallback.")
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.preprocessing import StandardScaler
 
 
 @dataclass
@@ -95,10 +89,6 @@ class MLDirectionStrategy(Strategy):
         Returns:
             Training metrics
         """
-        if not SKLEARN_AVAILABLE:
-            logger.error("scikit-learn not available for training")
-            return {"error": "sklearn not available"}
-
         # Select features
         if self.feature_columns:
             X = X[self.feature_columns]
@@ -393,10 +383,6 @@ def train_with_proper_split(
     Returns:
         Dictionary with train/val/test metrics
     """
-    if not SKLEARN_AVAILABLE:
-        logger.error("scikit-learn not available for training")
-        return {"error": "sklearn not available"}
-
     X, y = prepare_ml_dataset(df, target_column=target_column)
 
     if X.empty or y.empty:
@@ -489,9 +475,6 @@ def tune_ml_hyperparameters(
     Returns:
         Best parameters dictionary
     """
-    if not SKLEARN_AVAILABLE:
-        return {"n_estimators": 100, "max_depth": 5, "learning_rate": 0.1}
-
     param_grid = param_grid or {
         "n_estimators": [50, 100, 200],
         "max_depth": [3, 5, 7],

@@ -37,15 +37,24 @@ import pytz
 from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
+from quantstack.context import create_trading_context
+from quantstack.core.execution.async_execution_loop import AsyncExecutionLoop
+from quantstack.core.execution.fill_tracker import FillEvent, FillTracker
+from quantstack.core.execution.risk_gate import PreTradeRiskGate
+from quantstack.core.execution.smart_order_router import SmartOrderRouter
 from quantstack.data.storage import DataStore
 from quantstack.data.streaming.base import BarEvent
 from quantstack.data.streaming.incremental_features import IncrementalFeatureEngine
 from quantstack.data.streaming.live_store import LiveBarStore
 from quantstack.data.streaming.publisher import BarPublisher
-from quantstack.core.execution.fill_tracker import FillEvent, FillTracker
-
+from quantstack.execution.kill_switch import get_kill_switch
+from quantstack.execution.paper_broker import OrderRequest, get_paper_broker
 from quantstack.intraday.position_manager import IntradayPositionManager
 from quantstack.intraday.signal_evaluator import IntradaySignalEvaluator
+
+from quantstack.data.streaming.alpaca_stream import AlpacaStreamingAdapter
+from quantstack.data.streaming.polygon_stream import PolygonStreamingAdapter
+from quantstack.data.streaming.ibkr_stream import IBKRStreamingAdapter
 
 ET = pytz.timezone("US/Eastern")
 
@@ -178,8 +187,6 @@ class LiveIntradayLoop:
             symbol: str, side: str, quantity: float, reason: str
         ) -> dict:
             """Submit an exit order through the paper broker."""
-            from quantstack.execution.paper_broker import OrderRequest, get_paper_broker
-
             broker = get_paper_broker()
             req = OrderRequest(
                 symbol=symbol,
@@ -208,8 +215,6 @@ class LiveIntradayLoop:
         # Kill switch
         def kill_switch_active() -> bool:
             try:
-                from quantstack.execution.kill_switch import get_kill_switch
-
                 return get_kill_switch().is_active()
             except Exception:
                 return False
@@ -233,10 +238,6 @@ class LiveIntradayLoop:
         )
 
         # Execution loop (reuse existing AsyncExecutionLoop)
-        from quantstack.core.execution.async_execution_loop import AsyncExecutionLoop
-        from quantstack.core.execution.risk_gate import PreTradeRiskGate
-        from quantstack.core.execution.smart_order_router import SmartOrderRouter
-
         risk_gate = PreTradeRiskGate()
         router = SmartOrderRouter(
             alpaca_broker=None,
@@ -392,33 +393,13 @@ class LiveIntradayLoop:
     def _create_adapter(self):
         """Create the streaming adapter for the configured provider."""
         if self._provider == "alpaca":
-            try:
-                from quantstack.data.streaming.alpaca_stream import AlpacaStreamingAdapter
-
-                return AlpacaStreamingAdapter()
-            except ImportError:
-                logger.error("[IntradayLoop] alpaca-py not installed")
-                return None
+            return AlpacaStreamingAdapter()
 
         elif self._provider == "polygon":
-            try:
-                from quantstack.data.streaming.polygon_stream import (
-                    PolygonStreamingAdapter,
-                )
-
-                return PolygonStreamingAdapter()
-            except ImportError:
-                logger.error("[IntradayLoop] polygon not configured")
-                return None
+            return PolygonStreamingAdapter()
 
         elif self._provider == "ibkr":
-            try:
-                from quantstack.data.streaming.ibkr_stream import IBKRStreamingAdapter
-
-                return IBKRStreamingAdapter()
-            except ImportError:
-                logger.error("[IntradayLoop] ib_insync not installed")
-                return None
+            return IBKRStreamingAdapter()
 
         elif self._provider in ("paper", "replay"):
             return None
@@ -431,8 +412,6 @@ class LiveIntradayLoop:
     def _load_strategies(self) -> list[dict]:
         """Load active intraday strategies from the strategy DB."""
         try:
-            from quantstack.context import create_trading_context
-
             ctx = create_trading_context(db_path=self._db_path or ":memory:")
             rows = ctx.db.execute(
                 "SELECT * FROM strategies WHERE status IN ('live', 'forward_testing') "

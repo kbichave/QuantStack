@@ -30,6 +30,7 @@ The 6 former "Groq exception" conditions are now handled with explicit rules:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any
@@ -213,8 +214,6 @@ def _strategies_for_regime(strategies: list[dict], trend_regime: str) -> list[di
     for strat in strategies:
         affinity = strat.get("regime_affinity", [])
         if isinstance(affinity, str):
-            import json
-
             try:
                 affinity = json.loads(affinity)
             except (ValueError, TypeError):

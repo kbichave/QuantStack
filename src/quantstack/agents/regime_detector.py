@@ -29,6 +29,8 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
+from quantstack.data.provider import get_provider
+
 
 class RegimeDetectorAgent:
     """
@@ -290,8 +292,6 @@ class RegimeDetectorAgent:
     def _fetch_bars(self, symbol: str) -> list[dict]:
         """Fetch OHLCV bars from the active DataProvider."""
         try:
-            from quantstack.data.provider import get_provider
-
             provider = get_provider()
             bars_obj = provider.get_bars(symbol, interval="1d", limit=300)
             return [

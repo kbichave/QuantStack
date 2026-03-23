@@ -23,6 +23,7 @@ from tests.conftest import (
     make_v_shape_ohlcv,
     make_w_shape_ohlcv,
 )
+from tests.conftest import make_monotonic_downtrend
 
 # =============================================================================
 # Fixtures
@@ -273,8 +274,6 @@ class TestZigZagMonotonic:
 
         Scenario: Steady price decrease with no bounces.
         """
-        from tests.conftest import make_monotonic_downtrend
-
         df = make_monotonic_downtrend(start_price=100, end_price=70, n_bars=30)
         df = add_atr_column(df, period=14)
 

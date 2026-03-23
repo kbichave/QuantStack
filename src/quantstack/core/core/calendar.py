@@ -33,17 +33,7 @@ from loguru import logger
 
 from quantstack.core.core.errors import CalendarError
 
-# Try to import exchange_calendars, fall back to basic implementation
-try:
-    import exchange_calendars as xcals
-
-    XCALS_AVAILABLE = True
-except ImportError:
-    XCALS_AVAILABLE = False
-    logger.warning(
-        "exchange_calendars not installed. Using basic calendar implementation. "
-        "Install with: pip install exchange_calendars"
-    )
+import exchange_calendars as xcals
 
 
 # Exchange name mappings to exchange_calendars codes
@@ -128,9 +118,7 @@ class TradingCalendar:
         self.default_exchange = default_exchange
         self._calendars: dict[str, any] = {}
 
-        # Load calendars if exchange_calendars is available
-        if XCALS_AVAILABLE:
-            self._load_calendars()
+        self._load_calendars()
 
     def _load_calendars(self) -> None:
         """Load exchange calendars from exchange_calendars package."""
@@ -167,8 +155,7 @@ class TradingCalendar:
         if dt.weekday() >= 5:
             return False
 
-        # Use exchange_calendars if available
-        if XCALS_AVAILABLE and exchange in self._calendars:
+        if exchange in self._calendars:
             cal = self._calendars[exchange]
             try:
                 return cal.is_session(dt)
@@ -216,8 +203,7 @@ class TradingCalendar:
                 end=str(end),
             )
 
-        # Use exchange_calendars if available
-        if XCALS_AVAILABLE and exchange in self._calendars:
+        if exchange in self._calendars:
             cal = self._calendars[exchange]
             try:
                 sessions = cal.sessions_in_range(start, end)
@@ -256,8 +242,7 @@ class TradingCalendar:
         if isinstance(dt, datetime):
             dt = dt.date()
 
-        # Use exchange_calendars if available
-        if XCALS_AVAILABLE and exchange in self._calendars:
+        if exchange in self._calendars:
             cal = self._calendars[exchange]
             try:
                 next_session = cal.next_session(dt)
@@ -300,8 +285,7 @@ class TradingCalendar:
         if isinstance(dt, datetime):
             dt = dt.date()
 
-        # Use exchange_calendars if available
-        if XCALS_AVAILABLE and exchange in self._calendars:
+        if exchange in self._calendars:
             cal = self._calendars[exchange]
             try:
                 prev_session = cal.previous_session(dt)
@@ -341,21 +325,9 @@ class TradingCalendar:
         exchange = exchange or self.default_exchange
         self._validate_exchange(exchange)
 
-        # Use exchange_calendars for early close detection if available
-        if XCALS_AVAILABLE and exchange in self._calendars:
-            cal = self._calendars[exchange]
-            try:
-                if isinstance(dt, datetime):
-                    dt = dt.date()
-
-                if cal.is_session(dt):
-                    open_dt = cal.session_open(dt)
-                    close_dt = cal.session_close(dt)
-                    return (open_dt.time(), close_dt.time())
-            except Exception:
-                pass
-
-        # Return standard session times
+        # Return standard session times (exchange local time)
+        # exchange_calendars returns UTC, so we use our static table instead
+        # to guarantee local-time semantics expected by callers.
         return SESSION_TIMES.get(exchange, SESSION_TIMES["NYSE"])
 
     def trading_days_between(

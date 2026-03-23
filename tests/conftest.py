@@ -13,18 +13,21 @@ This conftest.py is automatically loaded by pytest and provides:
 from __future__ import annotations
 
 import asyncio
-import sys
 import uuid
 from collections.abc import Generator
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import numpy as np
 import pandas as pd
 import pytest
 
-# Ensure src is in path for imports
-src_path = Path(__file__).parent.parent / "src"
-if str(src_path) not in sys.path:
-    sys.path.insert(0, str(src_path))
+import quantstack.db as _db
+import quantstack.execution.portfolio_state as _ps
+import quantstack.execution.risk_gate as _rg
+import quantstack.mcp._state as _mcp_state
+from quantstack.context import create_trading_context
+from quantstack.execution.tick_executor import TickExecutor
 
 
 # =============================================================================
@@ -105,8 +108,6 @@ def trading_ctx():
             trading_ctx.portfolio.adjust_cash(-1000)
             ...
     """
-    from quantstack.context import create_trading_context
-
     ctx = create_trading_context(
         db_path=":memory:",
         initial_cash=100_000.0,
@@ -158,10 +159,6 @@ def tick_executor(trading_ctx):
     fill_queue is an asyncio.Queue(maxsize=100).  Drain it in tests that
     submit orders to verify fill contents.
     """
-    import asyncio
-
-    from quantstack.execution.tick_executor import TickExecutor
-
     fill_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
     executor = TickExecutor(
         signal_cache=trading_ctx.signal_cache,
@@ -182,11 +179,9 @@ def reset_singletons_and_seeds() -> Generator[None, None, None]:
     _risk_gate and _portfolio_state singletons, causing later tests to see
     stale state (wrong initial_cash, leftover positions, etc.).
     """
-    import numpy as np
-
     np.random.seed(42)
     try:
-        import torch
+        import torch  # noqa: F811 — conditional import; torch may not be installed
         torch.manual_seed(42)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(42)
@@ -197,16 +192,12 @@ def reset_singletons_and_seeds() -> Generator[None, None, None]:
 
     # Reset ALL module-level singletons so tests are fully isolated.
     # Without this, earlier tests pollute global state for later tests.
-    import quantstack.execution.risk_gate as _rg
-    import quantstack.execution.portfolio_state as _ps
-    import quantstack.db as _db
     _rg._risk_gate = None
     _ps._portfolio_state = None
     _ps._portfolio_state_ro = None
     _db._managed = None
 
     try:
-        import quantstack.mcp._state as _mcp_state
         _mcp_state._ctx = None
         _mcp_state._degraded = False
         _mcp_state._degraded_reason = ""
@@ -217,9 +208,6 @@ def reset_singletons_and_seeds() -> Generator[None, None, None]:
 @pytest.fixture
 def sample_ohlcv_df():
     """Create a sample OHLCV DataFrame for testing."""
-    import numpy as np
-    import pandas as pd
-
     n_bars = 100
     np.random.seed(42)
 
@@ -247,8 +235,6 @@ def sample_ohlcv_df():
 @pytest.fixture
 def mock_settings():
     """Create mock settings for testing."""
-    from unittest.mock import MagicMock
-
     settings = MagicMock()
     settings.market_timezone = "America/New_York"
     settings.database_path = ":memory:"

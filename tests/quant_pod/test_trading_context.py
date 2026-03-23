@@ -27,6 +27,7 @@ from quantstack.context import TradingContext, create_trading_context
 from quantstack.execution.portfolio_state import Position
 from quantstack.execution.signal_cache import TradeSignal
 from quantstack.execution.tick_executor import Tick, TickExecutor
+import quantstack.db as _db
 
 # =============================================================================
 # Fixtures
@@ -67,7 +68,6 @@ class TestTradingContextWiring:
 
     def test_two_contexts_are_isolated(self):
         """Two in-memory contexts do not share data."""
-        import quantstack.db as _db
         a = create_trading_context(db_path=":memory:", initial_cash=50_000.0)
         _db._managed = None  # reset singleton so b gets a fresh connection
         b = create_trading_context(db_path=":memory:", initial_cash=200_000.0)

@@ -28,6 +28,9 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.coordination.event_bus import Event, EventType
+from quantstack.coordination.slack_client import SlackClient
+
 
 @dataclass
 class EnforcementResult:
@@ -166,8 +169,6 @@ class DegradationEnforcer:
     def _post_slack_alert(self, severity: str, title: str, detail: str) -> None:
         """Post degradation alert to Slack #alerts."""
         try:
-            from quantstack.coordination.slack_client import SlackClient
-
             SlackClient().post_alert(severity, title, detail)
         except Exception as exc:
             logger.debug(f"[DegradationEnforcer] Slack alert failed: {exc}")
@@ -183,8 +184,6 @@ class DegradationEnforcer:
         if not self._bus:
             return
         try:
-            from quantstack.coordination.event_bus import Event, EventType
-
             self._bus.publish(
                 Event(
                     event_type=EventType.DEGRADATION_DETECTED,

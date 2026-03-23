@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 from scipy.optimize import OptimizeResult, minimize
+from sklearn.covariance import LedoitWolf
 
 
 class OptimizationObjective(str, Enum):
@@ -464,8 +465,6 @@ class MeanVarianceOptimizer:
         Schafer-Strimmer constant-correlation shrinkage otherwise.
         """
         try:
-            from sklearn.covariance import LedoitWolf
-
             lw = LedoitWolf().fit(
                 np.random.multivariate_normal(
                     np.zeros(len(symbols)), sigma, size=max(100, 10 * len(symbols))
@@ -528,8 +527,6 @@ def covariance_matrix(
 
     if shrinkage:
         try:
-            from sklearn.covariance import LedoitWolf
-
             lw = LedoitWolf()
             lw.fit(returns.fillna(0))
             cov_arr = lw.covariance_

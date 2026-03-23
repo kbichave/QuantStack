@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 from quantstack.rl.base import Action
 from quantstack.rl.spread.environment import SpreadEnvironment
+import logging
 
 
 @pytest.fixture
@@ -153,8 +154,6 @@ class TestSpreadEnvironmentWarnings:
 
     def test_warning_logged_for_missing_wti_brent(self, minimal_spread_data, caplog):
         """Warning should be logged when WTI/Brent columns missing."""
-        import logging
-
         caplog.set_level(logging.WARNING)
 
         env = SpreadEnvironment(spread_data=minimal_spread_data)
@@ -172,8 +171,6 @@ class TestSpreadEnvironmentWarnings:
 
     def test_warning_for_synthetic_data(self, caplog):
         """Warning should be logged when using synthetic spread data."""
-        import logging
-
         caplog.set_level(logging.WARNING)
 
         # Create environment without data
@@ -523,8 +520,6 @@ class TestSpreadEnvironmentValidation:
 
     def test_warns_on_nan_values(self, caplog):
         """Should warn if spread has NaN values."""
-        import logging
-
         caplog.set_level(logging.WARNING)
 
         dates = pd.date_range("2020-01-01", periods=250, freq="D")

@@ -52,6 +52,8 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.db import db_conn, open_db_readonly
+
 
 # =============================================================================
 # Learning hyperparameters — documented with reasoning
@@ -104,26 +106,24 @@ class OutcomeTracker:
         after a buy fill succeeds.
         """
         try:
-            from quantstack.mcp._state import require_ctx
-
-            ctx = require_ctx()
-            ctx.db.execute(
-                """
-                INSERT INTO strategy_outcomes
-                    (strategy_id, symbol, regime_at_entry, action,
-                     entry_price, opened_at, session_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    strategy_id,
-                    symbol,
-                    regime,
-                    action,
-                    price,
-                    datetime.now(timezone.utc),
-                    session_id,
-                ],
-            )
+            with db_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO strategy_outcomes
+                        (strategy_id, symbol, regime_at_entry, action,
+                         entry_price, opened_at, session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        strategy_id,
+                        symbol,
+                        regime,
+                        action,
+                        price,
+                        datetime.now(timezone.utc),
+                        session_id,
+                    ],
+                )
         except Exception as exc:
             logger.debug(f"[OutcomeTracker] record_entry failed (non-critical): {exc}")
 
@@ -141,52 +141,49 @@ class OutcomeTracker:
         Called by execute_trade after a sell fill succeeds.
         """
         try:
-            from quantstack.mcp._state import require_ctx
+            with db_conn() as conn:
+                # Find the most recent open (unclosed) row
+                row = conn.execute(
+                    """
+                    SELECT id, entry_price
+                    FROM strategy_outcomes
+                    WHERE strategy_id = ?
+                      AND symbol = ?
+                      AND closed_at IS NULL
+                    ORDER BY opened_at DESC
+                    LIMIT 1
+                    """,
+                    [strategy_id, symbol],
+                ).fetchone()
 
-            ctx = require_ctx()
+                if row is None:
+                    return
 
-            # Find the most recent open (unclosed) row
-            row = ctx.db.execute(
-                """
-                SELECT id, entry_price
-                FROM strategy_outcomes
-                WHERE strategy_id = ?
-                  AND symbol = ?
-                  AND closed_at IS NULL
-                ORDER BY opened_at DESC
-                LIMIT 1
-                """,
-                [strategy_id, symbol],
-            ).fetchone()
+                row_id, entry_price = row
 
-            if row is None:
-                return
+                # Compute P&L if not provided
+                if realized_pnl_pct is None and entry_price and entry_price > 0:
+                    realized_pnl_pct = (exit_price - entry_price) / entry_price * 100.0
 
-            row_id, entry_price = row
+                outcome = _classify_outcome(realized_pnl_pct)
 
-            # Compute P&L if not provided
-            if realized_pnl_pct is None and entry_price and entry_price > 0:
-                realized_pnl_pct = (exit_price - entry_price) / entry_price * 100.0
-
-            outcome = _classify_outcome(realized_pnl_pct)
-
-            ctx.db.execute(
-                """
-                UPDATE strategy_outcomes
-                SET exit_price       = ?,
-                    realized_pnl_pct = ?,
-                    outcome          = ?,
-                    closed_at        = ?
-                WHERE id = ?
-                """,
-                [
-                    exit_price,
-                    realized_pnl_pct,
-                    outcome,
-                    datetime.now(timezone.utc),
-                    row_id,
-                ],
-            )
+                conn.execute(
+                    """
+                    UPDATE strategy_outcomes
+                    SET exit_price       = ?,
+                        realized_pnl_pct = ?,
+                        outcome          = ?,
+                        closed_at        = ?
+                    WHERE id = ?
+                    """,
+                    [
+                        exit_price,
+                        realized_pnl_pct,
+                        outcome,
+                        datetime.now(timezone.utc),
+                        row_id,
+                    ],
+                )
         except Exception as exc:
             logger.debug(f"[OutcomeTracker] record_exit failed (non-critical): {exc}")
 
@@ -268,8 +265,6 @@ class OutcomeTracker:
     def _load_outcomes(self, strategy_id: str) -> list[dict[str, Any]]:
         """Load all closed outcome rows for a strategy."""
         try:
-            from quantstack.db import open_db_readonly
-
             conn = open_db_readonly()
             rows = conn.execute(
                 """
@@ -298,8 +293,6 @@ class OutcomeTracker:
     def _load_affinity(self, strategy_id: str) -> dict[str, float] | None:
         """Load current regime_affinity for a strategy. Returns None if not found."""
         try:
-            from quantstack.db import open_db_readonly
-
             conn = open_db_readonly()
             row = conn.execute(
                 "SELECT regime_affinity FROM strategies WHERE strategy_id = ?",
@@ -325,18 +318,16 @@ class OutcomeTracker:
         The MCP tool is just a DuckDB write under the hood — same effect.
         """
         try:
-            from quantstack.mcp._state import require_ctx
-
-            ctx = require_ctx()
-            ctx.db.execute(
-                """
-                UPDATE strategies
-                SET regime_affinity = ?,
-                    updated_at      = ?
-                WHERE strategy_id = ?
-                """,
-                [json.dumps(affinity), datetime.now(timezone.utc), strategy_id],
-            )
+            with db_conn() as conn:
+                conn.execute(
+                    """
+                    UPDATE strategies
+                    SET regime_affinity = ?,
+                        updated_at      = ?
+                    WHERE strategy_id = ?
+                    """,
+                    [json.dumps(affinity), datetime.now(timezone.utc), strategy_id],
+                )
             logger.debug(
                 f"[OutcomeTracker] wrote regime_affinity for {strategy_id}: {affinity}"
             )

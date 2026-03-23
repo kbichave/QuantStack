@@ -22,6 +22,7 @@ SMTDivergence           – Smart Money Technique divergence between two correla
 
 import numpy as np
 import pandas as pd
+import pytz
 
 
 class FairValueGapDetector:
@@ -748,8 +749,6 @@ class SilverBullet:
     def _in_silver_bullet_window(self, index: pd.DatetimeIndex) -> pd.Series:
         """Return boolean Series: True when bar is in 10–11 AM NY ET."""
         if index.tz is not None:
-            import pytz
-
             ny_tz = pytz.timezone("America/New_York")
             local_hours = index.tz_convert(ny_tz).hour
         else:

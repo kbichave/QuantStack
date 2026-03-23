@@ -35,13 +35,11 @@ Usage:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
 
 import duckdb
 from loguru import logger
 
-if TYPE_CHECKING:
-    from quantstack.coordination.event_bus import EventBus
+from quantstack.coordination.event_bus import Event, EventBus, EventType
 
 
 # Valid FSM transitions
@@ -136,8 +134,6 @@ class StrategyStatusLock:
 
         # Publish event
         if self._bus:
-            from quantstack.coordination.event_bus import Event, EventType
-
             if new_status == "retired":
                 event_type = EventType.STRATEGY_RETIRED
             elif new_status == "forward_testing" and expected_status == "live":

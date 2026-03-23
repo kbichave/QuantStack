@@ -5,6 +5,8 @@
 
 import numpy as np
 import pandas as pd
+from datetime import time as dt_time
+from quantstack.core.microstructure.liquidity import LiquidityAnalyzer, SpreadEstimator
 
 
 class TestLiquidityAnalysis:
@@ -12,8 +14,6 @@ class TestLiquidityAnalysis:
 
     def test_spread_estimation(self):
         """Test Corwin-Schultz spread estimator."""
-        from quantstack.core.microstructure.liquidity import SpreadEstimator
-
         # Create OHLC data with known spread
         np.random.seed(42)
         n = 100
@@ -28,8 +28,6 @@ class TestLiquidityAnalysis:
 
     def test_liquidity_score(self):
         """Test liquidity scoring."""
-        from quantstack.core.microstructure.liquidity import LiquidityAnalyzer
-
         # Create test data with sufficient bars for rolling calculations
         np.random.seed(42)
         n = 100
@@ -82,8 +80,6 @@ class TestTradingCalendar:
         market_close = "16:00"
 
         # Parse times
-        from datetime import time as dt_time
-
         open_time = dt_time(int(market_open[:2]), int(market_open[3:]))
         close_time = dt_time(int(market_close[:2]), int(market_close[3:]))
 

@@ -29,9 +29,14 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
+import json
+
 import duckdb
 import numpy as np
 from loguru import logger
+
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 
 
 # The vote keys that synthesis.py uses
@@ -177,8 +182,6 @@ class WeightLearner:
                 "SELECT profiles_json FROM synthesis_weights ORDER BY effective_date DESC LIMIT 1"
             ).fetchone()
             if row and row[0]:
-                import json
-
                 return json.loads(row[0])
         except Exception:
             pass
@@ -237,9 +240,6 @@ class WeightLearner:
             }
 
         try:
-            from sklearn.linear_model import LogisticRegression
-            from sklearn.preprocessing import StandardScaler
-
             # Only use non-zero-variance features
             X_filtered = X[:, non_zero_cols]
             active_keys = [k for k, keep in zip(_VOTE_KEYS, non_zero_cols) if keep]
@@ -314,13 +314,6 @@ class WeightLearner:
                 "active_features": active_keys,
             }
 
-        except ImportError:
-            logger.warning("[WeightLearner] sklearn not available — using defaults")
-            return _DEFAULT_PROFILES.get(regime, _DEFAULT_PROFILES["unknown"]), {
-                "source": "default",
-                "reason": "sklearn_missing",
-                "n_trades": len(trades),
-            }
         except Exception as exc:
             logger.warning(
                 f"[WeightLearner] {regime}: fit failed ({exc}) — using defaults"
@@ -357,11 +350,9 @@ class WeightLearner:
 
             trades = []
             for r in rows:
-                import json as _json
-
-                technical = _json.loads(r[5]) if r[5] else {}
-                regime = _json.loads(r[6]) if r[6] else {}
-                sentiment = _json.loads(r[7]) if r[7] else {}
+                technical = json.loads(r[5]) if r[5] else {}
+                regime = json.loads(r[6]) if r[6] else {}
+                sentiment = json.loads(r[7]) if r[7] else {}
 
                 # Reconstruct vote scores from raw signal data
                 signal_snapshot = self._reconstruct_votes(technical, regime, sentiment)
@@ -475,8 +466,6 @@ class WeightLearner:
         effective_date: date,
     ) -> None:
         """Store versioned weights in DuckDB."""
-        import json
-
         try:
             self._conn.execute(
                 """

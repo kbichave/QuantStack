@@ -9,6 +9,7 @@ Provides tools for agents to store and retrieve memories.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from pydantic import BaseModel, Field
@@ -172,8 +173,6 @@ Use this to catch up on recent observations or decisions."""
         limit: int = 10,
     ) -> str:
         """Get recent memories."""
-        import asyncio
-
         try:
             cat = MemoryCategory(category)
         except ValueError:

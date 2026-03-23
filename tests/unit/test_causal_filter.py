@@ -10,6 +10,7 @@ from quantstack.core.validation.causal_filter import (
     CausalTestResult,
     _compute_binned_te,
 )
+from quantstack.core.validation.orthogonalization import FeatureOrthogonalizer
 
 
 @pytest.fixture
@@ -320,8 +321,6 @@ class TestOrthogonalizerIntegration:
 
     def test_orthogonalizer_with_causal_filter(self, rng):
         """FeatureOrthogonalizer with use_causal_filter=True chains correctly."""
-        from quantstack.core.validation.orthogonalization import FeatureOrthogonalizer
-
         n = 500
         idx = _make_index(n)
         feat, y = _make_causal_pair(n, idx, lag=1, signal_strength=0.8)
@@ -342,8 +341,6 @@ class TestOrthogonalizerIntegration:
 
     def test_orthogonalizer_without_causal_backward_compat(self, rng):
         """FeatureOrthogonalizer without causal filter works as before (no y needed)."""
-        from quantstack.core.validation.orthogonalization import FeatureOrthogonalizer
-
         n = 200
         idx = _make_index(n)
         X = pd.DataFrame(
@@ -358,8 +355,6 @@ class TestOrthogonalizerIntegration:
 
     def test_orthogonalizer_causal_requires_y(self, rng):
         """FeatureOrthogonalizer with use_causal_filter=True raises without y."""
-        from quantstack.core.validation.orthogonalization import FeatureOrthogonalizer
-
         n = 200
         idx = _make_index(n)
         X = pd.DataFrame({"feat": rng.standard_normal(n)}, index=idx)

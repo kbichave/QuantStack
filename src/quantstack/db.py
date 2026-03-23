@@ -306,6 +306,19 @@ def run_migrations(conn: ManagedConnection | duckdb.DuckDBPyConnection) -> None:
         raise
 
 
+def _alter_safe(
+    conn: duckdb.DuckDBPyConnection,
+    table: str,
+    column: str,
+    col_type: str,
+) -> None:
+    """Add a column if it doesn't already exist. Swallows 'already exists' errors."""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+    except duckdb.CatalogException:
+        pass  # column already exists
+
+
 def _migrate_portfolio(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         """
@@ -348,6 +361,26 @@ def _migrate_portfolio(conn: duckdb.DuckDBPyConnection) -> None:
     """
     )
     conn.execute("CREATE SEQUENCE IF NOT EXISTS closed_trades_seq START 1")
+
+    # v2 — position metadata for autonomous trading loop (strategy context + exit levels)
+    _alter_safe(conn, "positions", "strategy_id", "VARCHAR DEFAULT ''")
+    _alter_safe(conn, "positions", "regime_at_entry", "VARCHAR DEFAULT 'unknown'")
+    _alter_safe(conn, "positions", "instrument_type", "VARCHAR DEFAULT 'equity'")
+    _alter_safe(conn, "positions", "time_horizon", "VARCHAR DEFAULT 'swing'")
+    _alter_safe(conn, "positions", "stop_price", "DOUBLE")
+    _alter_safe(conn, "positions", "target_price", "DOUBLE")
+    _alter_safe(conn, "positions", "trailing_stop", "DOUBLE")
+    _alter_safe(conn, "positions", "entry_atr", "DOUBLE")
+    _alter_safe(conn, "positions", "option_expiry", "VARCHAR")
+    _alter_safe(conn, "positions", "option_strike", "DOUBLE")
+    _alter_safe(conn, "positions", "option_type", "VARCHAR")
+
+    # v2 — closed trade attribution + exit reasoning
+    _alter_safe(conn, "closed_trades", "strategy_id", "VARCHAR DEFAULT ''")
+    _alter_safe(conn, "closed_trades", "regime_at_entry", "VARCHAR DEFAULT 'unknown'")
+    _alter_safe(conn, "closed_trades", "regime_at_exit", "VARCHAR DEFAULT 'unknown'")
+    _alter_safe(conn, "closed_trades", "exit_reason", "VARCHAR DEFAULT ''")
+    _alter_safe(conn, "closed_trades", "instrument_type", "VARCHAR DEFAULT 'equity'")
 
 
 def _migrate_broker(conn: duckdb.DuckDBPyConnection) -> None:

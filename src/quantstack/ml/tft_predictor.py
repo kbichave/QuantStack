@@ -23,14 +23,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-try:
-    import torch
-    import torch.nn as nn
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    logger.warning("PyTorch not available. Install with: pip install torch")
+import torch
+import torch.nn as nn
 
 
 HORIZONS = [1, 5, 20]  # forward return horizons in trading days
@@ -40,88 +34,87 @@ HORIZONS = [1, 5, 20]  # forward return horizons in trading days
 # Model
 # ---------------------------------------------------------------------------
 
-if TORCH_AVAILABLE:
 
-    class TFTReturnModel(nn.Module):
+class TFTReturnModel(nn.Module):
+    """
+    Simplified TFT for multi-horizon return regression.
+
+    Architecture mirrors SimpleTFTModel (tft_regime.py):
+      feature_embed -> LSTM -> MultiheadAttention -> GRN -> regression head
+    """
+
+    def __init__(
+        self,
+        n_features: int,
+        hidden_size: int = 64,
+        n_heads: int = 4,
+        n_layers: int = 2,
+        n_horizons: int = 3,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.n_features = n_features
+        self.hidden_size = hidden_size
+
+        # Feature embedding
+        self.feature_embed = nn.Linear(n_features, hidden_size)
+
+        # LSTM encoder
+        self.lstm = nn.LSTM(
+            hidden_size,
+            hidden_size,
+            n_layers,
+            batch_first=True,
+            dropout=dropout if n_layers > 1 else 0,
+        )
+
+        # Multi-head attention
+        self.attention = nn.MultiheadAttention(
+            hidden_size, n_heads, dropout=dropout, batch_first=True
+        )
+
+        # Gated residual network
+        self.grn = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.ELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, hidden_size),
+        )
+        self.gate = nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.Sigmoid(),
+        )
+        self.layer_norm = nn.LayerNorm(hidden_size)
+
+        # Regression head: one output per horizon
+        self.regression_head = nn.Linear(hidden_size, n_horizons)
+
+        # Learnable feature importance
+        self.feature_weights = nn.Parameter(torch.ones(n_features))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Simplified TFT for multi-horizon return regression.
+        Forward pass.
 
-        Architecture mirrors SimpleTFTModel (tft_regime.py):
-          feature_embed -> LSTM -> MultiheadAttention -> GRN -> regression head
+        Args:
+            x: Input tensor [batch, seq_len, n_features]
+
+        Returns:
+            Predicted returns [batch, n_horizons]
         """
+        weighted_x = x * self.feature_weights.unsqueeze(0).unsqueeze(0)
+        embedded = self.feature_embed(weighted_x)
 
-        def __init__(
-            self,
-            n_features: int,
-            hidden_size: int = 64,
-            n_heads: int = 4,
-            n_layers: int = 2,
-            n_horizons: int = 3,
-            dropout: float = 0.1,
-        ):
-            super().__init__()
-            self.n_features = n_features
-            self.hidden_size = hidden_size
+        lstm_out, _ = self.lstm(embedded)
 
-            # Feature embedding
-            self.feature_embed = nn.Linear(n_features, hidden_size)
+        attn_out, _ = self.attention(lstm_out, lstm_out, lstm_out)
 
-            # LSTM encoder
-            self.lstm = nn.LSTM(
-                hidden_size,
-                hidden_size,
-                n_layers,
-                batch_first=True,
-                dropout=dropout if n_layers > 1 else 0,
-            )
+        grn_out = self.grn(attn_out)
+        gate_out = self.gate(attn_out)
+        gated = self.layer_norm(attn_out + gate_out * grn_out)
 
-            # Multi-head attention
-            self.attention = nn.MultiheadAttention(
-                hidden_size, n_heads, dropout=dropout, batch_first=True
-            )
-
-            # Gated residual network
-            self.grn = nn.Sequential(
-                nn.Linear(hidden_size, hidden_size),
-                nn.ELU(),
-                nn.Dropout(dropout),
-                nn.Linear(hidden_size, hidden_size),
-            )
-            self.gate = nn.Sequential(
-                nn.Linear(hidden_size, hidden_size),
-                nn.Sigmoid(),
-            )
-            self.layer_norm = nn.LayerNorm(hidden_size)
-
-            # Regression head: one output per horizon
-            self.regression_head = nn.Linear(hidden_size, n_horizons)
-
-            # Learnable feature importance
-            self.feature_weights = nn.Parameter(torch.ones(n_features))
-
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            """
-            Forward pass.
-
-            Args:
-                x: Input tensor [batch, seq_len, n_features]
-
-            Returns:
-                Predicted returns [batch, n_horizons]
-            """
-            weighted_x = x * self.feature_weights.unsqueeze(0).unsqueeze(0)
-            embedded = self.feature_embed(weighted_x)
-
-            lstm_out, _ = self.lstm(embedded)
-
-            attn_out, _ = self.attention(lstm_out, lstm_out, lstm_out)
-
-            grn_out = self.grn(attn_out)
-            gate_out = self.gate(attn_out)
-            gated = self.layer_norm(attn_out + gate_out * grn_out)
-
-            final = gated[:, -1, :]
-            return self.regression_head(final)
+        final = gated[:, -1, :]
+        return self.regression_head(final)
 
 
 # ---------------------------------------------------------------------------
@@ -199,10 +192,6 @@ class TFTReturnPredictor:
         Returns:
             Training metrics: {train_mse, train_mae}.
         """
-        if not TORCH_AVAILABLE:
-            logger.error("PyTorch required for TFT training")
-            return {"train_mse": float("nan"), "train_mae": float("nan")}
-
         if len(X) < 20:
             logger.warning(f"Insufficient samples for TFT training: {len(X)}")
             return {"train_mse": float("nan"), "train_mae": float("nan")}
@@ -307,7 +296,7 @@ class TFTReturnPredictor:
 
     def save(self, path: str) -> None:
         """Save model state to disk."""
-        if not TORCH_AVAILABLE or self.model is None:
+        if self.model is None:
             raise RuntimeError("No model to save")
 
         save_path = Path(path)
@@ -329,9 +318,6 @@ class TFTReturnPredictor:
 
     def load(self, path: str) -> None:
         """Load model state from disk."""
-        if not TORCH_AVAILABLE:
-            raise RuntimeError("PyTorch required to load model")
-
         state = torch.load(str(path), map_location="cpu", weights_only=False)
         self.n_features = state["n_features"]
         self.sequence_length = state["sequence_length"]

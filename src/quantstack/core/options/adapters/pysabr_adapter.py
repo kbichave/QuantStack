@@ -21,6 +21,9 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from loguru import logger
+from scipy.optimize import minimize
+
+from pysabr import Hagan2002LognormalSABR, hagan_2002_lognormal_sabr
 
 
 @dataclass
@@ -106,68 +109,58 @@ def fit_sabr_surface(
         rho0 = -0.3  # Typical negative correlation
         volvol0 = 0.5
 
-    try:
-        from pysabr import Hagan2002LognormalSABR, hagan_2002_lognormal_sabr
+    # Fit SABR using pysabr's calibration
+    sabr = Hagan2002LognormalSABR(
+        f=forward,
+        shift=0,
+        t=time_to_expiry,
+        beta=beta,
+    )
 
-        # Fit SABR using pysabr's calibration
-        sabr = Hagan2002LognormalSABR(
-            f=forward,
-            shift=0,
-            t=time_to_expiry,
-            beta=beta,
-        )
+    # Calibrate to market vols
+    # pysabr.fit() expects vols as percentages (e.g. 22.0 for 22%)
+    # but lognormal_vol() returns decimals (0.22)
+    alpha, rho, volvol = sabr.fit(strikes, market_vols * 100)
 
-        # Calibrate to market vols
-        alpha, rho, volvol = sabr.fit(strikes, market_vols)
+    # Create params object
+    params = SABRParams(
+        alpha=alpha,
+        beta=beta,
+        rho=rho,
+        volvol=volvol,
+        forward=forward,
+        time_to_expiry=time_to_expiry,
+    )
 
-        # Create params object
-        params = SABRParams(
-            alpha=alpha,
-            beta=beta,
-            rho=rho,
-            volvol=volvol,
-            forward=forward,
-            time_to_expiry=time_to_expiry,
-        )
+    # Calculate fitted vols and residuals
+    fitted_vols = np.array(
+        [
+            hagan_2002_lognormal_sabr.lognormal_vol(
+                k, forward, time_to_expiry, alpha, beta, rho, volvol
+            )
+            for k in strikes
+        ]
+    )
 
-        # Calculate fitted vols and residuals
-        fitted_vols = np.array(
-            [
-                hagan_2002_lognormal_sabr(
-                    k, forward, time_to_expiry, alpha, beta, rho, volvol
-                )
-                for k in strikes
-            ]
-        )
+    residuals = market_vols - fitted_vols
+    rmse = np.sqrt(np.mean(residuals**2))
+    ss_res = np.sum(residuals**2)
+    ss_tot = np.sum((market_vols - np.mean(market_vols)) ** 2)
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
-        residuals = market_vols - fitted_vols
-        rmse = np.sqrt(np.mean(residuals**2))
-        ss_res = np.sum(residuals**2)
-        ss_tot = np.sum((market_vols - np.mean(market_vols)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
-
-        return {
-            "params": params,
-            "params_dict": params.to_dict(),
-            "fit_quality": {
-                "r_squared": float(r_squared),
-                "rmse": float(rmse),
-                "n_points": len(strikes),
-            },
-            "fitted_vols": fitted_vols.tolist(),
-            "residuals": residuals.tolist(),
-            "strikes": strikes.tolist(),
-            "market_vols": market_vols.tolist(),
-        }
-
-    except ImportError:
-        logger.warning("pysabr not available, using scipy-based fitting")
-        return _fit_sabr_scipy(
-            strikes, market_vols, forward, time_to_expiry, beta, alpha0, rho0, volvol0
-        )
-    except Exception as e:
-        logger.error(f"SABR fitting failed: {e}")
-        raise
+    return {
+        "params": params,
+        "params_dict": params.to_dict(),
+        "fit_quality": {
+            "r_squared": float(r_squared),
+            "rmse": float(rmse),
+            "n_points": len(strikes),
+        },
+        "fitted_vols": fitted_vols.tolist(),
+        "residuals": residuals.tolist(),
+        "strikes": strikes.tolist(),
+        "market_vols": market_vols.tolist(),
+    }
 
 
 def _fit_sabr_scipy(
@@ -181,8 +174,6 @@ def _fit_sabr_scipy(
     volvol0: float,
 ) -> dict[str, Any]:
     """Fallback SABR fitting using scipy optimization."""
-    from scipy.optimize import minimize
-
     def sabr_vol_hagan(k, f, t, alpha, beta, rho, nu):
         """Hagan et al. (2002) SABR approximation formula."""
         if k <= 0 or f <= 0 or t <= 0 or alpha <= 0:
@@ -334,20 +325,11 @@ def interpolate_sabr_vol(
     if forward is None or time_to_expiry is None:
         raise ValueError("forward and time_to_expiry must be provided")
 
-    try:
-        from pysabr import hagan_2002_lognormal_sabr
-
-        return float(
-            hagan_2002_lognormal_sabr(
-                strike, forward, time_to_expiry, alpha, beta, rho, volvol
-            )
-        )
-
-    except ImportError:
-        # Use internal Hagan formula
-        return _hagan_sabr_vol(
+    return float(
+        hagan_2002_lognormal_sabr.lognormal_vol(
             strike, forward, time_to_expiry, alpha, beta, rho, volvol
         )
+    )
 
 
 def _hagan_sabr_vol(k, f, t, alpha, beta, rho, nu):

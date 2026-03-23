@@ -15,6 +15,9 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 
+import numpy as np
+import pandas as pd
+
 
 def serialize_for_json(obj: Any, *, max_rows: int = 500) -> Any:
     """Recursively convert *obj* to JSON-safe Python primitives.
@@ -49,31 +52,21 @@ def serialize_for_json(obj: Any, *, max_rows: int = 500) -> Any:
     if isinstance(obj, datetime):
         return obj.isoformat()
 
-    # NumPy — lazy import so shared stays lightweight
-    try:
-        import numpy as np
+    # NumPy
+    if isinstance(obj, (np.integer, np.floating)):
+        return float(obj)
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
 
-        if isinstance(obj, (np.integer, np.floating)):
-            return float(obj)
-        if isinstance(obj, np.bool_):
-            return bool(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-    except ImportError:
-        pass
-
-    # Pandas — lazy import
-    try:
-        import pandas as pd
-
-        if isinstance(obj, pd.DataFrame):
-            return obj.head(max_rows).to_dict(orient="records")
-        if isinstance(obj, pd.Series):
-            return obj.to_dict()
-        if isinstance(obj, pd.Timestamp):
-            return obj.isoformat()
-    except ImportError:
-        pass
+    # Pandas
+    if isinstance(obj, pd.DataFrame):
+        return obj.head(max_rows).to_dict(orient="records")
+    if isinstance(obj, pd.Series):
+        return obj.to_dict()
+    if isinstance(obj, pd.Timestamp):
+        return obj.isoformat()
 
     # Containers — recurse
     if isinstance(obj, dict):

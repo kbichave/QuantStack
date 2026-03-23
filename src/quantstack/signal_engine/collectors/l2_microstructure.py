@@ -43,6 +43,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+from ib_insync import IB, Stock
+
 
 # ---------------------------------------------------------------------------
 # Kyle's Lambda (OHLCV-based proxy, always available)
@@ -136,8 +138,6 @@ def _fetch_ibkr_book(symbol: str, n_levels: int = 5) -> dict | None:
     Returns None if IBKR is unavailable or L2 data fails.
     """
     try:
-        from ib_insync import IB, Stock
-
         host = os.environ.get("IBKR_HOST", "127.0.0.1")
         port = int(os.environ.get("IBKR_PORT", "4001"))
         client_id = int(

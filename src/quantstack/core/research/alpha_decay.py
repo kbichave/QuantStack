@@ -10,6 +10,7 @@ Analyzes the decay of predictive signals over time:
 
 from dataclasses import dataclass
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from loguru import logger
@@ -256,8 +257,6 @@ class AlphaDecayAnalyzer:
             ax: Matplotlib axis (creates new figure if None)
             title: Plot title
         """
-        import matplotlib.pyplot as plt
-
         if self.results is None:
             raise ValueError("Run analyze() first")
 

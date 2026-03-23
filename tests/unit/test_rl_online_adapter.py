@@ -15,6 +15,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+from quantstack.rl.online_adapter import PostTradeRLAdapter
 
 
 def _make_config(max_updates=10, min_buffer=0, degradation=0.80):
@@ -38,8 +39,6 @@ def _make_kill_switch(active=False):
 
 
 def _make_adapter(max_updates=10, min_buffer=0, kill_active=False):
-    from quantstack.rl.online_adapter import PostTradeRLAdapter
-
     cfg = _make_config(max_updates=max_updates, min_buffer=min_buffer)
     ks = _make_kill_switch(active=kill_active)
     return PostTradeRLAdapter(cfg, ks)

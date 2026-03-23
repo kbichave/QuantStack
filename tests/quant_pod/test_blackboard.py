@@ -137,8 +137,6 @@ class TestClear:
         assert bb.read_recent(limit=100) == []
 
     def test_clear_before_date(self, bb):
-        from datetime import date
-
         bb.write("IC", "SPY", "old", sim_date=date(2024, 1, 1))
         bb.write("IC", "SPY", "new", sim_date=date(2025, 1, 1))
         bb.clear_before_date(date(2024, 6, 1))

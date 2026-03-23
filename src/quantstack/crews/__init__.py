@@ -9,7 +9,7 @@ This package now exports only the Pydantic schemas (used system-wide)
 and the decoder/registry modules (pure Python, no CrewAI).
 """
 
-from quantstack.crews.schemas import (
+from quantstack.shared.schemas import (
     AnalysisNote,
     DailyBrief,
     KeyLevel,

@@ -4,6 +4,7 @@
 """Learning mixin — Historical arena, lessons, prompts, A/B tests, portfolio snapshots."""
 
 import json
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -438,8 +439,6 @@ class LearningMixin:
         Returns:
             lesson_id
         """
-        import uuid
-
         lesson_id = lesson.get("lesson_id") or str(uuid.uuid4())[:12]
         applies_to = lesson.get("applies_to", [])
         if isinstance(applies_to, list):
@@ -562,8 +561,6 @@ class LearningMixin:
         Returns:
             proposal_id
         """
-        import uuid
-
         proposal_id = proposal.get("proposal_id") or str(uuid.uuid4())[:12]
 
         self.conn.execute(
@@ -630,8 +627,6 @@ class LearningMixin:
         Returns:
             test_id
         """
-        import uuid
-
         test_id = test.get("test_id") or str(uuid.uuid4())[:12]
 
         self.conn.execute(
@@ -903,8 +898,6 @@ class LearningMixin:
         Returns:
             Win rate as float (0.0-1.0) or None if insufficient data
         """
-        from quantstack.knowledge.models import TradeStatus
-
         # Get recent closed trades
         trades = self.get_trades(limit=window * 2)  # Get extra to ensure enough closed
 

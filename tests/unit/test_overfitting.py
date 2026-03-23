@@ -20,6 +20,7 @@ from quantstack.core.research.overfitting import (
     probability_of_backtest_overfitting,
     run_overfitting_analysis,
 )
+import pandas as pd
 
 # ---------------------------------------------------------------------------
 # benchmark_sharpe_ratio
@@ -158,8 +159,6 @@ class TestPBO:
 
 class TestRunOverfittingAnalysis:
     def _returns(self):
-        import pandas as pd
-
         rng = np.random.default_rng(42)
         return pd.Series(rng.standard_normal(252) * 0.01)
 

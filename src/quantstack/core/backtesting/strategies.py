@@ -730,9 +730,11 @@ def backtest_rl_spread_strategy(
         try:
             if hasattr(spread_agent, "select_action"):
                 state_arr = np.array([zscore, 0, 0, 0, position, 0, 0, 0, 0, 0, 0, 0])
-                from quantstack.rl.base import State
-
-                state = State(continuous=state_arr[: spread_agent.state_dim])
+                # Protocol-compatible state: avoids importing rl.base (L5) from core.backtesting (L4).
+                # RL agents call state.features and state.to_tensor() — SimpleNamespace suffices
+                # since select_action only reads .features in the deterministic path.
+                _feats = state_arr[: spread_agent.state_dim]
+                state = type("_State", (), {"features": _feats, "dim": len(_feats), "metadata": {}})()
                 action = spread_agent.select_action(state, deterministic=True)
                 action_idx = int(action.value)
             else:
@@ -808,8 +810,6 @@ def backtest_rl_enhanced_strategy(
         # Only compute sizing for new entries
         if sizing_agent and base_signal != 0 and position == 0:
             try:
-                from quantstack.rl.base import State
-
                 state_arr = np.array(
                     [
                         abs(zscore) / 3,
@@ -824,7 +824,9 @@ def backtest_rl_enhanced_strategy(
                         0.5,
                     ]
                 )
-                state = State(continuous=state_arr[: sizing_agent.state_dim])
+                # Protocol-compatible state: avoids importing rl.base (L5) from core.backtesting (L4).
+                _feats = state_arr[: sizing_agent.state_dim]
+                state = type("_State", (), {"features": _feats, "dim": len(_feats), "metadata": {}})()
                 action = sizing_agent.select_action(state, deterministic=True)
                 size_scale = float(action.value) if hasattr(action, "value") else 0.5
                 size_scale = max(0.25, min(1.0, size_scale))

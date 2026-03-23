@@ -497,9 +497,6 @@ def run_paper_trading(
     Returns:
         Final status
     """
-    from quantstack.data.storage import DataStore
-    from quantstack.data.universe import UniverseManager
-
     data_store = DataStore()
     universe = UniverseManager()
 

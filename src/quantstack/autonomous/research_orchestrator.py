@@ -37,13 +37,28 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
+import uuid as _uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
 
 import duckdb
 from loguru import logger
+
+from quantstack.alpha_discovery.engine import AlphaDiscoveryEngine
+from quantstack.autonomous.judge import HypothesisJudge
+from quantstack.autonomous.strategy_lifecycle import StrategyLifecycle
+from quantstack.autonomous.watchdog import Watchdog
+from quantstack.ml.training_service import train_model
+from quantstack.optimization.textgrad_loop import TextGradOptimizer
+from quantstack.performance.benchmark import BenchmarkTracker
+from quantstack.performance.equity_tracker import EquityTracker
+from quantstack.performance.weight_learner import WeightLearner
+from quantstack.research.alpha_researcher import AlphaResearcher
+from quantstack.research.execution_researcher import ExecutionResearcher
+from quantstack.research.ml_scientist import MLScientist
 
 
 @dataclass
@@ -103,8 +118,6 @@ class ResearchOrchestrator:
 
         # Step 1: Equity snapshot
         try:
-            from quantstack.performance.equity_tracker import EquityTracker
-
             tracker = EquityTracker(self._conn)
             tracker.snapshot_daily()
             report.steps_completed.append("equity_snapshot")
@@ -114,8 +127,6 @@ class ResearchOrchestrator:
 
         # Step 2: Benchmark update
         try:
-            from quantstack.performance.benchmark import BenchmarkTracker
-
             bench = BenchmarkTracker(self._conn)
             bench.update_benchmark("SPY")
             report.steps_completed.append("benchmark_update")
@@ -125,8 +136,6 @@ class ResearchOrchestrator:
 
         # Step 3: Watchdog health check
         try:
-            from quantstack.autonomous.watchdog import Watchdog
-
             wdog = Watchdog(self._conn)
             health = await wdog.run_once()
             if health.overall_status == "CRITICAL":
@@ -144,8 +153,6 @@ class ResearchOrchestrator:
 
         # Step 4: Alpha Researcher → hypotheses
         try:
-            from quantstack.research.alpha_researcher import AlphaResearcher
-
             researcher = AlphaResearcher(self._conn)
             plan = await researcher.generate_plan()
             report.hypotheses_generated = len(plan.hypotheses)
@@ -160,8 +167,6 @@ class ResearchOrchestrator:
         # Step 4.5: Hypothesis Judge — gate before expensive backtests (QuantAgent inner loop)
         if plan and plan.hypotheses:
             try:
-                from quantstack.autonomous.judge import HypothesisJudge
-
                 judge = HypothesisJudge(self._conn)
                 approved = []
                 rejected = 0
@@ -204,8 +209,6 @@ class ResearchOrchestrator:
 
         # Step 6: TextGrad — critique losing trades + failed research (TextGrad, Nature 2024)
         try:
-            from quantstack.optimization.textgrad_loop import TextGradOptimizer
-
             textgrad = TextGradOptimizer(self._conn)
             trade_proposals = textgrad.run_daily(date.today())
             if trade_proposals:
@@ -237,8 +240,6 @@ class ResearchOrchestrator:
 
         # Step 1: ML Scientist
         try:
-            from quantstack.research.ml_scientist import MLScientist
-
             scientist = MLScientist(self._conn)
             ml_plan = await scientist.generate_plan()
             report.experiments_designed = len(ml_plan.experiments)
@@ -262,8 +263,6 @@ class ResearchOrchestrator:
 
         # Step 3: Learn synthesis weights
         try:
-            from quantstack.performance.weight_learner import WeightLearner
-
             learner = WeightLearner(self._conn)
             learner.learn_weights(lookback_days=90)
             report.steps_completed.append("weight_learning")
@@ -273,8 +272,6 @@ class ResearchOrchestrator:
 
         # Step 4: Strategy validation
         try:
-            from quantstack.autonomous.strategy_lifecycle import StrategyLifecycle
-
             lifecycle = StrategyLifecycle(self._conn)
             monthly_report = await lifecycle.run_monthly()
             report.steps_completed.append(
@@ -311,8 +308,6 @@ class ResearchOrchestrator:
 
         # Step 1: Execution Researcher
         try:
-            from quantstack.research.execution_researcher import ExecutionResearcher
-
             exec_researcher = ExecutionResearcher(self._conn)
             exec_plan = await exec_researcher.generate_plan()
             report.recommendations = len(exec_plan.recommendations)
@@ -348,8 +343,6 @@ class ResearchOrchestrator:
     async def _run_discovery(self, plan: Any) -> int:
         """Run AlphaDiscoveryEngine with researcher hypotheses."""
         try:
-            from quantstack.alpha_discovery.engine import AlphaDiscoveryEngine
-
             engine = AlphaDiscoveryEngine(conn=self._conn)
 
             # Extract target symbols from hypotheses (deduplicated)
@@ -377,10 +370,8 @@ class ResearchOrchestrator:
 
         for exp in plan.experiments:
             try:
-                from quantstack.mcp.tools.ml import train_ml_model
-
                 config = exp.config or {}
-                result = await train_ml_model.fn(
+                result = await train_model(
                     symbol=exp.symbol,
                     model_type=config.get("model_type", "lightgbm"),
                     feature_tiers=config.get("feature_tiers", ["technical"]),
@@ -406,9 +397,7 @@ class ResearchOrchestrator:
         trained = 0
         for symbol in self._watchlist:
             try:
-                from quantstack.mcp.tools.ml import train_ml_model
-
-                result = await train_ml_model.fn(
+                result = await train_model(
                     symbol=symbol,
                     model_type="lightgbm",
                     feature_tiers=["technical", "fundamentals"],
@@ -425,8 +414,6 @@ class ResearchOrchestrator:
 
         Also updates HypothesisJudge knowledge base with outcome (QuantAgent outer loop).
         """
-        import uuid as _uuid
-
         try:
             exp_id = (
                 getattr(exp, "experiment_id", "") or f"mlexp_{_uuid.uuid4().hex[:8]}"
@@ -458,8 +445,6 @@ class ResearchOrchestrator:
 
         # QuantAgent outer loop: update judge knowledge base with outcome
         try:
-            from quantstack.autonomous.judge import HypothesisJudge
-
             judge = HypothesisJudge(self._conn)
             strategy_id = getattr(exp, "hypothesis_id", exp_id)
             judge.update_knowledge(strategy_id, {
@@ -469,6 +454,3 @@ class ResearchOrchestrator:
             })
         except Exception as exc:
             logger.debug(f"[Orchestrator] Judge knowledge update failed: {exc}")
-
-
-import json

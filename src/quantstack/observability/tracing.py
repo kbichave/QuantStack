@@ -30,6 +30,8 @@ from typing import Any, Generator
 
 from loguru import logger
 
+from langfuse import Langfuse
+
 # Lazy-init singleton
 _langfuse = None
 _init_attempted = False
@@ -47,14 +49,9 @@ def _get_langfuse():
         return None
 
     try:
-        from langfuse import Langfuse
-
         _langfuse = Langfuse()
         logger.info("[Tracing] Langfuse initialized")
         return _langfuse
-    except ImportError:
-        logger.debug("[Tracing] langfuse not installed — tracing disabled")
-        return None
     except Exception as exc:
         logger.warning(f"[Tracing] Langfuse init failed: {exc}")
         return None

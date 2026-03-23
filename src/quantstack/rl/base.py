@@ -14,16 +14,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-try:
-    import torch
-    import torch.nn as nn
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    logger.warning(
-        "PyTorch not available. RL agents will use fallback implementations."
-    )
+import torch
+import torch.nn as nn
 
 
 # ============================================================================
@@ -48,8 +40,6 @@ class State:
 
     def to_tensor(self) -> "torch.Tensor":
         """Convert to PyTorch tensor."""
-        if not TORCH_AVAILABLE:
-            raise RuntimeError("PyTorch not available")
         return torch.FloatTensor(self.features)
 
     @property
@@ -375,193 +365,194 @@ class RLEnvironment(ABC):
 
 
 # ============================================================================
-# Neural Network Building Blocks (if PyTorch available)
+# Neural Network Building Blocks
 # ============================================================================
 
-if TORCH_AVAILABLE:
 
-    class MLP(nn.Module):
-        """Multi-layer perceptron for RL agents."""
+class MLP(nn.Module):
+    """Multi-layer perceptron for RL agents."""
 
-        def __init__(
-            self,
-            input_dim: int,
-            output_dim: int,
-            hidden_dims: list[int] = None,
-            activation: str = "relu",
-            output_activation: str | None = None,
-        ):
-            if hidden_dims is None:
-                hidden_dims = [256, 256]
-            super().__init__()
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_dims: list[int] = None,
+        activation: str = "relu",
+        output_activation: str | None = None,
+    ):
+        if hidden_dims is None:
+            hidden_dims = [256, 256]
+        super().__init__()
 
-            layers = []
-            prev_dim = input_dim
+        layers = []
+        prev_dim = input_dim
 
-            # Hidden layers
-            for hidden_dim in hidden_dims:
-                layers.append(nn.Linear(prev_dim, hidden_dim))
-                if activation == "relu":
-                    layers.append(nn.ReLU())
-                elif activation == "tanh":
-                    layers.append(nn.Tanh())
-                elif activation == "elu":
-                    layers.append(nn.ELU())
-                prev_dim = hidden_dim
-
-            # Output layer
-            layers.append(nn.Linear(prev_dim, output_dim))
-
-            if output_activation == "tanh":
+        # Hidden layers
+        for hidden_dim in hidden_dims:
+            layers.append(nn.Linear(prev_dim, hidden_dim))
+            if activation == "relu":
+                layers.append(nn.ReLU())
+            elif activation == "tanh":
                 layers.append(nn.Tanh())
-            elif output_activation == "sigmoid":
-                layers.append(nn.Sigmoid())
-            elif output_activation == "softmax":
-                layers.append(nn.Softmax(dim=-1))
+            elif activation == "elu":
+                layers.append(nn.ELU())
+            prev_dim = hidden_dim
 
-            self.network = nn.Sequential(*layers)
+        # Output layer
+        layers.append(nn.Linear(prev_dim, output_dim))
 
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            return self.network(x)
+        if output_activation == "tanh":
+            layers.append(nn.Tanh())
+        elif output_activation == "sigmoid":
+            layers.append(nn.Sigmoid())
+        elif output_activation == "softmax":
+            layers.append(nn.Softmax(dim=-1))
 
-    class DuelingNetwork(nn.Module):
-        """Dueling DQN architecture."""
+        self.network = nn.Sequential(*layers)
 
-        def __init__(
-            self,
-            input_dim: int,
-            output_dim: int,
-            hidden_dims: list[int] = None,
-        ):
-            if hidden_dims is None:
-                hidden_dims = [256, 256]
-            super().__init__()
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.network(x)
 
-            # Shared feature extraction
-            self.feature = nn.Sequential(
-                nn.Linear(input_dim, hidden_dims[0]),
-                nn.ReLU(),
-            )
 
-            # Value stream
-            self.value = nn.Sequential(
+class DuelingNetwork(nn.Module):
+    """Dueling DQN architecture."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_dims: list[int] = None,
+    ):
+        if hidden_dims is None:
+            hidden_dims = [256, 256]
+        super().__init__()
+
+        # Shared feature extraction
+        self.feature = nn.Sequential(
+            nn.Linear(input_dim, hidden_dims[0]),
+            nn.ReLU(),
+        )
+
+        # Value stream
+        self.value = nn.Sequential(
+            nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[1], 1),
+        )
+
+        # Advantage stream
+        self.advantage = nn.Sequential(
+            nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[1], output_dim),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        features = self.feature(x)
+        value = self.value(features)
+        advantage = self.advantage(features)
+
+        # Q = V + (A - mean(A))
+        q = value + advantage - advantage.mean(dim=-1, keepdim=True)
+        return q
+
+
+class ActorCritic(nn.Module):
+    """Actor-Critic network for policy gradient methods."""
+
+    def __init__(
+        self,
+        state_dim: int,
+        action_dim: int,
+        hidden_dims: list[int] = None,
+        continuous: bool = False,
+    ):
+        if hidden_dims is None:
+            hidden_dims = [256, 256]
+        super().__init__()
+
+        self.continuous = continuous
+
+        # Shared features
+        self.shared = nn.Sequential(
+            nn.Linear(state_dim, hidden_dims[0]),
+            nn.ReLU(),
+        )
+
+        # Actor (policy)
+        if continuous:
+            self.actor_mean = nn.Sequential(
                 nn.Linear(hidden_dims[0], hidden_dims[1]),
                 nn.ReLU(),
-                nn.Linear(hidden_dims[1], 1),
+                nn.Linear(hidden_dims[1], action_dim),
+                nn.Tanh(),
             )
-
-            # Advantage stream
-            self.advantage = nn.Sequential(
+            self.actor_log_std = nn.Parameter(torch.zeros(action_dim))
+        else:
+            self.actor = nn.Sequential(
                 nn.Linear(hidden_dims[0], hidden_dims[1]),
                 nn.ReLU(),
-                nn.Linear(hidden_dims[1], output_dim),
+                nn.Linear(hidden_dims[1], action_dim),
+                nn.Softmax(dim=-1),
             )
 
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            features = self.feature(x)
-            value = self.value(features)
-            advantage = self.advantage(features)
+        # Critic (value)
+        self.critic = nn.Sequential(
+            nn.Linear(hidden_dims[0], hidden_dims[1]),
+            nn.ReLU(),
+            nn.Linear(hidden_dims[1], 1),
+        )
 
-            # Q = V + (A - mean(A))
-            q = value + advantage - advantage.mean(dim=-1, keepdim=True)
-            return q
+    def forward(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass returning policy and value."""
+        shared = self.shared(state)
 
-    class ActorCritic(nn.Module):
-        """Actor-Critic network for policy gradient methods."""
+        if self.continuous:
+            mean = self.actor_mean(shared)
+            std = self.actor_log_std.exp()
+            policy = (mean, std)
+        else:
+            policy = self.actor(shared)
 
-        def __init__(
-            self,
-            state_dim: int,
-            action_dim: int,
-            hidden_dims: list[int] = None,
-            continuous: bool = False,
-        ):
-            if hidden_dims is None:
-                hidden_dims = [256, 256]
-            super().__init__()
+        value = self.critic(shared)
 
-            self.continuous = continuous
+        return policy, value
 
-            # Shared features
-            self.shared = nn.Sequential(
-                nn.Linear(state_dim, hidden_dims[0]),
-                nn.ReLU(),
+    def get_action(
+        self,
+        state: torch.Tensor,
+        deterministic: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Get action and log probability."""
+        shared = self.shared(state)
+
+        if self.continuous:
+            mean = self.actor_mean(shared)
+            std = self.actor_log_std.exp()
+
+            if deterministic:
+                action = mean
+            else:
+                dist = torch.distributions.Normal(mean, std)
+                action = dist.sample()
+
+            log_prob = (
+                torch.distributions.Normal(mean, std).log_prob(action).sum(-1)
+            )
+        else:
+            probs = self.actor(shared)
+
+            if deterministic:
+                action = probs.argmax(dim=-1)
+            else:
+                dist = torch.distributions.Categorical(probs)
+                action = dist.sample()
+
+            log_prob = torch.log(
+                probs.gather(-1, action.unsqueeze(-1)).squeeze(-1) + 1e-8
             )
 
-            # Actor (policy)
-            if continuous:
-                self.actor_mean = nn.Sequential(
-                    nn.Linear(hidden_dims[0], hidden_dims[1]),
-                    nn.ReLU(),
-                    nn.Linear(hidden_dims[1], action_dim),
-                    nn.Tanh(),
-                )
-                self.actor_log_std = nn.Parameter(torch.zeros(action_dim))
-            else:
-                self.actor = nn.Sequential(
-                    nn.Linear(hidden_dims[0], hidden_dims[1]),
-                    nn.ReLU(),
-                    nn.Linear(hidden_dims[1], action_dim),
-                    nn.Softmax(dim=-1),
-                )
-
-            # Critic (value)
-            self.critic = nn.Sequential(
-                nn.Linear(hidden_dims[0], hidden_dims[1]),
-                nn.ReLU(),
-                nn.Linear(hidden_dims[1], 1),
-            )
-
-        def forward(self, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-            """Forward pass returning policy and value."""
-            shared = self.shared(state)
-
-            if self.continuous:
-                mean = self.actor_mean(shared)
-                std = self.actor_log_std.exp()
-                policy = (mean, std)
-            else:
-                policy = self.actor(shared)
-
-            value = self.critic(shared)
-
-            return policy, value
-
-        def get_action(
-            self,
-            state: torch.Tensor,
-            deterministic: bool = False,
-        ) -> tuple[torch.Tensor, torch.Tensor]:
-            """Get action and log probability."""
-            shared = self.shared(state)
-
-            if self.continuous:
-                mean = self.actor_mean(shared)
-                std = self.actor_log_std.exp()
-
-                if deterministic:
-                    action = mean
-                else:
-                    dist = torch.distributions.Normal(mean, std)
-                    action = dist.sample()
-
-                log_prob = (
-                    torch.distributions.Normal(mean, std).log_prob(action).sum(-1)
-                )
-            else:
-                probs = self.actor(shared)
-
-                if deterministic:
-                    action = probs.argmax(dim=-1)
-                else:
-                    dist = torch.distributions.Categorical(probs)
-                    action = dist.sample()
-
-                log_prob = torch.log(
-                    probs.gather(-1, action.unsqueeze(-1)).squeeze(-1) + 1e-8
-                )
-
-            return action, log_prob
+        return action, log_prob
 
 
 # ============================================================================
@@ -571,9 +562,6 @@ if TORCH_AVAILABLE:
 
 def soft_update(target: nn.Module, source: nn.Module, tau: float = 0.005) -> None:
     """Soft update of target network parameters."""
-    if not TORCH_AVAILABLE:
-        return
-
     for target_param, source_param in zip(
         target.parameters(), source.parameters(), strict=False
     ):
@@ -582,9 +570,6 @@ def soft_update(target: nn.Module, source: nn.Module, tau: float = 0.005) -> Non
 
 def hard_update(target: nn.Module, source: nn.Module) -> None:
     """Hard update (copy) of target network parameters."""
-    if not TORCH_AVAILABLE:
-        return
-
     target.load_state_dict(source.state_dict())
 
 

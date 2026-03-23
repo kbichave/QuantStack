@@ -12,16 +12,10 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
-# Import quant research integration
-try:
-    from quantstack.core.research.quant_metrics import (
-        QuantResearchReport,  # noqa: F401
-        run_signal_diagnostics,
-    )
-
-    QUANT_METRICS_AVAILABLE = True
-except ImportError:
-    QUANT_METRICS_AVAILABLE = False
+from quantstack.core.research.quant_metrics import (
+    QuantResearchReport,  # noqa: F401
+    run_signal_diagnostics,
+)
 
 
 @dataclass
@@ -153,10 +147,9 @@ def generate_text_report(report: PipelineReport, output_path: Path) -> None:
     lines.append(f"  BEST STRATEGY: {report.best_strategy}")
     lines.append("")
 
-    # Quant Research Metrics (if available)
-    if QUANT_METRICS_AVAILABLE:
-        has_quant_metrics = any(r.ic != 0 for r in report.strategy_results.values())
-        if has_quant_metrics:
+    # Quant Research Metrics
+    has_quant_metrics = any(r.ic != 0 for r in report.strategy_results.values())
+    if has_quant_metrics:
             lines.append("=" * 80)
             lines.append("  QUANT RESEARCH METRICS")
             lines.append("=" * 80)
@@ -225,9 +218,6 @@ def enrich_with_quant_metrics(
     Returns:
         Enriched StrategyResult
     """
-    if not QUANT_METRICS_AVAILABLE:
-        return result
-
     try:
         quant_report = run_signal_diagnostics(signals, returns, cost_bps)
         result.ic = quant_report.ic

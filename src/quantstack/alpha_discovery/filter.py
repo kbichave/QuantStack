@@ -23,14 +23,17 @@ Stage 3 loads existing signals once and computes pairwise correlation.
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
+from quantstack.db import open_db_readonly
 from quantstack.strategies.signal_generator import (
     generate_signals_from_rules as _generate_signals_from_rules,
 )
@@ -314,12 +317,6 @@ def _check_portfolio_fit(
     Fails open: if DB read fails or no existing strategies, returns (True, 0.0, None).
     """
     try:
-        import pandas as pd
-        from quantstack.db import open_db_readonly
-        from quantstack.strategies.signal_generator import (
-            generate_signals_from_rules as _generate_signals_from_rules,
-        )
-
         # Load existing live/forward_testing strategies (read-only, no lock competition)
         conn = open_db_readonly()
         rows = conn.execute(
@@ -344,8 +341,6 @@ def _check_portfolio_fit(
         candidate_series = candidate_signals.get("signal", pd.Series(dtype=float))
         if candidate_series.empty or candidate_series.std() == 0:
             return True, 0.0, None
-
-        import json
 
         max_corr = 0.0
         max_corr_id: str | None = None

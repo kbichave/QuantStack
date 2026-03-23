@@ -20,14 +20,18 @@ Bi-weekly cycle. Runs after Alpha Researcher has identified new hypotheses.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime
 from typing import Any
 
+import litellm
+
 import duckdb
 from loguru import logger
 
+from quantstack.llm_config import get_llm_for_role
 from quantstack.research.context import ResearchContext
 from quantstack.research.schemas import MLExperiment, MLExperimentPlan
 
@@ -166,16 +170,10 @@ class MLScientist:
 
     async def _call_llm(self, prompt: str) -> str | None:
         """Call LLM for experiment plan generation."""
-        import asyncio
-
         try:
-            from quantstack.llm_config import get_llm_for_role
-
             model = get_llm_for_role("research")
             if not model:
                 model = "groq/llama-3.3-70b-versatile"
-
-            import litellm
 
             response = await asyncio.wait_for(
                 asyncio.to_thread(

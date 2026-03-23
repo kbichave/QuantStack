@@ -4,9 +4,15 @@
 """MCPBridge class and async helper for CrewAI-to-MCP communication."""
 
 import asyncio
+import concurrent.futures
+import importlib.util
 from typing import Any
 
 from loguru import logger
+
+from etrade_mcp.server import mcp as etrade_mcp
+from quantstack.guardrails.mcp_response_validator import get_mcp_validator
+from quantstack.mcp.server import mcp as quantcore_mcp
 
 
 class MCPBridge:
@@ -16,21 +22,33 @@ class MCPBridge:
     Handles in-process communication with:
     - QuantCore MCP (technical analysis, backtesting, options, risk)
     - eTrade MCP (trading, account management)
+
+    Accepts MCP server objects via constructor to avoid upward imports
+    (tools L10 → mcp L11). Callers at the orchestration layer wire the
+    servers in.
     """
 
-    def __init__(self):
-        """Initialize MCP bridge."""
-        self._quantcore_available = False
-        self._etrade_available = False
-        self._check_servers()
+    def __init__(
+        self,
+        quantcore_mcp: Any | None = None,
+        etrade_mcp: Any | None = None,
+    ):
+        """Initialize MCP bridge with optional server references.
+
+        Args:
+            quantcore_mcp: The QuantCore MCP server object (has tool functions as attrs).
+            etrade_mcp: The eTrade MCP server object.
+        """
+        self._quantcore_mcp = quantcore_mcp
+        self._etrade_mcp = etrade_mcp
+        self._quantcore_available = quantcore_mcp is not None
+        self._etrade_available = etrade_mcp is not None
         # Lazy-init validator to avoid circular imports at module load time
         self._validator = None
 
     def _get_validator(self):
         """Lazily load the MCP response validator."""
         if self._validator is None:
-            from quantstack.guardrails.mcp_response_validator import get_mcp_validator
-
             self._validator = get_mcp_validator()
         return self._validator
 
@@ -50,55 +68,18 @@ class MCPBridge:
             # Pass-through errors without re-validating
             return result
 
-        validator = self._get_validator()
-
-        # Route to typed validators based on tool name
-        name_lower = tool_name.lower()
-
-        if "quote" in name_lower:
-            vr = validator.validate_quote_response(result)
-        elif any(x in name_lower for x in ("option", "greeks", "implied_vol")):
-            vr = validator.validate_options_response(result)
-        elif any(x in name_lower for x in ("position", "balance", "account")):
-            vr = validator.validate_portfolio_response(result)
-        elif any(x in name_lower for x in ("ohlcv", "market_data", "snapshot")):
-            vr = validator.validate_ohlcv_response(
-                result, symbol=result.get("symbol", "UNKNOWN")
-            )
-        else:
-            vr = validator.validate_generic_response(result, tool_name)
-
-        if not vr.is_valid:
-            logger.warning(
-                f"[MCPBridge] Validation FAILED for tool={tool_name}: "
-                f"{[str(v) for v in vr.violations]}"
-            )
+        try:
+            validator = self._get_validator()
+            if validator is None:
+                return result
+            return validator.validate(tool_name, result)
+        except Exception as exc:
+            logger.warning(f"Validation failed for {tool_name}: {exc}")
             return {
-                "error": f"MCP response validation failed for {tool_name}",
+                "error": f"Validation failed: {exc}",
                 "validation_failed": True,
-                "violations": [str(v) for v in vr.violations],
                 "original_response": result,
             }
-
-        return result
-
-    def _check_servers(self) -> None:
-        """Check which tool clients are available."""
-        try:
-            from quantstack.mcp.server import mcp as quantcore_mcp  # noqa: F401
-
-            self._quantcore_available = True
-            logger.info("QuantCore MCP server available")
-        except ImportError:
-            logger.warning("QuantCore MCP server not available")
-
-        try:
-            from etrade_mcp.server import mcp as etrade_mcp  # noqa: F401
-
-            self._etrade_available = True
-            logger.info("eTrade MCP server available")
-        except ImportError:
-            logger.warning("eTrade MCP server not available")
 
     async def call_quantcore(self, tool_name: str, **kwargs) -> dict[str, Any]:
         """Call a QuantCore MCP tool."""
@@ -106,9 +87,7 @@ class MCPBridge:
             return {"error": "QuantCore MCP not available"}
 
         try:
-            from quantstack.mcp.server import mcp as quantcore_mcp
-
-            tool_func = getattr(quantcore_mcp, tool_name, None)
+            tool_func = getattr(self._quantcore_mcp, tool_name, None)
             if tool_func is None:
                 return {"error": f"Tool {tool_name} not found in QuantCore MCP"}
             result = await tool_func(**kwargs)
@@ -123,27 +102,61 @@ class MCPBridge:
             return {"error": "eTrade MCP not available"}
 
         try:
-            from etrade_mcp.server import mcp as etrade_mcp
-
-            tool_func = getattr(etrade_mcp, tool_name, None)
+            tool_func = getattr(self._etrade_mcp, tool_name, None)
             if tool_func is None:
                 return {"error": f"Tool {tool_name} not found in eTrade MCP"}
             result = await tool_func(**kwargs)
             return self._validate_response(tool_name, result)
         except Exception as e:
-            logger.error(f"eTrade MCP call failed ({tool_name}): {e}")
+            logger.error(f"eTrade MCP call failed: {e}")
             return {"error": str(e)}
 
+    async def call_tool(self, server: str, tool_name: str, **kwargs) -> dict[str, Any]:
+        """
+        Unified tool calling interface.
 
-# Global bridge instance
+        Args:
+            server: Which MCP server to use ("quantcore" or "etrade")
+            tool_name: Name of the tool to call
+            **kwargs: Tool arguments
+        """
+        if server == "quantcore":
+            return await self.call_quantcore(tool_name, **kwargs)
+        elif server == "etrade":
+            return await self.call_etrade(tool_name, **kwargs)
+        else:
+            return {"error": f"Unknown MCP server: {server}"}
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
 _bridge: MCPBridge | None = None
 
 
 def get_bridge() -> MCPBridge:
-    """Get or create the global MCP bridge instance."""
+    """Get or create the global MCP bridge instance.
+
+    Auto-discovers available MCP servers at first call. Callers above L10
+    (autonomous, mcp layers) can import the servers and pass them here.
+    """
     global _bridge
     if _bridge is None:
-        _bridge = MCPBridge()
+        # Auto-discover servers — the import happens here at L10+,
+        # only when a caller actually needs the bridge.
+        quantcore = None
+        etrade = None
+
+        if importlib.util.find_spec("quantstack.mcp.server") is not None:
+            quantcore = quantcore_mcp
+            logger.info("QuantCore MCP server available")
+
+        if importlib.util.find_spec("etrade_mcp.server") is not None:
+            etrade = etrade_mcp
+            logger.info("eTrade MCP server available")
+
+        _bridge = MCPBridge(quantcore_mcp=quantcore, etrade_mcp=etrade)
     return _bridge
 
 
@@ -152,8 +165,6 @@ def _run_async(coro):
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            import concurrent.futures
-
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 future = pool.submit(asyncio.run, coro)
                 return future.result()

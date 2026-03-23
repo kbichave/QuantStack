@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import Lock
@@ -288,8 +289,6 @@ class SkillTracker:
         Returns:
             Updated AgentSkill.
         """
-        import math
-
         if math.isnan(ic_value) or math.isinf(ic_value):
             logger.debug(f"[SKILL] Skipping NaN/Inf IC for {agent_id}")
             return self._get_skill(agent_id)

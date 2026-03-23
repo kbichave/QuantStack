@@ -2,9 +2,11 @@
 Signal generator combining MR rules, filters, and ML predictions.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
@@ -12,9 +14,11 @@ from loguru import logger
 
 from quantstack.config.timeframes import TIMEFRAME_PARAMS, Timeframe
 from quantstack.core.hierarchy.cascade import SignalCascade
-from quantstack.ml.predictor import Predictor
 from quantstack.core.strategy.filters import CombinedFilter, FilterResult
 from quantstack.core.strategy.rules import EntrySignal, MeanReversionRules
+
+if TYPE_CHECKING:
+    from quantstack.ml.predictor import Predictor
 
 
 @dataclass

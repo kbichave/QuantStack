@@ -17,69 +17,13 @@ from loguru import logger
 from scipy import stats
 from statsmodels.tsa.stattools import adfuller
 
+from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
 
-@dataclass
-class TestResult:
-    """Result of a statistical test."""
+_MARKOV_AVAILABLE = True
 
-    test_name: str
-    statistic: float
-    p_value: float
-    is_significant: bool
-    critical_values: dict[str, float] | None = None
-    additional_info: dict | None = None
-
-
-def adf_test(
-    series: pd.Series,
-    max_lags: int | None = None,
-    regression: str = "c",
-    significance_level: float = 0.05,
-) -> TestResult:
-    """
-    Augmented Dickey-Fuller test for stationarity.
-
-    Args:
-        series: Time series to test
-        max_lags: Maximum number of lags to include
-        regression: Type of regression ('c' = constant, 'ct' = constant + trend, 'n' = none)
-        significance_level: Significance level for hypothesis test
-
-    Returns:
-        TestResult with ADF statistic, p-value, and critical values
-    """
-    series = series.dropna()
-
-    if len(series) < 20:
-        logger.warning("ADF test requires at least 20 observations")
-        return TestResult(
-            test_name="ADF",
-            statistic=np.nan,
-            p_value=1.0,
-            is_significant=False,
-            additional_info={"error": "insufficient_data"},
-        )
-
-    result = adfuller(series, maxlag=max_lags, regression=regression, autolag="AIC")
-
-    adf_stat, p_value, used_lag, nobs, critical_values, icbest = result
-
-    return TestResult(
-        test_name="ADF",
-        statistic=adf_stat,
-        p_value=p_value,
-        is_significant=p_value < significance_level,
-        critical_values=critical_values,
-        additional_info={
-            "used_lag": used_lag,
-            "nobs": nobs,
-            "ic_best": icbest,
-            "regression": regression,
-            "interpretation": (
-                "stationary" if p_value < significance_level else "non-stationary"
-            ),
-        },
-    )
+# Re-export from core.math.stat_tests (L1) for backward compatibility.
+# New callers should import from core.math.stat_tests directly.
+from quantstack.core.math.stat_tests import TestResult, adf_test  # noqa: F401
 
 
 def lagged_cross_correlation(
@@ -144,9 +88,7 @@ def regime_switching_test(
     Returns:
         TestResult with likelihood ratio test statistic
     """
-    try:
-        from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
-    except ImportError:
+    if not _MARKOV_AVAILABLE:
         logger.warning("statsmodels MarkovRegression not available")
         return TestResult(
             test_name="RegimeSwitching",

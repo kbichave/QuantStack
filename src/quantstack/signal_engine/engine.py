@@ -25,7 +25,9 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.crews.schemas import SymbolBrief as SB
+from quantstack.data.storage import DataStore
+from quantstack.shared.files import read_memory_file
+from quantstack.shared.schemas import SymbolBrief as SB
 from quantstack.signal_engine.brief import SignalBrief
 from quantstack.signal_engine.collectors.cross_asset import collect_cross_asset
 from quantstack.signal_engine.collectors.events import collect_events
@@ -66,8 +68,6 @@ class SignalEngine:
 
     def __init__(self, db_path: str | None = None) -> None:
         # DataStore is opened read-only — multiple concurrent reads are safe.
-        from quantstack.data.storage import DataStore
-
         self._store = DataStore(db_path=db_path, read_only=True)
         self._synthesizer = RuleBasedSynthesizer()
 
@@ -295,9 +295,7 @@ class SignalEngine:
 def _read_strategy_context() -> str:
     """Read strategy_registry.md from memory (same injection as run_analysis)."""
     try:
-        from quantstack.mcp._state import _read_memory_file
-
-        return _read_memory_file("strategy_registry.md", max_chars=2000)
+        return read_memory_file("strategy_registry.md", max_chars=2000)
     except Exception:
         return ""
 

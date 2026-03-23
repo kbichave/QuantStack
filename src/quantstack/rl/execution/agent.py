@@ -9,9 +9,12 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
+import torch
+import torch.nn.functional as F
+import torch.optim as optim
+
 from quantstack.rl.base import (
     MLP,
-    TORCH_AVAILABLE,
     Action,
     DuelingNetwork,
     Experience,
@@ -19,11 +22,6 @@ from quantstack.rl.base import (
     State,
     soft_update,
 )
-
-if TORCH_AVAILABLE:
-    import torch
-    import torch.nn.functional as F
-    import torch.optim as optim
 
 
 class ExecutionRLAgent(RLAgent):
@@ -95,13 +93,6 @@ class ExecutionRLAgent(RLAgent):
 
     def _build_networks(self) -> None:
         """Build neural networks."""
-        if not TORCH_AVAILABLE:
-            logger.warning("PyTorch not available, using fallback agent")
-            self.q_network = None
-            self.target_network = None
-            self.optimizer = None
-            return
-
         # Q-network
         if self.dueling:
             self.q_network = DuelingNetwork(
@@ -153,14 +144,10 @@ class ExecutionRLAgent(RLAgent):
             return Action(value=action_idx, action_type="random")
 
         # Greedy action
-        if TORCH_AVAILABLE and self.q_network is not None:
-            with torch.no_grad():
-                state_tensor = state.to_tensor().unsqueeze(0).to(self.device)
-                q_values = self.q_network(state_tensor)
-                action_idx = q_values.argmax(dim=-1).item()
-        else:
-            # Fallback: simple heuristic
-            action_idx = self._heuristic_action(state)
+        with torch.no_grad():
+            state_tensor = state.to_tensor().unsqueeze(0).to(self.device)
+            q_values = self.q_network(state_tensor)
+            action_idx = q_values.argmax(dim=-1).item()
 
         return Action(value=action_idx, action_type="greedy")
 
@@ -193,7 +180,7 @@ class ExecutionRLAgent(RLAgent):
         Returns:
             Loss information
         """
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             return {"loss": 0.0}
 
         # Prepare batch
@@ -258,7 +245,7 @@ class ExecutionRLAgent(RLAgent):
 
     def save(self, path: str) -> None:
         """Save agent to file."""
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             return
 
         torch.save(
@@ -276,7 +263,7 @@ class ExecutionRLAgent(RLAgent):
 
     def load(self, path: str) -> None:
         """Load agent from file."""
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             return
 
         checkpoint = torch.load(path, map_location=self.device)

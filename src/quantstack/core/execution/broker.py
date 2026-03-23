@@ -40,12 +40,7 @@ from quantstack.core.execution.unified_models import (
 # ---------------------------------------------------------------------------
 
 
-class BrokerError(Exception):
-    """Base class for all broker-related errors."""
-
-
-class BrokerConnectionError(BrokerError):
-    """Raised when the broker connection cannot be established or is lost."""
+from quantstack.shared.exceptions import BrokerError, BrokerConnectionError  # noqa: F401, E402
 
 
 class BrokerOrderError(BrokerError):

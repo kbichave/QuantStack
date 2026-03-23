@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from quantstack.rl.rl_tools import RLAlphaWeightTool, RLExecutionStrategyTool, RLPositionSizeTool, _PRETRADE_SNAPSHOTS, get_rl_tools, pop_pretrade_snapshot, rl_alpha_weight_tool, rl_execution_strategy_tool, rl_position_size_tool, save_pretrade_snapshot
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -46,33 +47,23 @@ def _mock_config(shadow=True, enabled=True):
 
 class TestSnapshotStore:
     def setup_method(self):
-        from quantstack.rl.rl_tools import _PRETRADE_SNAPSHOTS
-
         _PRETRADE_SNAPSHOTS.clear()
 
     def test_save_and_pop(self):
-        from quantstack.rl.rl_tools import pop_pretrade_snapshot, save_pretrade_snapshot
-
         save_pretrade_snapshot("rl_position_size", {"scale": 0.7})
         result = pop_pretrade_snapshot("rl_position_size")
         assert result is not None
         assert result["scale"] == 0.7
 
     def test_pop_removes_entry(self):
-        from quantstack.rl.rl_tools import pop_pretrade_snapshot, save_pretrade_snapshot
-
         save_pretrade_snapshot("rl_position_size", {"scale": 0.7})
         pop_pretrade_snapshot("rl_position_size")
         assert pop_pretrade_snapshot("rl_position_size") is None
 
     def test_pop_nonexistent_returns_none(self):
-        from quantstack.rl.rl_tools import pop_pretrade_snapshot
-
         assert pop_pretrade_snapshot("nonexistent") is None
 
     def test_overwrite_same_key(self):
-        from quantstack.rl.rl_tools import pop_pretrade_snapshot, save_pretrade_snapshot
-
         save_pretrade_snapshot("rl_position_size", {"scale": 0.3})
         save_pretrade_snapshot("rl_position_size", {"scale": 0.9})
         result = pop_pretrade_snapshot("rl_position_size")
@@ -86,13 +77,9 @@ class TestSnapshotStore:
 
 class TestRLPositionSizeTool:
     def setup_method(self):
-        from quantstack.rl.rl_tools import _PRETRADE_SNAPSHOTS
-
         _PRETRADE_SNAPSHOTS.clear()
 
     def test_degrades_gracefully_when_no_checkpoint(self):
-        from quantstack.rl.rl_tools import RLPositionSizeTool
-
         tool = RLPositionSizeTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(signal_confidence=0.7, signal_direction="LONG")
@@ -101,8 +88,6 @@ class TestRLPositionSizeTool:
         assert isinstance(data["scale"], float)
 
     def test_returns_shadow_true_when_configured(self):
-        from quantstack.rl.rl_tools import RLPositionSizeTool
-
         tool = RLPositionSizeTool()
         with patch.object(tool, "_get_config", return_value=_mock_config(shadow=True)):
             result = tool._run(signal_confidence=0.7, signal_direction="LONG")
@@ -110,8 +95,6 @@ class TestRLPositionSizeTool:
         assert data["shadow"] is True
 
     def test_disabled_returns_fallback(self):
-        from quantstack.rl.rl_tools import RLPositionSizeTool
-
         tool = RLPositionSizeTool()
         cfg = _mock_config()
         cfg.enable_sizing_rl = False
@@ -122,8 +105,6 @@ class TestRLPositionSizeTool:
         assert data["scale"] == pytest.approx(0.7, abs=0.01)
 
     def test_scale_in_valid_range(self):
-        from quantstack.rl.rl_tools import RLPositionSizeTool
-
         tool = RLPositionSizeTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(signal_confidence=0.7, signal_direction="LONG")
@@ -131,8 +112,6 @@ class TestRLPositionSizeTool:
         assert 0.0 <= data["scale"] <= 1.0
 
     def test_saves_pretrade_snapshot_when_agent_available(self):
-        from quantstack.rl.rl_tools import RLPositionSizeTool, pop_pretrade_snapshot
-
         tool = RLPositionSizeTool()
         cfg = _mock_config(shadow=True)
 
@@ -152,8 +131,6 @@ class TestRLPositionSizeTool:
         assert "state_vector" in snapshot
 
     def test_result_has_reasoning(self):
-        from quantstack.rl.rl_tools import RLPositionSizeTool
-
         tool = RLPositionSizeTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(signal_confidence=0.7, signal_direction="LONG")
@@ -168,8 +145,6 @@ class TestRLPositionSizeTool:
 
 class TestRLExecutionStrategyTool:
     def test_degrades_gracefully_when_no_checkpoint(self):
-        from quantstack.rl.rl_tools import RLExecutionStrategyTool
-
         tool = RLExecutionStrategyTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(symbol="SPY", quantity=100.0, urgency="normal")
@@ -177,8 +152,6 @@ class TestRLExecutionStrategyTool:
         assert "strategy" in data
 
     def test_returns_valid_strategy(self):
-        from quantstack.rl.rl_tools import RLExecutionStrategyTool
-
         tool = RLExecutionStrategyTool()
         valid_strategies = {"AGGRESSIVE", "BALANCED", "PASSIVE", "TWAP", "NO_TRADE"}
         with patch.object(tool, "_get_config", return_value=_mock_config()):
@@ -187,8 +160,6 @@ class TestRLExecutionStrategyTool:
         assert data["strategy"] in valid_strategies
 
     def test_disabled_returns_fallback(self):
-        from quantstack.rl.rl_tools import RLExecutionStrategyTool
-
         tool = RLExecutionStrategyTool()
         cfg = _mock_config()
         cfg.enable_execution_rl = False
@@ -198,8 +169,6 @@ class TestRLExecutionStrategyTool:
         assert "strategy" in data
 
     def test_shadow_flag_true_when_configured(self):
-        from quantstack.rl.rl_tools import RLExecutionStrategyTool
-
         tool = RLExecutionStrategyTool()
         with patch.object(tool, "_get_config", return_value=_mock_config(shadow=True)):
             result = tool._run(symbol="SPY", quantity=100.0, urgency="normal")
@@ -214,8 +183,6 @@ class TestRLExecutionStrategyTool:
 
 class TestRLAlphaWeightTool:
     def test_degrades_gracefully(self):
-        from quantstack.rl.rl_tools import RLAlphaWeightTool
-
         tool = RLAlphaWeightTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(
@@ -227,8 +194,6 @@ class TestRLAlphaWeightTool:
         assert "weights" in data
 
     def test_disabled_returns_equal_weights(self):
-        from quantstack.rl.rl_tools import RLAlphaWeightTool
-
         tool = RLAlphaWeightTool()
         cfg = _mock_config()
         cfg.enable_meta_rl = False
@@ -241,8 +206,6 @@ class TestRLAlphaWeightTool:
         assert abs(data["weights"]["A"] - data["weights"]["B"]) < 1e-5
 
     def test_empty_signals(self):
-        from quantstack.rl.rl_tools import RLAlphaWeightTool
-
         tool = RLAlphaWeightTool()
         with patch.object(tool, "_get_config", return_value=_mock_config()):
             result = tool._run(regime="normal", competing_signals=[])
@@ -257,34 +220,24 @@ class TestRLAlphaWeightTool:
 
 class TestFactoryFunctions:
     def test_rl_position_size_tool_factory(self):
-        from quantstack.rl.rl_tools import rl_position_size_tool
-
         tool = rl_position_size_tool()
         assert tool.name == "rl_position_size"
 
     def test_rl_execution_strategy_tool_factory(self):
-        from quantstack.rl.rl_tools import rl_execution_strategy_tool
-
         tool = rl_execution_strategy_tool()
         assert tool.name == "rl_execution_strategy"
 
     def test_rl_alpha_weight_tool_factory(self):
-        from quantstack.rl.rl_tools import rl_alpha_weight_tool
-
         tool = rl_alpha_weight_tool()
         assert tool.name == "rl_alpha_weight"
 
     def test_get_rl_tools_returns_list(self):
-        from quantstack.rl.rl_tools import get_rl_tools
-
         cfg = _mock_config()
         tools = get_rl_tools(cfg)
         assert isinstance(tools, list)
         assert len(tools) == 3  # all 3 enabled
 
     def test_get_rl_tools_respects_disabled_flags(self):
-        from quantstack.rl.rl_tools import get_rl_tools
-
         cfg = _mock_config()
         cfg.enable_sizing_rl = False
         cfg.enable_execution_rl = False
@@ -293,8 +246,6 @@ class TestFactoryFunctions:
         assert tools == []
 
     def test_get_rl_tools_partial_enabled(self):
-        from quantstack.rl.rl_tools import get_rl_tools
-
         cfg = _mock_config()
         cfg.enable_sizing_rl = True
         cfg.enable_execution_rl = False

@@ -5,6 +5,9 @@
 
 import numpy as np
 import pandas as pd
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.quantagents_pattern import QuantAgentsPatternFeatures
+from quantstack.core.features.quantagents_trend import QuantAgentsTrendFeatures
 
 
 class TestQuantAgentFeatures:
@@ -12,11 +15,6 @@ class TestQuantAgentFeatures:
 
     def test_pattern_features_computation(self):
         """Test pattern feature computation."""
-        from quantstack.config.timeframes import Timeframe
-        from quantstack.core.features.quantagents_pattern import (
-            QuantAgentsPatternFeatures,
-        )
-
         # Create test data
         dates = pd.date_range("2024-01-01", periods=100, freq="D")
         df = pd.DataFrame(
@@ -39,9 +37,6 @@ class TestQuantAgentFeatures:
 
     def test_trend_features_computation(self):
         """Test trend feature computation."""
-        from quantstack.config.timeframes import Timeframe
-        from quantstack.core.features.quantagents_trend import QuantAgentsTrendFeatures
-
         # Create test data (need more bars for trend calculation)
         dates = pd.date_range("2024-01-01", periods=150, freq="D")
         df = pd.DataFrame(

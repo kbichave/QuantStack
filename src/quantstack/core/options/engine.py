@@ -17,6 +17,22 @@ from typing import Any, Literal
 import numpy as np
 from loguru import logger
 
+from quantstack.core.options.adapters.financepy_adapter import (
+    price_american_option,
+    price_vanilla_financepy,
+)
+from quantstack.core.options.adapters.vollib_adapter import (
+    bs_price_vollib,
+    greeks_vollib,
+    implied_vol_vollib,
+)
+from quantstack.core.options.models import OptionType as OptType
+from quantstack.core.options.pricing import (
+    black_scholes_greeks,
+    black_scholes_price,
+    implied_volatility,
+)
+
 # Type aliases
 OptionType = Literal["call", "put", "c", "p"]
 ExerciseStyle = Literal["european", "american"]
@@ -97,11 +113,6 @@ def _price_with_vollib(
 ) -> dict[str, Any]:
     """Price using vollib backend."""
     try:
-        from quantstack.core.options.adapters.vollib_adapter import (
-            bs_price_vollib,
-            greeks_vollib,
-        )
-
         price = bs_price_vollib(
             spot, strike, time_to_expiry, vol, rate, dividend_yield, option_type
         )
@@ -145,11 +156,6 @@ def _price_with_financepy(
 ) -> dict[str, Any]:
     """Price using financepy backend."""
     try:
-        from quantstack.core.options.adapters.financepy_adapter import (
-            price_american_option,
-            price_vanilla_financepy,
-        )
-
         if exercise_style == "american":
             result = price_american_option(
                 spot,
@@ -239,9 +245,6 @@ def _price_with_internal(
     option_type: OptionType,
 ) -> dict[str, Any]:
     """Price using internal QuantCore implementation."""
-    from quantstack.core.options.models import OptionType as OptType
-    from quantstack.core.options.pricing import black_scholes_greeks, black_scholes_price
-
     opt_enum = OptType.CALL if option_type.lower() in ("call", "c") else OptType.PUT
 
     price = black_scholes_price(
@@ -318,8 +321,6 @@ def compute_greeks_dispatch(
 
     if backend == "vollib":
         try:
-            from quantstack.core.options.adapters.vollib_adapter import greeks_vollib
-
             greeks = greeks_vollib(
                 spot, strike, time_to_expiry, vol, rate, dividend_yield, option_type
             )
@@ -335,9 +336,6 @@ def compute_greeks_dispatch(
             logger.warning(f"vollib Greeks failed: {e}, using internal")
 
     # Fallback to internal
-    from quantstack.core.options.models import OptionType as OptType
-    from quantstack.core.options.pricing import black_scholes_greeks
-
     opt_enum = OptType.CALL if option_type.lower() in ("call", "c") else OptType.PUT
 
     greeks = black_scholes_greeks(
@@ -397,8 +395,6 @@ def compute_iv_dispatch(
 
     if backend == "vollib":
         try:
-            from quantstack.core.options.adapters.vollib_adapter import implied_vol_vollib
-
             iv = implied_vol_vollib(
                 spot,
                 strike,
@@ -428,9 +424,6 @@ def compute_iv_dispatch(
             logger.warning(f"vollib IV failed: {e}")
 
     # Fallback to internal
-    from quantstack.core.options.models import OptionType as OptType
-    from quantstack.core.options.pricing import implied_volatility
-
     opt_enum = OptType.CALL if option_type.lower() in ("call", "c") else OptType.PUT
 
     iv = implied_volatility(

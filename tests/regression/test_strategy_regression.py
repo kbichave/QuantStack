@@ -28,6 +28,9 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from quantstack.db import open_db_readonly
+from quantstack.mcp.tools.backtesting import run_backtest
+import asyncio
 
 # ---- Tolerance thresholds ----
 # Metrics are allowed to change by this relative amount from promotion values.
@@ -70,8 +73,6 @@ def _load_promoted_strategies() -> list[PromotedStrategy]:
     This allows the test to be collected without failing during import.
     """
     try:
-        from quantstack.db import open_db_readonly
-
         conn = open_db_readonly()
         rows = conn.execute(
             """
@@ -236,10 +237,6 @@ def _run_backtest_for_strategy(strategy: PromotedStrategy) -> dict[str, Any]:
     """
     if strategy.strategy_id in _BACKTEST_CACHE:
         return _BACKTEST_CACHE[strategy.strategy_id]
-
-    import asyncio
-
-    from quantstack.mcp.tools.backtesting import run_backtest
 
     bs = strategy.backtest_summary
     result = asyncio.run(

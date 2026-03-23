@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from quantstack.config.timeframes import Timeframe
 from quantstack.core.features.technical_indicators import TechnicalIndicators
+import time
 
 
 @pytest.fixture
@@ -343,8 +344,6 @@ class TestIntegration:
 
     def test_performance(self, sample_ohlcv):
         """Test computation performance."""
-        import time
-
         ti = TechnicalIndicators(Timeframe.H1, enable_hilbert=False)
 
         start = time.time()

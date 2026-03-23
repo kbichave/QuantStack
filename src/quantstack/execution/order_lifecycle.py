@@ -65,6 +65,8 @@ from threading import RLock
 import duckdb
 from loguru import logger
 
+from quantstack.core.execution.tca_storage import TCAStore
+from quantstack.db import open_db, run_migrations
 from quantstack.observability.trace import TraceContext
 
 
@@ -655,8 +657,6 @@ class OrderLifecycle:
             return
 
         try:
-            from quantstack.core.execution.tca_storage import TCAStore
-
             store = TCAStore()
             store.save_result_raw(
                 trade_id=order.order_id,
@@ -679,8 +679,6 @@ class OrderLifecycle:
                 f"[OMS] TCA persisted for {order.order_id[:8]} "
                 f"IS={shortfall:.1f}bps"
             )
-        except ImportError:
-            logger.debug("[OMS] TCAStore not available — skipping TCA persistence")
         except Exception as exc:
             logger.warning(
                 f"[OMS] TCA persistence failed for {order.order_id[:8]}: {exc}"
@@ -757,8 +755,6 @@ def get_order_lifecycle(
     global _oms
     if _oms is None:
         if conn is None:
-            from quantstack.db import open_db, run_migrations
-
             conn = open_db("")
             run_migrations(conn)
         _oms = OrderLifecycle(conn)

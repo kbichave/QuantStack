@@ -10,17 +10,21 @@ Tools:
 """
 
 import asyncio
+from datetime import datetime as _dt
 from typing import Any
 
 from loguru import logger
 
-from quantstack.mcp.server import mcp
+from quantstack.agents.regime_detector import RegimeDetectorAgent
+from quantstack.data.storage import DataStore
+from quantstack.config.timeframes import Timeframe as _TF
 from quantstack.mcp._state import (
+    _serialize,
+    live_db_or_error,
     require_ctx,
     require_live_db,
-    live_db_or_error,
-    _serialize,
 )
+from quantstack.mcp.server import mcp
 
 
 # =============================================================================
@@ -77,9 +81,6 @@ async def get_fill_quality(order_id: str) -> dict[str, Any]:
         vwap: float | None = None
         fill_vs_vwap_bps: float | None = None
         try:
-            from quantstack.data.storage import DataStore
-            from quantstack.config.timeframes import Timeframe as _TF
-
             store = DataStore(read_only=True)
             df = store.load_ohlcv(symbol, _TF.D1)
             if df is not None and not df.empty and "vwap" in df.columns:
@@ -165,8 +166,6 @@ async def get_position_monitor(symbol: str) -> dict[str, Any]:
                 [symbol],
             ).fetchone()
             if row and row[0]:
-                from datetime import datetime as _dt
-
                 opened_at = row[0]
                 if isinstance(opened_at, str):
                     opened_at = _dt.fromisoformat(opened_at)
@@ -179,8 +178,6 @@ async def get_position_monitor(symbol: str) -> dict[str, Any]:
         current_regime = "unknown"
         atr: float = 0.0
         try:
-            from quantstack.agents.regime_detector import RegimeDetectorAgent
-
             detector = RegimeDetectorAgent(symbols=[symbol])
             r = await asyncio.get_event_loop().run_in_executor(
                 None, detector.detect_regime, symbol

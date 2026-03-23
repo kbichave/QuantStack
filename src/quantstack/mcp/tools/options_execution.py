@@ -25,6 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from quantstack.audit.models import DecisionEvent
@@ -433,8 +434,6 @@ def _execute_alpaca_options(
 ) -> dict[str, Any]:
     """Route options order to Alpaca REST API."""
     try:
-        import httpx
-
         api_key = os.getenv("ALPACA_API_KEY", "")
         secret_key = os.getenv("ALPACA_SECRET_KEY", "")
         is_paper = os.getenv("ALPACA_PAPER", "true").lower() in ("true", "1")

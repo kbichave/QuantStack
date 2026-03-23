@@ -10,10 +10,18 @@ Provides rigorous time-series cross-validation:
 
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
 from loguru import logger
+
+from quantstack.core.research.overfitting import (
+    DSRResult,
+    OverfittingReport,
+    probability_of_backtest_overfitting,
+    run_overfitting_analysis,
+)
 
 
 @dataclass
@@ -255,8 +263,6 @@ class CombinatorialPurgedCV:
         Yields:
             Tuple of (train_indices, test_indices)
         """
-        from itertools import combinations
-
         n = len(data)
         group_size = n // self.n_splits
         embargo_size = int(n * self.embargo_pct)
@@ -414,8 +420,6 @@ class CPCVEvaluator:
         Returns:
             OverfittingReport from quantstack.core.research.overfitting.
         """
-        from quantstack.core.research.overfitting import run_overfitting_analysis
-
         # Collect OOS returns across all splits
         oos_return_series = []
         for _, test_idx in self.cpcv.split(returns):
@@ -425,11 +429,6 @@ class CPCVEvaluator:
 
         if not oos_return_series:
             logger.warning("CPCVEvaluator: no valid splits produced")
-            from quantstack.core.research.overfitting import (
-                DSRResult,
-                OverfittingReport,
-            )
-
             dummy_dsr = DSRResult(
                 observed_sharpe=0.0,
                 benchmark_sharpe=0.0,
@@ -477,13 +476,6 @@ class CPCVEvaluator:
         Returns:
             Dict of {strategy_name: OverfittingReport} plus a combined PBO.
         """
-        import numpy as np
-
-        from quantstack.core.research.overfitting import (
-            probability_of_backtest_overfitting,
-            run_overfitting_analysis,
-        )
-
         n = len(strategy_signals)
         all_names = list(strategy_signals.keys())
 

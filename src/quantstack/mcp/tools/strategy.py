@@ -8,10 +8,14 @@ import json
 import uuid
 from typing import Any
 
+import numpy as np
 from loguru import logger
 
+from quantstack.core.features.technical_indicators import TechnicalIndicators
+from quantstack.data import DataStore
+from quantstack.learning.drift_detector import TRACKED_FEATURES, DriftDetector
+from quantstack.mcp._state import _serialize, live_db_or_error, require_ctx
 from quantstack.mcp.server import mcp
-from quantstack.mcp._state import require_ctx, live_db_or_error, _serialize
 
 
 @mcp.tool()
@@ -331,17 +335,8 @@ def _create_drift_baseline(strategy_id: str) -> None:
     Best-effort — failure does not block the promotion.
     """
     try:
-        from quantstack.data import DataStore
-        from quantstack.core.indicators import TechnicalIndicators
-
-        from quantstack.learning.drift_detector import DriftDetector, TRACKED_FEATURES
-
         store = DataStore()
         detector = DriftDetector()
-
-        # Load 1 year of daily data for a representative symbol
-        # Use the strategy's first symbol or default to SPY
-        import numpy as np
 
         # Try to load recent data — use SPY as a reasonable broad-market proxy
         # for baseline feature distributions

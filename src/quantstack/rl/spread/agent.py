@@ -10,7 +10,7 @@ import numpy as np
 from loguru import logger
 
 from quantstack.rl.base import (
-    TORCH_AVAILABLE,
+
     Action,
     DuelingNetwork,
     Experience,
@@ -19,10 +19,9 @@ from quantstack.rl.base import (
     soft_update,
 )
 
-if TORCH_AVAILABLE:
-    import torch
-    import torch.nn.functional as F
-    import torch.optim as optim
+import torch
+import torch.nn.functional as F
+import torch.optim as optim
 
 
 class SpreadArbitrageAgent(RLAgent):
@@ -94,12 +93,6 @@ class SpreadArbitrageAgent(RLAgent):
 
     def _build_networks(self) -> None:
         """Build neural networks."""
-        if not TORCH_AVAILABLE:
-            logger.warning("PyTorch not available, using fallback agent")
-            self.q_network = None
-            self.target_network = None
-            self.optimizer = None
-            return
 
         # Use dueling architecture
         self.q_network = DuelingNetwork(
@@ -155,7 +148,7 @@ class SpreadArbitrageAgent(RLAgent):
             return Action(value=action_idx, action_type="explore")
 
         # Greedy action from Q-network
-        if TORCH_AVAILABLE and self.q_network is not None:
+        if self.q_network is not None:
             with torch.no_grad():
                 state_tensor = state.to_tensor().unsqueeze(0).to(self.device)
                 q_values = self.q_network(state_tensor)
@@ -201,7 +194,7 @@ class SpreadArbitrageAgent(RLAgent):
         Returns:
             Loss information
         """
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             return {"loss": 0.0}
 
         # Prepare batch
@@ -261,7 +254,7 @@ class SpreadArbitrageAgent(RLAgent):
 
     def save(self, path: str) -> None:
         """Save agent to file."""
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             return
 
         torch.save(
@@ -279,7 +272,7 @@ class SpreadArbitrageAgent(RLAgent):
 
     def load(self, path: str) -> None:
         """Load agent from file."""
-        if not TORCH_AVAILABLE or self.q_network is None:
+        if self.q_network is None:
             return
 
         checkpoint = torch.load(path, map_location=self.device)

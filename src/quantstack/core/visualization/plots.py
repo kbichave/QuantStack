@@ -15,15 +15,23 @@ import pandas as pd
 from loguru import logger
 from matplotlib.patches import Rectangle
 
+import traceback
+
 from quantstack.core.backtesting.engine import run_backtest_with_params
+from quantstack.core.backtesting.strategies import (
+    backtest_changepoint_strategy,
+)
+from dataclasses import dataclass, field
+from typing import Any as _Any
 
-# Try to import PIL for GIF generation
-try:
-    from PIL import Image
 
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
+@dataclass
+class RLState:
+    """Minimal stand-in for the removed quantstack.rl.base.State."""
+    features: _Any = None
+    metadata: dict = field(default_factory=dict)
+
+from PIL import Image
 
 
 def plot_strategy_signals(
@@ -254,10 +262,6 @@ def generate_candlestick_gif(
     Args:
         show_zscore: If True, shows Z-score panel. Default False for cleaner view.
     """
-    if not PIL_AVAILABLE:
-        logger.warning("PIL not available, skipping GIF generation")
-        return None
-
     try:
         # Use full data for complete test period coverage
         if use_full_data:
@@ -850,8 +854,6 @@ def generate_candlestick_gif(
 
     except Exception as e:
         logger.warning(f"Failed to generate GIF: {e}")
-        import traceback
-
         traceback.print_exc()
         plt.close("all")
         return None
@@ -941,9 +943,6 @@ def generate_strategy_plots(
     Creates one GIF per winning strategy category: Rule-Based, ML-Based, RL-Based.
     Uses the FULL test period from 2021-01-01 onward.
     """
-    from quantstack.core.backtesting.strategies import (
-        backtest_changepoint_strategy,
-    )
 
     generated_files = []
 
@@ -1127,8 +1126,6 @@ def generate_strategy_plots(
     if rl_agents and "spread" in rl_agents:
         logger.info("Generating plots for RL-Based winner: RL Spread Agent...")
         try:
-            from quantstack.rl.base import State as RLState
-
             # Run RL spread strategy with trade tracking
             capital = 100000
             position = 0
@@ -1268,8 +1265,6 @@ def generate_strategy_plots(
 
         except Exception as e:
             logger.warning(f"Failed to generate RL Spread Agent plots: {e}")
-            import traceback
-
             traceback.print_exc()
 
     # ============================================================
@@ -1329,8 +1324,6 @@ def generate_strategy_plots(
                         )
                         # Truncate to agent's state dim
                         state_arr = state_arr[: sizing_agent.state_dim]
-                        from quantstack.rl.base import State as RLState
-
                         state = RLState(features=state_arr)
                         action_obj = sizing_agent.select_action(state, explore=False)
                         # Action is typically a continuous value 0-1
@@ -1415,8 +1408,6 @@ def generate_strategy_plots(
 
         except Exception as e:
             logger.warning(f"Failed to generate RL-Enhanced plots: {e}")
-            import traceback
-
             traceback.print_exc()
 
     return generated_files

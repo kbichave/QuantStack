@@ -10,7 +10,7 @@ import numpy as np
 from loguru import logger
 
 from quantstack.rl.base import (
-    TORCH_AVAILABLE,
+
     Action,
     ActorCritic,
     Experience,
@@ -19,11 +19,10 @@ from quantstack.rl.base import (
     compute_gae,
 )
 
-if TORCH_AVAILABLE:
-    import torch
-    import torch.nn as nn
-    import torch.optim as optim
-    from torch.distributions import Normal
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.distributions import Normal
 
 
 class SizingRLAgent(RLAgent):
@@ -93,12 +92,6 @@ class SizingRLAgent(RLAgent):
 
     def _build_networks(self) -> None:
         """Build neural networks."""
-        if not TORCH_AVAILABLE:
-            logger.warning("PyTorch not available, using fallback agent")
-            self.actor_critic = None
-            self.optimizer = None
-            return
-
         self.actor_critic = ActorCritic(
             self.state_dim,
             self.action_dim,
@@ -122,7 +115,7 @@ class SizingRLAgent(RLAgent):
         Returns:
             Selected action
         """
-        if TORCH_AVAILABLE and self.actor_critic is not None:
+        if self.actor_critic is not None:
             with torch.no_grad():
                 state_tensor = state.to_tensor().unsqueeze(0).to(self.device)
                 action, log_prob = self.actor_critic.get_action(
@@ -236,7 +229,7 @@ class SizingRLAgent(RLAgent):
         Returns:
             Loss information
         """
-        if not TORCH_AVAILABLE or self.actor_critic is None:
+        if self.actor_critic is None:
             return {"loss": 0.0}
 
         if len(self.trajectory) == 0:
@@ -348,7 +341,7 @@ class SizingRLAgent(RLAgent):
 
     def save(self, path: str) -> None:
         """Save agent to file."""
-        if not TORCH_AVAILABLE or self.actor_critic is None:
+        if self.actor_critic is None:
             return
 
         torch.save(
@@ -364,7 +357,7 @@ class SizingRLAgent(RLAgent):
 
     def load(self, path: str) -> None:
         """Load agent from file."""
-        if not TORCH_AVAILABLE or self.actor_critic is None:
+        if self.actor_critic is None:
             return
 
         checkpoint = torch.load(path, map_location=self.device)

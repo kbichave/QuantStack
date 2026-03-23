@@ -4,6 +4,10 @@
 """Tests for adapter functions used by MCP tools."""
 
 import pandas as pd
+from quantstack.core.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
+from quantstack.core.options.adapters.financepy_adapter import price_american_option
+from quantstack.core.options.adapters.pysabr_adapter import fit_sabr_surface
+from quantstack.core.options.adapters.quantsbin_adapter import analyze_structure_quantsbin
 
 
 class TestAdaptersForMCP:
@@ -11,10 +15,6 @@ class TestAdaptersForMCP:
 
     def test_analyze_structure_long_call(self):
         """Test structure analysis for single call."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 100.0,
@@ -37,10 +37,6 @@ class TestAdaptersForMCP:
 
     def test_analyze_structure_spread(self):
         """Test structure analysis for spread."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 100.0,
@@ -70,10 +66,6 @@ class TestAdaptersForMCP:
 
     def test_portfolio_stats_ffn(self, sample_equity_curve):
         """Test portfolio stats computation."""
-        from quantstack.core.analytics.adapters.ffn_adapter import (
-            compute_portfolio_stats_ffn,
-        )
-
         result = compute_portfolio_stats_ffn(sample_equity_curve)
 
         assert "total_return" in result
@@ -82,8 +74,6 @@ class TestAdaptersForMCP:
 
     def test_sabr_surface_fit(self):
         """Test SABR surface fitting."""
-        from quantstack.core.options.adapters.pysabr_adapter import fit_sabr_surface
-
         quotes = pd.DataFrame(
             {
                 "strike": [90, 95, 100, 105, 110],
@@ -103,10 +93,6 @@ class TestAdaptersForMCP:
 
     def test_american_option_pricing(self):
         """Test American option pricing via adapter."""
-        from quantstack.core.options.adapters.financepy_adapter import (
-            price_american_option,
-        )
-
         result = price_american_option(
             spot=100.0,
             strike=100.0,

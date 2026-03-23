@@ -13,13 +13,15 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.mcp.server import mcp
+from quantstack.crews.decoder_crew import decode_signals
 from quantstack.mcp._state import (
+    _serialize,
+    live_db_or_error,
     require_ctx,
     require_live_db,
-    live_db_or_error,
-    _serialize,
 )
+from quantstack.mcp.server import mcp
+from quantstack.mcp.tools.strategy import register_strategy
 
 
 @mcp.tool()
@@ -46,8 +48,6 @@ async def decode_strategy(
         win_rate, regime_affinity, edge_hypothesis, and per-IC analysis.
     """
     try:
-        from quantstack.crews.decoder_crew import decode_signals
-
         result = await asyncio.get_event_loop().run_in_executor(
             None, decode_signals, signals, source_name
         )
@@ -57,8 +57,6 @@ async def decode_strategy(
 
         # Auto-register if strategy_name provided
         if strategy_name and result.get("decoded_strategy"):
-            from quantstack.mcp.tools.strategy import register_strategy
-
             decoded = result["decoded_strategy"]
             reg_result = await register_strategy(
                 name=strategy_name,

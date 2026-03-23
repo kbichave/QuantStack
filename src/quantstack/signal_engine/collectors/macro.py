@@ -19,7 +19,9 @@ from loguru import logger
 
 from quantstack.data.adapters.financial_datasets_client import FinancialDatasetsClient
 from quantstack.data.storage import DataStore
+from quantstack.core.features.macro_features import CreditSpreadFeatures, VolOfVol
 from quantstack.core.features.rates import SpreadSignals, YieldCurveFeatures
+from quantstack.data.fred_fetcher import FREDFetcher
 
 
 _TIMEOUT_SECONDS = 10.0
@@ -152,9 +154,6 @@ def _collect_macro_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 
     # --- FRED-sourced macro signals (optional, degrades gracefully) ---
     try:
-        from quantstack.data.fred_fetcher import FREDFetcher
-        from quantstack.core.features.macro_features import CreditSpreadFeatures, VolOfVol
-
         fred = FREDFetcher()
         hy_data = fred.fetch("hy_oas", days=365)
         if not hy_data.empty and len(hy_data) >= 30:

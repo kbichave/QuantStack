@@ -18,6 +18,36 @@ from typing import Literal
 import numpy as np
 from loguru import logger
 
+from quantstack.core.options.models import OptionType
+from py_vollib.black_scholes_merton import black_scholes_merton as scalar_bsm
+from py_vollib.black_scholes_merton.greeks.analytical import (
+    delta as scalar_delta,
+    gamma as scalar_gamma,
+    rho as scalar_rho,
+    theta as scalar_theta,
+    vega as scalar_vega,
+)
+from py_vollib.black_scholes_merton.implied_volatility import (
+    implied_volatility as scalar_iv,
+)
+from py_vollib_vectorized import (
+    vectorized_black_scholes_merton as vec_bsm,
+    vectorized_implied_volatility as vec_iv,
+)
+from py_vollib_vectorized.greeks import (
+    delta as vec_delta,
+    gamma as vec_gamma,
+    rho as vec_rho,
+    theta as vec_theta,
+    vega as vec_vega,
+)
+
+from quantstack.core.options.pricing import (
+    black_scholes_greeks,
+    black_scholes_price,
+    implied_volatility as internal_implied_volatility,
+)
+
 # Type alias for option type
 OptionTypeStr = Literal["call", "put", "c", "p"]
 
@@ -53,6 +83,11 @@ def _validate_inputs(
         raise ValueError(f"Volatility must be positive, got {vol}")
 
 
+def _opt_enum(opt_type: str) -> OptionType:
+    """Convert single-char option type to OptionType enum."""
+    return OptionType.CALL if opt_type == "c" else OptionType.PUT
+
+
 def bs_price_vollib(
     spot: float,
     strike: float,
@@ -79,7 +114,6 @@ def bs_price_vollib(
 
     Raises:
         ValueError: If inputs are invalid
-        ImportError: If vollib is not installed
     """
     _validate_inputs(spot, strike, time_to_expiry, vol, rate)
     opt_type = _normalize_option_type(option_type)
@@ -92,56 +126,17 @@ def bs_price_vollib(
         else:
             return max(0.0, strike - spot)
 
-    try:
-        # Try vectorized version first for better performance
-        from py_vollib_vectorized import vectorized_black_scholes_merton as bsm
-
-        price = bsm(
-            flag=opt_type,
-            S=spot,
-            K=strike,
-            t=time_to_expiry,
-            r=rate,
-            sigma=vol,
-            q=dividend_yield,
-            return_as="numpy",
-        )
-        return float(price)
-
-    except ImportError:
-        # Fall back to standard vollib
-        try:
-            from py_vollib.black_scholes_merton import black_scholes_merton as bsm
-
-            price = bsm(
-                flag=opt_type,
-                S=spot,
-                K=strike,
-                t=time_to_expiry,
-                r=rate,
-                sigma=vol,
-                q=dividend_yield,
-            )
-            return float(price)
-
-        except ImportError:
-            logger.warning(
-                "vollib not available, falling back to internal BS implementation"
-            )
-            # Fall back to internal implementation
-            from quantstack.core.options.models import OptionType
-            from quantstack.core.options.pricing import black_scholes_price
-
-            opt_enum = OptionType.CALL if opt_type == "c" else OptionType.PUT
-            return black_scholes_price(
-                S=spot,
-                K=strike,
-                T=time_to_expiry,
-                r=rate,
-                sigma=vol,
-                option_type=opt_enum,
-                q=dividend_yield,
-            )
+    price = vec_bsm(
+        flag=opt_type,
+        S=spot,
+        K=strike,
+        t=time_to_expiry,
+        r=rate,
+        sigma=vol,
+        q=dividend_yield,
+        return_as="numpy",
+    )
+    return float(price)
 
 
 def implied_vol_vollib(
@@ -203,10 +198,7 @@ def implied_vol_vollib(
         return None
 
     try:
-        # Try vectorized version
-        from py_vollib_vectorized import vectorized_implied_volatility as iv_func
-
-        iv = iv_func(
+        iv = vec_iv(
             price=option_price,
             S=spot,
             K=strike,
@@ -222,49 +214,37 @@ def implied_vol_vollib(
         if np.isnan(result) or result <= 0 or result > 5.0:
             return None
         return result
-
-    except ImportError:
-        try:
-            from py_vollib.black_scholes_merton.implied_volatility import (
-                implied_volatility as iv_func,
-            )
-
-            iv = iv_func(
-                price=option_price,
-                S=spot,
-                K=strike,
-                t=time_to_expiry,
-                r=rate,
-                flag=opt_type,
-                q=dividend_yield,
-            )
-            result = float(iv)
-
-            if np.isnan(result) or result <= 0 or result > 5.0:
-                return None
-            return result
-
-        except (ImportError, Exception) as e:
-            logger.warning(
-                f"vollib IV calculation failed: {e}, falling back to internal"
-            )
-            # Fall back to internal implementation
-            from quantstack.core.options.models import OptionType
-            from quantstack.core.options.pricing import implied_volatility
-
-            opt_enum = OptionType.CALL if opt_type == "c" else OptionType.PUT
-            return implied_volatility(
-                market_price=option_price,
-                S=spot,
-                K=strike,
-                T=time_to_expiry,
-                r=rate,
-                option_type=opt_enum,
-                q=dividend_yield,
-            )
     except Exception as e:
-        logger.debug(f"IV calculation error: {e}")
-        return None
+        logger.debug(f"Vectorized IV failed ({e}), trying scalar")
+
+    try:
+        iv = scalar_iv(
+            price=option_price,
+            S=spot,
+            K=strike,
+            t=time_to_expiry,
+            r=rate,
+            flag=opt_type,
+            q=dividend_yield,
+        )
+        result = float(iv)
+
+        if np.isnan(result) or result <= 0 or result > 5.0:
+            return None
+        return result
+    except Exception as e:
+        logger.warning(
+            f"vollib IV calculation failed: {e}, falling back to internal"
+        )
+        return internal_implied_volatility(
+            market_price=option_price,
+            S=spot,
+            K=strike,
+            T=time_to_expiry,
+            r=rate,
+            option_type=_opt_enum(opt_type),
+            q=dividend_yield,
+        )
 
 
 def greeks_vollib(
@@ -302,128 +282,36 @@ def greeks_vollib(
     # Handle expiry edge case
     if time_to_expiry <= 0 or vol <= 0:
         if opt_type == "c":
-            delta = 1.0 if spot > strike else 0.0
+            delta_val = 1.0 if spot > strike else 0.0
         else:
-            delta = -1.0 if spot < strike else 0.0
+            delta_val = -1.0 if spot < strike else 0.0
 
         return {
-            "delta": delta,
+            "delta": delta_val,
             "gamma": 0.0,
             "theta": 0.0,
             "vega": 0.0,
             "rho": 0.0,
         }
 
-    try:
-        # Try vectorized Greeks
-        from py_vollib_vectorized.greeks import (
-            delta as delta_func,
-        )
-        from py_vollib_vectorized.greeks import (
-            gamma as gamma_func,
-        )
-        from py_vollib_vectorized.greeks import (
-            rho as rho_func,
-        )
-        from py_vollib_vectorized.greeks import (
-            theta as theta_func,
-        )
-        from py_vollib_vectorized.greeks import (
-            vega as vega_func,
-        )
+    common_args = {
+        "flag": opt_type,
+        "S": spot,
+        "K": strike,
+        "t": time_to_expiry,
+        "r": rate,
+        "sigma": vol,
+        "q": dividend_yield,
+        "return_as": "numpy",
+    }
 
-        common_args = {
-            "flag": opt_type,
-            "S": spot,
-            "K": strike,
-            "t": time_to_expiry,
-            "r": rate,
-            "sigma": vol,
-            "q": dividend_yield,
-            "return_as": "numpy",
-        }
-
-        delta = float(delta_func(**common_args))
-        gamma = float(gamma_func(**common_args))
-        theta = float(theta_func(**common_args)) / 365.0  # Convert to daily
-        vega = float(vega_func(**common_args)) / 100.0  # Per 1% vol change
-        rho = float(rho_func(**common_args)) / 100.0  # Per 1% rate change
-
-        return {
-            "delta": delta,
-            "gamma": gamma,
-            "theta": theta,
-            "vega": vega,
-            "rho": rho,
-        }
-
-    except ImportError:
-        try:
-            from py_vollib.black_scholes_merton.greeks.analytical import (
-                delta as delta_func,
-            )
-            from py_vollib.black_scholes_merton.greeks.analytical import (
-                gamma as gamma_func,
-            )
-            from py_vollib.black_scholes_merton.greeks.analytical import (
-                rho as rho_func,
-            )
-            from py_vollib.black_scholes_merton.greeks.analytical import (
-                theta as theta_func,
-            )
-            from py_vollib.black_scholes_merton.greeks.analytical import (
-                vega as vega_func,
-            )
-
-            common_args = {
-                "flag": opt_type,
-                "S": spot,
-                "K": strike,
-                "t": time_to_expiry,
-                "r": rate,
-                "sigma": vol,
-                "q": dividend_yield,
-            }
-
-            delta = float(delta_func(**common_args))
-            gamma = float(gamma_func(**common_args))
-            theta = float(theta_func(**common_args)) / 365.0
-            vega = float(vega_func(**common_args)) / 100.0
-            rho = float(rho_func(**common_args)) / 100.0
-
-            return {
-                "delta": delta,
-                "gamma": gamma,
-                "theta": theta,
-                "vega": vega,
-                "rho": rho,
-            }
-
-        except ImportError:
-            logger.warning(
-                "vollib not available, falling back to internal Greeks implementation"
-            )
-            from quantstack.core.options.models import OptionType
-            from quantstack.core.options.pricing import black_scholes_greeks
-
-            opt_enum = OptionType.CALL if opt_type == "c" else OptionType.PUT
-            greeks = black_scholes_greeks(
-                S=spot,
-                K=strike,
-                T=time_to_expiry,
-                r=rate,
-                sigma=vol,
-                option_type=opt_enum,
-                q=dividend_yield,
-            )
-
-            return {
-                "delta": greeks.delta,
-                "gamma": greeks.gamma,
-                "theta": greeks.theta,
-                "vega": greeks.vega,
-                "rho": greeks.rho,
-            }
+    return {
+        "delta": float(vec_delta(**common_args)),
+        "gamma": float(vec_gamma(**common_args)),
+        "theta": float(vec_theta(**common_args)) / 365.0,  # Convert to daily
+        "vega": float(vec_vega(**common_args)) / 100.0,  # Per 1% vol change
+        "rho": float(vec_rho(**common_args)) / 100.0,  # Per 1% rate change
+    }
 
 
 def bs_price_vectorized(
@@ -467,39 +355,17 @@ def bs_price_vectorized(
     else:
         flags = np.array([_normalize_option_type(ot) for ot in option_types])
 
-    try:
-        from py_vollib_vectorized import vectorized_black_scholes_merton as bsm
-
-        prices = bsm(
-            flag=flags,
-            S=spots,
-            K=strikes,
-            t=times_to_expiry,
-            r=rates,
-            sigma=vols,
-            q=dividend_yields,
-            return_as="numpy",
-        )
-        return np.array(prices)
-
-    except ImportError:
-        # Fall back to loop-based calculation
-        prices = np.zeros(len(spots))
-        for i in range(len(spots)):
-            prices[i] = bs_price_vollib(
-                spot=spots[i],
-                strike=strikes[i],
-                time_to_expiry=times_to_expiry[i],
-                vol=vols[i],
-                rate=rates[i] if isinstance(rates, np.ndarray) else rates,
-                dividend_yield=(
-                    dividend_yields[i]
-                    if isinstance(dividend_yields, np.ndarray)
-                    else dividend_yields
-                ),
-                option_type=flags[i],
-            )
-        return prices
+    prices = vec_bsm(
+        flag=flags,
+        S=spots,
+        K=strikes,
+        t=times_to_expiry,
+        r=rates,
+        sigma=vols,
+        q=dividend_yields,
+        return_as="numpy",
+    )
+    return np.array(prices)
 
 
 def implied_vol_vectorized(
@@ -538,34 +404,14 @@ def implied_vol_vectorized(
     else:
         flags = np.array([_normalize_option_type(ot) for ot in option_types])
 
-    try:
-        from py_vollib_vectorized import vectorized_implied_volatility as iv_func
-
-        ivs = iv_func(
-            price=option_prices,
-            S=spots,
-            K=strikes,
-            t=times_to_expiry,
-            r=rates,
-            flag=flags,
-            q=dividend_yields,
-            return_as="numpy",
-        )
-        return np.array(ivs)
-
-    except ImportError:
-        # Fall back to loop-based calculation
-        ivs = np.full(len(spots), np.nan)
-        for i in range(len(spots)):
-            iv = implied_vol_vollib(
-                spot=spots[i],
-                strike=strikes[i],
-                time_to_expiry=times_to_expiry[i],
-                rate=rates[i],
-                dividend_yield=dividend_yields[i],
-                option_price=option_prices[i],
-                option_type=flags[i],
-            )
-            if iv is not None:
-                ivs[i] = iv
-        return ivs
+    ivs = vec_iv(
+        price=option_prices,
+        S=spots,
+        K=strikes,
+        t=times_to_expiry,
+        r=rates,
+        flag=flags,
+        q=dividend_yields,
+        return_as="numpy",
+    )
+    return np.array(ivs)

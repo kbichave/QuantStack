@@ -46,6 +46,8 @@ from typing import Any
 import yaml
 from loguru import logger
 
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.storage import DataStore
 from quantstack.execution.portfolio_state import get_portfolio_state
 
 # =============================================================================
@@ -704,9 +706,6 @@ class RiskGate:
         """
         alerts: list[MonitorAlert] = []
         try:
-            from quantstack.config.timeframes import Timeframe
-            from quantstack.data.storage import DataStore
-
             store = DataStore()
             symbols = [p.symbol for p in positions]
             returns_map: dict[str, Any] = {}
@@ -750,10 +749,6 @@ class RiskGate:
                                 },
                             )
                         )
-        except ImportError:
-            logger.debug(
-                "[RISK MONITOR] DataStore not available — skipping correlation check"
-            )
         except Exception as exc:
             logger.debug(f"[RISK MONITOR] correlation check failed: {exc}")
 

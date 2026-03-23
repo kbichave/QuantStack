@@ -24,6 +24,9 @@ from typing import Any
 import duckdb
 from loguru import logger
 
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.storage import DataStore
+
 
 class BenchmarkTracker:
     """
@@ -290,9 +293,6 @@ class BenchmarkTracker:
     def _fetch_close(self, symbol: str, as_of: date) -> float | None:
         """Fetch the close price for a symbol on a given date from DataStore."""
         try:
-            from quantstack.config.timeframes import Timeframe
-            from quantstack.data.storage import DataStore
-
             store = DataStore(read_only=True)
             df = store.load_ohlcv(symbol, Timeframe.D1)
             if df is None or df.empty:

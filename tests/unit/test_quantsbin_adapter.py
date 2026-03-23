@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Unit tests for quantsbin adapter."""
+from quantstack.core.options.adapters.quantsbin_adapter import analyze_structure_quantsbin, build_structure_from_template, get_standard_structures
 
 
 class TestQuantsbinAdapter:
@@ -9,10 +10,6 @@ class TestQuantsbinAdapter:
 
     def test_analyze_long_call(self):
         """Test analysis of single long call."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 450.0,
@@ -37,10 +34,6 @@ class TestQuantsbinAdapter:
 
     def test_analyze_bull_call_spread(self):
         """Test bull call spread analysis."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 450.0,
@@ -71,10 +64,6 @@ class TestQuantsbinAdapter:
 
     def test_analyze_iron_condor(self):
         """Test iron condor analysis."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 450.0,
@@ -118,10 +107,6 @@ class TestQuantsbinAdapter:
 
     def test_analyze_straddle(self):
         """Test long straddle analysis."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 450.0,
@@ -150,10 +135,6 @@ class TestQuantsbinAdapter:
 
     def test_payoff_profile(self):
         """Test payoff profile generation."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 100.0,
@@ -179,10 +160,6 @@ class TestQuantsbinAdapter:
 
     def test_greeks_aggregation(self):
         """Test Greeks are properly aggregated."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         # Bull call spread - delta should be positive but less than single deep ITM call
         # Long 95 call (ITM) has higher delta, short 105 call (OTM) reduces it
         spec = {
@@ -216,10 +193,6 @@ class TestQuantsbinAdapter:
 
     def test_break_even_calculation(self):
         """Test break-even point calculation."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "TEST",
             "underlying_price": 100.0,
@@ -242,10 +215,6 @@ class TestQuantsbinAdapter:
 
     def test_probability_of_profit(self):
         """Test POP estimation."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 100.0,
@@ -269,10 +238,6 @@ class TestQuantsbinAdapter:
 
     def test_empty_structure(self):
         """Test handling of empty structure."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 100.0,
@@ -285,10 +250,6 @@ class TestQuantsbinAdapter:
 
     def test_build_structure_from_template(self):
         """Test building structure from template."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            build_structure_from_template,
-        )
-
         spec = build_structure_from_template(
             template_name="bull_call_spread",
             underlying_symbol="SPY",
@@ -305,10 +266,6 @@ class TestQuantsbinAdapter:
 
     def test_get_standard_structures(self):
         """Test getting structure templates."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            get_standard_structures,
-        )
-
         templates = get_standard_structures()
 
         assert "bull_call_spread" in templates
@@ -321,10 +278,6 @@ class TestStructureIdentification:
 
     def test_identify_short_put(self):
         """Test short put identification."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 100.0,
@@ -345,10 +298,6 @@ class TestStructureIdentification:
 
     def test_identify_bear_put_spread(self):
         """Test bear put spread identification."""
-        from quantstack.core.options.adapters.quantsbin_adapter import (
-            analyze_structure_quantsbin,
-        )
-
         spec = {
             "underlying_symbol": "SPY",
             "underlying_price": 100.0,

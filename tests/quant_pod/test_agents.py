@@ -5,6 +5,7 @@
 
 import pytest
 from quantstack.agents.regime_detector import RegimeDetectorAgent
+from quantstack.agents import AnalysisNote, DailyBrief, TradeDecision
 
 
 class TestRegimeDetectorAgent:
@@ -37,20 +38,14 @@ class TestSchemaReexports:
 
     def test_trade_decision_importable(self):
         """Test TradeDecision can be imported from agents."""
-        from quantstack.agents import TradeDecision
-
         assert TradeDecision is not None
 
     def test_daily_brief_importable(self):
         """Test DailyBrief can be imported from agents."""
-        from quantstack.agents import DailyBrief
-
         assert DailyBrief is not None
 
     def test_analysis_note_importable(self):
         """Test AnalysisNote can be imported from agents."""
-        from quantstack.agents import AnalysisNote
-
         assert AnalysisNote is not None
 
 

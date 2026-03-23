@@ -33,6 +33,7 @@ import asyncio
 import json
 from typing import Any
 
+import litellm
 from loguru import logger
 
 
@@ -116,8 +117,6 @@ class HypothesisAgent:
         prompt = _build_prompt(symbol, regime, brief)
 
         try:
-            import litellm
-
             response = litellm.completion(
                 model="groq/llama-3.3-70b-versatile",
                 messages=[

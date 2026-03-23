@@ -10,13 +10,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-try:
-    import shap
-
-    SHAP_AVAILABLE = True
-except ImportError:
-    SHAP_AVAILABLE = False
-    logger.warning("SHAP not available, explanations will be limited")
+import shap
 
 from quantstack.ml.trainer import TrainingResult
 
@@ -56,10 +50,6 @@ class SHAPExplainer:
             X: Feature data for background distribution
             sample_size: Number of samples for background
         """
-        if not SHAP_AVAILABLE:
-            logger.warning("SHAP not available")
-            return
-
         # Sample if too large
         if len(X) > sample_size:
             X_sample = X.sample(sample_size, random_state=42)
@@ -96,7 +86,7 @@ class SHAPExplainer:
         Returns:
             Dictionary of feature importance
         """
-        if not SHAP_AVAILABLE or self._explainer is None:
+        if self._explainer is None:
             # Fall back to model's feature importance
             if hasattr(self.model, "feature_importances_"):
                 return dict(
@@ -152,7 +142,7 @@ class SHAPExplainer:
         Returns:
             Dictionary of feature contributions
         """
-        if not SHAP_AVAILABLE or self._explainer is None:
+        if self._explainer is None:
             return {}
 
         # Scale if needed
@@ -220,8 +210,8 @@ class SHAPExplainer:
             X: Feature data
             max_display: Maximum features to display
         """
-        if not SHAP_AVAILABLE or self._explainer is None:
-            logger.warning("SHAP plotting not available")
+        if self._explainer is None:
+            logger.warning("SHAP explainer not fitted — call fit() first")
             return
 
         # Scale if needed
@@ -260,7 +250,7 @@ class SHAPExplainer:
         Returns:
             Interaction values array
         """
-        if not SHAP_AVAILABLE or self._explainer is None:
+        if self._explainer is None:
             return None
 
         if feature1 not in self.feature_names or feature2 not in self.feature_names:

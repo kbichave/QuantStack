@@ -27,15 +27,18 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 import time
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import date, datetime, timedelta, timezone
 
-# Ensure packages/ is on sys.path
-project_root = Path(__file__).resolve().parents[1]
-if str(project_root / "packages") not in sys.path:
-    sys.path.insert(0, str(project_root / "packages"))
+from quantstack.autonomous.screener import AutonomousScreener
+from quantstack.autonomous.watchlist import WatchlistLoader
+from quantstack.coordination.daily_digest import DailyDigest
+from quantstack.coordination.event_bus import Event, EventBus, EventType
+from quantstack.coordination.strategy_lock import StrategyStatusLock
+from quantstack.coordination.universe_registry import UniverseRegistry, UniverseSource
+from quantstack.data.adapters.financial_datasets_client import FinancialDatasetsClient
+from quantstack.data.cache_warmer import CacheWarmer
+from quantstack.db import open_db, reset_connection, run_migrations
 
 
 def _header(msg: str) -> None:
@@ -84,8 +87,6 @@ def main() -> int:
 
     # ── Step 1: Fresh DB + migrations ────────────────────────────────────
     _header("Step 1: Fresh database + migrations")
-    from quantstack.db import open_db, reset_connection, run_migrations
-
     # Force a fresh DB
     reset_connection()
     conn = open_db()
@@ -112,14 +113,8 @@ def main() -> int:
 
     # ── Step 2: Universe refresh ─────────────────────────────────────────
     _header("Step 2: Universe registry refresh")
-    from quantstack.coordination.universe_registry import UniverseRegistry
-
     client = None
     if fd_key:
-        from quantstack.data.adapters.financial_datasets_client import (
-            FinancialDatasetsClient,
-        )
-
         client = FinancialDatasetsClient(api_key=fd_key)
 
     registry = UniverseRegistry(conn, client)
@@ -141,19 +136,13 @@ def main() -> int:
 
     # Show breakdown by source
     for source in ("sp500", "nasdaq100", "etf_liquid"):
-        syms = registry.get_active_symbols(
-            __import__(
-                "quant_pod.coordination.universe_registry", fromlist=["UniverseSource"]
-            ).UniverseSource(source)
-        )
+        syms = registry.get_active_symbols(UniverseSource(source))
         _info(f"  {source}: {len(syms)} symbols")
 
     # ── Step 3: Cache warmer (sample of 10) ──────────────────────────────
     _header("Step 3: Cache warmer (10 symbols)")
 
     if fd_key:
-        from quantstack.data.cache_warmer import CacheWarmer
-
         # We need a DataStore — create a minimal one
         # For validation, we'll use DuckDB directly as a lightweight store
         sample_symbols = registry.get_active_symbols()[:10]
@@ -189,8 +178,6 @@ def main() -> int:
         warm_errors = 0
         for sym in sample_symbols:
             try:
-                from datetime import date, timedelta
-
                 start = (date.today() - timedelta(days=252)).isoformat()
                 end = date.today().isoformat()
                 prices = client.get_all_historical_prices(sym, "day", 1, start, end)
@@ -229,8 +216,6 @@ def main() -> int:
 
     # ── Step 4: Screener ─────────────────────────────────────────────────
     _header("Step 4: Autonomous screener")
-    from quantstack.autonomous.screener import AutonomousScreener
-
     screener = AutonomousScreener(conn)
     result = screener._screen_sync("unknown")
 
@@ -261,8 +246,6 @@ def main() -> int:
     os.environ["USE_TIERED_WATCHLIST"] = "true"
     os.environ.pop("AUTONOMOUS_WATCHLIST", None)  # Remove any override
 
-    from quantstack.autonomous.watchlist import WatchlistLoader
-
     loader = WatchlistLoader()
     tiered = loader.load_tiered()
 
@@ -280,8 +263,6 @@ def main() -> int:
 
     # ── Step 6: Event bus round-trip ─────────────────────────────────────
     _header("Step 6: Event bus round-trip")
-    from quantstack.coordination.event_bus import Event, EventBus, EventType
-
     bus = EventBus(conn)
 
     # Publish
@@ -316,8 +297,6 @@ def main() -> int:
 
     # ── Step 7: Strategy lock lifecycle ──────────────────────────────────
     _header("Step 7: Strategy status lock lifecycle")
-    from quantstack.coordination.strategy_lock import StrategyStatusLock
-
     lock = StrategyStatusLock(conn, event_bus=bus)
 
     # Create a test strategy
@@ -359,8 +338,6 @@ def main() -> int:
 
     # ── Step 8: Daily digest ─────────────────────────────────────────────
     _header("Step 8: Daily digest")
-    from quantstack.coordination.daily_digest import DailyDigest
-
     digest = DailyDigest(conn)
     report = digest.generate()
     md = digest.format_markdown(report)

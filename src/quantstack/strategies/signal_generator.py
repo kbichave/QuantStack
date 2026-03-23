@@ -13,10 +13,14 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+from datetime import datetime, timedelta
+
 from quantstack.config.settings import get_settings
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.base import AssetClass
 from quantstack.data.registry import DataProviderRegistry
+from quantstack.data.storage import DataStore
+from quantstack.features.enricher import FeatureEnricher
 
 
 def generate_signals_from_rules(
@@ -152,8 +156,6 @@ def generate_signals_from_rules(
 
     # ── Enrich with fundamental/macro/flow features on-demand ────────────
     try:
-        from quantstack.features.enricher import FeatureEnricher
-
         enricher = FeatureEnricher()
         tiers = enricher.detect_needed_tiers(entry_rules + exit_rules)
         if tiers.any_active():
@@ -414,8 +416,6 @@ def fetch_price_data(
 
     # 1. Local DuckDB cache
     try:
-        from quantstack.data.storage import DataStore
-
         with DataStore(read_only=True) as store:
             df = store.load_ohlcv(symbol, tf)
             if df is not None and not df.empty:
@@ -425,8 +425,6 @@ def fetch_price_data(
 
     # 2. Provider registry
     try:
-        from datetime import datetime, timedelta
-
         settings = get_settings()
         registry = DataProviderRegistry.from_settings(settings)
 

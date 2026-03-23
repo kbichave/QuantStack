@@ -35,6 +35,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+
 logger = logging.getLogger("quantstack.scheduler")
 
 WORKDIR = Path(os.getenv("QUANTPOD_WORKDIR", Path(__file__).parent.parent))
@@ -106,25 +109,15 @@ def run_autonomous_loop(dry_run: bool = False) -> None:
 
 JOBS = [
     {"hour": 8, "minute": 0, "weekdays": "mon-fri", "func": run_data_refresh, "label": "data_refresh_08:00"},
-    {"hour": 9, "minute": 35, "weekdays": "mon-fri", "func": run_autonomous_loop, "label": "autonomous_09:35"},
-    {"hour": 13, "minute": 0, "weekdays": "mon-fri", "func": run_autonomous_loop, "label": "autonomous_13:00"},
+    # autonomous_09:35 and autonomous_13:00 REMOVED in v2.
+    # The LLM-driven trading loop (tmux: quantstack-trading) handles all
+    # intraday execution: entries, monitoring, exits.
+    # See prompts/trading_loop.md and scripts/start_trading_loop.sh.
 ]
 
 
 def start_scheduler(dry_run: bool = False) -> None:
     """Start the APScheduler daemon."""
-    try:
-        from apscheduler.schedulers.blocking import BlockingScheduler
-        from apscheduler.triggers.cron import CronTrigger
-    except ImportError:
-        print(
-            "ERROR: APScheduler not installed.\n"
-            "Install with: pip install 'apscheduler>=3.10.0'\n\n"
-            "Equivalent cron entries:\n"
-        )
-        _print_cron()
-        sys.exit(1)
-
     scheduler = BlockingScheduler(timezone=TIMEZONE)
 
     for job in JOBS:
@@ -146,8 +139,8 @@ def start_scheduler(dry_run: bool = False) -> None:
         f"\nQuantStack Scheduler started (workdir={WORKDIR})\n"
         f"Scheduled {len(JOBS)} jobs. Press Ctrl+C to stop.\n\n"
         f"  08:00 — Data refresh (Alpha Vantage cache)\n"
-        f"  09:35 — AutonomousRunner (deterministic execution)\n"
-        f"  13:00 — AutonomousRunner (mid-day pass)\n"
+        f"\n"
+        f"  Note: Trading execution handled by tmux trading loop (start_trading_loop.sh)\n"
     )
 
     try:
@@ -160,8 +153,8 @@ def _print_cron() -> None:
     """Print equivalent cron entries."""
     print("# QuantStack scheduled jobs (add to crontab, TZ=America/New_York)")
     print(f"0  8 * * 1-5  cd {WORKDIR} && python scripts/acquire_historical_data.py --phases ohlcv_daily macro news insider fundamentals")
-    print(f"35 9 * * 1-5  cd {WORKDIR} && python -m quantstack.autonomous.runner --paper-only")
-    print(f"0 13 * * 1-5  cd {WORKDIR} && python -m quantstack.autonomous.runner --paper-only")
+    print("# Trading execution: start_trading_loop.sh (tmux-based Claude loop)")
+    print(f"# 30 9 * * 1-5  cd {WORKDIR} && ./scripts/start_trading_loop.sh")
 
 
 # ---------------------------------------------------------------------------

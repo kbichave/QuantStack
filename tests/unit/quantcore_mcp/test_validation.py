@@ -5,6 +5,8 @@
 
 import numpy as np
 import pandas as pd
+from quantstack.core.validation.purged_cv import PurgedKFoldCV
+from scipy import stats
 
 
 class TestPurgedCV:
@@ -12,8 +14,6 @@ class TestPurgedCV:
 
     def test_purged_cv_splits(self):
         """Test purged CV generates correct splits."""
-        from quantstack.core.validation.purged_cv import PurgedKFoldCV
-
         # Create test data
         dates = pd.date_range("2020-01-01", periods=1000, freq="D")
         X = pd.DataFrame({"feature": np.random.randn(1000)}, index=dates)
@@ -31,8 +31,6 @@ class TestPurgedCV:
 
     def test_embargo_applied(self):
         """Test embargo creates gap between train and test."""
-        from quantstack.core.validation.purged_cv import PurgedKFoldCV
-
         dates = pd.date_range("2020-01-01", periods=1000, freq="D")
         X = pd.DataFrame({"feature": np.random.randn(1000)}, index=dates)
 
@@ -57,8 +55,6 @@ class TestLookaheadDetection:
 
     def test_clean_features_pass(self):
         """Test clean features don't trigger lookahead."""
-        from scipy import stats
-
         np.random.seed(42)
         n = 200
 
@@ -73,8 +69,6 @@ class TestLookaheadDetection:
 
     def test_leaky_feature_detected(self):
         """Test obvious lookahead is detected."""
-        from scipy import stats
-
         np.random.seed(42)
         n = 200
 

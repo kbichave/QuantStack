@@ -13,13 +13,16 @@ import asyncio
 import functools
 import inspect
 import time
+import typing
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from quantstack.context import TradingContext, create_trading_context
+from quantstack.db import open_db_readonly, reset_connection
 from quantstack.shared.cache import TTLCache
+from quantstack.shared.files import read_memory_file
 from quantstack.shared.serializers import serialize_for_json
 
 
@@ -52,14 +55,23 @@ def auto_release_db(fn):
             finally:
                 release_db()
 
-        return wrapper
+    else:
 
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        try:
-            return fn(*args, **kwargs)
-        finally:
-            release_db()
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                release_db()
+
+    # Resolve string annotations (from `from __future__ import annotations`)
+    # to concrete types using the ORIGINAL function's module globals.
+    # Without this, Pydantic/FastMCP evaluates string annotations against the
+    # wrapper's __globals__ (_state.py) which lacks names like `Any`.
+    try:
+        wrapper.__annotations__ = typing.get_type_hints(fn)
+    except Exception:
+        pass
 
     return wrapper
 
@@ -131,8 +143,6 @@ def _try_recover_from_degraded() -> bool:
     """Attempt to recover from degraded mode by retrying the DB connection."""
     global _ctx, _degraded_mode, _degraded_reason
     try:
-        from quantstack.db import reset_connection
-
         reset_connection()
         new_ctx = create_trading_context()
         _ctx = new_ctx
@@ -174,8 +184,6 @@ def live_db_or_error() -> tuple[TradingContext | None, dict | None]:
         pass
 
     try:
-        from quantstack.db import open_db_readonly
-
         ro_conn = open_db_readonly()
         ctx = require_ctx()
         if not hasattr(ctx, "_original_db"):
@@ -207,16 +215,8 @@ def _serialize(obj: Any) -> Any:
 
 
 def _read_memory_file(filename: str, max_chars: int = 2000) -> str:
-    """Read a .claude/memory/*.md file and return its content (truncated)."""
-    candidates = [
-        Path(__file__).parents[4] / ".claude" / "memory" / filename,
-        Path.home() / ".claude" / "memory" / filename,
-    ]
-    for path in candidates:
-        if path.exists():
-            try:
-                content = path.read_text(encoding="utf-8")
-                return content[:max_chars] if len(content) > max_chars else content
-            except OSError:
-                pass
-    return ""
+    """Read a .claude/memory/*.md file and return its content (truncated).
+
+    Delegates to quantstack.shared.files.read_memory_file.
+    """
+    return read_memory_file(filename, max_chars=max_chars)

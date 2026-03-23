@@ -54,6 +54,7 @@ from quantstack.audit.models import (
     IndicatorAttribution,
     ToolCall,
 )
+from quantstack.db import open_db_readonly
 
 # =============================================================================
 # DECISION LOG
@@ -544,7 +545,5 @@ def get_decision_log_readonly() -> DecisionLog:
     """
     global _decision_log_ro
     if _decision_log_ro is None:
-        from quantstack.db import open_db_readonly
-
         _decision_log_ro = DecisionLog(conn=open_db_readonly())
     return _decision_log_ro

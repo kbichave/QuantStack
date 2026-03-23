@@ -16,6 +16,7 @@ from quantstack.optimization.opro_loop import (
     PromptCandidate,
     OPROLoop,
 )
+import uuid
 
 
 @pytest.fixture
@@ -37,7 +38,6 @@ def _make_candidate(
     generation: int = 1,
     promoted_at: str | None = None,
 ) -> PromptCandidate:
-    import uuid
     return PromptCandidate(
         candidate_id=str(uuid.uuid4()),
         node_name=node_name,

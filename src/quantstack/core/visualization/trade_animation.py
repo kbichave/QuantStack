@@ -19,6 +19,8 @@ Usage:
 """
 
 import io
+import traceback
+from datetime import datetime
 from pathlib import Path
 
 import matplotlib
@@ -30,14 +32,7 @@ import pandas as pd
 from loguru import logger
 from matplotlib.patches import Rectangle
 
-# Try to import PIL for GIF generation
-try:
-    from PIL import Image
-
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
-    logger.warning("PIL not available, GIF generation disabled")
+from PIL import Image
 
 
 # TradingView dark theme colors
@@ -149,10 +144,6 @@ def generate_trade_animation_gif(
     Returns:
         Path to generated GIF, or None if generation failed
     """
-    if not PIL_AVAILABLE:
-        logger.warning("PIL not available, skipping GIF generation")
-        return None
-
     if data.empty or len(data) < window_size:
         logger.warning(f"Insufficient data for GIF: {len(data)} bars < {window_size}")
         return None
@@ -160,8 +151,6 @@ def generate_trade_animation_gif(
     try:
         # Generate timestamp if not provided
         if report_timestamp is None:
-            from datetime import datetime
-
             report_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         # Ensure output directory exists
@@ -719,8 +708,6 @@ def generate_trade_animation_gif(
 
     except Exception as e:
         logger.error(f"Failed to generate trade animation GIF: {e}")
-        import traceback
-
         traceback.print_exc()
         plt.close("all")
         return None

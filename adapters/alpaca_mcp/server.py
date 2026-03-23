@@ -27,11 +27,18 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 
+from alpaca.data.historical.option import OptionHistoricalDataClient
+from alpaca.data.requests import OptionChainRequest
 from fastmcp import FastMCP
 from loguru import logger
 
+from alpaca_mcp.client import AlpacaBrokerClient
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.execution.unified_models import UnifiedOrder
+from quantstack.data.adapters.alpaca import AlpacaAdapter
 from quantstack.shared.mcp_toolkit import mcp_tool_response, mcp_tool_safe, require_resource
 from quantstack.shared.serializers import serialize_for_json
 
@@ -53,8 +60,6 @@ async def lifespan(server: FastMCP):
     """Initialise AlpacaBrokerClient on startup; log warning if auth fails."""
     logger.info("[alpaca_mcp] Starting…")
     try:
-        from alpaca_mcp.client import AlpacaBrokerClient
-
         paper = os.getenv("ALPACA_PAPER", "true").lower() == "true"
         _ctx.broker = AlpacaBrokerClient(paper=paper)
 
@@ -178,9 +183,6 @@ def get_bars(
         limit:     Maximum number of bars to return (default 200).
     """
     try:
-        from quantstack.config.timeframes import Timeframe
-        from quantstack.data.adapters.alpaca import AlpacaAdapter
-
         _TF_MAP = {
             "1m": Timeframe.M1,
             "5m": Timeframe.M5,
@@ -239,8 +241,6 @@ def preview_order(
         limit_price: Required for limit orders.
     """
     try:
-        from quantstack.core.execution.unified_models import UnifiedOrder
-
         broker = _require_broker()
         order = UnifiedOrder(
             symbol=symbol,
@@ -277,8 +277,6 @@ def place_order(
         extended_hours: True to allow pre/post-market execution (limit orders only).
     """
     try:
-        from quantstack.core.execution.unified_models import UnifiedOrder
-
         broker = _require_broker()
         order = UnifiedOrder(
             symbol=symbol,
@@ -347,9 +345,6 @@ def get_option_chains(
         expiry: Target expiry date in YYYY-MM-DD format (optional).
     """
     try:
-        from alpaca.data.historical.option import OptionHistoricalDataClient
-        from alpaca.data.requests import OptionChainRequest
-
         broker = _require_broker()
         cli = OptionHistoricalDataClient(broker._api_key, broker._secret_key)
         req_kwargs = {"underlying_symbol": symbol}

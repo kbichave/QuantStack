@@ -38,6 +38,9 @@ import duckdb
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from quantstack.db import open_db, open_db_readonly, run_migrations
+from quantstack.execution.hook_registry import fire as _fire_hook
+
 # =============================================================================
 # DATA MODELS
 # =============================================================================
@@ -54,6 +57,18 @@ class Position(BaseModel):
     last_updated: datetime = Field(default_factory=datetime.now)
     unrealized_pnl: float = 0.0
     current_price: float = 0.0
+    # v2 — strategy context + exit levels for autonomous trading loop
+    strategy_id: str = ""
+    regime_at_entry: str = "unknown"
+    instrument_type: str = "equity"  # "equity", "options", "multi_leg"
+    time_horizon: str = "swing"  # "intraday", "swing", "position", "investment"
+    stop_price: float | None = None
+    target_price: float | None = None
+    trailing_stop: float | None = None
+    entry_atr: float = 0.0
+    option_expiry: str | None = None
+    option_strike: float | None = None
+    option_type: str | None = None  # "call" or "put"
 
     @property
     def notional_value(self) -> float:
@@ -78,6 +93,9 @@ class ClosedTrade(BaseModel):
     holding_days: int = 0
     strategy_id: str = ""
     regime_at_entry: str = "unknown"
+    regime_at_exit: str = "unknown"
+    exit_reason: str = ""
+    instrument_type: str = "equity"
 
 
 class PortfolioSnapshot(BaseModel):
@@ -124,8 +142,6 @@ class PortfolioState:
             self._conn = conn
         else:
             # Fall back to own file for backward compatibility
-            from quantstack.db import open_db, run_migrations
-
             if db_path is None:
                 db_path = os.getenv("PORTFOLIO_DB_PATH", "~/.quant_pod/trader.duckdb")
             self._conn = open_db(db_path)
@@ -160,47 +176,57 @@ class PortfolioState:
     # Positions
     # -------------------------------------------------------------------------
 
+    # Column list shared by get_positions / get_position to stay DRY.
+    _POS_COLS = (
+        "symbol, quantity, avg_cost, side, opened_at, last_updated, "
+        "unrealized_pnl, current_price, "
+        "strategy_id, regime_at_entry, instrument_type, time_horizon, "
+        "stop_price, target_price, trailing_stop, entry_atr, "
+        "option_expiry, option_strike, option_type"
+    )
+
+    @staticmethod
+    def _row_to_position(r: tuple) -> Position:
+        return Position(
+            symbol=r[0],
+            quantity=r[1],
+            avg_cost=r[2],
+            side=r[3],
+            opened_at=r[4],
+            last_updated=r[5],
+            unrealized_pnl=r[6],
+            current_price=r[7],
+            strategy_id=r[8] or "",
+            regime_at_entry=r[9] or "unknown",
+            instrument_type=r[10] or "equity",
+            time_horizon=r[11] or "swing",
+            stop_price=r[12],
+            target_price=r[13],
+            trailing_stop=r[14],
+            entry_atr=r[15] or 0.0,
+            option_expiry=r[16],
+            option_strike=r[17],
+            option_type=r[18],
+        )
+
     def get_positions(self) -> list[Position]:
         """Return all open positions."""
         with self._lock:
             rows = self.conn.execute(
-                "SELECT symbol, quantity, avg_cost, side, opened_at, last_updated, "
-                "unrealized_pnl, current_price FROM positions"
+                f"SELECT {self._POS_COLS} FROM positions"
             ).fetchall()
-        return [
-            Position(
-                symbol=r[0],
-                quantity=r[1],
-                avg_cost=r[2],
-                side=r[3],
-                opened_at=r[4],
-                last_updated=r[5],
-                unrealized_pnl=r[6],
-                current_price=r[7],
-            )
-            for r in rows
-        ]
+        return [self._row_to_position(r) for r in rows]
 
     def get_position(self, symbol: str) -> Position | None:
         """Return a single position or None."""
         with self._lock:
             row = self.conn.execute(
-                "SELECT symbol, quantity, avg_cost, side, opened_at, last_updated, "
-                "unrealized_pnl, current_price FROM positions WHERE symbol = ?",
+                f"SELECT {self._POS_COLS} FROM positions WHERE symbol = ?",
                 [symbol],
             ).fetchone()
         if row is None:
             return None
-        return Position(
-            symbol=row[0],
-            quantity=row[1],
-            avg_cost=row[2],
-            side=row[3],
-            opened_at=row[4],
-            last_updated=row[5],
-            unrealized_pnl=row[6],
-            current_price=row[7],
-        )
+        return self._row_to_position(row)
 
     def upsert_position(self, pos: Position) -> None:
         """
@@ -218,8 +244,11 @@ class PortfolioState:
                     """
                     INSERT INTO positions
                         (symbol, quantity, avg_cost, side, opened_at, last_updated,
-                         unrealized_pnl, current_price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         unrealized_pnl, current_price,
+                         strategy_id, regime_at_entry, instrument_type, time_horizon,
+                         stop_price, target_price, trailing_stop, entry_atr,
+                         option_expiry, option_strike, option_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         pos.symbol,
@@ -230,6 +259,17 @@ class PortfolioState:
                         pos.last_updated,
                         pos.unrealized_pnl,
                         pos.current_price,
+                        pos.strategy_id,
+                        pos.regime_at_entry,
+                        pos.instrument_type,
+                        pos.time_horizon,
+                        pos.stop_price,
+                        pos.target_price,
+                        pos.trailing_stop,
+                        pos.entry_atr,
+                        pos.option_expiry,
+                        pos.option_strike,
+                        pos.option_type,
                     ],
                 )
             elif existing.side == pos.side:
@@ -300,8 +340,11 @@ class PortfolioState:
                     """
                     INSERT INTO positions
                         (symbol, quantity, avg_cost, side, opened_at, last_updated,
-                         unrealized_pnl, current_price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                         unrealized_pnl, current_price,
+                         strategy_id, regime_at_entry, instrument_type, time_horizon,
+                         stop_price, target_price, trailing_stop, entry_atr,
+                         option_expiry, option_strike, option_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         pos.symbol,
@@ -312,6 +355,17 @@ class PortfolioState:
                         pos.last_updated,
                         pos.unrealized_pnl,
                         pos.current_price,
+                        pos.strategy_id,
+                        pos.regime_at_entry,
+                        pos.instrument_type,
+                        pos.time_horizon,
+                        pos.stop_price,
+                        pos.target_price,
+                        pos.trailing_stop,
+                        pos.entry_atr,
+                        pos.option_expiry,
+                        pos.option_strike,
+                        pos.option_type,
                     ],
                 )
                 logger.info(
@@ -347,6 +401,9 @@ class PortfolioState:
         quantity: int | None = None,
         strategy_id: str = "",
         regime_at_entry: str = "unknown",
+        regime_at_exit: str = "unknown",
+        exit_reason: str = "",
+        instrument_type: str = "",
     ) -> ClosedTrade | None:
         """
         Close all or part of a position and record realized P&L.
@@ -357,6 +414,9 @@ class PortfolioState:
             quantity: Shares to close. None = close entire position.
             strategy_id: Strategy that generated this trade (for P&L attribution).
             regime_at_entry: Market regime when position was opened.
+            regime_at_exit: Market regime at time of close.
+            exit_reason: Why the position was closed (stop_loss, take_profit, etc.).
+            instrument_type: Instrument type override (reads from position if empty).
 
         Returns the ClosedTrade record, or None if no position existed.
         """
@@ -372,6 +432,11 @@ class PortfolioState:
 
             holding_days = (datetime.now() - pos.opened_at).days
 
+            # Inherit metadata from position if not explicitly provided
+            effective_strategy = strategy_id or pos.strategy_id
+            effective_regime_entry = regime_at_entry if regime_at_entry != "unknown" else pos.regime_at_entry
+            effective_instrument = instrument_type or pos.instrument_type
+
             closed = ClosedTrade(
                 symbol=symbol,
                 side=pos.side,
@@ -381,8 +446,11 @@ class PortfolioState:
                 realized_pnl=realized,
                 opened_at=pos.opened_at,
                 holding_days=holding_days,
-                strategy_id=strategy_id,
-                regime_at_entry=regime_at_entry,
+                strategy_id=effective_strategy,
+                regime_at_entry=effective_regime_entry,
+                regime_at_exit=regime_at_exit,
+                exit_reason=exit_reason,
+                instrument_type=effective_instrument,
             )
 
             self.conn.execute(
@@ -390,8 +458,10 @@ class PortfolioState:
                 INSERT INTO closed_trades
                     (id, symbol, side, quantity, entry_price, exit_price,
                      realized_pnl, opened_at, closed_at, holding_days,
-                     strategy_id, regime_at_entry)
-                VALUES (nextval('closed_trades_seq'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     strategy_id, regime_at_entry, regime_at_exit,
+                     exit_reason, instrument_type)
+                VALUES (nextval('closed_trades_seq'),
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     symbol,
@@ -403,8 +473,11 @@ class PortfolioState:
                     pos.opened_at,
                     datetime.now(),
                     holding_days,
-                    strategy_id,
-                    regime_at_entry,
+                    effective_strategy,
+                    effective_regime_entry,
+                    regime_at_exit,
+                    exit_reason,
+                    effective_instrument,
                 ],
             )
 
@@ -425,29 +498,67 @@ class PortfolioState:
                 f"[PORTFOLIO] Closed {close_qty} {symbol} @ {exit_price:.2f} | P&L: {realized:+.2f}"
             )
 
-            # Fire reflection hook (non-blocking, best-effort)
-            try:
-                from quantstack.autonomous.hooks import on_trade_close
-
-                pnl_pct = (
-                    (realized / (pos.avg_cost * close_qty) * 100)
-                    if pos.avg_cost
-                    else 0.0
-                )
-                on_trade_close(
-                    symbol=symbol,
-                    strategy_id=strategy_id,
-                    action="sell" if pos.side == "long" else "buy",
-                    entry_price=pos.avg_cost,
-                    exit_price=exit_price,
-                    realized_pnl_pct=pnl_pct,
-                    holding_days=holding_days,
-                    regime_at_entry=regime_at_entry,
-                )
-            except Exception:
-                pass  # Never block trade close on reflection failure
+            # Fire reflection hook via registry (non-blocking, best-effort)
+            pnl_pct = (
+                (realized / (pos.avg_cost * close_qty) * 100)
+                if pos.avg_cost
+                else 0.0
+            )
+            _fire_hook(
+                "trade_close",
+                symbol=symbol,
+                strategy_id=effective_strategy,
+                action="sell" if pos.side == "long" else "buy",
+                entry_price=pos.avg_cost,
+                exit_price=exit_price,
+                realized_pnl_pct=pnl_pct,
+                holding_days=holding_days,
+                regime_at_entry=effective_regime_entry,
+                regime_at_exit=regime_at_exit,
+            )
 
             return closed
+
+    def update_stops(
+        self,
+        symbol: str,
+        stop_price: float | None = None,
+        target_price: float | None = None,
+        trailing_stop: float | None = None,
+    ) -> bool:
+        """Update stop/target/trailing levels for an open position.
+
+        Only updates fields that are not None. Returns True if position existed.
+        """
+        with self._lock:
+            pos = self.get_position(symbol)
+            if pos is None:
+                return False
+            updates = []
+            params: list = []
+            if stop_price is not None:
+                updates.append("stop_price = ?")
+                params.append(stop_price)
+            if target_price is not None:
+                updates.append("target_price = ?")
+                params.append(target_price)
+            if trailing_stop is not None:
+                updates.append("trailing_stop = ?")
+                params.append(trailing_stop)
+            if not updates:
+                return True
+            updates.append("last_updated = ?")
+            params.append(datetime.now())
+            params.append(symbol)
+            self.conn.execute(
+                f"UPDATE positions SET {', '.join(updates)} WHERE symbol = ?",
+                params,
+            )
+            logger.info(
+                f"[PORTFOLIO] Updated stops for {symbol}: "
+                f"stop={stop_price} target={target_price} trail={trailing_stop}"
+            )
+            return True
 
     # -------------------------------------------------------------------------
     # Cash
@@ -554,14 +665,24 @@ class PortfolioState:
             lines.append("### Open Positions")
             lines.append("")
             lines.append(
-                "| Symbol | Side | Qty | Avg Cost | Current | Unrealized P&L |"
+                "| Symbol | Side | Qty | Avg Cost | Current | Unreal P&L | Strategy | Instrument | Stop | Target | Trailing |"
             )
-            lines.append("|--------|------|-----|----------|---------|---------------|")
+            lines.append("|--------|------|-----|----------|---------|-----------|----------|------------|------|--------|----------|")
             for p in positions:
+                stop = f"${p.stop_price:.2f}" if p.stop_price else "—"
+                target = f"${p.target_price:.2f}" if p.target_price else "—"
+                trail = f"${p.trailing_stop:.2f}" if p.trailing_stop else "—"
+                strat = p.strategy_id[:20] if p.strategy_id else "—"
+                inst = p.instrument_type
+                if p.option_type and p.option_strike:
+                    inst = f"{p.option_type} {p.option_strike}"
+                    if p.option_expiry:
+                        inst += f" {p.option_expiry}"
                 lines.append(
                     f"| {p.symbol} | {p.side.upper()} | {p.quantity:,} "
                     f"| ${p.avg_cost:.2f} | ${p.current_price:.2f} "
-                    f"| ${p.unrealized_pnl:+,.2f} |"
+                    f"| ${p.unrealized_pnl:+,.2f} | {strat} | {inst} "
+                    f"| {stop} | {target} | {trail} |"
                 )
         else:
             lines.append("### Open Positions")
@@ -653,8 +774,6 @@ def get_portfolio_state(
     global _portfolio_state
     if _portfolio_state is None:
         if conn is None:
-            from quantstack.db import open_db, run_migrations
-
             conn = open_db(db_path or "")
             run_migrations(conn)
         _portfolio_state = PortfolioState(conn=conn, initial_cash=initial_cash)
@@ -680,7 +799,5 @@ def get_portfolio_state_readonly() -> PortfolioState:
     """
     global _portfolio_state_ro
     if _portfolio_state_ro is None:
-        from quantstack.db import open_db_readonly
-
         _portfolio_state_ro = PortfolioState(conn=open_db_readonly(), read_only=True)
     return _portfolio_state_ro

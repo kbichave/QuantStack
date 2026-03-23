@@ -34,6 +34,10 @@ from quantstack.core.execution.unified_models import (
     UnifiedOrder,
     UnifiedOrderResult,
 )
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.execution.broker import BrokerError
+from quantstack.data.streaming.incremental_features import IncrementalFeatures
+import time
 
 # ---------------------------------------------------------------------------
 # Helpers / shared factories
@@ -383,8 +387,6 @@ class TestPreTradeRiskGate:
         assert exc_info.value.rule == "ORDER_RATE"
 
     def test_rate_window_resets_after_ttl(self, gate: PreTradeRiskGate) -> None:
-        import time
-
         # Manually stuff stale timestamps into the deque
         old_ts = time.monotonic() - 61.0
         for _ in range(10):
@@ -552,8 +554,6 @@ class TestSmartOrderRouter:
     # --- Health cache ---
 
     def test_unhealthy_broker_skipped_on_retry(self, tracker: FillTracker) -> None:
-        from quantstack.core.execution.broker import BrokerError
-
         alpaca = _mock_broker(healthy=True)
         alpaca.place_order.side_effect = BrokerError("rejected")
         ibkr = _mock_broker(healthy=True, result=_result(order_id="IBK-001"))
@@ -579,9 +579,6 @@ def _warm_features(
     rsi: float = 50.0,
 ) -> object:
     """Build a minimal IncrementalFeatures-like object."""
-    from quantstack.config.timeframes import Timeframe
-    from quantstack.data.streaming.incremental_features import IncrementalFeatures
-
     return IncrementalFeatures(
         symbol=symbol,
         timestamp=datetime.now(UTC),

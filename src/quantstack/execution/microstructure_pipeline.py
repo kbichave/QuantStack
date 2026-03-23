@@ -65,9 +65,10 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from loguru import logger
-from quantstack.data.streaming.tick_models import QuoteTick, TradeTick
+
 from quantstack.core.execution.fill_tracker import FillEvent, FillTracker
 from quantstack.core.execution.risk_gate import (
     PreTradeRiskGate,
@@ -81,8 +82,10 @@ from quantstack.core.execution.smart_order_router import (
 from quantstack.core.microstructure.microstructure_features import (
     MicrostructureFeatureEngine,
 )
+from quantstack.data.streaming.tick_models import QuoteTick, TradeTick
 
-from quantstack.agents.microstructure_signal_agent import MicrostructureSignalAgent
+if TYPE_CHECKING:
+    from quantstack.agents.microstructure_signal_agent import MicrostructureSignalAgent
 
 # ---- HF risk gate defaults (tunable via env vars) ----
 _MICRO_MAX_ORDER_VALUE = float(os.getenv("MICRO_MAX_ORDER_VALUE", "10000"))

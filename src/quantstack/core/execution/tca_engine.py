@@ -35,6 +35,8 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
+from quantstack.core.execution.almgren_chriss import almgren_chriss_expected_cost_bps
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -303,10 +305,6 @@ def post_trade_tca(record: TradeRecord) -> TradeTCAResult:
     ac_cost = None
     if record.daily_volume and record.daily_volatility and record.shares > 0:
         try:
-            from quantstack.core.execution.almgren_chriss import (
-                almgren_chriss_expected_cost_bps,
-            )
-
             ac_cost = almgren_chriss_expected_cost_bps(
                 order_shares=record.shares,
                 daily_volume=record.daily_volume,

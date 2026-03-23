@@ -38,6 +38,12 @@ from typing import Any
 import duckdb
 from loguru import logger
 
+from quantstack.execution.kill_switch import get_kill_switch
+from quantstack.execution.strategy_breaker import StrategyBreaker
+from quantstack.signal_engine.engine import SignalEngine
+
+import httpx
+
 
 @dataclass
 class HealthCheck:
@@ -171,8 +177,6 @@ class Watchdog:
     def _check_kill_switch(self) -> HealthCheck:
         """Check if kill switch is active (not tripped by watchdog = external trigger)."""
         try:
-            from quantstack.execution.kill_switch import get_kill_switch
-
             ks = get_kill_switch()
             if ks.is_active():
                 if self._watchdog_tripped:
@@ -231,8 +235,6 @@ class Watchdog:
     def _check_strategy_breakers(self) -> HealthCheck:
         """Check if any strategies are tripped."""
         try:
-            from quantstack.execution.strategy_breaker import StrategyBreaker
-
             breaker = StrategyBreaker()
             states = breaker.get_all_states()
             tripped = [sid for sid, s in states.items() if s.status == "TRIPPED"]
@@ -265,8 +267,6 @@ class Watchdog:
     async def _check_signal_engine(self) -> HealthCheck:
         """Quick smoke test: can SignalEngine produce a brief for SPY?"""
         try:
-            from quantstack.signal_engine.engine import SignalEngine
-
             engine = SignalEngine()
             brief = await asyncio.wait_for(engine.run("SPY"), timeout=30.0)
 
@@ -309,8 +309,6 @@ class Watchdog:
         reasons = "; ".join(f"{c.name}: {c.message}" for c in critical)
 
         try:
-            from quantstack.execution.kill_switch import get_kill_switch
-
             ks = get_kill_switch()
             if not ks.is_active():
                 ks.trigger(reason=f"[Watchdog] CRITICAL: {reasons}")
@@ -325,8 +323,6 @@ class Watchdog:
     def _handle_auto_resume(self) -> str:
         """Resume trading after sustained healthy checks."""
         try:
-            from quantstack.execution.kill_switch import get_kill_switch
-
             ks = get_kill_switch()
             if ks.is_active():
                 ks.reset(by="watchdog_auto_resume")
@@ -349,8 +345,6 @@ class Watchdog:
             webhook = os.getenv("DISCORD_WEBHOOK_URL")
             if not webhook:
                 return
-
-            import httpx
 
             status_emoji = {"CRITICAL": "🔴", "WARNING": "🟡", "HEALTHY": "🟢"}
             lines = [

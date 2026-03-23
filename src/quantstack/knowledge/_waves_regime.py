@@ -3,6 +3,7 @@
 
 """Waves and regime mixin — Wave scenario and regime state CRUD for KnowledgeStore."""
 
+import uuid
 from datetime import datetime
 
 import duckdb
@@ -24,8 +25,6 @@ class WavesRegimeMixin:
 
     def save_wave_scenario(self, scenario: WaveScenario) -> str:
         """Save a wave scenario."""
-        import uuid
-
         if scenario.id is None:
             scenario.id = str(uuid.uuid4())[:8]
 

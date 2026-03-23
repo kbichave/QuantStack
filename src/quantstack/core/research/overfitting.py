@@ -20,6 +20,7 @@ References:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
@@ -227,8 +228,6 @@ def probability_of_backtest_overfitting(
     Returns:
         PBOResult with PBO scalar and supporting diagnostics.
     """
-    from itertools import combinations
-
     T, N = returns_matrix.shape
     if T < 20 or N < 2:
         logger.warning(

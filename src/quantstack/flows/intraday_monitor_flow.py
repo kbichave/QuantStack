@@ -45,6 +45,14 @@ from datetime import datetime
 import requests
 from loguru import logger
 
+from quantstack.agents.regime_detector import RegimeDetectorAgent
+from quantstack.audit.decision_log import get_decision_log
+from quantstack.audit.models import AuditQuery
+from quantstack.execution.portfolio_state import get_portfolio_state
+from quantstack.execution.risk_gate import get_risk_gate
+from quantstack.monitoring.alpha_monitor import get_alpha_monitor
+from quantstack.monitoring.degradation_detector import get_degradation_detector
+
 # =============================================================================
 # REPORT MODEL
 # =============================================================================
@@ -218,8 +226,6 @@ class IntradayMonitorFlow:
     def _get_portfolio(self) -> dict:
         """Load current portfolio state."""
         try:
-            from quantstack.execution.portfolio_state import get_portfolio_state
-
             ps = get_portfolio_state()
             snapshot = ps.get_snapshot()
             positions = [p.model_dump() for p in ps.get_positions()]
@@ -237,8 +243,6 @@ class IntradayMonitorFlow:
     def _get_daily_loss_limit(self) -> float:
         """Read daily loss limit from RiskGate config."""
         try:
-            from quantstack.execution.risk_gate import get_risk_gate
-
             limits = get_risk_gate().limits
             return getattr(limits, "daily_loss_limit_pct", 0.02)
         except Exception:
@@ -246,8 +250,6 @@ class IntradayMonitorFlow:
 
     def _check_regimes(self, symbols: list[str]) -> dict[str, dict]:
         """Run RegimeDetectorAgent on all held symbols. Never throws."""
-        from quantstack.agents.regime_detector import RegimeDetectorAgent
-
         detector = RegimeDetectorAgent()
         regimes = {}
         for symbol in symbols:
@@ -356,9 +358,6 @@ class IntradayMonitorFlow:
         """
         entry_regimes: dict[str, dict] = {}
         try:
-            from quantstack.audit.decision_log import get_decision_log
-            from quantstack.audit.models import AuditQuery
-
             log = get_decision_log()
             for symbol in symbols:
                 events = log.query(
@@ -379,8 +378,6 @@ class IntradayMonitorFlow:
     def _run_alpha_check(self) -> str:
         """Run AlphaMonitor and return overall status string."""
         try:
-            from quantstack.monitoring.alpha_monitor import get_alpha_monitor
-
             monitor = get_alpha_monitor()
             # Suppress Discord from here — intraday_monitor handles notification
             monitor._webhook_url = None
@@ -393,10 +390,6 @@ class IntradayMonitorFlow:
     def _run_degradation_check(self) -> str:
         """Run DegradationDetector and return overall status string."""
         try:
-            from quantstack.monitoring.degradation_detector import (
-                get_degradation_detector,
-            )
-
             detector = get_degradation_detector()
             reports = detector.check_all()
             if not reports:

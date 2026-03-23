@@ -26,6 +26,7 @@ from quantstack.shared.duckdb_lock import (
     connect_with_lock_guard,
     pid_is_alive,
 )
+import os
 
 # ---------------------------------------------------------------------------
 # pid_is_alive
@@ -35,8 +36,6 @@ from quantstack.shared.duckdb_lock import (
 class TestIsProcessAlive:
     def test_current_process_alive(self):
         """The current process must always be alive."""
-        import os
-
         assert pid_is_alive(os.getpid()) is True
 
     def test_dead_pid_returns_false(self):
@@ -47,8 +46,6 @@ class TestIsProcessAlive:
 
     def test_permission_error_treated_as_alive(self):
         """PermissionError from os.kill means the process exists (owned by another user)."""
-        import os
-
         with patch.object(os, "kill", side_effect=PermissionError):
             assert pid_is_alive(99999) is True
 

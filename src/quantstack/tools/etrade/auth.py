@@ -13,9 +13,13 @@ Handles:
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import os
 import time
+import uuid
 import webbrowser
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,6 +28,9 @@ from urllib.parse import parse_qs, urlencode
 
 import requests
 from loguru import logger
+
+from fastapi import APIRouter, Query, Request  # noqa: F401
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from quantstack.tools.etrade.models import AuthStatus
 
@@ -265,11 +272,6 @@ class ETradeAuthManager:
 
         Uses HMAC-SHA1 signature method as required by eTrade.
         """
-        import base64
-        import hashlib
-        import hmac
-        import uuid
-
         # OAuth parameters
         oauth_params = {
             "oauth_consumer_key": self.consumer_key,
@@ -573,13 +575,6 @@ def create_auth_router(auth_manager: ETradeAuthManager):
     Returns:
         FastAPI APIRouter
     """
-    try:
-        from fastapi import APIRouter, Query, Request  # noqa: F401
-        from fastapi.responses import HTMLResponse, RedirectResponse
-    except ImportError:
-        logger.warning("FastAPI not installed - auth endpoints not available")
-        return None
-
     router = APIRouter(prefix="/etrade", tags=["eTrade Auth"])
 
     @router.get("/authorize")

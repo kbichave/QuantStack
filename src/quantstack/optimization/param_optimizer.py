@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
+from quantstack.strategies.rule_engine import compile_strategy, CompilationError
 from quantstack.strategies.signal_generator import (
     generate_signals_from_rules as _generate_signals_from_rules,
 )
@@ -37,6 +38,9 @@ from quantstack.strategies.signal_generator import (
 import numpy as np
 import pandas as pd
 from loguru import logger
+
+import optuna
+from optuna.samplers import TPESampler
 
 
 @dataclass
@@ -147,18 +151,8 @@ def optimize_strategy_params(
         ParamOptResult with best parameters and convergence history.
 
     Raises:
-        ImportError: If optuna is not installed.
         ValueError: If param_space is invalid.
     """
-    try:
-        import optuna
-        from optuna.samplers import TPESampler
-    except ImportError:
-        raise ImportError(
-            "Optuna is required for parameter optimization. "
-            "Install with: pip install optuna>=3.0"
-        )
-
     # Validate param space
     errors = param_space.validate()
     if errors:
@@ -191,8 +185,6 @@ def optimize_strategy_params(
                 trial_params[name] = trial.suggest_categorical(name, spec[1])
 
         # Run walk-forward
-        from quantstack.strategies.rule_engine import compile_strategy, CompilationError
-
         try:
             compiled = compile_strategy(
                 strategy_id="__opt__",

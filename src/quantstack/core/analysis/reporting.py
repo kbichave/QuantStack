@@ -14,18 +14,11 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
-# Import quant research integration
-try:
-    from quantstack.core.research.quant_metrics import (
-        QuantResearchReport,  # noqa: F401
-        generate_quant_report_section,  # noqa: F401
-        run_signal_diagnostics,
-    )
-
-    QUANT_METRICS_AVAILABLE = True
-except ImportError:
-    QUANT_METRICS_AVAILABLE = False
-    logger.warning("Quant metrics module not available")
+from quantstack.core.research.quant_metrics import (
+    QuantResearchReport,  # noqa: F401
+    generate_quant_report_section,  # noqa: F401
+    run_signal_diagnostics,
+)
 
 
 def generate_report(
@@ -289,7 +282,7 @@ def generate_report(
     report.append("")
 
     # Quant Research Metrics Section
-    if QUANT_METRICS_AVAILABLE and not spread_df.empty:
+    if not spread_df.empty:
         try:
             # Extract signal and returns for quant analysis
             raw_signal = spread_df.get("signal", pd.Series(dtype=object))

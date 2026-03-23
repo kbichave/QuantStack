@@ -15,7 +15,16 @@ from typing import Any
 
 from loguru import logger
 
+import joblib
+
+from quantstack.config.timeframes import Timeframe
+from quantstack.core.features.momentum import MomentumFeatures
+from quantstack.core.features.technical_indicators import TechnicalIndicators
+from quantstack.core.features.volatility import VolatilityFeatures
 from quantstack.data.storage import DataStore
+from quantstack.ml.explainer import SHAPExplainer
+from quantstack.ml.predictor import Predictor
+from quantstack.ml.trainer import TrainingResult
 
 
 async def collect_ml_signal(symbol: str, store: DataStore) -> dict[str, Any]:
@@ -42,15 +51,6 @@ async def collect_ml_signal(symbol: str, store: DataStore) -> dict[str, Any]:
 def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     """Synchronous ML signal collection — called via asyncio.to_thread."""
 
-    # All imports are deferred because quantcore.models is an optional dependency
-    # that requires trained artifacts on disk.
-    try:
-        from quantstack.ml.predictor import Predictor
-        from quantstack.ml.trainer import TrainingResult
-    except ImportError:
-        logger.debug("[ml_signal] quantcore.models not importable — skipping")
-        return {}
-
     # --- Load trained model ---
     try:
         training_result = _load_latest_training_result(symbol)
@@ -63,15 +63,6 @@ def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     predictor = Predictor(training_result)
 
     # --- Load features for the current bar ---
-    try:
-        from quantstack.config.timeframes import Timeframe
-        from quantstack.core.features.momentum import MomentumFeatures
-        from quantstack.core.features.technical_indicators import TechnicalIndicators
-        from quantstack.core.features.volatility import VolatilityFeatures
-    except ImportError:
-        logger.debug("[ml_signal] quantcore.features not importable — skipping")
-        return {}
-
     daily_df = store.load_ohlcv(symbol, Timeframe.D1)
     if daily_df is None or len(daily_df) < 60:
         return {}
@@ -145,11 +136,6 @@ def _load_lorentzian_model(symbol: str) -> Any | None:
     Looks for ``models/{symbol}_lorentzian.joblib`` or ``.pkl``.
     Returns None if no artifact exists (expected until the model is trained).
     """
-    try:
-        import joblib
-    except ImportError:
-        import pickle as joblib  # type: ignore[no-redef]
-
     candidates = [
         pathlib.Path(_MODEL_DIR) / f"{symbol}_lorentzian.joblib",
         pathlib.Path(_MODEL_DIR) / f"{symbol.lower()}_lorentzian.joblib",
@@ -169,11 +155,6 @@ def _load_latest_training_result(symbol: str) -> Any | None:
     Returns None if no serialized model is found.  Uses joblib/pickle
     convention: ``models/{symbol}_latest.joblib``.
     """
-    try:
-        import joblib
-    except ImportError:
-        import pickle as joblib  # type: ignore[no-redef]
-
     candidates = [
         pathlib.Path(_MODEL_DIR) / f"{symbol}_latest.joblib",
         pathlib.Path(_MODEL_DIR) / f"{symbol.lower()}_latest.joblib",
@@ -194,8 +175,6 @@ def _get_top_features(
 ) -> list[str]:
     """Best-effort SHAP top features. Returns [] on any failure."""
     try:
-        from quantstack.ml.explainer import SHAPExplainer
-
         explainer = SHAPExplainer(training_result)
         sample = features_df.tail(100)
         explainer.fit(sample)

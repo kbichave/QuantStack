@@ -12,6 +12,8 @@ from loguru import logger
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
+from quantstack.core.validation.causal_filter import CausalFilter
+
 
 @dataclass
 class OrthogonalizationResult:
@@ -299,8 +301,6 @@ class FeatureOrthogonalizer:
         self.use_causal_filter = use_causal_filter
         self.causal_filter = None
         if use_causal_filter:
-            from quantstack.core.validation.causal_filter import CausalFilter
-
             self.causal_filter = CausalFilter(**(causal_filter_kwargs or {}))
 
         self.corr_filter = CorrelationFilter(threshold=correlation_threshold)

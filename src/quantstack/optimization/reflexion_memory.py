@@ -33,7 +33,7 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.autonomous.reflection import TradeReflection
+from quantstack.shared.models import TradeReflection
 
 
 # ---------------------------------------------------------------------------

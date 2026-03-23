@@ -14,8 +14,12 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.mcp.server import mcp
+import quantstack.intraday.loop as _loop_mod
+from quantstack.core.execution.algo_selector import select_algo
+from quantstack.core.execution.tca_storage import TCAStore
+from quantstack.intraday.loop import LiveIntradayLoop
 from quantstack.mcp._state import _serialize
+from quantstack.mcp.server import mcp
 
 
 # =============================================================================
@@ -37,8 +41,6 @@ async def get_intraday_status() -> dict[str, Any]:
         bars_processed, flattened, symbols.
     """
     try:
-        from quantstack.intraday.loop import LiveIntradayLoop
-
         # The intraday loop stores its singleton state in the module-level
         # _active_loop variable when running.  If no loop is active, report
         # a dormant status.
@@ -121,20 +123,12 @@ async def get_tca_report(
         execution_quality verdict, and trade count.
     """
     try:
-        from quantstack.core.execution.tca_storage import TCAStore
-
         with TCAStore() as store:
             stats = store.get_aggregate_stats(
                 lookback_days=lookback_days,
                 symbol=symbol,
             )
         return {"success": True, **stats}
-
-    except ImportError:
-        return {
-            "success": False,
-            "error": "duckdb is not installed. Install with: pip install duckdb",
-        }
     except Exception as exc:
         logger.error(f"[quantpod_mcp] get_tca_report failed: {exc}")
         return {"success": False, "error": str(exc)}
@@ -186,8 +180,6 @@ async def get_algo_recommendation(
         override_reason, execution_window, and TCA forecast details.
     """
     try:
-        from quantstack.core.execution.algo_selector import select_algo
-
         recommendation = select_algo(
             symbol=symbol.upper().strip(),
             side=side,
@@ -249,12 +241,7 @@ def _get_active_loop() -> Any:
     The run_intraday.py script sets ``quant_pod.intraday.loop._active_loop``
     when a loop is started. Returns None if no loop is running.
     """
-    try:
-        import quantstack.intraday.loop as loop_mod
-
-        return getattr(loop_mod, "_active_loop", None)
-    except ImportError:
-        return None
+    return getattr(_loop_mod, "_active_loop", None)
 
 
 def _find_position_manager(loop: Any) -> Any:

@@ -28,14 +28,11 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from quantstack.execution.etrade_broker import EtradeBroker, get_etrade_broker
 from quantstack.execution.paper_broker import PaperBroker, get_paper_broker
-
-if TYPE_CHECKING:
-    from quantstack.execution.etrade_broker import EtradeBroker
 
 
 def _use_real_trading() -> bool:
@@ -80,8 +77,6 @@ def get_broker() -> PaperBroker | EtradeBroker:
         return get_paper_broker()
 
     try:
-        from quantstack.execution.etrade_broker import get_etrade_broker
-
         broker = get_etrade_broker()
         mode = get_broker_mode()
         logger.info(f"[BROKER] Active broker: EtradeBroker (mode={mode})")

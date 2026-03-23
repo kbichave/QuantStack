@@ -11,13 +11,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-try:
-    from hmmlearn import hmm
-
-    HMM_AVAILABLE = True
-except ImportError:
-    HMM_AVAILABLE = False
-    logger.warning("hmmlearn not available. Install with: pip install hmmlearn")
+from hmmlearn import hmm
 
 
 class HMMRegimeState(Enum):
@@ -104,10 +98,6 @@ class HMMRegimeModel:
         Returns:
             Self for chaining
         """
-        if not HMM_AVAILABLE:
-            logger.warning("hmmlearn not available, using fallback")
-            return self
-
         if len(df) < self.min_train_samples:
             logger.warning(
                 f"Insufficient data for HMM training: {len(df)} < {self.min_train_samples}"

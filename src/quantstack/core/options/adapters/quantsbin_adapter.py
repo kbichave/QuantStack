@@ -15,10 +15,18 @@ Quantsbin is designed for structured options analysis and payoff diagrams.
 """
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 import numpy as np
 from loguru import logger
+from scipy.stats import norm
+
+from quantsbin.derivativepricing import EqOption
+from quantsbin.derivativepricing.namesnmapper import PricingModel
+
+from quantstack.core.options.models import OptionType
+from quantstack.core.options.pricing import black_scholes_greeks, black_scholes_price
 
 
 @dataclass
@@ -77,15 +85,7 @@ def analyze_structure_quantsbin(
     if len(spec.legs) == 0:
         return {"error": "No legs in structure"}
 
-    try:
-        from quantsbin.derivativepricing import EqOption  # noqa: F401
-        from quantsbin.derivativepricing.namesnmapper import EngineType  # noqa: F401
-
-        return _analyze_with_quantsbin(spec, price_range_pct, num_points)
-
-    except ImportError:
-        logger.info("quantsbin not available, using internal analysis")
-        return _analyze_structure_internal(spec, price_range_pct, num_points)
+    return _analyze_with_quantsbin(spec, price_range_pct, num_points)
 
 
 def _dict_to_structure_spec(d: dict[str, Any]) -> StructureSpec:
@@ -118,9 +118,6 @@ def _analyze_with_quantsbin(
     num_points: int,
 ) -> dict[str, Any]:
     """Analyze structure using quantsbin library."""
-    from quantsbin.derivativepricing import EqOption
-    from quantsbin.derivativepricing.namesnmapper import EngineType
-
     spot = spec.underlying_price
     rate = spec.risk_free_rate
     div_yield = spec.dividend_yield
@@ -148,22 +145,31 @@ def _analyze_with_quantsbin(
         opt_type = "Call" if leg.option_type == "call" else "Put"
 
         try:
+            pricing_date_str = datetime.now().strftime("%Y%m%d")
+            expiry_date_obj = datetime.now() + timedelta(days=leg.expiry_days)
+            expiry_date_str = expiry_date_obj.strftime("%Y%m%d")
+
             option = EqOption(
                 option_type=opt_type,
                 strike=leg.strike,
-                expiry_date=tte,
+                expiry_date=expiry_date_str,
+            )
+
+            engine = option.engine(
+                model="BSM",
                 spot0=spot,
-                rate=rate,
-                div_yield=div_yield,
                 volatility=vol,
+                rf_rate=rate,
+                pricing_date=pricing_date_str,
             )
 
             # Calculate current price and Greeks
-            price = option.price(engine_type=EngineType.BSMEngine)
-            delta = option.delta(engine_type=EngineType.BSMEngine)
-            gamma = option.gamma(engine_type=EngineType.BSMEngine)
-            theta = option.theta(engine_type=EngineType.BSMEngine)
-            vega = option.vega(engine_type=EngineType.BSMEngine)
+            price = engine.valuation()
+            greeks_dict = engine.risk_parameters()
+            delta = greeks_dict.get("delta", 0.0)
+            gamma = greeks_dict.get("gamma", 0.0)
+            theta = greeks_dict.get("theta", 0.0)
+            vega = greeks_dict.get("vega", 0.0)
 
             # Aggregate with position sizing
             current_value += leg.quantity * price * 100
@@ -241,9 +247,6 @@ def _analyze_structure_internal(
     num_points: int,
 ) -> dict[str, Any]:
     """Internal structure analysis without quantsbin."""
-    from quantstack.core.options.models import OptionType
-    from quantstack.core.options.pricing import black_scholes_greeks, black_scholes_price
-
     spot = spec.underlying_price
     rate = spec.risk_free_rate
     div_yield = spec.dividend_yield
@@ -371,8 +374,6 @@ def _estimate_pop(
     """Estimate probability of profit using lognormal distribution."""
     if tte <= 0 or vol <= 0:
         return None
-
-    from scipy.stats import norm
 
     # Find profitable region
     profitable_mask = payoffs > 0

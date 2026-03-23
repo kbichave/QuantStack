@@ -5,6 +5,7 @@
 
 import numpy as np
 import pytest
+from quantstack.core.options.adapters.vollib_adapter import bs_price_vectorized, bs_price_vollib, greeks_vollib, implied_vol_vollib
 
 
 class TestVolibAdapter:
@@ -12,8 +13,6 @@ class TestVolibAdapter:
 
     def test_bs_price_call_atm(self):
         """Test ATM call option pricing."""
-        from quantstack.core.options.adapters.vollib_adapter import bs_price_vollib
-
         price = bs_price_vollib(
             spot=100.0,
             strike=100.0,
@@ -31,8 +30,6 @@ class TestVolibAdapter:
 
     def test_bs_price_put_atm(self):
         """Test ATM put option pricing."""
-        from quantstack.core.options.adapters.vollib_adapter import bs_price_vollib
-
         price = bs_price_vollib(
             spot=100.0,
             strike=100.0,
@@ -48,8 +45,6 @@ class TestVolibAdapter:
 
     def test_bs_price_put_call_parity(self):
         """Test put-call parity relationship."""
-        from quantstack.core.options.adapters.vollib_adapter import bs_price_vollib
-
         spot = 100.0
         strike = 100.0
         tte = 0.25
@@ -68,8 +63,6 @@ class TestVolibAdapter:
 
     def test_bs_price_at_expiry(self):
         """Test pricing at expiry returns intrinsic value."""
-        from quantstack.core.options.adapters.vollib_adapter import bs_price_vollib
-
         # ITM call
         call_price = bs_price_vollib(105, 100, 0.0, 0.20, 0.05, 0.0, "call")
         assert call_price == 5.0
@@ -84,11 +77,6 @@ class TestVolibAdapter:
 
     def test_implied_vol_round_trip(self):
         """Test IV calculation round-trips correctly."""
-        from quantstack.core.options.adapters.vollib_adapter import (
-            bs_price_vollib,
-            implied_vol_vollib,
-        )
-
         spot = 100.0
         strike = 100.0
         tte = 0.25
@@ -107,8 +95,6 @@ class TestVolibAdapter:
 
     def test_implied_vol_invalid_price(self):
         """Test IV returns None for invalid prices."""
-        from quantstack.core.options.adapters.vollib_adapter import implied_vol_vollib
-
         # Price below intrinsic
         iv = implied_vol_vollib(
             spot=110.0,
@@ -124,8 +110,6 @@ class TestVolibAdapter:
 
     def test_greeks_call(self):
         """Test Greeks calculation for call option."""
-        from quantstack.core.options.adapters.vollib_adapter import greeks_vollib
-
         greeks = greeks_vollib(
             spot=100.0,
             strike=100.0,
@@ -150,8 +134,6 @@ class TestVolibAdapter:
 
     def test_greeks_put(self):
         """Test Greeks for put option."""
-        from quantstack.core.options.adapters.vollib_adapter import greeks_vollib
-
         greeks = greeks_vollib(
             spot=100.0,
             strike=100.0,
@@ -170,8 +152,6 @@ class TestVolibAdapter:
 
     def test_greeks_at_expiry(self):
         """Test Greeks at expiry."""
-        from quantstack.core.options.adapters.vollib_adapter import greeks_vollib
-
         greeks = greeks_vollib(
             spot=105.0,
             strike=100.0,
@@ -188,8 +168,6 @@ class TestVolibAdapter:
 
     def test_option_type_normalization(self):
         """Test option type variations are handled."""
-        from quantstack.core.options.adapters.vollib_adapter import bs_price_vollib
-
         price_call = bs_price_vollib(100, 100, 0.25, 0.20, 0.05, 0.0, "call")
         price_c = bs_price_vollib(100, 100, 0.25, 0.20, 0.05, 0.0, "c")
         price_CALL = bs_price_vollib(100, 100, 0.25, 0.20, 0.05, 0.0, "CALL")
@@ -199,8 +177,6 @@ class TestVolibAdapter:
 
     def test_invalid_inputs(self):
         """Test error handling for invalid inputs."""
-        from quantstack.core.options.adapters.vollib_adapter import bs_price_vollib
-
         with pytest.raises(ValueError):
             bs_price_vollib(-100, 100, 0.25, 0.20, 0.05, 0.0, "call")
 
@@ -212,8 +188,6 @@ class TestVolibAdapter:
 
     def test_vectorized_pricing(self):
         """Test vectorized pricing function."""
-        from quantstack.core.options.adapters.vollib_adapter import bs_price_vectorized
-
         spots = [100.0, 100.0, 100.0]
         strikes = [95.0, 100.0, 105.0]
         ttes = [0.25, 0.25, 0.25]
@@ -231,16 +205,12 @@ class TestVolibAdapterFallback:
 
     def test_fallback_pricing(self):
         """Test fallback to internal BS when vollib fails."""
-        from quantstack.core.options.adapters.vollib_adapter import bs_price_vollib
-
         # This should work regardless of vollib availability
         price = bs_price_vollib(100, 100, 0.25, 0.20, 0.05, 0.0, "call")
         assert price > 0
 
     def test_fallback_greeks(self):
         """Test fallback Greeks calculation."""
-        from quantstack.core.options.adapters.vollib_adapter import greeks_vollib
-
         greeks = greeks_vollib(100, 100, 0.25, 0.20, 0.05, 0.0, "call")
 
         assert "delta" in greeks

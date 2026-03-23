@@ -28,14 +28,10 @@ from __future__ import annotations
 import threading
 import time
 
+import ib_insync as ib
 from loguru import logger
 
-try:
-    import ib_insync as ib
-
-    _IB_AVAILABLE = True
-except ImportError:
-    _IB_AVAILABLE = False
+from quantstack.core.execution.broker import BrokerConnectionError
 
 
 class IBKRConnectionManager:
@@ -51,8 +47,6 @@ class IBKRConnectionManager:
         client_id: int = 1,
         timeout: int = 30,
     ) -> None:
-        if not _IB_AVAILABLE:
-            raise ImportError("ib_insync is required. Run: uv pip install -e '.[ibkr]'")
         self._host = host
         self._port = port
         self._client_id = client_id
@@ -90,8 +84,6 @@ class IBKRConnectionManager:
         Raises:
             ConnectionError: If all retries fail.
         """
-        from quantstack.core.execution.broker import BrokerConnectionError
-
         with self._lock:
             if self._ib and self._ib.isConnected():
                 return

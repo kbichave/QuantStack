@@ -7,6 +7,7 @@ to prevent data leakage from overlapping labels.
 
 from collections.abc import Generator
 from dataclasses import dataclass
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
@@ -170,8 +171,6 @@ class CombinatorialPurgedCV:
         Yields:
             CVSplit for each combination
         """
-        from itertools import combinations
-
         n_samples = len(X)
         indices = np.arange(n_samples)
         group_size = n_samples // self.n_groups

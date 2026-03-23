@@ -400,8 +400,6 @@ class LaguerreRSI:
             lrsi_ob     – 1 when lrsi > 0.8 (overbought)
             lrsi_os     – 1 when lrsi < 0.2 (oversold)
         """
-        import numpy as np
-
         src = close.values.astype(float)
         n = len(src)
         g = self.gamma

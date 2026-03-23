@@ -17,6 +17,7 @@ from quantstack.config.options_config import (
     get_options_config,
     get_symbol_config,
 )
+import quantstack.config.options_config as module
 
 
 class TestVolatilityRegimeEnum:
@@ -360,8 +361,6 @@ class TestModuleFunctions:
     def test_get_options_config(self):
         """Test get_options_config returns UniverseConfig."""
         # Reset singleton
-        import quantstack.config.options_config as module
-
         module._config_loader = None
 
         config = get_options_config()
@@ -369,8 +368,6 @@ class TestModuleFunctions:
 
     def test_get_symbol_config(self):
         """Test get_symbol_config function."""
-        import quantstack.config.options_config as module
-
         module._config_loader = None
 
         # Default config has SPY
@@ -380,8 +377,6 @@ class TestModuleFunctions:
 
     def test_get_symbol_config_not_found(self):
         """Test get_symbol_config returns None for unknown."""
-        import quantstack.config.options_config as module
-
         module._config_loader = None
 
         result = get_symbol_config("UNKNOWN_SYMBOL_XYZ")

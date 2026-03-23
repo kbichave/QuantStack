@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 from quantstack.config.timeframes import Timeframe
 from quantstack.core.features.technical_indicators import TechnicalIndicators
+import time
 
 
 @pytest.fixture
@@ -1071,8 +1072,6 @@ class TestComprehensiveIntegration:
 
     def test_performance_all_indicators(self, large_ohlcv):
         """Test computation performance with all indicators."""
-        import time
-
         ti = TechnicalIndicators(
             Timeframe.H1,
             enable_moving_averages=True,

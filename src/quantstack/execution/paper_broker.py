@@ -39,6 +39,7 @@ import duckdb
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from quantstack.db import open_db, run_migrations
 from quantstack.execution.portfolio_state import (
     PortfolioState,
     Position,
@@ -120,7 +121,6 @@ class PaperBroker:
         if conn is not None:
             self._conn = conn
         else:
-            from quantstack.db import open_db, run_migrations
 
             if db_path is None:
                 db_path = os.getenv(
@@ -400,7 +400,6 @@ def get_paper_broker(
     global _paper_broker
     if _paper_broker is None:
         if conn is None:
-            from quantstack.db import open_db, run_migrations
 
             conn = open_db(db_path or "")
             run_migrations(conn)

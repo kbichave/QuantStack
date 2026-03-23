@@ -24,6 +24,11 @@ from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
 from quantstack.core.hierarchy.regime_classifier import RegimeType, WeeklyRegimeClassifier
 
+from quantstack.core.hierarchy.regime.hmm_model import (
+    HMMRegimeModel,
+    HMMRegimeState,
+)
+
 _MIN_BARS = 60
 _HMM_MIN_BARS = 120  # HMM needs more history for stable fitting
 
@@ -87,15 +92,6 @@ def _collect_regime_sync(symbol: str, store: DataStore) -> dict[str, Any]:
 def _try_hmm_regime(df: "pd.DataFrame") -> dict[str, Any] | None:
     """Attempt HMM regime detection. Returns None on any failure."""
     if len(df) < _HMM_MIN_BARS:
-        return None
-
-    try:
-        from quantstack.core.hierarchy.regime.hmm_model import (
-            HMMRegimeModel,
-            HMMRegimeState,
-        )
-    except ImportError:
-        logger.debug("[regime] hmmlearn not available — skipping HMM")
         return None
 
     try:

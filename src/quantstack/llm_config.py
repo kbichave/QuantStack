@@ -66,7 +66,12 @@ import os
 from functools import lru_cache
 from typing import Any
 
+import requests
+
 from loguru import logger
+
+import boto3
+import google.auth
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -125,8 +130,6 @@ def _classify_tier(agent_name: str) -> str:
 @lru_cache(maxsize=1)
 def _check_bedrock() -> bool:
     try:
-        import boto3
-
         profile = os.getenv("AWS_PROFILE")
         session = boto3.Session(profile_name=profile) if profile else boto3.Session()
         creds = session.get_credentials()
@@ -153,13 +156,7 @@ def _check_openai() -> bool:
 def _check_vertex_ai() -> bool:
     if not os.getenv("VERTEX_PROJECT"):
         return False
-    try:
-        import google.auth  # noqa: F401 — just checking it's installed + importable
-
-        return True
-    except ImportError:
-        logger.debug("[llm_config] Vertex AI: google-cloud-aiplatform not installed")
-        return False
+    return True
 
 
 @lru_cache(maxsize=1)
@@ -207,8 +204,6 @@ def _check_custom_openai() -> bool:
 def _url_reachable(url: str, timeout: float = 2.0) -> bool:
     """Return True if a HEAD request to the URL succeeds within timeout."""
     try:
-        import requests
-
         requests.head(url, timeout=timeout)
         return True
     except Exception:

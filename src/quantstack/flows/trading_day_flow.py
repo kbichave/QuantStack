@@ -24,8 +24,10 @@ from __future__ import annotations
 import asyncio
 import os
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
+
+import pandas as pd
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -39,33 +41,35 @@ from quantstack.core.execution.tca_engine import TCAEngine
 from quantstack.core.execution.unified_models import UnifiedOrder
 
 from quantstack.agents.portfolio_optimizer_agent import PortfolioOptimizerAgent
-
-# Import regime detector
 from quantstack.agents.regime_detector import RegimeDetectorAgent
-
-# Import audit trail
 from quantstack.audit.decision_log import get_decision_log, make_trade_event
+from quantstack.config.timeframes import Timeframe
 from quantstack.crewai_compat import Flow, listen, router, start
-from quantstack.crews.schemas import (
-    DailyBrief,
-)
-from quantstack.signal_engine import SignalEngine
+from quantstack.crews.schemas import DailyBrief
+from quantstack.data.storage import DataStore
 from quantstack.execution.broker_factory import get_broker, get_broker_mode
 from quantstack.execution.kill_switch import get_kill_switch
 from quantstack.execution.paper_broker import OrderRequest
-
-# Import execution layer
 from quantstack.execution.portfolio_state import get_portfolio_state
 from quantstack.execution.risk_gate import get_risk_gate
 from quantstack.execution.signal_cache import SignalCache, TradeSignal
-
-# Import blackboard for cross-agent memory
+from quantstack.knowledge.store import KnowledgeStore
+from quantstack.learning.calibration import get_calibration_tracker
+from quantstack.learning.expectancy_engine import ExpectancyEngine
+from quantstack.learning.skill_tracker import SkillTracker
 from quantstack.memory.blackboard import (
     get_blackboard,
     read_blackboard_context,
     write_portfolio_state,
     write_to_blackboard,
 )
+# RL online learning removed — FinRL models trained via MCP tools (finrl_train_model).
+# The old PostTradeRLAdapter inline feedback loop is replaced by batch evaluation
+# via finrl_evaluate_model MCP tool.
+from quantstack.signal_engine import SignalEngine
+
+from alpaca_mcp.client import AlpacaBrokerClient
+from ibkr_mcp.client import IBKRBrokerClient
 
 # =============================================================================
 # FLOW STATE MODEL
@@ -170,19 +174,7 @@ class TradingDayFlow(Flow[TradingDayState]):
         # Portfolio optimizer: converts per-symbol signals into MV-optimal weights
         self._portfolio_optimizer = PortfolioOptimizerAgent()
 
-        # RL online feedback — lazy initialised; never raises on import failure
-        self._rl_adapter = None
-        self._rl_config = None
-        try:
-            from quantstack.rl.config import get_rl_config
-            from quantstack.rl.online_adapter import PostTradeRLAdapter
-
-            self._rl_config = get_rl_config()
-            self._rl_adapter = PostTradeRLAdapter(self._rl_config, self._kill_switch)
-        except Exception as _rl_init_err:
-            logger.debug(
-                f"[RL] Online adapter init skipped (non-fatal): {_rl_init_err}"
-            )
+        # RL online learning removed — FinRL models trained via MCP tools.
 
         # Keep the blackboard aware of the current session
         get_blackboard().set_session(self._session_id)
@@ -219,8 +211,6 @@ class TradingDayFlow(Flow[TradingDayState]):
 
         if os.getenv("ALPACA_API_KEY"):
             try:
-                from alpaca_mcp.client import AlpacaBrokerClient  # type: ignore
-
                 alpaca_broker = AlpacaBrokerClient()
                 logger.info("[SOR] Alpaca broker client initialised")
             except Exception as _e:
@@ -228,8 +218,6 @@ class TradingDayFlow(Flow[TradingDayState]):
 
         if os.getenv("IBKR_HOST"):
             try:
-                from ibkr_mcp.client import IBKRBrokerClient  # type: ignore
-
                 ibkr_broker = IBKRBrokerClient()
                 logger.info("[SOR] IBKR broker client initialised")
             except Exception as _e:
@@ -277,8 +265,6 @@ class TradingDayFlow(Flow[TradingDayState]):
 
         # Snapshot portfolio into knowledge store for time-series tracking
         try:
-            from quantstack.knowledge.store import KnowledgeStore
-
             KnowledgeStore().save_portfolio_snapshot(portfolio_snapshot.model_dump())
         except Exception as _snap_err:
             logger.debug(f"Portfolio snapshot to knowledge store failed: {_snap_err}")
@@ -895,11 +881,6 @@ class TradingDayFlow(Flow[TradingDayState]):
     def _run_post_trade_learning(self) -> None:
         """Run ExpectancyEngine and SkillTracker updates after trade execution."""
         try:
-            from quantstack.knowledge.store import KnowledgeStore
-            from quantstack.learning.calibration import get_calibration_tracker
-            from quantstack.learning.expectancy_engine import ExpectancyEngine
-            from quantstack.learning.skill_tracker import SkillTracker
-
             store = KnowledgeStore()
             expectancy = ExpectancyEngine(store)
             skill_tracker = SkillTracker(store)
@@ -942,21 +923,8 @@ class TradingDayFlow(Flow[TradingDayState]):
         except Exception as e:
             logger.warning(f"[LEARNING] Post-trade learning failed (non-fatal): {e}")
 
-        # RL online feedback loop — push trade outcomes to OnlineRLTrainer
-        # Reads pre-trade snapshots saved by RL tools to the module-level registry.
-        # Runs after ExpectancyEngine/SkillTracker so it never blocks them.
-        if self._rl_adapter is not None and self._rl_config is not None:
-            try:
-                from quantstack.rl.rl_tools import pop_pretrade_snapshot
-
-                for trade in self.state.executed_trades:
-                    # Try each tool type — one snapshot per tool per day
-                    for tool_name in ("rl_position_size", "rl_execution_strategy"):
-                        snapshot = pop_pretrade_snapshot(tool_name)
-                        if snapshot:
-                            self._rl_adapter.process_trade_outcome(trade, snapshot)
-            except Exception as _rl_err:
-                logger.warning(f"[RL] Online update failed (non-fatal): {_rl_err}")
+        # RL online feedback removed — FinRL models evaluated via MCP tools
+        # (finrl_evaluate_model). No more inline online learning.
 
     # =========================================================================
     # HELPER METHODS
@@ -1000,19 +968,13 @@ class TradingDayFlow(Flow[TradingDayState]):
             sim_date=self.state.current_date,
         )
 
-    def _get_returns_dataframe(self) -> pd.DataFrame | None:  # noqa: F821
+    def _get_returns_dataframe(self) -> pd.DataFrame | None:
         """Pull 90-day daily close returns from the quantcore DataStore.
 
         Returns None on any failure so the portfolio optimizer's fallback path
         (signal-proportional equal-weight) activates instead of crashing the flow.
         """
         try:
-            from datetime import timedelta
-
-            import pandas as pd
-            from quantstack.config.timeframes import Timeframe
-            from quantstack.data.storage import DataStore
-
             store = DataStore()
             symbols = self.state.symbols or []
             end_date = datetime.combine(

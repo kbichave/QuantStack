@@ -9,6 +9,8 @@ without hitting Discord webhooks or DuckDB on disk.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 from quantstack.monitoring.alpha_monitor import (
     AlertSeverity,
@@ -124,7 +126,7 @@ class TestDegradationReportProperties:
             needs_retraining=True,
         )
         report = DegradationReport(
-            checked_at=__import__("datetime").datetime.now(),
+            checked_at=datetime.now(),
             n_agents_checked=1,
             alerts=[alert],
             all_agents_ic_summary=[],
@@ -143,7 +145,7 @@ class TestDegradationReportProperties:
             needs_retraining=False,
         )
         report = DegradationReport(
-            checked_at=__import__("datetime").datetime.now(),
+            checked_at=datetime.now(),
             n_agents_checked=1,
             alerts=[alert],
             all_agents_ic_summary=[],
@@ -154,7 +156,7 @@ class TestDegradationReportProperties:
 
     def test_no_alerts_clean(self):
         report = DegradationReport(
-            checked_at=__import__("datetime").datetime.now(),
+            checked_at=datetime.now(),
             n_agents_checked=3,
             alerts=[],
             all_agents_ic_summary=[],

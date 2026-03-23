@@ -15,6 +15,7 @@ from quantstack.signal_engine.collectors.options_flow import (
     _norm_cdf,
     compute_options_flow_signals,
 )
+from datetime import date, timedelta
 
 
 # ---------------------------------------------------------------------------
@@ -246,8 +247,6 @@ def _make_full_contracts(spot: float = 100.0):
 
     Uses a far-future expiry so DTE > 0 regardless of when tests run.
     """
-    from datetime import date, timedelta
-
     future_expiry = (date.today() + timedelta(days=60)).strftime("%Y-%m-%d")
     dte = 60.0 / 365.0
     contracts = []
@@ -407,8 +406,6 @@ class TestIVSkewZScore:
         chain = _make_chain(spot=100, strikes=[90, 95, 100, 105, 110], iv=0.20)
         # Build a contrived chain with distinct IV for puts vs calls at ≈25-delta
         # Using full contracts with explicit delta for reliable skew computation
-        from datetime import date, timedelta
-
         future = (date.today() + timedelta(days=60)).strftime("%Y-%m-%d")
         dte = 60.0 / 365.0
         spot = 100.0

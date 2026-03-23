@@ -14,7 +14,7 @@ write owner).  The coordination modules are instantiated lazily on first use.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from loguru import logger
@@ -303,8 +303,6 @@ def generate_daily_digest(target_date: str | None = None) -> dict[str, Any]:
         {"success": True, "report": {...}, "markdown": "..."}
     """
     try:
-        from datetime import date
-
         digest = DailyDigest(_get_conn())
         td = date.fromisoformat(target_date) if target_date else None
         report = digest.generate(td)

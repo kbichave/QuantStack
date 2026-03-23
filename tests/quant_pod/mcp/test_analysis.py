@@ -20,6 +20,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from quantstack.context import create_trading_context
 from quantstack.execution.portfolio_state import Position
+from quantstack.audit.models import DecisionEvent
+from quantstack.mcp.server import get_portfolio_state, get_recent_decisions, get_regime, get_system_status, main, mcp
+import quantstack.mcp._state as _mcp_state
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -41,8 +44,6 @@ def ctx():
 @pytest.fixture
 def _inject_ctx(ctx):
     """Inject the test context into the MCP server module."""
-    import quantstack.mcp._state as _mcp_state
-
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
     yield ctx
@@ -69,15 +70,11 @@ def _get_fn(tool_obj):
 class TestGetPortfolioState:
     @pytest.mark.asyncio
     async def test_returns_success(self, _inject_ctx):
-        from quantstack.mcp.server import get_portfolio_state
-
         result = await _get_fn(get_portfolio_state)()
         assert result["success"] is True
 
     @pytest.mark.asyncio
     async def test_returns_snapshot(self, _inject_ctx):
-        from quantstack.mcp.server import get_portfolio_state
-
         result = await _get_fn(get_portfolio_state)()
         snapshot = result["snapshot"]
         assert "cash" in snapshot
@@ -86,15 +83,11 @@ class TestGetPortfolioState:
 
     @pytest.mark.asyncio
     async def test_returns_empty_positions(self, _inject_ctx):
-        from quantstack.mcp.server import get_portfolio_state
-
         result = await _get_fn(get_portfolio_state)()
         assert result["positions"] == []
 
     @pytest.mark.asyncio
     async def test_returns_positions_after_upsert(self, _inject_ctx, ctx):
-        from quantstack.mcp.server import get_portfolio_state
-
         ctx.portfolio.upsert_position(
             Position(symbol="SPY", quantity=100, avg_cost=450.0, current_price=455.0)
         )
@@ -104,8 +97,6 @@ class TestGetPortfolioState:
 
     @pytest.mark.asyncio
     async def test_returns_context_string(self, _inject_ctx):
-        from quantstack.mcp.server import get_portfolio_state
-
         result = await _get_fn(get_portfolio_state)()
         assert "context_string" in result
         assert "PORTFOLIO STATE" in result["context_string"]
@@ -119,36 +110,26 @@ class TestGetPortfolioState:
 class TestGetSystemStatus:
     @pytest.mark.asyncio
     async def test_returns_success(self, _inject_ctx):
-        from quantstack.mcp.server import get_system_status
-
         result = await _get_fn(get_system_status)()
         assert result["success"] is True
 
     @pytest.mark.asyncio
     async def test_kill_switch_not_active(self, _inject_ctx):
-        from quantstack.mcp.server import get_system_status
-
         result = await _get_fn(get_system_status)()
         assert result["kill_switch_active"] is False
 
     @pytest.mark.asyncio
     async def test_risk_not_halted(self, _inject_ctx):
-        from quantstack.mcp.server import get_system_status
-
         result = await _get_fn(get_system_status)()
         assert result["risk_halted"] is False
 
     @pytest.mark.asyncio
     async def test_broker_mode_is_paper(self, _inject_ctx):
-        from quantstack.mcp.server import get_system_status
-
         result = await _get_fn(get_system_status)()
         assert result["broker_mode"] == "paper"
 
     @pytest.mark.asyncio
     async def test_has_session_id(self, _inject_ctx):
-        from quantstack.mcp.server import get_system_status
-
         result = await _get_fn(get_system_status)()
         assert result["session_id"] != ""
 
@@ -161,8 +142,6 @@ class TestGetSystemStatus:
 class TestGetRecentDecisions:
     @pytest.mark.asyncio
     async def test_returns_empty_initially(self, _inject_ctx):
-        from quantstack.mcp.server import get_recent_decisions
-
         result = await _get_fn(get_recent_decisions)()
         assert result["success"] is True
         assert result["decisions"] == []
@@ -170,9 +149,6 @@ class TestGetRecentDecisions:
 
     @pytest.mark.asyncio
     async def test_returns_recorded_events(self, _inject_ctx, ctx):
-        from quantstack.audit.models import DecisionEvent
-        from quantstack.mcp.server import get_recent_decisions
-
         event = DecisionEvent(
             event_id=str(uuid.uuid4()),
             session_id=ctx.session_id,
@@ -200,8 +176,6 @@ class TestGetRecentDecisions:
 class TestGetRegime:
     @pytest.mark.asyncio
     async def test_returns_regime_with_mock_data(self, _inject_ctx):
-        from quantstack.mcp.server import get_regime
-
         mock_result = {
             "success": True,
             "symbol": "SPY",
@@ -221,8 +195,6 @@ class TestGetRegime:
 
     @pytest.mark.asyncio
     async def test_returns_error_on_failure(self, _inject_ctx):
-        from quantstack.mcp.server import get_regime
-
         with patch(
             "quantstack.agents.regime_detector.RegimeDetectorAgent.detect_regime",
             side_effect=ValueError("No data available"),
@@ -239,8 +211,6 @@ class TestGetRegime:
 
 class TestRequireCtx:
     def test_raises_when_ctx_is_none(self):
-        import quantstack.mcp._state as _mcp_state
-
         original = _mcp_state._ctx
         _mcp_state._ctx = None
         try:
@@ -257,12 +227,8 @@ class TestRequireCtx:
 
 class TestServerDefinition:
     def test_mcp_server_has_tools(self):
-        from quantstack.mcp.server import mcp
-
         assert mcp is not None
         assert mcp.name == "QuantPod"
 
     def test_main_is_callable(self):
-        from quantstack.mcp.server import main
-
         assert callable(main)

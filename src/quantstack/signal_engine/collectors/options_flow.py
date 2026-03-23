@@ -23,9 +23,16 @@ from __future__ import annotations
 
 import math
 import os
+import statistics
+from datetime import date
 from typing import Any
 
 from loguru import logger
+
+from alpaca.data.historical.option import OptionHistoricalDataClient
+from alpaca.data.requests import OptionChainRequest
+
+from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
 
 
 # ---------------------------------------------------------------------------
@@ -231,11 +238,9 @@ def compute_options_flow_signals(
         dte_years = 30.0 / 252.0  # fallback ~30 days
         if expiry_str:
             try:
-                from datetime import date as _date
-
                 parts = expiry_str.split("-")
-                exp_date = _date(int(parts[0]), int(parts[1]), int(parts[2]))
-                dte_days = max((exp_date - _date.today()).days, 0)
+                exp_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
+                dte_days = max((exp_date - date.today()).days, 0)
                 dte_years = dte_days / 365.0
             except Exception:
                 pass
@@ -366,8 +371,6 @@ def compute_options_flow_signals(
         and historical_skews is not None
         and len(historical_skews) >= 5
     ):
-        import statistics
-
         hist_mean = statistics.mean(historical_skews)
         hist_std = statistics.stdev(historical_skews)
         if hist_std > 0:
@@ -458,8 +461,6 @@ def _fetch_chain_alphavantage(symbol: str) -> list[dict]:
         if not av_key:
             return []
 
-        from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
-
         adapter = AlphaVantageAdapter(api_key=av_key)
         contracts = adapter.fetch_options_chain(symbol, expiry_max_days=45)
 
@@ -481,9 +482,6 @@ def _fetch_chain_alpaca(symbol: str) -> list[dict]:
         secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
         if not api_key or not secret_key:
             return []
-
-        from alpaca.data.historical.option import OptionHistoricalDataClient
-        from alpaca.data.requests import OptionChainRequest
 
         cli = OptionHistoricalDataClient(api_key, secret_key)
         req = OptionChainRequest(underlying_symbol=symbol)

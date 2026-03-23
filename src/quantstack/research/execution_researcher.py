@@ -18,9 +18,12 @@ import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
 
+import numpy as np
+
 import duckdb
 from loguru import logger
 
+from quantstack.core.execution.tca_storage import TCAStore
 from quantstack.research.context import ResearchContext
 from quantstack.research.schemas import (
     ExecutionRecommendation,
@@ -128,8 +131,6 @@ class ExecutionResearcher:
         """Analyze TCA for timing and slippage patterns."""
         recs: list[ExecutionRecommendation] = []
         try:
-            from quantstack.core.execution.tca_storage import TCAStore
-
             store = TCAStore()
             stats = store.get_aggregate_stats(lookback_days=30)
             store.close()
@@ -175,8 +176,6 @@ class ExecutionResearcher:
                 return recs, correlations
 
             # Build returns dict per strategy
-            import numpy as np
-
             by_strat: dict[str, dict[date, float]] = {}
             for r in rows:
                 by_strat.setdefault(r[0], {})[r[1]] = r[2]
@@ -218,8 +217,6 @@ class ExecutionResearcher:
     def _get_avg_slippage(self) -> float:
         """Get average slippage from TCA storage."""
         try:
-            from quantstack.core.execution.tca_storage import TCAStore
-
             store = TCAStore()
             stats = store.get_aggregate_stats(lookback_days=30)
             store.close()

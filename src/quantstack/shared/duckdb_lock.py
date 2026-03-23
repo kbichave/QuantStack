@@ -13,6 +13,7 @@ Handles two lock-conflict scenarios:
 
 from __future__ import annotations
 
+import gc
 import os
 import re
 import time
@@ -88,8 +89,6 @@ def connect_with_lock_guard(
                 if pid == os.getpid():
                     # Self-lock: previous connection in this process wasn't
                     # fully released.  Force-close via GC and retry once.
-                    import gc
-
                     gc.collect()
                     time.sleep(0.2)
                     try:

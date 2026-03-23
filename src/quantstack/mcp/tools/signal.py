@@ -20,7 +20,6 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.mcp.server import mcp
 from quantstack.mcp._state import (
     _read_memory_file,
     _serialize,
@@ -28,6 +27,8 @@ from quantstack.mcp._state import (
     is_degraded,
     require_ctx,
 )
+from quantstack.mcp.server import mcp
+from quantstack.signal_engine import SignalEngine
 
 
 # =============================================================================
@@ -81,8 +82,6 @@ async def get_signal_brief(
         }
 
     try:
-        from quantstack.signal_engine import SignalEngine
-
         engine = SignalEngine()
         brief = await engine.run(symbol, regime=regime)
 
@@ -166,8 +165,6 @@ async def run_multi_signal_brief(
         }
 
     try:
-        from quantstack.signal_engine import SignalEngine
-
         engine = SignalEngine()
         clean_symbols = [s.upper().strip() for s in symbols]
         briefs = await engine.run_multi(clean_symbols, max_concurrent=5)

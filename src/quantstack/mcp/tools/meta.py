@@ -20,18 +20,19 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.mcp.server import mcp
+from quantstack.features.enricher import FeatureEnricher
 from quantstack.mcp._state import (
+    _serialize,
+    live_db_or_error,
     require_ctx,
     require_live_db,
-    live_db_or_error,
-    _serialize,
 )
+from quantstack.mcp.allocation import resolve_conflicts
+from quantstack.mcp.server import mcp
 from quantstack.strategies.signal_generator import (
     fetch_price_data as _fetch_price_data,
     generate_signals_from_rules as _generate_signals_from_rules,
 )
-from quantstack.features.enricher import FeatureEnricher
 
 
 @mcp.tool()
@@ -162,8 +163,6 @@ async def resolve_portfolio_conflicts(
         Dict with resolved_trades, resolutions, conflicts_count.
     """
     try:
-        from quantstack.mcp.allocation import resolve_conflicts
-
         result = resolve_conflicts(proposed_trades)
         return {"success": True, **result}
     except Exception as e:

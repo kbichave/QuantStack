@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from quantstack.execution.kill_switch import KillSwitch
+from datetime import datetime
 
 
 @pytest.fixture
@@ -53,8 +54,6 @@ class TestTrigger:
         assert ks.status().reason == "loss limit breached"
 
     def test_trigger_sets_triggered_at(self, ks):
-        from datetime import datetime
-
         ks.trigger("timing test")
         assert ks.status().triggered_at is not None
         assert isinstance(ks.status().triggered_at, datetime)

@@ -23,6 +23,11 @@ import pytest
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.base import AssetClass
 from quantstack.data.provider_enum import DataProvider
+from quantstack.data.adapters.financial_datasets import FinancialDatasetsAdapter, _SUPPORTED_TIMEFRAMES
+from quantstack.data.adapters.financial_datasets_client import FinancialDatasetsClient, _SlidingWindowRateLimiter
+from quantstack.data.fundamentals import FundamentalsProvider
+from quantstack.data.storage import DataStore
+import httpx
 
 
 # =============================================================================
@@ -32,10 +37,6 @@ from quantstack.data.provider_enum import DataProvider
 
 class TestSlidingWindowRateLimiter:
     def test_no_sleep_under_limit(self):
-        from quantstack.data.adapters.financial_datasets_client import (
-            _SlidingWindowRateLimiter,
-        )
-
         limiter = _SlidingWindowRateLimiter(max_requests=100, window_seconds=60.0)
         start = time.monotonic()
         for _ in range(10):
@@ -45,10 +46,6 @@ class TestSlidingWindowRateLimiter:
         assert elapsed < 1.0
 
     def test_throttles_when_limit_reached(self):
-        from quantstack.data.adapters.financial_datasets_client import (
-            _SlidingWindowRateLimiter,
-        )
-
         # Tiny window: 2 requests per 0.5s.
         limiter = _SlidingWindowRateLimiter(max_requests=2, window_seconds=0.5)
         limiter.acquire()  # 1
@@ -75,10 +72,6 @@ class TestFinancialDatasetsClient:
         return resp
 
     def test_get_historical_prices(self, mock_response):
-        from quantstack.data.adapters.financial_datasets_client import (
-            FinancialDatasetsClient,
-        )
-
         client = FinancialDatasetsClient(api_key="test-key", rate_limit_rpm=10000)
         with patch.object(client._client, "get", return_value=mock_response):
             result = client.get_historical_prices(
@@ -89,10 +82,6 @@ class TestFinancialDatasetsClient:
         client.close()
 
     def test_get_income_statements(self, mock_response):
-        from quantstack.data.adapters.financial_datasets_client import (
-            FinancialDatasetsClient,
-        )
-
         mock_response.json.return_value = {
             "income_statements": [{"revenue": 1000000, "net_income": 200000}]
         }
@@ -104,12 +93,6 @@ class TestFinancialDatasetsClient:
         client.close()
 
     def test_returns_none_on_http_error(self):
-        from quantstack.data.adapters.financial_datasets_client import (
-            FinancialDatasetsClient,
-        )
-
-        import httpx
-
         resp = MagicMock()
         resp.status_code = 403
         resp.raise_for_status.side_effect = httpx.HTTPStatusError(
@@ -122,10 +105,6 @@ class TestFinancialDatasetsClient:
         client.close()
 
     def test_retries_on_429(self):
-        from quantstack.data.adapters.financial_datasets_client import (
-            FinancialDatasetsClient,
-        )
-
         resp_429 = MagicMock()
         resp_429.status_code = 429
         resp_429.headers = {"Retry-After": "0.1"}
@@ -142,10 +121,6 @@ class TestFinancialDatasetsClient:
         client.close()
 
     def test_context_manager(self):
-        from quantstack.data.adapters.financial_datasets_client import (
-            FinancialDatasetsClient,
-        )
-
         with FinancialDatasetsClient(api_key="test-key") as client:
             assert client is not None
 
@@ -157,20 +132,12 @@ class TestFinancialDatasetsClient:
 
 class TestFinancialDatasetsAdapter:
     def test_provider_enum(self):
-        from quantstack.data.adapters.financial_datasets import (
-            FinancialDatasetsAdapter,
-        )
-
         adapter = FinancialDatasetsAdapter(api_key="test-key")
         assert adapter.provider == DataProvider.FINANCIAL_DATASETS
         assert adapter.asset_class == AssetClass.EQUITY
         adapter._client.close()
 
     def test_supported_timeframes(self):
-        from quantstack.data.adapters.financial_datasets import (
-            _SUPPORTED_TIMEFRAMES,
-        )
-
         expected = {
             Timeframe.M1,
             Timeframe.M5,
@@ -184,20 +151,12 @@ class TestFinancialDatasetsAdapter:
         assert _SUPPORTED_TIMEFRAMES == expected
 
     def test_unsupported_timeframe_raises(self):
-        from quantstack.data.adapters.financial_datasets import (
-            FinancialDatasetsAdapter,
-        )
-
         adapter = FinancialDatasetsAdapter(api_key="test-key")
         with pytest.raises(ValueError, match="does not support"):
             adapter.fetch_ohlcv("AAPL", Timeframe.S5)
         adapter._client.close()
 
     def test_empty_response_returns_empty_df(self):
-        from quantstack.data.adapters.financial_datasets import (
-            FinancialDatasetsAdapter,
-        )
-
         adapter = FinancialDatasetsAdapter(api_key="test-key")
         with patch.object(
             adapter._client, "get_all_historical_prices", return_value=[]
@@ -209,10 +168,6 @@ class TestFinancialDatasetsAdapter:
 
     def test_ohlcv_contract(self):
         """Verify the DataFrame contract: DatetimeIndex, float64 columns, sorted."""
-        from quantstack.data.adapters.financial_datasets import (
-            FinancialDatasetsAdapter,
-        )
-
         mock_prices = [
             {
                 "time": "2024-01-02T00:00:00Z",
@@ -259,10 +214,6 @@ class TestFinancialDatasetsAdapter:
 
     def test_h4_resampling(self):
         """H4 should be derived from H1 data via resampling."""
-        from quantstack.data.adapters.financial_datasets import (
-            FinancialDatasetsAdapter,
-        )
-
         # Generate 8 hours of H1 data.
         mock_h1 = [
             {
@@ -299,8 +250,6 @@ class TestFundamentalsProvider:
         return MagicMock()
 
     def test_fetch_income_statements(self, mock_client):
-        from quantstack.data.fundamentals import FundamentalsProvider
-
         mock_client.get_income_statements.return_value = {
             "income_statements": [
                 {"revenue": 1000, "netIncome": 200, "reportPeriod": "2024-01-01"},
@@ -321,8 +270,6 @@ class TestFundamentalsProvider:
         assert "net_income" in df.columns or "netincome" in df.columns.str.lower()
 
     def test_fetch_earnings(self, mock_client):
-        from quantstack.data.fundamentals import FundamentalsProvider
-
         mock_client.get_earnings.return_value = {
             "earnings": [
                 {
@@ -340,8 +287,6 @@ class TestFundamentalsProvider:
         assert "ticker" in df.columns
 
     def test_fetch_insider_trades(self, mock_client):
-        from quantstack.data.fundamentals import FundamentalsProvider
-
         mock_client.get_insider_trades.return_value = {
             "insider_trades": [
                 {
@@ -360,8 +305,6 @@ class TestFundamentalsProvider:
         assert df["ticker"].iloc[0] == "AAPL"
 
     def test_empty_response(self, mock_client):
-        from quantstack.data.fundamentals import FundamentalsProvider
-
         mock_client.get_balance_sheets.return_value = None
 
         fp = FundamentalsProvider(client=mock_client)
@@ -369,8 +312,6 @@ class TestFundamentalsProvider:
         assert df.empty
 
     def test_context_manager(self, mock_client):
-        from quantstack.data.fundamentals import FundamentalsProvider
-
         with FundamentalsProvider(client=mock_client) as fp:
             assert fp is not None
 
@@ -384,8 +325,6 @@ class TestFundamentalsSchema:
     @pytest.fixture
     def store(self, tmp_path):
         """Create a temporary DataStore for testing."""
-        from quantstack.data.storage import DataStore
-
         db_path = str(tmp_path / "test.duckdb")
         return DataStore(db_path=db_path)
 

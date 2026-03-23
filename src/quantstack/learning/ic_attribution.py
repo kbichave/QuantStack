@@ -33,16 +33,7 @@ from typing import Any
 
 from loguru import logger
 
-# ---------------------------------------------------------------------------
-# Optional dependency — scipy for Spearman rank correlation
-# ---------------------------------------------------------------------------
-
-try:
-    from scipy.stats import spearmanr as _spearmanr
-
-    _HAS_SCIPY = True
-except ImportError:  # pragma: no cover
-    _HAS_SCIPY = False
+from scipy.stats import spearmanr as _spearmanr
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -202,10 +193,6 @@ class ICAttributionTracker:
         scipy is not installed or if there are fewer than ``min_observations``
         data points.
         """
-        if not _HAS_SCIPY:
-            logger.debug("[ICAttribution] scipy not installed — cannot compute IC")
-            return None
-
         with self._lock:
             state = self._collectors.get(collector)
             if state is None or len(state.observations) < min_observations:
@@ -372,9 +359,6 @@ class ICAttributionTracker:
 
         Returns "improving", "stable", or "declining".
         """
-        if not _HAS_SCIPY:
-            return "stable"
-
         with self._lock:
             state = self._collectors.get(collector)
             if state is None or len(state.observations) < self._window_size * 2:
@@ -399,7 +383,7 @@ class ICAttributionTracker:
     @staticmethod
     def _compute_ic_for_observations(observations: list[_Observation]) -> float | None:
         """Compute Spearman IC for a list of observations."""
-        if not _HAS_SCIPY or len(observations) < 5:
+        if len(observations) < 5:
             return None
 
         signals = [o.signal_value for o in observations]

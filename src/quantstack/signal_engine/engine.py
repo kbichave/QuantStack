@@ -43,6 +43,9 @@ from quantstack.signal_engine.collectors.regime import collect_regime
 from quantstack.signal_engine.collectors.risk import collect_risk
 from quantstack.signal_engine.collectors.sector import collect_sector
 from quantstack.signal_engine.collectors.sentiment import collect_sentiment
+from quantstack.signal_engine.collectors.sentiment_alphavantage import (
+    collect_sentiment_alphavantage,
+)
 from quantstack.signal_engine.collectors.statarb import collect_statarb
 from quantstack.signal_engine.collectors.technical import collect_technical
 from quantstack.signal_engine.collectors.volume import collect_volume
@@ -148,7 +151,8 @@ class SignalEngine:
             "risk": collect_risk(symbol, self._store),
             "events": collect_events(symbol, self._store),
             "fundamentals": collect_fundamentals(symbol, self._store),
-            "sentiment": collect_sentiment(symbol, self._store),
+            # v1.1: Sentiment now uses Alpha Vantage + Groq reasoning with context
+            "sentiment": collect_sentiment_alphavantage(symbol, self._store),
             # Phase 3 collectors (v1.0) — all optional, graceful {} on failure
             "macro": collect_macro(symbol, self._store),
             "sector": collect_sector(symbol, self._store),

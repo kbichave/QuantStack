@@ -391,6 +391,36 @@ class ResearchOrchestrator:
         )
         return report
 
+    # ── Activation threshold helpers ───────────────────────────────────
+
+    def _count_closed_trades(self) -> int:
+        """Count closed trades for optimization module activation.
+
+        Includes both live/paper trades (strategy_outcomes) and walk-forward
+        OOS trades (strategy_daily_pnl) since both represent real out-of-sample
+        outcomes suitable for prompt fitness evaluation.
+        """
+        total = 0
+        for table in ("strategy_outcomes", "strategy_daily_pnl"):
+            try:
+                row = self._conn.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone()
+                total += row[0] if row else 0
+            except Exception:
+                pass  # Table may not exist yet
+        return total
+
+    def _count_trajectories(self) -> int:
+        """Count recorded research trajectories for TrajectoryEvolution activation."""
+        try:
+            row = self._conn.execute(
+                "SELECT COUNT(*) FROM research_trajectories"
+            ).fetchone()
+            return row[0] if row else 0
+        except Exception:
+            return 0
+
     # ── Internal execution methods ──────────────────────────────────────
 
     async def _run_discovery(self, plan: Any) -> int:

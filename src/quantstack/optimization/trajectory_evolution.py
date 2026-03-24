@@ -12,6 +12,8 @@ trajectories and mutate to discover new alpha.
 Paper: QuantaAlpha (2026) — https://arxiv.org/abs/2602.07085
 
 Schedule: Monthly (1st Saturday), via ResearchOrchestrator.run_monthly().
+STATUS: CONDITIONAL. Activates when closed trade count >= 200 AND
+research trajectories >= 10 (lowered from 500 trades).
 """
 
 from __future__ import annotations

@@ -10,8 +10,9 @@ to generate improved candidates.
 
 Paper: OPRO (Yang et al., DeepMind 2023) — https://arxiv.org/abs/2309.03409
 
-STATUS: DORMANT. Not wired into ResearchOrchestrator.
-Re-enable after 500+ trades with prompt-version measurement infrastructure.
+STATUS: CONDITIONAL. Wired into ResearchOrchestrator.run_weekly() with
+guard: activates when closed trade count >= 150 (lowered from 500 after
+analysis showed walk-forward OOS trades provide sufficient signal).
 See docs/OPTIMIZATION.md "When to Revisit".
 
 Safety:
@@ -408,7 +409,7 @@ class OPROLoop:
     # _get_active_research_nodes, _load_research_critiques_for_agent) removed —
     # auto-editing .claude/agents/*.md without human review is unsafe, and with
     # <25 research runs/month there's not enough signal to evolve prompts.
-    # Re-add when system has 500+ trades and measurement infrastructure.
+    # Re-add when system has measurement infrastructure for agent prompt quality.
 
     def _update_candidate_status(self, candidate: PromptCandidate) -> None:
         """Update status + promoted_at for an existing candidate."""

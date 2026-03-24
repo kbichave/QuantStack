@@ -750,7 +750,7 @@ class AcquisitionPipeline:
         return report
 
     def _fetch_and_store_news(self, symbols: list[str], time_from: str) -> int:
-        # fetch_news_sentiment returns a DataFrame directly
+        # fetch_news_sentiment returns a DataFrame with time_published as index
         df = self._av.fetch_news_sentiment(
             tickers=",".join(symbols),
             time_from=time_from,
@@ -759,16 +759,20 @@ class AcquisitionPipeline:
         if df.empty:
             return 0
         logger.info(f"Fetched {len(df)} news articles")
-        # Ensure all required columns exist (relevance_score not in fetcher output)
-        for col in ("ticker", "ticker_sentiment_score", "ticker_sentiment_label"):
+
+        # Reset index to make time_published a regular column
+        df = df.reset_index()
+
+        # Ensure all required columns exist
+        for col in ("ticker", "ticker_sentiment_score", "ticker_sentiment_label", "relevance_score"):
             if col not in df.columns:
                 df[col] = None
-        if "relevance_score" not in df.columns:
-            df["relevance_score"] = None
+
         with self._store._use_conn() as conn:
+            # Use ON CONFLICT instead of INSERT OR IGNORE (DuckDB prefers ON CONFLICT)
             conn.execute(
                 """
-                INSERT OR IGNORE INTO news_sentiment
+                INSERT INTO news_sentiment
                     (time_published, title, summary, source, url, ticker,
                      overall_sentiment_score, overall_sentiment_label,
                      ticker_sentiment_score, ticker_sentiment_label, relevance_score)
@@ -776,6 +780,7 @@ class AcquisitionPipeline:
                        overall_sentiment_score, overall_sentiment_label,
                        ticker_sentiment_score, ticker_sentiment_label, relevance_score
                 FROM df
+                ON CONFLICT (time_published, title, ticker) DO NOTHING
             """
             )
         return len(df)

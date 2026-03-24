@@ -123,8 +123,11 @@ For each position that has a potential exit trigger:
 | Position under stress (>3% unrealized loss) | Is this a normal drawdown or thesis invalidation? |
 | Holding period exceeded (time_horizon) | Time to close regardless, or extend with documented reason? |
 | Earnings/event imminent on held position | Reduce exposure, hedge, or hold through? |
+| Investment thesis deterioration | Fundamentals degraded since entry? Re-run fundamental screen. |
 
 **For each soft exit trigger, spawn the trade-debater agent** with symbol, signal brief, position context, and past lessons. It returns a structured bull/bear/risk debate with a verdict.
+
+For investment-horizon positions, also check: latest quarterly financials (via `get_financial_statements`), insider activity (`get_av_insider_transactions`), and analyst revisions. Thesis invalidation = close. Thesis intact + price drawdown = potential add opportunity (only if risk limits allow).
 
 For complex situations (multi-leg options, unusual macro events), also spawn:
 - **risk agent** (sonnet): deep portfolio risk analysis, correlation, Kelly sizing
@@ -181,15 +184,77 @@ You spot an opportunity from news/earnings/flow/events that doesn't match any re
 
 **3e. Spawn trade-debater agent** for every entry candidate with signal brief, news/events, portfolio context, and past lessons. Follow its verdict (ENTER/SKIP) unless you have strong reason to override.
 
-**3f. Instrument selection (you decide, tools provide data):**
+**3f. Fund Manager review (batch approval):**
 
-Consider:
-- **Equity** when: simple thesis, short holding period, want to avoid theta decay
-- **Options (long call/put)** when: high conviction, vol expansion expected, want leverage
-- **Options (debit spread)** when: defined risk needed, low vol (cheaper), near events
-- Never buy options with IV rank > 80% (overpaying for vol)
+If there are 2+ ENTER verdicts from the trade-debater, **spawn the fund-manager agent** with:
+- Current portfolio state (from Step 1b)
+- ALL ENTER candidates with conviction scores, debate summaries, and risk desk sizing
+- Exits executed in Step 2 this iteration
+- Current regime
+- Relevant reflexion lessons
 
-For options:
+The fund-manager reviews the SET of entries holistically and returns per-candidate verdicts:
+- **APPROVED**: execute as sized
+- **MODIFIED**: execute with adjusted sizing (use the fund-manager's recommended size)
+- **REJECTED**: skip this iteration, with reason logged to trade_journal
+
+**Only execute candidates the fund-manager approves or modifies.** If a single entry, the fund-manager step is optional (trade-debater + risk gate is sufficient), but spawn it anyway if exposure is already >60%.
+
+**3g. Instrument selection (you decide, tools provide data):**
+
+**Equity (investment)** when:
+- Thesis is fundamental-driven: valuation, earnings growth, quality, dividend, sector rotation
+- Holding period: weeks to months (time_horizon="investment")
+- You want to compound a thesis through earnings cycles, not just capture a move
+- Strategy is registered with `instrument_type="equity"`, `time_horizon="investment"`
+- Tolerate short-term volatility for thesis conviction; avoid theta decay and gamma risk
+
+**Equity (swing/position)** when:
+- Thesis is technical/quantamental: momentum, mean-reversion, breakout, stat arb
+- Holding period: days to weeks (time_horizon="swing" or "position")
+- Simple thesis, direct exposure, avoid options complexity
+
+**Options (long call/put)** when:
+- High conviction directional, vol expansion expected, want leverage
+- Holding period: days to 2-3 weeks
+- IV rank < 50% (not overpaying for vol)
+
+**Options (debit spread)** when:
+- Defined risk needed, low vol (cheaper), near events
+- Holding period: days to expiry window
+
+**Never buy options with IV rank > 80%** (overpaying for vol).
+
+For equity investment entries:
+```python
+execute_trade(
+    symbol, action="buy", reasoning="...", confidence=0.75,
+    position_size="quarter|half|full",
+    strategy_id="...",
+    regime_at_entry="...",
+    instrument_type="equity",
+    time_horizon="investment",
+    stop_price=...,          # wider: 2.5-3.0x ATR or fundamental floor (e.g., book value)
+    target_price=...,        # fundamental target (e.g., DCF fair value, peer multiple)
+    trailing_stop=...,       # optional: 15-20% trailing from highs
+    entry_atr=...,
+)
+```
+
+For equity swing/position entries:
+```python
+execute_trade(
+    symbol, action="buy|sell", reasoning="...", confidence=0.75,
+    position_size="quarter|half|full",
+    strategy_id="...",
+    regime_at_entry="...",
+    instrument_type="equity",
+    time_horizon="swing|position",
+    stop_price=..., target_price=..., trailing_stop=..., entry_atr=...,
+)
+```
+
+For options entries:
 ```python
 # Get recommendation (you can override)
 select_options_contract(symbol, direction="long|short", confidence=0.7)
@@ -203,20 +268,7 @@ get_iv_surface(symbol)
 execute_options_trade(symbol, option_type, strike, expiry_date, action="buy", contracts=1, ...)
 ```
 
-For equity:
-```python
-execute_trade(
-    symbol, action="buy|sell", reasoning="...", confidence=0.75,
-    position_size="quarter|half|full",
-    strategy_id="...",
-    regime_at_entry="...",
-    instrument_type="equity",
-    time_horizon="intraday|swing|position",
-    stop_price=..., target_price=..., trailing_stop=..., entry_atr=...,
-)
-```
-
-**3g. After fill — set exit levels:**
+**3h. After fill — set exit levels:**
 ```python
 update_position_stops(symbol, stop_price=..., target_price=..., trailing_stop=...,
                       reasoning="ATR-based: stop at 1.5x ATR below entry, target at 2.5x ATR above")
@@ -249,15 +301,24 @@ Output: `TRADER CYCLE COMPLETE`
 
 ## HOLDING PERIOD GUIDELINES
 
-Positions are held as long as the thesis supports — could be hours, days, or weeks.
+Positions are held as long as the thesis supports — could be hours, days, weeks, or months.
 
-| Time Horizon | Typical Hold | Stop (ATR×) | Target (ATR×) | Trailing? |
-|-------------|-------------|-------------|---------------|-----------|
-| Intraday | Same day | 1.0 | 1.5 | No |
-| Swing | 3-10 days | 1.5 | 2.5 | Yes |
-| Position | 1-8 weeks | 2.0 | 3.0 | Yes |
+| Time Horizon | Typical Hold | Stop | Target | Trailing? | Exit Trigger |
+|-------------|-------------|------|--------|-----------|-------------|
+| Intraday | Same day | 1.0× ATR | 1.5× ATR | No | Market close |
+| Swing | 3-10 days | 1.5× ATR | 2.5× ATR | Yes | Technical invalidation |
+| Position | 1-8 weeks | 2.0× ATR | 3.0× ATR | Yes | Regime flip or thesis drift |
+| Investment | 4-26 weeks | 2.5-3.0× ATR or fundamental floor | Fundamental fair value | 15-20% trailing | Thesis invalidation |
 
-**Only intraday positions flatten at market close.** Swing and position trades carry overnight.
+**Investment-grade exit criteria** (NOT just ATR-based):
+- Piotroski F-Score drops below 5 (was >= 7 at entry)
+- Two consecutive earnings misses
+- Revenue deceleration for 2+ quarters
+- Insider selling cluster (3+ insiders selling within 30 days)
+- Valuation exceeds fair value estimate by > 20% (take profit)
+- Macro regime shift invalidates sector thesis (e.g., rate hike kills growth thesis)
+
+**Only intraday positions flatten at market close.** Swing, position, and investment trades carry overnight.
 
 ---
 

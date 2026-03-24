@@ -26,11 +26,13 @@ from quantstack.db import open_db
 from quantstack.execution.hook_registry import register
 from quantstack.learning.outcome_tracker import OutcomeTracker
 from quantstack.learning.reflection import ReflectionManager
+from quantstack.optimization.credit_assignment import CreditAssigner
 from quantstack.optimization.reflexion_memory import ReflexionMemory
 
 # Module-level singletons — initialized lazily on first use
 _reflection_mgr: ReflectionManager | None = None
 _reflexion_mem: ReflexionMemory | None = None
+_credit_assigner: CreditAssigner | None = None
 
 
 def _get_reflection_manager() -> ReflectionManager | None:
@@ -59,6 +61,19 @@ def _get_reflexion_memory() -> ReflexionMemory | None:
     return _reflexion_mem
 
 
+def _get_credit_assigner() -> CreditAssigner | None:
+    """Lazy-init CreditAssigner with a ManagedConnection."""
+    global _credit_assigner
+    if _credit_assigner is None:
+        try:
+            conn = open_db()
+            _credit_assigner = CreditAssigner(conn)
+        except Exception as exc:
+            logger.warning(f"[hooks] Failed to init CreditAssigner: {exc}")
+            return None
+    return _credit_assigner
+
+
 def on_trade_close(
     symbol: str,
     strategy_id: str,
@@ -71,13 +86,18 @@ def on_trade_close(
     regime_at_exit: str = "unknown",
     conviction: float = 0.0,
     signals_summary: str = "",
+    position_size: str = "half",
+    debate_verdict: str = "",
+    strategy_regime_affinity: float = 0.5,
+    trade_id: int = 0,
     **_kwargs: Any,
 ) -> None:
     """Fire after every trade close. Non-blocking, best-effort.
 
     Called from PortfolioState.close_position or execute_trade.
-    Records outcome in ReflectionManager (raw journal) and, for losses > 1%,
-    creates a classified ReflexionEpisode (structured episodic memory).
+    Records outcome in ReflectionManager (raw journal), creates a classified
+    ReflexionEpisode for losses > 1%, and runs step-level credit assignment
+    for P&L attribution.
     """
     # 1. Raw reflection (always)
     try:
@@ -109,6 +129,32 @@ def on_trade_close(
                 mem.record_episode(ref)
         except Exception as exc:
             logger.debug(f"[hooks] on_trade_close reflexion episode failed (non-critical): {exc}")
+
+    # 3. Step-level credit assignment (every trade)
+    try:
+        assigner = _get_credit_assigner()
+        if assigner is not None:
+            trade_context = {
+                "trade_id": trade_id,
+                "realized_pnl_pct": realized_pnl_pct,
+                "regime_at_entry": regime_at_entry,
+                "regime_at_exit": regime_at_exit,
+                "strategy_id": strategy_id,
+                "conviction": conviction,
+                "position_size": position_size,
+                "debate_verdict": debate_verdict,
+                "signals_present": bool(signals_summary),
+                "strategy_regime_affinity": strategy_regime_affinity,
+            }
+            credits = assigner.assign_heuristic(trade_context)
+            worst = assigner.get_worst_step(credits)
+            if worst and worst.credit_score < -0.3:
+                logger.info(
+                    f"[hooks] Credit attribution: worst step={worst.step_type} "
+                    f"score={worst.credit_score:.2f} — {worst.evidence}"
+                )
+    except Exception as exc:
+        logger.debug(f"[hooks] on_trade_close credit assignment failed (non-critical): {exc}")
 
 
 def on_daily_close(

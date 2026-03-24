@@ -228,24 +228,23 @@ class SchemaMixin:
 
     def _init_news_sentiment_schema(self) -> None:
         """Initialize news sentiment table."""
-        # News sentiment table
+        # News sentiment table — use composite primary key for dedup instead of auto-id
         self.conn.execute(
             """
             CREATE TABLE IF NOT EXISTS news_sentiment (
-                id INTEGER PRIMARY KEY,
                 time_published TIMESTAMP NOT NULL,
-                title VARCHAR,
+                title VARCHAR NOT NULL,
                 summary VARCHAR,
                 source VARCHAR,
                 url VARCHAR,
-                ticker VARCHAR,
+                ticker VARCHAR NOT NULL,
                 overall_sentiment_score DOUBLE,
                 overall_sentiment_label VARCHAR,
                 ticker_sentiment_score DOUBLE,
                 ticker_sentiment_label VARCHAR,
                 relevance_score DOUBLE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (time_published, title, ticker)
+                PRIMARY KEY (time_published, title, ticker)
             )
         """
         )

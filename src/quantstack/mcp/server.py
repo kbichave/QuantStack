@@ -194,6 +194,10 @@ from quantstack.mcp.tools.learning import (  # noqa: E402, F401
     validate_strategy,
     update_regime_matrix_from_performance,
 )
+from quantstack.mcp.tools.attribution import (  # noqa: E402, F401
+    get_daily_equity,
+    get_strategy_pnl,
+)
 import quantstack.mcp.tools.finrl_tools  # noqa: E402, F401
 from quantstack.mcp.tools.feedback import (  # noqa: E402, F401
     get_fill_quality,

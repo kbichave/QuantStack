@@ -103,12 +103,53 @@ def run_autonomous_loop(dry_run: bool = False) -> None:
         logger.error(f"'{label}' failed: {exc}")
 
 
+def run_daily_attribution(dry_run: bool = False) -> None:
+    """Daily P&L attribution — equity snapshot, strategy P&L, benchmark comparison.
+
+    Runs EquityTracker.snapshot_daily() and BenchmarkTracker.update_benchmark()
+    after market close. Idempotent: safe to retry (skips if snapshot exists).
+    """
+    label = "daily_attribution"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would run at {timestamp}: {label}")
+        return
+
+    try:
+        from quantstack.db import open_db
+        from quantstack.performance.benchmark import BenchmarkTracker
+        from quantstack.performance.equity_tracker import EquityTracker
+
+        conn = open_db()
+
+        # 1. Daily equity snapshot + per-strategy P&L
+        equity_result = EquityTracker(conn).snapshot_daily()
+        logger.info(f"[{label}] Equity snapshot: {equity_result}")
+
+        # 2. Benchmark close price
+        bench = BenchmarkTracker(conn)
+        bench_result = bench.update_benchmark("SPY")
+        logger.info(f"[{label}] Benchmark update: {bench_result}")
+
+        # 3. Rolling comparison (30d, 60d, 90d)
+        comp_result = bench.compute_comparison("SPY", [30, 60, 90])
+        logger.info(f"[{label}] Benchmark comparison: {len(comp_result)} windows computed")
+
+        conn.close()
+        logger.info(f"'{label}' completed successfully")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Schedule
 # ---------------------------------------------------------------------------
 
 JOBS = [
     {"hour": 8, "minute": 0, "weekdays": "mon-fri", "func": run_data_refresh, "label": "data_refresh_08:00"},
+    {"hour": 16, "minute": 10, "weekdays": "mon-fri", "func": run_daily_attribution, "label": "daily_attribution_16:10"},
     # autonomous_09:35 and autonomous_13:00 REMOVED in v2.
     # The LLM-driven trading loop (tmux: quantstack-trading) handles all
     # intraday execution: entries, monitoring, exits.
@@ -139,6 +180,7 @@ def start_scheduler(dry_run: bool = False) -> None:
         f"\nQuantStack Scheduler started (workdir={WORKDIR})\n"
         f"Scheduled {len(JOBS)} jobs. Press Ctrl+C to stop.\n\n"
         f"  08:00 — Data refresh (Alpha Vantage cache)\n"
+        f"  16:10 — Daily P&L attribution (equity snapshot + benchmark comparison)\n"
         f"\n"
         f"  Note: Trading execution handled by tmux trading loop (start_trading_loop.sh)\n"
     )
@@ -153,6 +195,7 @@ def _print_cron() -> None:
     """Print equivalent cron entries."""
     print("# QuantStack scheduled jobs (add to crontab, TZ=America/New_York)")
     print(f"0  8 * * 1-5  cd {WORKDIR} && python scripts/acquire_historical_data.py --phases ohlcv_daily macro news insider fundamentals")
+    print(f"10 16 * * 1-5  cd {WORKDIR} && python scripts/scheduler.py --run-now daily_attribution")
     print("# Trading execution: start_trading_loop.sh (tmux-based Claude loop)")
     print(f"# 30 9 * * 1-5  cd {WORKDIR} && ./scripts/start_trading_loop.sh")
 
@@ -182,6 +225,7 @@ def main() -> None:
         func_map = {
             "data_refresh": run_data_refresh,
             "autonomous_runner": run_autonomous_loop,
+            "daily_attribution": run_daily_attribution,
         }
         func = func_map.get(args.run_now)
         if func is None:

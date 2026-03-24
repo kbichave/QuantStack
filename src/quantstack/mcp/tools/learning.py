@@ -191,16 +191,17 @@ async def get_strategy_performance(
         strat = strat_result["strategy"]
         bt = strat.get("backtest_summary") or {}
 
-        # Query closed trades in lookback period
+        # Query closed trades in lookback period, filtered by strategy
         cutoff = _dt.now() - _td(days=lookback_days)
         rows = ctx.db.execute(
             """
             SELECT realized_pnl, closed_at, holding_days
             FROM closed_trades
             WHERE closed_at >= ?
+              AND strategy_id = ?
             ORDER BY closed_at
             """,
-            [cutoff],
+            [cutoff, strategy_id],
         ).fetchall()
 
         if not rows:

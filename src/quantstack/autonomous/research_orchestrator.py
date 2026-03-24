@@ -52,13 +52,23 @@ from quantstack.autonomous.judge import HypothesisJudge
 from quantstack.autonomous.strategy_lifecycle import StrategyLifecycle
 from quantstack.autonomous.watchdog import Watchdog
 from quantstack.ml.training_service import train_model
+from quantstack.optimization.opro_loop import OPROLoop
 from quantstack.optimization.textgrad_loop import TextGradOptimizer
+from quantstack.optimization.trajectory_evolution import TrajectoryEvolution
 from quantstack.performance.benchmark import BenchmarkTracker
 from quantstack.performance.equity_tracker import EquityTracker
 from quantstack.performance.weight_learner import WeightLearner
 from quantstack.research.alpha_researcher import AlphaResearcher
 from quantstack.research.execution_researcher import ExecutionResearcher
 from quantstack.research.ml_scientist import MLScientist
+
+# Activation thresholds for dormant optimization modules.
+# Lowered from original 500 based on analysis: walk-forward OOS trades
+# provide sufficient signal at lower counts, and OPROLoop needs TextGrad
+# critiques (which accumulate per-trade) more than raw trade volume.
+OPRO_MIN_TRADES = 150
+TRAJECTORY_MIN_TRADES = 200
+TRAJECTORY_MIN_TRAJECTORIES = 10
 
 
 @dataclass
@@ -281,9 +291,26 @@ class ResearchOrchestrator:
             logger.warning(f"[Orchestrator] Strategy validation failed: {exc}")
             report.steps_failed.append(f"validation: {exc}")
 
-        # NOTE: OPRO weekly prompt evolution (steps 5, 5.5) removed — premature.
-        # Fitness scoring on <10 trades/week is noise. Re-enable after 500+ trades.
-        # See docs/OPTIMIZATION.md "When to Revisit".
+        # Step 5: OPRO weekly prompt evolution (re-enabled with lowered threshold)
+        trade_count = self._count_closed_trades()
+        if trade_count >= OPRO_MIN_TRADES:
+            try:
+                opro = OPROLoop(self._conn)
+                new_candidates = opro.run_weekly()
+                if new_candidates:
+                    report.steps_completed.append(
+                        f"opro_{len(new_candidates)}_candidates"
+                    )
+                else:
+                    report.steps_completed.append("opro_no_candidates")
+            except Exception as exc:
+                logger.warning(f"[Orchestrator] OPRO failed (non-blocking): {exc}")
+                report.steps_failed.append(f"opro: {exc}")
+        else:
+            logger.info(
+                f"[Orchestrator] OPRO skipped: {trade_count} trades < "
+                f"{OPRO_MIN_TRADES} threshold"
+            )
 
         report.finished_at = datetime.now(timezone.utc)
         report.elapsed_s = time.monotonic() - t0
@@ -326,6 +353,32 @@ class ResearchOrchestrator:
         except Exception as exc:
             logger.error(f"[Orchestrator] Full retraining failed: {exc}")
             report.steps_failed.append(f"full_retrain: {exc}")
+
+        # Step 3: TrajectoryEvolution — crossover best research runs
+        trade_count = self._count_closed_trades()
+        trajectory_count = self._count_trajectories()
+        if (
+            trade_count >= TRAJECTORY_MIN_TRADES
+            and trajectory_count >= TRAJECTORY_MIN_TRAJECTORIES
+        ):
+            try:
+                evo = TrajectoryEvolution(self._conn)
+                offspring = evo.run_monthly(population_size=20)
+                if offspring:
+                    report.steps_completed.append(
+                        f"trajectory_evolution_{len(offspring)}_offspring"
+                    )
+                else:
+                    report.steps_completed.append("trajectory_evolution_insufficient_parents")
+            except Exception as exc:
+                logger.warning(f"[Orchestrator] TrajectoryEvolution failed (non-blocking): {exc}")
+                report.steps_failed.append(f"trajectory_evolution: {exc}")
+        else:
+            logger.info(
+                f"[Orchestrator] TrajectoryEvolution skipped: "
+                f"{trade_count} trades (need {TRAJECTORY_MIN_TRADES}), "
+                f"{trajectory_count} trajectories (need {TRAJECTORY_MIN_TRAJECTORIES})"
+            )
 
         report.finished_at = datetime.now(timezone.utc)
         report.elapsed_s = time.monotonic() - t0

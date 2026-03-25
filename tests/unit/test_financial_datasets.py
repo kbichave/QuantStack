@@ -7,7 +7,7 @@ Covers:
   - HTTP client: rate limiter, retry, endpoint methods
   - OHLCV adapter: timeframe mapping, DataFrame contract, empty responses
   - FundamentalsProvider: JSON→DataFrame normalisation
-  - DuckDB fundamentals schema: save/load round-trip
+  - Fundamentals schema: save/load round-trip
 """
 
 from __future__ import annotations
@@ -317,7 +317,7 @@ class TestFundamentalsProvider:
 
 
 # =============================================================================
-# DuckDB fundamentals schema tests
+# Fundamentals schema tests
 # =============================================================================
 
 

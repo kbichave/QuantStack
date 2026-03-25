@@ -4,7 +4,7 @@
 """
 Batch OHLCV cache warming for the full universe.
 
-Pre-fetches daily OHLCV bars into the DataStore (DuckDB) cache so that the
+Pre-fetches daily OHLCV bars into the DataStore (PostgreSQL) cache so that the
 AutonomousScreener can score symbols without making per-symbol API calls.
 
 Strategy:
@@ -200,7 +200,7 @@ class CacheWarmer:
         stream_manager: Any,
     ) -> int:
         """
-        Persist streaming bars from LiveBarStore into DuckDB.
+        Persist streaming bars from LiveBarStore into PostgreSQL.
 
         Called periodically (e.g., every 5 minutes) to flush in-memory
         streaming bars to durable storage so they survive process restarts.
@@ -232,7 +232,7 @@ class CacheWarmer:
                 logger.debug(f"[CacheWarmer] Stream persist failed for {symbol}: {exc}")
 
         if total > 0:
-            logger.debug(f"[CacheWarmer] Persisted {total} streaming bars to DuckDB")
+            logger.debug(f"[CacheWarmer] Persisted {total} streaming bars to PostgreSQL")
         return total
 
     def _store_prices(self, symbol: str, prices: list[dict[str, Any]]) -> None:

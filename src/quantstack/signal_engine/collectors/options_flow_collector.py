@@ -99,5 +99,5 @@ def _load_historical_skews(symbol: str, store: DataStore) -> list[float] | None:
     """Load cached historical IV skew observations for z-score computation."""
     # IV skew history would be stored from previous collector runs.
     # For now, return None — the z-score field will be None.
-    # Future: persist daily skew snapshots to DuckDB and load last 30 here.
+    # Future: persist daily skew snapshots to PostgreSQL and load last 30 here.
     return None

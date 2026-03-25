@@ -188,7 +188,7 @@ class AlphaSelectionEnvironment(RLEnvironment):
         Factory method: build environment from real KnowledgeStore data.
 
         This is the recommended constructor for production use. It replaces the
-        synthetic returns fallback with actual IC signal history from DuckDB.
+        synthetic returns fallback with actual IC signal history from PostgreSQL.
 
         Raises ValueError if insufficient data exists (< half of alpha_names have
         20+ observations). In that case, disable meta RL via RLProductionConfig.

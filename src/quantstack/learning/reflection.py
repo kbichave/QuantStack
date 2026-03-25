@@ -10,7 +10,7 @@ Architecture:
   1. On trade close: record outcome + market context snapshot
   2. SQL-query similar past situations by regime, symbol, strategy
   3. Surface relevant lessons from similar past failures
-  4. Persist learnings to DuckDB + memory files
+  4. Persist learnings to PostgreSQL + memory files
   5. On daily close: aggregate, identify patterns, update workshop_lessons.md
 """
 

@@ -86,7 +86,7 @@ class TestAgentSkillICProperties:
 
 
 # ---------------------------------------------------------------------------
-# SkillTracker.record_ic — persistence to DuckDB
+# SkillTracker.record_ic — persistence to PostgreSQL
 # ---------------------------------------------------------------------------
 
 

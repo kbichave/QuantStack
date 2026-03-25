@@ -5,7 +5,7 @@ Why Polygon over Alpha Vantage for production:
   - Unlimited calls at $29/month Starter plan
   - Native support for M1 through W1 without resampling
   - Reliable SLA and institutional-grade data quality
-  - Bar cache already built into PolygonProvider (DuckDB-backed)
+  - Bar cache already built into PolygonProvider (PostgreSQL-backed)
 
 Supported timeframes
 --------------------
@@ -62,7 +62,7 @@ _SUPPORTED_TIMEFRAMES = {*_TF_TO_INTERVAL, Timeframe.S5}
 class PolygonAdapter(AssetClassAdapter):
     """AssetClassAdapter wrapping PolygonProvider.
 
-    The underlying ``PolygonProvider`` already has DuckDB-based bar caching,
+    The underlying ``PolygonProvider`` already has PostgreSQL-based bar caching,
     retry logic, and rate-limit handling.  This adapter is a thin translation
     layer from its interval-string API to the Timeframe-enum contract.
 

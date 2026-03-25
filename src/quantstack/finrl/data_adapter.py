@@ -2,7 +2,7 @@
 Data adapter — bridges DataStore / Alpha Vantage to FinRL DataFrame format.
 
 FinRL expects: date, tic, open, high, low, close, volume + indicator columns.
-Our DataStore has OHLCV in DuckDB. This adapter translates between the two.
+Our DataStore has OHLCV in PostgreSQL. This adapter translates between the two.
 
 Also provides a custom Alpha Vantage data processor compatible with FinRL's
 processor interface.
@@ -75,7 +75,7 @@ class FinRLDataAdapter:
         start_date: str,
         end_date: str,
     ) -> pd.DataFrame:
-        """Load from DataStore (DuckDB) and format for FinRL."""
+        """Load from DataStore (PostgreSQL) and format for FinRL."""
         try:
             store = DataStore(read_only=True)
             frames = []

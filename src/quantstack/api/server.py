@@ -753,7 +753,7 @@ def etrade_reconcile() -> dict[str, Any]:
     """
     Force a portfolio reconciliation against eTrade's actual positions.
 
-    Use this if you suspect the local DuckDB state has drifted from eTrade
+    Use this if you suspect the local portfolio state has drifted from eTrade
     (e.g., after a manual trade in the eTrade UI).
 
     Only available when USE_REAL_TRADING=true and authenticated.

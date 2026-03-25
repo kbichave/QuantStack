@@ -107,7 +107,7 @@ class LiveIntradayLoop:
         trailing_stop_atr_mult: ATR multiplier for trailing stops.
         max_hold_bars: Force exit after N bars (0 = disabled).
         strategies: Intraday strategies (list of dicts). If None, loaded from DB.
-        db_path: DuckDB path for DataStore. None = default.
+        db_path: Ignored — DataStore uses PostgreSQL. None = default.
         dry_run: If True, initialize everything but don't start streaming.
     """
 

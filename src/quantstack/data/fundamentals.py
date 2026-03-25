@@ -2,7 +2,7 @@
 FundamentalsProvider — high-level access to fundamental data from FinancialDatasets.ai.
 
 Wraps the low-level HTTP client and returns normalised DataFrames suitable for
-DuckDB storage and feature engineering.  Each method handles JSON→DataFrame
+PostgreSQL storage and feature engineering.  Each method handles JSON→DataFrame
 conversion, column renaming, date parsing, and dtype coercion.
 
 Usage::

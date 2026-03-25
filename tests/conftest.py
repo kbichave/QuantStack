@@ -83,11 +83,7 @@ def test_data_dir(project_root: Path) -> Path:
 
 @pytest.fixture
 def temp_db(tmp_path: Path) -> Generator[Path, None, None]:
-    """Kept for backward compatibility — yields a path that is no longer used for DuckDB.
-
-    Analytics tests that previously created a DuckDB file should now use
-    PostgreSQL via open_db() from quantstack.db.
-    """
+    """Legacy fixture kept for backward compatibility — yields a temp path (unused)."""
     yield tmp_path / "test.db"
     # Cleanup handled by tmp_path fixture
 

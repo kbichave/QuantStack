@@ -144,7 +144,7 @@ def main() -> int:
 
     if fd_key:
         # We need a DataStore — create a minimal one
-        # For validation, we'll use DuckDB directly as a lightweight store
+        # We need a DataStore — create a minimal one via PostgreSQL
         sample_symbols = registry.get_active_symbols()[:10]
         if not sample_symbols:
             sample_symbols = [

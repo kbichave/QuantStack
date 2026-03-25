@@ -84,7 +84,7 @@ class SchemaMixin:
 
         Kept separate from `ohlcv` to avoid index bloat: 1-minute bars produce
         ~390 rows/day/symbol; at 100 symbols × 5 years that is ~50M rows.
-        Keeping them in a dedicated table lets DuckDB scan them with predicate
+        Keeping them in a dedicated table lets PostgreSQL scan them with predicate
         pushdown on (symbol, timestamp) without touching the swing/daily index.
         """
         # 1-minute bars — TIMESTAMPTZ for unambiguous intraday storage.

@@ -27,7 +27,7 @@ class UnifiedDataManager:
     Args:
         registry: Pre-built DataProviderRegistry.  If None, an empty registry
                   is created (adapters can be added via register_adapter).
-        db_path:  Path to DuckDB storage.  Falls back to settings if None.
+        db_path:  Ignored — DataStore uses PostgreSQL.  Kept for call-site compatibility.
     """
 
     def __init__(

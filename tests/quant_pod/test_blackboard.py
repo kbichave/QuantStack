@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for the DuckDB-backed Blackboard (agent memory).
+Unit tests for the PostgreSQL-backed Blackboard (agent memory).
 
-All tests use an in-memory DB via TradingContext — zero file-system side-effects.
+All tests use a TradingContext — zero file-system side-effects.
 """
 
 from __future__ import annotations

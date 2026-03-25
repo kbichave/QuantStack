@@ -5,7 +5,7 @@
 Walk-forward validation service — callable without MCP imports.
 
 Uses WalkForwardValidator (L3) and DataStore (L2) directly, with strategy
-data loaded from DuckDB via quantstack.db (L1).
+data loaded from PostgreSQL via quantstack.db (L1).
 """
 
 from __future__ import annotations

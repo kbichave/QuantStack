@@ -315,7 +315,7 @@ class OutcomeTracker:
 
         We write directly rather than calling the MCP update_strategy tool
         because OutcomeTracker may run from a non-MCP context (scheduler, script).
-        The MCP tool is just a DuckDB write under the hood — same effect.
+        The MCP tool is just a PostgreSQL write under the hood — same effect.
         """
         try:
             with db_conn() as conn:

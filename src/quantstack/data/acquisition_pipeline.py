@@ -770,7 +770,7 @@ class AcquisitionPipeline:
                 df[col] = None
 
         with self._store._use_conn() as conn:
-            # Use ON CONFLICT instead of INSERT OR IGNORE (DuckDB prefers ON CONFLICT)
+            # Use ON CONFLICT instead of INSERT OR IGNORE (PostgreSQL prefers ON CONFLICT)
             conn.execute(
                 """
                 INSERT INTO news_sentiment

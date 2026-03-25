@@ -22,10 +22,11 @@ class TestSettings:
         assert settings.alpha_vantage_rate_limit == 75
 
         # Database defaults
-        assert settings.database_path == "data/trader.duckdb"
+        assert settings.database_path == ""
 
-        # Symbol defaults
-        assert settings.symbols == ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
+        # Symbol defaults — full universe (77 symbols from INITIAL_LIQUID_UNIVERSE)
+        from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
+        assert settings.symbols == list(INITIAL_LIQUID_UNIVERSE.keys())
         assert settings.benchmark_symbol == "SPY"
 
         # Data settings
@@ -77,7 +78,7 @@ class TestSettings:
             os.environ,
             {
                 "ALPHA_VANTAGE_API_KEY": "test_key_123",
-                "DATABASE_PATH": "/custom/path/db.duckdb",
+                "DATABASE_PATH": "postgresql://localhost/quantpod_test",
                 "MAX_CONCURRENT_TRADES": "10",
             },
         ):
@@ -86,7 +87,7 @@ class TestSettings:
             settings = Settings()
 
             assert settings.alpha_vantage_api_key == "test_key_123"
-            assert settings.database_path == "/custom/path/db.duckdb"
+            assert settings.database_path == "postgresql://localhost/quantpod_test"
             assert settings.max_concurrent_trades == 10
 
     def test_date_fields(self):

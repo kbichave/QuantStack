@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-import duckdb
 import pytest
 
-from quantstack.db import run_migrations
+from quantstack.db import pg_conn, run_migrations
 from quantstack.optimization.opro_loop import (
     PROMOTION_THRESHOLD,
     PromptCandidate,
@@ -21,9 +20,9 @@ import uuid
 
 @pytest.fixture
 def conn():
-    c = duckdb.connect(":memory:")
-    run_migrations(c)
-    return c
+    with pg_conn() as c:
+        run_migrations(c)
+        yield c
 
 
 @pytest.fixture

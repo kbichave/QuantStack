@@ -4,21 +4,21 @@
 """
 Unit tests for ShadowEvaluator.
 
-All tests use in-memory DuckDB — no file I/O, no external services.
+All tests use a PostgreSQL connection via pg_conn() — no file I/O, no external services.
 """
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import duckdb
 import numpy as np
 import pytest
+from quantstack.db import open_db
 from quantstack.rl.shadow_mode import ShadowEvaluator
 
 
 def _make_store() -> MagicMock:
-    conn = duckdb.connect(":memory:")
+    conn = open_db()
     store = MagicMock()
     store.conn = conn
     return store

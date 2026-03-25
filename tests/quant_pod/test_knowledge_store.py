@@ -3,9 +3,6 @@
 
 """Tests for knowledge store."""
 
-import tempfile
-from pathlib import Path
-
 import pytest
 from quantstack.knowledge.models import (
     MarketObservation,
@@ -26,16 +23,10 @@ from quantstack.knowledge.store import KnowledgeStore
 
 @pytest.fixture
 def store():
-    """Create a temporary knowledge store for testing."""
-    with tempfile.NamedTemporaryFile(suffix=".duckdb", delete=False) as f:
-        db_path = f.name
-
-    store = KnowledgeStore(db_path=db_path)
+    """Knowledge store backed by PostgreSQL."""
+    store = KnowledgeStore()
     yield store
     store.close()
-
-    # Cleanup
-    Path(db_path).unlink(missing_ok=True)
 
 
 class TestTradeOperations:

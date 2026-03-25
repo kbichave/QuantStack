@@ -7,10 +7,9 @@ from __future__ import annotations
 
 from datetime import date
 
-import duckdb
 import pytest
 
-from quantstack.db import run_migrations
+from quantstack.db import pg_conn, run_migrations
 from quantstack.optimization.textgrad_loop import (
     DecisionNode,
     PromptProposal,
@@ -21,9 +20,9 @@ from quantstack.optimization.credit_assignment import StepCredit
 
 @pytest.fixture
 def conn():
-    c = duckdb.connect(":memory:")
-    run_migrations(c)
-    return c
+    with pg_conn() as c:
+        run_migrations(c)
+        yield c
 
 
 @pytest.fixture

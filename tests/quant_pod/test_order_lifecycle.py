@@ -5,13 +5,13 @@ Unit tests for quant_pod.execution.order_lifecycle — Sprint 3.
 
 Tests the OMS state machine: submit, acknowledge, partial fill, fill,
 reject, cancel, exec algo selection, and compliance checks.
-All tests use in-memory DuckDB.
+All tests use a PostgreSQL connection via pg_conn().
 """
 
 from __future__ import annotations
 
-import duckdb
 import pytest
+from quantstack.db import pg_conn
 from quantstack.execution.order_lifecycle import (
     ExecAlgoOMS,
     OrderLifecycle,
@@ -21,8 +21,8 @@ from quantstack.execution.order_lifecycle import (
 
 @pytest.fixture
 def oms() -> OrderLifecycle:
-    conn = duckdb.connect(":memory:")
-    return OrderLifecycle(conn)
+    with pg_conn() as conn:
+        yield OrderLifecycle(conn)
 
 
 def _submit(

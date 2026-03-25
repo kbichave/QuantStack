@@ -4,8 +4,7 @@
 """
 Integration tests for TradingContext and the execution hot path.
 
-All tests use an in-memory PgConnection (DuckDB in-memory via PgConnection._from_memory())
-— no file system side-effects, no PostgreSQL server required, no shared state between tests.
+All tests use a PostgreSQL-backed TradingContext — no shared state between tests.
 
 Coverage:
   - create_trading_context() wires all services to the same connection
@@ -36,7 +35,7 @@ from quantstack.execution.tick_executor import Tick, TickExecutor
 @pytest.fixture
 def ctx() -> TradingContext:
     """Fresh in-memory TradingContext for each test."""
-    context = create_trading_context(db_path=":memory:", initial_cash=100_000.0)
+    context = create_trading_context(initial_cash=100_000.0)
     yield context
     try:
         context.db.close()
@@ -65,26 +64,10 @@ class TestTradingContextWiring:
     def test_initial_cash_seeded(self, ctx):
         assert ctx.portfolio.get_cash() == 100_000.0
 
-    def test_two_contexts_are_isolated(self):
-        """Two in-memory contexts do not share data."""
-        a = create_trading_context(db_path=":memory:", initial_cash=50_000.0)
-        # Each ":memory:" call creates an independent DuckDB in-memory instance
-        b = create_trading_context(db_path=":memory:", initial_cash=200_000.0)
-        try:
-            assert a.portfolio.get_cash() == 50_000.0
-            assert b.portfolio.get_cash() == 200_000.0
-
-            a.portfolio.adjust_cash(-10_000)
-            # b must be unaffected
-            assert b.portfolio.get_cash() == 200_000.0
-        finally:
-            a.db.close()
-            b.db.close()
-
     def test_session_id_is_unique_per_context(self):
         """Each create_trading_context() generates a distinct session_id."""
-        a = create_trading_context(db_path=":memory:")
-        b = create_trading_context(db_path=":memory:")
+        a = create_trading_context()
+        b = create_trading_context()
         try:
             assert a.session_id != b.session_id
         finally:

@@ -4,7 +4,7 @@
 """
 Unit tests for KnowledgeStoreRLBridge.
 
-Uses in-memory DuckDB so tests are fully isolated with no file I/O.
+Uses PostgreSQL connections via pg_conn().
 AlphaVantage calls are always mocked — these tests do not hit external APIs.
 """
 
@@ -14,9 +14,9 @@ from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import duckdb
 import numpy as np
 import pandas as pd
+from quantstack.db import pg_conn
 from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
 
 # ---------------------------------------------------------------------------
@@ -25,22 +25,9 @@ from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
 
 
 def _make_store_with_trades(n_trades: int = 30) -> Any:
-    """Return a mock KnowledgeStore backed by in-memory DuckDB with trade data."""
-    conn = duckdb.connect(":memory:")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS trade_journal (
-            trade_id VARCHAR PRIMARY KEY,
-            symbol VARCHAR,
-            side VARCHAR,
-            pnl DOUBLE,
-            signal_type VARCHAR,
-            status VARCHAR,
-            entry_time TIMESTAMP,
-            exit_time TIMESTAMP
-        )
-    """
-    )
+    """Return a mock KnowledgeStore backed by a PostgreSQL connection with trade data."""
+    from quantstack.db import open_db
+    conn = open_db()
     np.random.seed(42)
     for i in range(n_trades):
         alpha_types = ["TREND", "MOMENTUM", "VOL"]
@@ -61,6 +48,7 @@ def _make_store_with_trades(n_trades: int = 30) -> Any:
                 datetime.utcnow() - timedelta(days=n_trades - i - 1),
             ],
         )
+    conn.execute("COMMIT")
     store = MagicMock()
     store.conn = conn
     return store
@@ -68,24 +56,16 @@ def _make_store_with_trades(n_trades: int = 30) -> Any:
 
 def _make_store_with_ohlcv(n_bars: int = 100) -> Any:
     """Return a mock KnowledgeStore with market_observations data."""
-    conn = duckdb.connect(":memory:")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS market_observations (
-            symbol VARCHAR,
-            timestamp TIMESTAMP,
-            close DOUBLE,
-            volume BIGINT
-        )
-    """
-    )
+    from quantstack.db import open_db
+    conn = open_db()
     np.random.seed(42)
     prices = 100 + np.cumsum(np.random.randn(n_bars) * 0.5)
     for i, p in enumerate(prices):
         conn.execute(
-            "INSERT INTO market_observations VALUES (?, ?, ?, ?)",
+            "INSERT INTO market_observations (symbol, timestamp, close, volume) VALUES (?, ?, ?, ?)",
             ["SPY", datetime.utcnow() - timedelta(days=n_bars - i), float(p), 5000],
         )
+    conn.execute("COMMIT")
     store = MagicMock()
     store.conn = conn
     return store
@@ -93,23 +73,12 @@ def _make_store_with_ohlcv(n_bars: int = 100) -> Any:
 
 def _make_store_with_signals(n_signals: int = 50) -> Any:
     """Return a mock KnowledgeStore with trading_signals data."""
-    conn = duckdb.connect(":memory:")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS trading_signals (
-            signal_id VARCHAR PRIMARY KEY,
-            direction VARCHAR,
-            confidence DOUBLE,
-            expected_return DOUBLE,
-            alpha_name VARCHAR,
-            created_at TIMESTAMP
-        )
-    """
-    )
+    from quantstack.db import open_db
+    conn = open_db()
     np.random.seed(42)
     for i in range(n_signals):
         conn.execute(
-            "INSERT INTO trading_signals VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO trading_signals (signal_id, direction, confidence, expected_return, alpha_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             [
                 f"sig{i}",
                 ["LONG", "SHORT", "NEUTRAL"][i % 3],
@@ -119,6 +88,7 @@ def _make_store_with_signals(n_signals: int = 50) -> Any:
                 datetime.utcnow() - timedelta(days=n_signals - i),
             ],
         )
+    conn.execute("COMMIT")
     store = MagicMock()
     store.conn = conn
     return store
@@ -132,13 +102,15 @@ def _make_store_with_signals(n_signals: int = 50) -> Any:
 class TestKnowledgeStoreRLBridgeFactory:
     def test_from_knowledge_store(self):
         store = MagicMock()
-        store.conn = duckdb.connect(":memory:")
+        from quantstack.db import open_db
+        store.conn = open_db()
         bridge = KnowledgeStoreRLBridge.from_knowledge_store(store)
         assert bridge is not None
 
     def test_direct_init(self):
         store = MagicMock()
-        store.conn = duckdb.connect(":memory:")
+        from quantstack.db import open_db
+        store.conn = open_db()
         bridge = KnowledgeStoreRLBridge(store=store)
         assert bridge is not None
 
@@ -166,14 +138,16 @@ class TestGetAlphaReturnHistory:
     def test_missing_table_returns_empty(self):
         # Store with no trade_journal table
         store = MagicMock()
-        store.conn = duckdb.connect(":memory:")
+        from quantstack.db import open_db
+        store.conn = open_db()
         bridge = KnowledgeStoreRLBridge(store=store)
         result = bridge.get_alpha_return_history(["X"], lookback_days=30)
         assert isinstance(result, dict)
 
     def test_has_sufficient_alpha_history_false_when_empty(self):
         store = MagicMock()
-        store.conn = duckdb.connect(":memory:")
+        from quantstack.db import open_db
+        store.conn = open_db()
         bridge = KnowledgeStoreRLBridge(store=store)
         assert (
             bridge.has_sufficient_alpha_history(["TREND"], min_observations=20) is False
@@ -196,7 +170,8 @@ class TestGetOHLCVForExecution:
 
     def test_missing_table_returns_empty_df(self):
         store = MagicMock()
-        store.conn = duckdb.connect(":memory:")
+        from quantstack.db import open_db
+        store.conn = open_db()
         bridge = KnowledgeStoreRLBridge(store=store)
         df = bridge.get_ohlcv_for_execution("SPY", lookback_days=30)
         assert isinstance(df, pd.DataFrame)
@@ -204,7 +179,8 @@ class TestGetOHLCVForExecution:
 
     def test_has_sufficient_signal_history_false_when_empty(self):
         store = MagicMock()
-        store.conn = duckdb.connect(":memory:")
+        from quantstack.db import open_db
+        store.conn = open_db()
         bridge = KnowledgeStoreRLBridge(store=store)
         assert bridge.has_sufficient_signal_history(min_signals=30) is False
 
@@ -218,7 +194,8 @@ class TestGetSignalHistory:
 
     def test_missing_table_returns_empty_list(self):
         store = MagicMock()
-        store.conn = duckdb.connect(":memory:")
+        from quantstack.db import open_db
+        store.conn = open_db()
         bridge = KnowledgeStoreRLBridge(store=store)
         signals = bridge.get_signal_history(lookback_days=30)
         assert signals == [] or signals is None or isinstance(signals, list)

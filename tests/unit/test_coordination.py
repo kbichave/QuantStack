@@ -20,8 +20,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-import duckdb
 import pytest
+from quantstack.db import open_db
 from datetime import date, timedelta as td
 from quantstack.autonomous.screener import AutonomousScreener
 from quantstack.autonomous.watchlist import DEFAULT_SYMBOLS, WatchlistLoader
@@ -43,146 +43,13 @@ import os
 
 @pytest.fixture
 def db():
-    """In-memory DuckDB with all coordination tables."""
-    conn = duckdb.connect(":memory:")
-
-    # Run the coordination migrations manually
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS loop_events (
-            event_id VARCHAR PRIMARY KEY, event_type VARCHAR NOT NULL,
-            source_loop VARCHAR NOT NULL, payload JSON,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS le_type ON loop_events (event_type, created_at)"
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS loop_cursors (
-            consumer_id VARCHAR PRIMARY KEY, last_event_id VARCHAR,
-            last_polled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS loop_heartbeats (
-            loop_name VARCHAR NOT NULL, iteration INTEGER NOT NULL,
-            started_at TIMESTAMP NOT NULL, finished_at TIMESTAMP,
-            symbols_processed INTEGER DEFAULT 0, errors INTEGER DEFAULT 0,
-            status VARCHAR DEFAULT 'running', PRIMARY KEY (loop_name, iteration)
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS strategies (
-            strategy_id VARCHAR PRIMARY KEY, name VARCHAR NOT NULL UNIQUE,
-            description TEXT DEFAULT '', asset_class VARCHAR DEFAULT 'equities',
-            regime_affinity JSON, parameters JSON NOT NULL,
-            entry_rules JSON NOT NULL, exit_rules JSON NOT NULL,
-            risk_params JSON, backtest_summary JSON, walkforward_summary JSON,
-            status VARCHAR DEFAULT 'draft', source VARCHAR DEFAULT 'manual',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            created_by VARCHAR DEFAULT 'test',
-            instrument_type VARCHAR DEFAULT 'equity',
-            time_horizon VARCHAR DEFAULT 'swing',
-            holding_period_days INTEGER DEFAULT 5
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS strategy_outcomes (
-            id INTEGER PRIMARY KEY, strategy_id VARCHAR NOT NULL,
-            symbol VARCHAR NOT NULL, regime_at_entry VARCHAR DEFAULT 'unknown',
-            action VARCHAR NOT NULL, entry_price DOUBLE NOT NULL,
-            exit_price DOUBLE, realized_pnl_pct DOUBLE, outcome VARCHAR,
-            opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, closed_at TIMESTAMP,
-            session_id VARCHAR DEFAULT ''
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS regime_strategy_matrix (
-            regime VARCHAR NOT NULL, strategy_id VARCHAR NOT NULL,
-            allocation_pct DOUBLE NOT NULL, confidence DOUBLE DEFAULT 0.5,
-            last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (regime, strategy_id)
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS universe (
-            symbol VARCHAR PRIMARY KEY, name VARCHAR NOT NULL,
-            sector VARCHAR DEFAULT 'Unknown', source VARCHAR NOT NULL,
-            market_cap DOUBLE, avg_daily_volume DOUBLE,
-            is_active BOOLEAN DEFAULT TRUE,
-            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_refreshed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            deactivated_reason VARCHAR
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS screener_results (
-            symbol VARCHAR NOT NULL, screened_at TIMESTAMP NOT NULL,
-            regime_used VARCHAR, tier INTEGER NOT NULL,
-            composite_score DOUBLE NOT NULL,
-            momentum_score DOUBLE, volatility_rank DOUBLE,
-            volume_surge DOUBLE, regime_fit DOUBLE, catalyst_proximity DOUBLE,
-            PRIMARY KEY (symbol, screened_at)
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS ohlcv (
-            symbol VARCHAR, timeframe VARCHAR, timestamp TIMESTAMP,
-            open DOUBLE, high DOUBLE, low DOUBLE, close DOUBLE, volume DOUBLE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS positions (
-            symbol VARCHAR PRIMARY KEY, quantity INTEGER NOT NULL,
-            avg_cost DOUBLE NOT NULL, side VARCHAR DEFAULT 'long',
-            opened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS closed_trades (
-            id INTEGER PRIMARY KEY, symbol VARCHAR NOT NULL,
-            side VARCHAR NOT NULL, quantity INTEGER NOT NULL,
-            entry_price DOUBLE NOT NULL, exit_price DOUBLE NOT NULL,
-            realized_pnl DOUBLE NOT NULL, opened_at TIMESTAMP,
-            closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            holding_days INTEGER DEFAULT 0, session_id VARCHAR DEFAULT ''
-        )
-    """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS earnings_calendar (
-            symbol VARCHAR, report_date DATE, fiscal_date_ending DATE,
-            estimate DOUBLE, reported_eps DOUBLE, surprise DOUBLE, surprise_pct DOUBLE
-        )
-    """
-    )
-
+    """PostgreSQL connection, rolled back after each test for isolation."""
+    conn = open_db()
+    conn.execute("BEGIN")
+    # Tables already exist via run_migrations_pg() — no inline DDL needed.
     yield conn
-    conn.close()
+    conn.execute("ROLLBACK")
+    conn.release()
 
 
 # ── EventBus Tests ───────────────────────────────────────────────────────────
@@ -905,44 +772,45 @@ class TestSupervisor:
 
 class TestDBMigrations:
     def test_new_tables_created(self):
-        """Verify run_migrations creates all coordination tables."""
-        conn = duckdb.connect(":memory:")
-
-        # We can't call run_migrations directly (it requires shared module),
-        # but we can verify the SQL is valid by running the migration functions
+        """Verify migration functions create all coordination tables."""
+        conn = open_db()
         conn.execute("BEGIN")
         _migrate_universe(conn)
         _migrate_screener(conn)
         _migrate_coordination(conn)
         conn.execute("COMMIT")
 
-        # Verify tables exist
-        tables = [r[0] for r in conn.execute("SHOW TABLES").fetchall()]
+        tables = [
+            r[0]
+            for r in conn.execute(
+                "SELECT tablename FROM pg_tables WHERE schemaname='public'"
+            ).fetchall()
+        ]
         assert "universe" in tables
         assert "screener_results" in tables
         assert "loop_events" in tables
         assert "loop_cursors" in tables
         assert "loop_heartbeats" in tables
 
-        conn.close()
+        conn.release()
 
     def test_migrations_idempotent(self):
         """Running migrations twice should not fail."""
-        conn = duckdb.connect(":memory:")
+        conn = open_db()
         conn.execute("BEGIN")
         _migrate_universe(conn)
         _migrate_screener(conn)
         _migrate_coordination(conn)
         conn.execute("COMMIT")
 
-        # Second run should be a no-op
+        # Second run should be a no-op (IF NOT EXISTS guards)
         conn.execute("BEGIN")
         _migrate_universe(conn)
         _migrate_screener(conn)
         _migrate_coordination(conn)
         conn.execute("COMMIT")
 
-        conn.close()
+        conn.release()
 
 
 # ── AutoPromoter Edge Cases ──────────────────────────────────────────────────

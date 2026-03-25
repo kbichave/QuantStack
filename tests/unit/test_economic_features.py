@@ -64,7 +64,7 @@ def mock_market_data():
 def test_forward_fill_no_lookahead(mock_economic_data, tmp_path):
     """Test that forward-fill doesn't introduce lookahead bias."""
     # Create temporary storage
-    storage = EconomicStorage(db_path=tmp_path / "test_economic.duckdb")
+    storage = EconomicStorage()
 
     # Store monthly data
     storage.store_indicator("unemployment", mock_economic_data["unemployment"])
@@ -102,7 +102,7 @@ def test_forward_fill_no_lookahead(mock_economic_data, tmp_path):
 
 def test_yield_curve_features(mock_economic_data, tmp_path):
     """Test yield curve spread calculation."""
-    storage = EconomicStorage(db_path=tmp_path / "test_economic.duckdb")
+    storage = EconomicStorage()
 
     # Create 3-month treasury data
     dates = pd.date_range("2020-01-01", "2023-12-31", freq="D")
@@ -136,7 +136,7 @@ def test_yield_curve_features(mock_economic_data, tmp_path):
 
 def test_change_features(mock_economic_data, tmp_path):
     """Test rate of change features."""
-    storage = EconomicStorage(db_path=tmp_path / "test_economic.duckdb")
+    storage = EconomicStorage()
     storage.store_indicator("unemployment", mock_economic_data["unemployment"])
 
     engineer = EconomicFeatureEngineer(storage)
@@ -156,7 +156,7 @@ def test_change_features(mock_economic_data, tmp_path):
 
 def test_regime_features(mock_economic_data, tmp_path):
     """Test regime classification features."""
-    storage = EconomicStorage(db_path=tmp_path / "test_economic.duckdb")
+    storage = EconomicStorage()
 
     # Create inverted yield curve scenario
     dates = pd.date_range("2020-01-01", "2020-12-31", freq="D")
@@ -191,7 +191,7 @@ def test_regime_features(mock_economic_data, tmp_path):
 
 def test_merge_with_market_data(mock_economic_data, mock_market_data, tmp_path):
     """Test merging economic features with market data."""
-    storage = EconomicStorage(db_path=tmp_path / "test_economic.duckdb")
+    storage = EconomicStorage()
     storage.store_indicator("treasury_10y", mock_economic_data["treasury_10y"])
 
     engineer = EconomicFeatureEngineer(storage)
@@ -213,7 +213,7 @@ def test_merge_with_market_data(mock_economic_data, mock_market_data, tmp_path):
 
 def test_convenience_function(mock_economic_data, mock_market_data, tmp_path):
     """Test convenience function for creating features."""
-    storage = EconomicStorage(db_path=tmp_path / "test_economic.duckdb")
+    storage = EconomicStorage()
     storage.store_indicator("treasury_10y", mock_economic_data["treasury_10y"])
 
     result = create_economic_features_for_symbol("SPY", mock_market_data, storage)

@@ -5,18 +5,17 @@
 
 from __future__ import annotations
 
-import duckdb
 import pytest
 
 from quantstack.autonomous.judge import HypothesisJudge, JudgeVerdict
-from quantstack.db import run_migrations
+from quantstack.db import pg_conn, run_migrations
 
 
 @pytest.fixture
 def conn():
-    c = duckdb.connect(":memory:")
-    run_migrations(c)
-    return c
+    with pg_conn() as c:
+        run_migrations(c)
+        yield c
 
 
 @pytest.fixture

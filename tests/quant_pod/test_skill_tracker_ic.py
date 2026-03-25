@@ -3,13 +3,13 @@
 """
 Unit tests for AgentSkill IC/ICIR metrics and SkillTracker.record_ic() — Sprint 2.
 
-Uses an in-memory DuckDB KnowledgeStore so no file I/O occurs.
+Uses a PostgreSQL KnowledgeStore connection via pg_conn().
 """
 
 from __future__ import annotations
 
-import duckdb
 import pytest
+from quantstack.db import pg_conn
 from quantstack.learning.skill_tracker import AgentSkill, SkillTracker
 
 # ---------------------------------------------------------------------------
@@ -90,17 +90,18 @@ class TestAgentSkillICProperties:
 # ---------------------------------------------------------------------------
 
 
-class _InMemoryKnowledgeStore:
-    """Minimal KnowledgeStore stand-in backed by in-memory DuckDB."""
+class _MinimalKnowledgeStore:
+    """Minimal KnowledgeStore stand-in backed by a PostgreSQL connection."""
 
-    def __init__(self):
-        self.conn = duckdb.connect(":memory:")
+    def __init__(self, conn):
+        self.conn = conn
 
 
 @pytest.fixture
 def tracker() -> SkillTracker:
-    store = _InMemoryKnowledgeStore()
-    return SkillTracker(store)
+    with pg_conn() as conn:
+        store = _MinimalKnowledgeStore(conn)
+        yield SkillTracker(store)
 
 
 class TestSkillTrackerRecordIC:

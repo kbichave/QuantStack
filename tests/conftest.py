@@ -83,9 +83,12 @@ def test_data_dir(project_root: Path) -> Path:
 
 @pytest.fixture
 def temp_db(tmp_path: Path) -> Generator[Path, None, None]:
-    """Create a temporary DuckDB database path for analytics tests."""
-    db_path = tmp_path / "test.duckdb"
-    yield db_path
+    """Kept for backward compatibility — yields a path that is no longer used for DuckDB.
+
+    Analytics tests that previously created a DuckDB file should now use
+    PostgreSQL via open_db() from quantstack.db.
+    """
+    yield tmp_path / "test.db"
     # Cleanup handled by tmp_path fixture
 
 
@@ -97,11 +100,10 @@ def temp_db(tmp_path: Path) -> Generator[Path, None, None]:
 @pytest.fixture
 def trading_ctx():
     """
-    Fully-wired TradingContext backed by an in-memory DuckDB (db_path=":memory:").
+    Fully-wired TradingContext backed by PostgreSQL.
 
-    Each test gets a completely fresh, isolated context — no shared state,
-    no file system side-effects, no interaction with production data or PostgreSQL.
-    The ":memory:" path uses a DuckDB in-memory connection via PgConnection._from_memory().
+    Each test gets a completely fresh, isolated context — module-level singletons
+    are reset by the autouse reset_singletons_and_seeds fixture after every test.
 
     Use this as the entry point for all trading-system tests:
 
@@ -110,7 +112,6 @@ def trading_ctx():
             ...
     """
     ctx = create_trading_context(
-        db_path=":memory:",
         initial_cash=100_000.0,
         session_id=str(uuid.uuid4()),
     )

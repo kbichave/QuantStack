@@ -4,15 +4,15 @@
 Unit tests for quant_pod.monitoring.degradation_detector — Sprint 4.
 
 Tests IS/OOS Sharpe classification, benchmark registration, and
-_classify() logic. Uses in-memory DuckDB.
+_classify() logic. Uses a PostgreSQL connection via pg_conn().
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-import duckdb
 import pytest
+from quantstack.db import pg_conn
 from quantstack.monitoring.degradation_detector import (
     DegradationDetector,
     DegradationReport,
@@ -23,7 +23,8 @@ from quantstack.monitoring.degradation_detector import (
 
 @pytest.fixture
 def conn():
-    return duckdb.connect(":memory:")
+    with pg_conn() as c:
+        yield c
 
 
 @pytest.fixture
@@ -44,21 +45,14 @@ def _register_benchmark(detector: DegradationDetector, sharpe=1.8, dd=0.08, wr=0
 
 def _seed_trades(conn, pnls: list, strategy_id: str = "test_strategy"):
     """Insert dummy closed trades into the DB for the detector to pick up."""
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS closed_trades (
-            trade_id VARCHAR,
-            strategy_id VARCHAR,
-            realized_pnl DOUBLE,
-            closed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """
-    )
     for i, pnl in enumerate(pnls):
         conn.execute(
-            "INSERT INTO closed_trades VALUES (?, ?, ?, NOW())",
-            [f"t{i}", strategy_id, pnl],
+            "INSERT INTO closed_trades "
+            "(symbol, side, quantity, entry_price, exit_price, realized_pnl, strategy_id, closed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, NOW())",
+            ["SPY", "long", 1, 100.0, 100.0 + pnl, pnl, strategy_id],
         )
+    conn.execute("COMMIT")
 
 
 # ---------------------------------------------------------------------------

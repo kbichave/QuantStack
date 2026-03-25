@@ -323,17 +323,18 @@ class TestFundamentalsProvider:
 
 class TestFundamentalsSchema:
     @pytest.fixture
-    def store(self, tmp_path):
-        """Create a temporary DataStore for testing."""
-        db_path = str(tmp_path / "test.duckdb")
-        return DataStore(db_path=db_path)
+    def store(self):
+        """DataStore backed by PostgreSQL."""
+        return DataStore()
 
     def test_schema_creation(self, store):
         """Verify all fundamentals tables exist after init."""
-        tables = store.conn.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
-        ).fetchdf()
-        table_names = set(tables["table_name"].tolist())
+        from quantstack.db import open_db
+        with open_db() as conn:
+            tables = conn.execute(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            ).fetchdf()
+        table_names = set(tables["tablename"].tolist())
 
         expected_tables = {
             "financial_statements",

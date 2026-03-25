@@ -1503,3 +1503,12 @@ def _migrate_analytics_pg(conn: PgConnection) -> None:
 def run_migrations(conn: PgConnection) -> None:
     """Run all migrations.  Called once at MCP server startup.  Idempotent."""
     run_migrations_pg(conn)
+
+
+# ---------------------------------------------------------------------------
+# Compat aliases (old names used by tests)
+# ---------------------------------------------------------------------------
+
+_migrate_coordination = _migrate_coordination_pg
+_migrate_screener = _migrate_screener_pg
+_migrate_universe = _migrate_universe_pg

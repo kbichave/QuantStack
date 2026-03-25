@@ -1,18 +1,17 @@
 """Tests for quantstack.finrl.model_registry."""
 
-import duckdb
 import pytest
 
+from quantstack.db import pg_conn
 from quantstack.finrl.model_registry import ModelRegistry
 
 
 @pytest.fixture
 def registry():
-    """In-memory DuckDB registry."""
-    conn = duckdb.connect(":memory:")
-    reg = ModelRegistry(conn)
-    yield reg
-    conn.close()
+    """PostgreSQL-backed model registry."""
+    with pg_conn() as conn:
+        reg = ModelRegistry(conn)
+        yield reg
 
 
 class TestModelRegistry:

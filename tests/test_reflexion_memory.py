@@ -5,11 +5,10 @@
 
 from __future__ import annotations
 
-import duckdb
 import pytest
 
 from quantstack.autonomous.reflection import TradeReflection
-from quantstack.db import run_migrations
+from quantstack.db import pg_conn, run_migrations
 from quantstack.optimization.reflexion_memory import (
     MAX_EPISODES,
     ReflexionEpisode,
@@ -20,10 +19,10 @@ from quantstack.optimization.reflexion_memory import (
 
 @pytest.fixture
 def conn():
-    """In-memory DuckDB with all migrations applied."""
-    c = duckdb.connect(":memory:")
-    run_migrations(c)
-    return c
+    """PostgreSQL connection with all migrations applied."""
+    with pg_conn() as c:
+        run_migrations(c)
+        yield c
 
 
 @pytest.fixture

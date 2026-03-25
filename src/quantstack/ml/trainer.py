@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import catboost as cb
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
@@ -108,6 +109,23 @@ class TrainingConfig:
             "verbosity": 0,
         }
 
+    def to_catboost_params(self) -> dict:
+        """Convert to CatBoost parameters."""
+        return {
+            "iterations": self.n_estimators,
+            "learning_rate": self.learning_rate,
+            "depth": min(self.max_depth, 10),  # CatBoost max depth is 16, but 10 is practical
+            "subsample": self.subsample,
+            "colsample_bylevel": self.colsample_bytree,
+            "l2_leaf_reg": self.reg_lambda,
+            "random_seed": self.random_state,
+            "eval_metric": "AUC",
+            "loss_function": "Logloss",
+            "auto_class_weights": "Balanced",
+            "early_stopping_rounds": self.early_stopping_rounds,
+            "verbose": 0,
+        }
+
 
 @dataclass
 class TrainingResult:
@@ -196,6 +214,8 @@ class ModelTrainer:
             model = self._train_lightgbm(X_train, y_train, X_test, y_test)
         elif self.config.model_type == "xgboost":
             model = self._train_xgboost(X_train, y_train, X_test, y_test)
+        elif self.config.model_type == "catboost":
+            model = self._train_catboost(X_train, y_train, X_test, y_test)
         else:
             raise ValueError(f"Unknown model type: {self.config.model_type}")
 
@@ -326,6 +346,23 @@ class ModelTrainer:
             verbose=False,
         )
 
+        return model
+
+    def _train_catboost(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        X_val: pd.DataFrame,
+        y_val: pd.Series,
+    ) -> cb.CatBoostClassifier:
+        """Train CatBoost model."""
+        params = self.config.to_catboost_params()
+        model = cb.CatBoostClassifier(**params)
+        model.fit(
+            X_train,
+            y_train,
+            eval_set=(X_val, y_val),
+        )
         return model
 
     def _cross_validate(

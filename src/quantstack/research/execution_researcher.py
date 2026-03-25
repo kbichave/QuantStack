@@ -20,8 +20,9 @@ from typing import Any
 
 import numpy as np
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.core.execution.tca_storage import TCAStore
 from quantstack.research.context import ResearchContext
@@ -61,7 +62,7 @@ class ExecutionResearcher:
     LLM used only for nuanced portfolio construction recommendations.
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: PgConnection) -> None:
         self._conn = conn
         self._context = ResearchContext(conn)
 

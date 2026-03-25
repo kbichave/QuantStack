@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-import shap
+# shap deferred to fit() and plot_summary() — 1.4s import.
 
 from quantstack.ml.trainer import TrainingResult
 
@@ -63,6 +63,7 @@ class SHAPExplainer:
             X_scaled = X_sample.values
 
         # Create explainer based on model type
+        import shap  # noqa: PLC0415
         try:
             self._explainer = shap.TreeExplainer(self.model)
             logger.info("Created TreeExplainer")
@@ -225,6 +226,7 @@ class SHAPExplainer:
         if isinstance(shap_values, list):
             shap_values = shap_values[1]
 
+        import shap  # noqa: PLC0415
         shap.summary_plot(
             shap_values,
             X,

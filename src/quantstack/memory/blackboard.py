@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-DuckDB-backed agent memory (formerly markdown blackboard).
+PostgreSQL-backed agent memory (formerly markdown blackboard).
 
 Replaced the markdown file implementation because:
   - O(n) full-file reads scaled badly as history grew
@@ -38,10 +38,9 @@ from datetime import date, datetime
 from threading import RLock
 from typing import Any
 
-import duckdb
 from loguru import logger
 
-from quantstack.db import open_db, run_migrations
+from quantstack.db import PgConnection, open_db, run_migrations
 
 # ---------------------------------------------------------------------------
 # Data model — same interface as the old BlackboardEntry
@@ -87,7 +86,7 @@ class Blackboard:
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection | None = None,
+        conn: PgConnection | None = None,
         session_id: str = "",
     ):
         self._session_id = session_id
@@ -99,7 +98,7 @@ class Blackboard:
             self._conn = open_db()
             run_migrations(self._conn)
 
-        logger.info("Blackboard initialized (DuckDB-backed agent_memory table)")
+        logger.info("Blackboard initialized (PostgreSQL-backed agent_memory table)")
 
     # -----------------------------------------------------------------------
     # Write
@@ -320,7 +319,7 @@ _blackboard: Blackboard | None = None
 
 
 def get_blackboard(
-    conn: duckdb.DuckDBPyConnection | None = None,
+    conn: PgConnection | None = None,
     session_id: str = "",
 ) -> Blackboard:
     """Get the singleton Blackboard instance."""

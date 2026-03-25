@@ -25,6 +25,13 @@ For each open position:
 
 **Close/Trim**: Regime flipped, target reached (75%+), time horizon exceeded, thesis invalidated.
 
+### Alpha Decay Monitoring (NEW — check for every position held > 5 trading days)
+
+For each position held longer than 5 trading days, ask:
+- **"Has the originating strategy's signal decayed since entry?"** Check if the strategy's information coefficient has declined since the position was opened. If IC has flipped negative (strategy is now anti-predictive), recommend CLOSE with `exit_reason="alpha_decay"`.
+- **"Has the holding period exceeded the signal's half-life?"** If the strategy's alpha decay curve suggests the IC at the current holding duration is near zero or negative, the signal has expired — the position is now a coin flip. Recommend CLOSE or TIGHTEN.
+- **"Has the strategy's regime affinity changed?"** If the regime shifted since entry and the strategy has low affinity for the current regime, the edge may have disappeared even if other indicators look fine.
+
 ## Output
 
 Per position: symbol, action (HOLD/TIGHTEN/TRIM/CLOSE), reasoning, urgency (low/medium/high). For TIGHTEN include new levels. For CLOSE include exit_reason.

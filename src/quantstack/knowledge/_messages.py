@@ -6,15 +6,14 @@
 import json
 from datetime import datetime, timedelta
 
-import duckdb
-
+from quantstack.db import PgConnection
 from quantstack.knowledge.models import AgentMessage
 
 
 class MessagesMixin:
     """Agent message operations."""
 
-    conn: duckdb.DuckDBPyConnection
+    conn: PgConnection
 
     # =========================================================================
     # AGENT MESSAGE OPERATIONS

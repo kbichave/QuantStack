@@ -7,11 +7,9 @@ MCP tool wrappers for the coordination layer.
 These tools expose the event bus, heartbeats, auto-promotion, and daily
 digest to Claude Code sessions and Ralph loop prompts.
 
-All writes go through the MCP server's single DuckDB connection (the only
-write owner).  The coordination modules are instantiated lazily on first use.
+All writes go through the MCP server's PostgreSQL connection.
+The coordination modules are instantiated lazily on first use.
 """
-
-from __future__ import annotations
 
 import json
 from datetime import date, datetime, timezone
@@ -28,10 +26,13 @@ from quantstack.coordination.slack_client import SlackClient
 from quantstack.coordination.strategy_lock import StrategyStatusLock
 from quantstack.coordination.supervisor import LoopSupervisor
 from quantstack.db import open_db
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._registry import domain
 
 
 def _get_conn():
-    """Get the MCP server's DuckDB write connection."""
+    """Get a PostgreSQL connection for operational tables."""
     return open_db()
 
 
@@ -48,13 +49,20 @@ def _get_strategy_lock():
 # ── Event Bus Tools ──────────────────────────────────────────────────────────
 
 
+@domain(Domain.EXECUTION)
+@mcp.tool()
 def publish_event(
     event_type: str,
     source: str,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """
-    Publish an event to the inter-loop event bus.
+    """Publish an event to the inter-loop event bus.
+
+    WHEN TO USE: After significant state changes — strategy promoted, model trained,
+    loop error, trade executed. Enables cross-loop communication.
+    WHEN NOT TO USE: For routine data queries — use direct DB reads instead.
+    WORKFLOW: [state change occurs] → publish_event → poll_events (other loop)
+    RELATED: poll_events, record_heartbeat
 
     Args:
         event_type: Event type (e.g., "strategy_promoted", "model_trained",
@@ -84,13 +92,20 @@ def publish_event(
         return {"success": False, "error": str(exc)}
 
 
+@domain(Domain.EXECUTION)
+@mcp.tool()
 def poll_events(
     consumer_id: str,
     event_types: list[str] | None = None,
     since_minutes: int = 60,
 ) -> dict[str, Any]:
-    """
-    Poll the event bus for new events since the consumer's last cursor.
+    """Poll the event bus for new events since the consumer's last cursor.
+
+    WHEN TO USE: At loop iteration start — check what happened since last iteration.
+    Research loop polls for model_trained, strategy_promoted events. Trading loop
+    polls for strategy changes, risk alerts.
+    WORKFLOW: [loop start] → poll_events → [process events] → [continue iteration]
+    RELATED: publish_event, get_loop_health
 
     Args:
         consumer_id: Unique consumer name (e.g., "factory_loop", "trader_loop").
@@ -139,6 +154,8 @@ def poll_events(
 # ── Heartbeat Tools ──────────────────────────────────────────────────────────
 
 
+@domain(Domain.EXECUTION)
+@mcp.tool()
 def record_heartbeat(
     loop_name: str,
     iteration: int,
@@ -146,14 +163,15 @@ def record_heartbeat(
     errors: int = 0,
     status: str = "completed",
 ) -> dict[str, Any]:
-    """
-    Record a loop heartbeat in the loop_heartbeats table.
+    """Record a loop heartbeat for health monitoring.
 
-    Called at the start (status="running") and end (status="completed")
-    of each Ralph loop iteration.
+    WHEN TO USE: At the start (status="running") and end (status="completed")
+    of EVERY loop iteration. This is how the supervisor detects stale/crashed loops.
+    WORKFLOW: [iteration start] → record_heartbeat(running) → [work] → record_heartbeat(completed)
+    RELATED: get_loop_health, publish_event
 
     Args:
-        loop_name: Loop identifier ("strategy_factory", "live_trader", "ml_research").
+        loop_name: Loop identifier ("research_loop", "trading_loop").
         iteration: Monotonically increasing iteration counter.
         symbols_processed: Number of symbols processed in this iteration.
         errors: Number of errors encountered.
@@ -216,9 +234,15 @@ def record_heartbeat(
 # ── Health Tools ─────────────────────────────────────────────────────────────
 
 
+@domain(Domain.EXECUTION, Domain.PORTFOLIO)
+@mcp.tool()
 def get_loop_health() -> dict[str, Any]:
-    """
-    Get health status of all monitored loops.
+    """Get health status of all monitored loops (research, trading, ML).
+
+    WHEN TO USE: At iteration start to verify all loops are running. If a loop
+    is stale (>10 min since last heartbeat), investigate before relying on its output.
+    WORKFLOW: get_system_status → get_loop_health → [if unhealthy] → investigate
+    RELATED: record_heartbeat, get_system_status
 
     Returns:
         {"success": True, "loops": [...], "all_healthy": bool}
@@ -252,11 +276,16 @@ def get_loop_health() -> dict[str, Any]:
 # ── Auto-Promotion Tools ────────────────────────────────────────────────────
 
 
+@domain(Domain.EXECUTION, Domain.RESEARCH)
+@mcp.tool()
 def auto_promote_eligible() -> dict[str, Any]:
-    """
-    Evaluate all forward_testing strategies for promotion to live.
+    """Evaluate all forward_testing strategies for automatic promotion to live.
 
-    Requires AUTO_PROMOTE_ENABLED=true env var.
+    WHEN TO USE: End of research cycle or daily check. Strategies must have 30+ days
+    of forward testing data and meet performance thresholds before promotion.
+    WHEN NOT TO USE: Requires AUTO_PROMOTE_ENABLED=true env var. Disabled by default.
+    WORKFLOW: run_walkforward → [30+ days forward testing] → auto_promote_eligible → [if promoted] → publish_event
+    RELATED: publish_event, get_loop_health
 
     Returns:
         {"success": True, "decisions": [...], "promoted_count": N}
@@ -292,9 +321,15 @@ def auto_promote_eligible() -> dict[str, Any]:
 # ── Daily Digest Tools ───────────────────────────────────────────────────────
 
 
+@domain(Domain.EXECUTION, Domain.PORTFOLIO)
+@mcp.tool()
 def generate_daily_digest(target_date: str | None = None) -> dict[str, Any]:
-    """
-    Generate a daily digest report.
+    """Generate a daily digest report summarizing positions, trades, loops, and P&L.
+
+    WHEN TO USE: End of trading day or morning review. Produces markdown summary
+    of portfolio state, trade activity, loop health, and sends to Discord.
+    WORKFLOW: [end of day] → generate_daily_digest → [review next morning]
+    RELATED: get_portfolio_state, get_loop_health
 
     Args:
         target_date: ISO date string (YYYY-MM-DD). Defaults to today.
@@ -337,15 +372,20 @@ def generate_daily_digest(target_date: str | None = None) -> dict[str, Any]:
 # ── Preflight Check Tools ────────────────────────────────────────────────────
 
 
+@domain(Domain.EXECUTION)
+@mcp.tool()
 def run_preflight_check(
     target_symbols: list[str] | None = None,
     target_wallet: float = 1000.0,
 ) -> dict[str, Any]:
-    """
-    Run the production preflight check — the gate between research and trading.
+    """Run the production preflight check — the gate between research and trading.
 
-    Validates: DB tables, kill switch, cash balance, universe, screener,
-    strategies, risk limits vs wallet, data provider, broker, paper mode.
+    WHEN TO USE: Before starting the trading loop for the first time, or after any
+    infrastructure change. Validates DB tables, kill switch, cash balance, universe,
+    strategies, risk limits, data provider, broker, and paper mode.
+    WHEN NOT TO USE: Not needed every iteration — only on startup or after changes.
+    WORKFLOW: [deploy new strategy] → run_preflight_check → [if ready] → start trading loop
+    RELATED: get_system_status, get_loop_health
 
     Args:
         target_symbols: Symbols to validate (default ["SPY"]).
@@ -388,6 +428,8 @@ def _get_conversation_logger():
     return ConversationLogger(conn=_get_conn())
 
 
+@domain(Domain.EXECUTION)
+@mcp.tool()
 def log_agent_conversation(
     agent_name: str,
     content: str,
@@ -397,10 +439,12 @@ def log_agent_conversation(
     iteration: int | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """
-    Log a desk agent's report to DuckDB and post to Slack #agent-activity.
+    """Log a desk agent's report for audit trail and Slack notification.
 
-    Call this after every desk agent interaction in the Trading Operator loop.
+    WHEN TO USE: After every desk agent interaction (trade-debater, position-monitor,
+    risk, fund-manager). Creates an audit trail and posts summary to Slack.
+    WORKFLOW: [spawn agent] → [get result] → log_agent_conversation → [continue]
+    RELATED: log_signal_snapshot, post_slack_message
 
     Args:
         agent_name: Agent identifier (market_intel, alpha_research, risk,
@@ -432,6 +476,8 @@ def log_agent_conversation(
         return {"success": False, "error": str(exc)}
 
 
+@domain(Domain.EXECUTION)
+@mcp.tool()
 def log_signal_snapshot(
     symbol: str,
     collectors: dict[str, Any],
@@ -439,10 +485,12 @@ def log_signal_snapshot(
     conviction: float = 0.0,
     failures: list[str] | None = None,
 ) -> dict[str, Any]:
-    """
-    Log raw SignalEngine collector outputs to DuckDB and post summary to Slack.
+    """Log raw SignalEngine collector outputs for audit trail and Slack.
 
-    Call this after every get_signal_brief() in the Trading Operator loop.
+    WHEN TO USE: After every get_signal_brief() call in the trading loop.
+    Creates an audit trail of what the signal engine saw at decision time.
+    WORKFLOW: get_signal_brief → log_signal_snapshot → [trading decision]
+    RELATED: get_signal_brief, log_agent_conversation
 
     Args:
         symbol: Ticker symbol.
@@ -469,12 +517,19 @@ def log_signal_snapshot(
         return {"success": False, "error": str(exc)}
 
 
+@domain(Domain.EXECUTION)
+@mcp.tool()
 def post_slack_message(
     channel: str,
     text: str,
 ) -> dict[str, Any]:
-    """
-    Post a message to a Slack channel.
+    """Post a message to a Slack channel for notifications.
+
+    WHEN TO USE: For manual notifications — trade alerts, system warnings,
+    daily summaries. Most tools post to Slack automatically; use this for
+    custom messages only.
+    WHEN NOT TO USE: Don't spam — one message per significant event.
+    RELATED: log_agent_conversation, generate_daily_digest
 
     Args:
         channel: Channel key ("agents", "trades", "alerts", "system", etc.)

@@ -20,12 +20,16 @@ from quantstack.core.research.walkforward import WalkForwardValidator
 from quantstack.core.validation.purged_cv import PurgedKFoldCV
 from quantstack.mcp._helpers import _get_reader, _parse_timeframe
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 # =============================================================================
 # BACKTESTING TOOLS
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_backtest_template(
     symbol: str,
@@ -177,6 +181,7 @@ def _generate_strategy_signals(
     return signals
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def get_backtest_metrics(
     total_return: float,
@@ -272,6 +277,7 @@ async def get_backtest_metrics(
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_walkforward_template(
     symbol: str,
@@ -318,8 +324,17 @@ async def run_walkforward_template(
 
         required_size = min_train_size + n_splits * test_size
         if len(df) < required_size:
+            # Suggest feasible params for short-history symbols.
+            avail = len(df)
+            suggested_train = max(126, avail // 3)
+            suggested_test = max(63, avail // 6)
+            suggested_splits = max(2, (avail - suggested_train) // suggested_test)
             return {
-                "error": f"Insufficient data: need {required_size} bars, have {len(df)}"
+                "error": f"Insufficient data: need {required_size} bars, have {avail}",
+                "suggestion": (
+                    f"Try min_train_size={suggested_train}, test_size={suggested_test}, "
+                    f"n_splits={suggested_splits} for this symbol's history"
+                ),
             }
 
         # Initialize validator
@@ -370,6 +385,7 @@ async def run_walkforward_template(
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_purged_cv(
     symbol: str,

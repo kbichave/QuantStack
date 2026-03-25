@@ -25,13 +25,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import catboost as cb
 import joblib
-import lightgbm as lgb
 import numpy as np
 import optuna
 import pandas as pd
-import shap
 import xgboost as xgb
 from loguru import logger
 from scipy.stats import ks_2samp, spearmanr
@@ -46,12 +43,17 @@ from quantstack.core.features.technical_indicators import TechnicalIndicators
 from quantstack.core.labeling.event_labeler import EventLabeler
 from quantstack.core.labeling.wave_event_labeler import WaveEventLabeler
 from quantstack.core.validation.causal_filter import CausalFilter
-from quantstack.data.storage import DataStore
+from quantstack.data.pg_storage import PgDataStore
 from quantstack.features.enricher import FeatureEnricher, FeatureTiers
 from quantstack.mcp._state import live_db_or_error
 from quantstack.mcp.server import mcp
-from quantstack.ml.tft_predictor import HORIZONS, TFTReturnPredictor
+import catboost as cb
+import lightgbm as lgb
+# shap (~1.4s) and tft_predictor (pulls torch ~0.6s) deferred to functions that use them.
 from quantstack.ml.trainer import ModelTrainer, TrainingConfig
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -65,6 +67,7 @@ _STALE_MODEL_DAYS = 30
 # train_ml_model
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def train_ml_model(
     symbol: str,
@@ -157,7 +160,7 @@ def _train_sync(
     )
 
     # Step 1: Load OHLCV
-    store = DataStore()
+    store = PgDataStore()
     ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
     if ohlcv is None or len(ohlcv) < 100:
         return {
@@ -218,8 +221,15 @@ def _train_sync(
         c
         for c in df.columns
         if c not in exclude_cols
-        and df[c].dtype in ("float64", "float32", "int64", "int32")
+        and pd.api.types.is_numeric_dtype(df[c])
     ]
+
+    if not feature_cols:
+        return {
+            "success": False,
+            "error": "No numeric feature columns found after indicator computation",
+            "symbol": symbol,
+        }
 
     # Apply feature whitelist if provided
     if feature_whitelist:
@@ -336,6 +346,7 @@ def _generate_labels(df: pd.DataFrame, method: str) -> pd.DataFrame:
 # get_ml_model_status
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def get_ml_model_status(
     symbol: str | None = None,
@@ -421,6 +432,7 @@ async def get_ml_model_status(
 # predict_ml_signal
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def predict_ml_signal(
     symbol: str,
@@ -472,7 +484,7 @@ def _predict_sync(symbol: str) -> dict[str, Any]:
     feature_names = metadata.get("feature_names", [])
     feature_tiers_list = metadata.get("feature_tiers", ["technical"])
 
-    store = DataStore()
+    store = PgDataStore()
     ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
     if ohlcv is None or len(ohlcv) < 60:
         return {
@@ -556,6 +568,7 @@ def _predict_sync(symbol: str) -> dict[str, Any]:
 # tune_hyperparameters
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def tune_hyperparameters(
     symbol: str,
@@ -617,7 +630,6 @@ def _tune_sync(
     timeout_seconds: int,
 ) -> dict[str, Any]:
     """Synchronous hyperparameter tuning. Runs in a thread."""
-
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
     tiers_list = feature_tiers or ["technical", "fundamentals"]
@@ -629,7 +641,7 @@ def _tune_sync(
     )
 
     # --- Data prep (mirrors _train_sync) ---
-    store = DataStore()
+    store = PgDataStore()
     ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
     if ohlcv is None or len(ohlcv) < 100:
         return {
@@ -679,7 +691,7 @@ def _tune_sync(
         c
         for c in df.columns
         if c not in exclude_cols
-        and df[c].dtype in ("float64", "float32", "int64", "int32")
+        and pd.api.types.is_numeric_dtype(df[c])
     ]
 
     X = df[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
@@ -799,6 +811,7 @@ def _ensure_registry_table(db: Any) -> None:
     )
     _REGISTRY_TABLE_CREATED = True
 
+@domain(Domain.ML)
 @mcp.tool()
 async def register_model(
     symbol: str,
@@ -913,6 +926,7 @@ async def register_model(
         logger.error(f"[ml] register_model failed for {symbol}: {e}")
         return {"success": False, "error": str(e), "symbol": symbol}
 
+@domain(Domain.ML)
 @mcp.tool()
 async def get_model_history(
     symbol: str,
@@ -989,6 +1003,7 @@ async def get_model_history(
         logger.error(f"[ml] get_model_history failed for {symbol}: {e}")
         return {"success": False, "error": str(e), "symbol": symbol}
 
+@domain(Domain.ML)
 @mcp.tool()
 async def rollback_model(
     symbol: str,
@@ -1059,6 +1074,7 @@ async def rollback_model(
         logger.error(f"[ml] rollback_model failed for {symbol}: {e}")
         return {"success": False, "error": str(e), "symbol": symbol}
 
+@domain(Domain.ML)
 @mcp.tool()
 async def compare_models(
     symbol: str,
@@ -1173,6 +1189,7 @@ async def compare_models(
 # Concept Drift & Incremental Learning
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def check_concept_drift(
     symbol: str,
@@ -1231,7 +1248,7 @@ def _check_drift_sync(symbol: str, window_days: int) -> dict[str, Any]:
         }
 
     # Load full data window: training + recent
-    store = DataStore()
+    store = PgDataStore()
     ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
     if ohlcv is None or len(ohlcv) < window_days + 100:
         return {
@@ -1313,6 +1330,7 @@ def _check_drift_sync(symbol: str, window_days: int) -> dict[str, Any]:
         "recommended_action": action,
     }
 
+@domain(Domain.ML)
 @mcp.tool()
 async def update_model_incremental(
     symbol: str,
@@ -1372,7 +1390,7 @@ def _update_incremental_sync(symbol: str, new_data_days: int) -> dict[str, Any]:
     lookback_days = metadata.get("lookback_days", _DEFAULT_LOOKBACK_DAYS)
 
     # Load expanded data window
-    store = DataStore()
+    store = PgDataStore()
     ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
     if ohlcv is None or len(ohlcv) < 100:
         return {
@@ -1581,6 +1599,7 @@ def _update_incremental_sync(symbol: str, new_data_days: int) -> dict[str, Any]:
 # review_model_quality — Automated QA gate
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def review_model_quality(
     symbol: str,
@@ -1718,7 +1737,7 @@ def _review_model_quality_sync(
             macro="macro" in tiers_list,
             flow="flow" in tiers_list,
         )
-        store = DataStore()
+        store = PgDataStore()
         ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
         if ohlcv is not None and len(ohlcv) >= 100:
             lookback = metadata.get("lookback_days", _DEFAULT_LOOKBACK_DAYS)
@@ -1925,6 +1944,7 @@ def _review_model_quality_sync(
 # train_stacking_ensemble — Gap 6
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def train_stacking_ensemble(
     symbol: str,
@@ -1980,7 +2000,6 @@ def _train_stacking_sync(
     feature_tiers: list[str] | None,
 ) -> dict[str, Any]:
     """Synchronous stacking ensemble training. Runs in a thread."""
-
     models_list = base_models or ["lightgbm", "xgboost", "catboost"]
     tiers_list = feature_tiers or ["technical", "fundamentals"]
     ft = FeatureTiers(
@@ -1991,7 +2010,7 @@ def _train_stacking_sync(
     )
 
     # --- Data prep (mirrors _train_sync) ---
-    store = DataStore()
+    store = PgDataStore()
     ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
     if ohlcv is None or len(ohlcv) < 100:
         return {
@@ -2040,7 +2059,7 @@ def _train_stacking_sync(
         c
         for c in df.columns
         if c not in exclude_cols
-        and df[c].dtype in ("float64", "float32", "int64", "int32")
+        and pd.api.types.is_numeric_dtype(df[c])
     ]
     X = df[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
     y = df[label_col].astype(int)
@@ -2207,6 +2226,7 @@ def _train_stacking_sync(
 # compute_and_store_features — Feature Store (Gap 7)
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def compute_and_store_features(
     symbol: str,
@@ -2272,7 +2292,7 @@ def _compute_and_store_features_sync(
     feature_version = f"{tiers_key}_{version_hash}"
 
     # Load and compute
-    store = DataStore()
+    store = PgDataStore()
     ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
     if ohlcv is None or len(ohlcv) < 50:
         return {
@@ -2294,7 +2314,7 @@ def _compute_and_store_features_sync(
         c
         for c in df.columns
         if c not in exclude_cols
-        and df[c].dtype in ("float64", "float32", "int64", "int32")
+        and pd.api.types.is_numeric_dtype(df[c])
     ]
     df_features = df[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
 
@@ -2329,8 +2349,11 @@ def _compute_and_store_features_sync(
         )
         ctx.db.execute(
             """
-            INSERT OR REPLACE INTO feature_store (symbol, date, feature_version, features, computed_at)
+            INSERT INTO feature_store (symbol, date, feature_version, features, computed_at)
             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (symbol, date, feature_version) DO UPDATE SET
+                features = EXCLUDED.features,
+                computed_at = EXCLUDED.computed_at
             """,
             [symbol, str(row_date), feature_version, features_json],
         )
@@ -2354,6 +2377,7 @@ def _compute_and_store_features_sync(
 # get_feature_lineage — Feature provenance (Gap 7)
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def get_feature_lineage(
     symbol: str,
@@ -2518,6 +2542,7 @@ async def get_feature_lineage(
 # train_cross_sectional_model — Gap 9
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def train_cross_sectional_model(
     symbols: list[str],
@@ -2575,7 +2600,6 @@ def _train_cross_sectional_sync(
     lookback_days: int,
 ) -> dict[str, Any]:
     """Synchronous cross-sectional model training. Runs in a thread."""
-
     tiers_list = feature_tiers or ["technical", "fundamentals"]
     ft = FeatureTiers(
         fundamentals="fundamentals" in tiers_list,
@@ -2594,7 +2618,7 @@ def _train_cross_sectional_sync(
         }
 
     # --- Load and featurize all symbols ---
-    store = DataStore()
+    store = PgDataStore()
     ti = TechnicalIndicators(timeframe=Timeframe.D1)
     enricher = FeatureEnricher() if ft.any_active() else None
 
@@ -2776,6 +2800,7 @@ def _train_cross_sectional_sync(
 # train_deep_model (TFT return predictor)
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def train_deep_model(
     symbol: str,
@@ -2836,7 +2861,8 @@ def _train_deep_sync(
     epochs: int,
 ) -> dict[str, Any]:
     """Synchronous deep model training. Runs in a thread."""
-    import torch
+    import torch  # noqa: PLC0415
+    from quantstack.ml.tft_predictor import HORIZONS, TFTReturnPredictor  # noqa: PLC0415
 
     if architecture != "tft":
         return {
@@ -2846,7 +2872,7 @@ def _train_deep_sync(
         }
 
     # Load OHLCV
-    store = DataStore()
+    store = PgDataStore()
     ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
     if ohlcv is None or len(ohlcv) < sequence_length + 50:
         return {
@@ -2866,7 +2892,7 @@ def _train_deep_sync(
     feature_cols = [
         c
         for c in df.columns
-        if c not in exclude and df[c].dtype in ("float64", "float32", "int64", "int32")
+        if c not in exclude and pd.api.types.is_numeric_dtype(df[c])
     ]
     if not feature_cols:
         # Fallback: use OHLCV-derived features
@@ -2938,6 +2964,7 @@ def _train_deep_sync(
 # analyze_model_shap — SHAP-based feature importance analysis
 # ---------------------------------------------------------------------------
 
+@domain(Domain.ML)
 @mcp.tool()
 async def analyze_model_shap(
     symbol: str,
@@ -3123,7 +3150,7 @@ def _load_symbol_features(
     """Load features for a symbol, aligning to model's trained feature set."""
     try:
 
-        store = DataStore()
+        store = PgDataStore()
         ohlcv = store.load_ohlcv(symbol, Timeframe.D1)
         if ohlcv is None or len(ohlcv) < 100:
             return None, None
@@ -3162,7 +3189,7 @@ def _load_symbol_features(
                 c
                 for c in df.columns
                 if c not in exclude
-                and df[c].dtype in ("float64", "float32", "int64", "int32")
+                and pd.api.types.is_numeric_dtype(df[c])
             ]
             X = df[feature_cols]
 
@@ -3183,7 +3210,7 @@ def _run_shap(
 ) -> list[list]:
     """Run SHAP TreeExplainer, fallback to built-in importance."""
     try:
-
+        import shap  # noqa: PLC0415
         explainer = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(X)
 

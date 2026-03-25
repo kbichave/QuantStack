@@ -36,12 +36,11 @@ Usage:
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from threading import Lock
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection, pg_conn
 
 # =============================================================================
 # CALIBRATION TRACKER
@@ -65,42 +64,31 @@ class CalibrationTracker:
 
     _lock = Lock()
 
-    def __init__(self, db_path: str | None = None):
-        if db_path is None:
-            db_path = os.getenv(
-                "CALIBRATION_DB_PATH", "~/.quant_pod/calibration.duckdb"
-            )
-
-        self.db_path = Path(db_path).expanduser()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: duckdb.DuckDBPyConnection | None = None
+    def __init__(self) -> None:
         self._init_schema()
-        logger.info(f"CalibrationTracker initialized at {self.db_path}")
-
-    @property
-    def conn(self) -> duckdb.DuckDBPyConnection:
-        if self._conn is None:
-            self._conn = duckdb.connect(str(self.db_path))
-        return self._conn
+        logger.info("CalibrationTracker initialized (PostgreSQL)")
 
     def _init_schema(self) -> None:
         with self._lock:
-            self.conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS calibration_records (
-                    id              INTEGER PRIMARY KEY,
-                    agent_name      VARCHAR NOT NULL,
-                    symbol          VARCHAR,
-                    action          VARCHAR,
-                    stated_confidence DOUBLE NOT NULL,
-                    confidence_bin  INTEGER NOT NULL,
-                    was_correct     BOOLEAN,
-                    pnl             DOUBLE,
-                    recorded_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            with pg_conn() as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS calibration_records (
+                        id              BIGINT PRIMARY KEY,
+                        agent_name      VARCHAR NOT NULL,
+                        symbol          VARCHAR,
+                        action          VARCHAR,
+                        stated_confidence DOUBLE PRECISION NOT NULL,
+                        confidence_bin  INTEGER NOT NULL,
+                        was_correct     BOOLEAN,
+                        pnl             DOUBLE PRECISION,
+                        recorded_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
                 )
-            """
-            )
-            self.conn.execute("CREATE SEQUENCE IF NOT EXISTS calibration_seq START 1")
+                conn.execute(
+                    "CREATE SEQUENCE IF NOT EXISTS calibration_seq START 1"
+                )
 
     # -------------------------------------------------------------------------
     # Record
@@ -130,23 +118,24 @@ class CalibrationTracker:
         bin_idx = min(self.N_BINS - 1, int(stated_confidence * self.N_BINS))
 
         with self._lock:
-            self.conn.execute(
-                """
-                INSERT INTO calibration_records
-                    (id, agent_name, symbol, action, stated_confidence,
-                     confidence_bin, was_correct, pnl)
-                VALUES (nextval('calibration_seq'), ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    agent_name,
-                    symbol,
-                    action,
-                    stated_confidence,
-                    bin_idx,
-                    was_correct,
-                    pnl,
-                ],
-            )
+            with pg_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO calibration_records
+                        (id, agent_name, symbol, action, stated_confidence,
+                         confidence_bin, was_correct, pnl)
+                    VALUES (nextval('calibration_seq'), ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        agent_name,
+                        symbol,
+                        action,
+                        stated_confidence,
+                        bin_idx,
+                        was_correct,
+                        pnl,
+                    ],
+                )
 
     # -------------------------------------------------------------------------
     # Calibrate
@@ -175,18 +164,19 @@ class CalibrationTracker:
         raw = max(0.0, min(1.0, raw_confidence))
         bin_idx = min(self.N_BINS - 1, int(raw * self.N_BINS))
 
-        rows = self.conn.execute(
-            """
-            SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN was_correct = TRUE THEN 1 ELSE 0 END) as correct
-            FROM calibration_records
-            WHERE agent_name = ?
-              AND confidence_bin = ?
-              AND was_correct IS NOT NULL
-            """,
-            [agent_name, bin_idx],
-        ).fetchone()
+        with pg_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN was_correct = TRUE THEN 1 ELSE 0 END) as correct
+                FROM calibration_records
+                WHERE agent_name = ?
+                  AND confidence_bin = ?
+                  AND was_correct IS NOT NULL
+                """,
+                [agent_name, bin_idx],
+            ).fetchone()
 
         total = rows[0] if rows else 0
         correct = rows[1] if rows else 0
@@ -213,24 +203,25 @@ class CalibrationTracker:
                 verdict: "WELL_CALIBRATED" | "OVERCONFIDENT" | "UNDERCONFIDENT"
             }
         """
-        rows = self.conn.execute(
-            """
-            SELECT
-                confidence_bin,
-                COUNT(*) as n,
-                AVG(CASE WHEN was_correct = TRUE THEN 1.0 ELSE 0.0 END) as accuracy
-            FROM calibration_records
-            WHERE agent_name = ? AND was_correct IS NOT NULL
-            GROUP BY confidence_bin
-            ORDER BY confidence_bin
-            """,
-            [agent_name],
-        ).fetchall()
+        with pg_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    confidence_bin,
+                    COUNT(*) as n,
+                    AVG(CASE WHEN was_correct = TRUE THEN 1.0 ELSE 0.0 END) as accuracy
+                FROM calibration_records
+                WHERE agent_name = ? AND was_correct IS NOT NULL
+                GROUP BY confidence_bin
+                ORDER BY confidence_bin
+                """,
+                [agent_name],
+            ).fetchall()
 
-        total_records = self.conn.execute(
-            "SELECT COUNT(*) FROM calibration_records WHERE agent_name = ?",
-            [agent_name],
-        ).fetchone()[0]
+            total_records = conn.execute(
+                "SELECT COUNT(*) FROM calibration_records WHERE agent_name = ?",
+                [agent_name],
+            ).fetchone()[0]
 
         bins = []
         ece_sum = 0.0

@@ -5,7 +5,7 @@
 Autonomous Watchdog — system health monitor with auto-halt and auto-resume.
 
 Runs every 60 seconds (via asyncio loop or external scheduler). Checks:
-1. DuckDB connectivity (infra)
+1. Database connectivity (infra)
 2. Kill switch state (safety)
 3. Daily equity snapshot freshness (accounting)
 4. Strategy breaker states (per-strategy safety)
@@ -35,8 +35,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.execution.kill_switch import get_kill_switch
 from quantstack.execution.strategy_breaker import StrategyBreaker
@@ -78,14 +79,14 @@ class Watchdog:
     Autonomous system health monitor.
 
     Args:
-        conn: DuckDB connection for health queries.
+        conn: PostgreSQL connection for health queries.
         check_interval_s: Seconds between check cycles (default 60).
         resume_after_healthy_checks: Consecutive healthy checks before auto-resume (default 5).
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         check_interval_s: int = 60,
         resume_after_healthy_checks: int = 5,
     ) -> None:

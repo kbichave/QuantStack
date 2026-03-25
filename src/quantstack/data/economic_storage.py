@@ -7,9 +7,10 @@ Separate database from market data to keep economic indicators isolated.
 from datetime import datetime
 from pathlib import Path
 
-import duckdb
 import pandas as pd
 from loguru import logger
+
+from quantstack.db import PgConnection, open_db
 
 from quantstack.config.settings import get_settings
 
@@ -34,7 +35,7 @@ class EconomicStorage:
 
     def _initialize_database(self):
         """Create database schema for economic indicators."""
-        with duckdb.connect(str(self.db_path)) as conn:
+        with open_db() as conn:
             # Create main indicators table
             conn.execute(
                 """
@@ -101,7 +102,7 @@ class EconomicStorage:
         # Ensure date is datetime
         df["date"] = pd.to_datetime(df["date"])
 
-        with duckdb.connect(str(self.db_path)) as conn:
+        with open_db() as conn:
             # Delete existing data for this indicator
             conn.execute(
                 "DELETE FROM economic_indicators WHERE indicator = ?",
@@ -135,7 +136,7 @@ class EconomicStorage:
         for indicator_name, df in indicators_data.items():
             self.store_indicator(indicator_name, df)
 
-    def _update_metadata(self, conn: duckdb.DuckDBPyConnection, indicator: str):
+    def _update_metadata(self, conn: PgConnection, indicator: str):
         """Update metadata for an indicator.
 
         Args:
@@ -184,7 +185,7 @@ class EconomicStorage:
         Returns:
             DataFrame with date and value columns
         """
-        with duckdb.connect(str(self.db_path)) as conn:
+        with open_db() as conn:
             query = "SELECT date, value FROM economic_indicators WHERE indicator = ?"
             params = [indicator]
 
@@ -221,7 +222,7 @@ class EconomicStorage:
         Returns:
             DataFrame with date index and indicator columns
         """
-        with duckdb.connect(str(self.db_path)) as conn:
+        with open_db() as conn:
             query = "SELECT indicator, date, value FROM economic_indicators WHERE 1=1"
             params = []
 
@@ -250,7 +251,7 @@ class EconomicStorage:
         Returns:
             DataFrame with indicator metadata
         """
-        with duckdb.connect(str(self.db_path)) as conn:
+        with open_db() as conn:
             df = conn.execute(
                 """
                 SELECT
@@ -273,7 +274,7 @@ class EconomicStorage:
         Returns:
             Series mapping indicator name to latest value
         """
-        with duckdb.connect(str(self.db_path)) as conn:
+        with open_db() as conn:
             df = conn.execute(
                 """
                 SELECT
@@ -299,7 +300,7 @@ class EconomicStorage:
         Args:
             indicator: Indicator name
         """
-        with duckdb.connect(str(self.db_path)) as conn:
+        with open_db() as conn:
             conn.execute(
                 "DELETE FROM economic_indicators WHERE indicator = ?", [indicator]
             )
@@ -311,6 +312,6 @@ class EconomicStorage:
 
     def vacuum(self):
         """Optimize database by reclaiming space."""
-        with duckdb.connect(str(self.db_path)) as conn:
+        with open_db() as conn:
             conn.execute("VACUUM")
             logger.info("Vacuumed economic indicators database")

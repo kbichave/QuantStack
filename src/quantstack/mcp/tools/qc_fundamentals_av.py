@@ -12,6 +12,9 @@ from typing import Any
 
 from quantstack.data.fetcher import AlphaVantageClient
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 
 # =============================================================================
@@ -19,6 +22,7 @@ from quantstack.mcp.server import mcp
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_earnings_call_transcript(
     ticker: str,
@@ -55,6 +59,7 @@ async def get_earnings_call_transcript(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_etf_profile(
     ticker: str,
@@ -85,6 +90,7 @@ async def get_etf_profile(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_top_movers() -> dict[str, Any]:
     """
@@ -107,6 +113,7 @@ async def get_top_movers() -> dict[str, Any]:
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_market_status() -> dict[str, Any]:
     """
@@ -129,6 +136,7 @@ async def get_market_status() -> dict[str, Any]:
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_av_insider_transactions(
     ticker: str,
@@ -145,10 +153,12 @@ async def get_av_insider_transactions(
     """
     try:
         client = AlphaVantageClient()
-        result = client.fetch_insider_transactions(ticker)
+        df = client.fetch_insider_transactions(ticker)
+        records = df.to_dict(orient="records") if hasattr(df, "to_dict") else df
         return {
             "ticker": ticker,
-            "data": result,
+            "count": len(records),
+            "data": records,
         }
     except Exception as e:
         return {"error": str(e), "ticker": ticker}
@@ -159,6 +169,7 @@ async def get_av_insider_transactions(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_av_institutional_holdings(
     ticker: str,
@@ -175,10 +186,12 @@ async def get_av_institutional_holdings(
     """
     try:
         client = AlphaVantageClient()
-        result = client.fetch_institutional_holdings(ticker)
+        df = client.fetch_institutional_holdings(ticker)
+        records = df.to_dict(orient="records") if hasattr(df, "to_dict") else df
         return {
             "ticker": ticker,
-            "data": result,
+            "count": len(records),
+            "data": records,
         }
     except Exception as e:
         return {"error": str(e), "ticker": ticker}

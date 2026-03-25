@@ -32,10 +32,9 @@ from typing import Any
 
 from pathlib import Path
 
-import duckdb
 from loguru import logger
 
-from quantstack.db import open_db, run_migrations
+from quantstack.db import PgConnection, open_db, run_migrations
 
 
 @dataclass
@@ -105,14 +104,14 @@ class PreflightCheck:
      10. Data provider — FD.ai key set
 
     Args:
-        conn: DuckDB connection.
+        conn: PostgreSQL connection.
         target_symbols: Symbols to validate SignalEngine against (default ["SPY"]).
         target_wallet: Expected starting equity in dollars (default 1000).
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         target_symbols: list[str] | None = None,
         target_wallet: float = 1000.0,
     ) -> None:

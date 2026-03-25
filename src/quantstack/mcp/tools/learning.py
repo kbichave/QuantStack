@@ -29,8 +29,12 @@ from quantstack.mcp._state import (
 from quantstack.mcp.server import mcp
 from quantstack.mcp.tools.strategy import _get_strategy_impl
 from quantstack.mcp.tools.backtesting import run_backtest
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 
 
+
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def promote_strategy(
     strategy_id: str,
@@ -112,6 +116,7 @@ async def promote_strategy(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def retire_strategy(
     strategy_id: str,
@@ -159,6 +164,7 @@ async def retire_strategy(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def get_strategy_performance(
     strategy_id: str,
@@ -254,6 +260,7 @@ async def get_strategy_performance(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def validate_strategy(strategy_id: str) -> dict[str, Any]:
     """
@@ -326,6 +333,7 @@ async def validate_strategy(strategy_id: str) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def update_regime_matrix_from_performance(
     lookback_days: int = 60,

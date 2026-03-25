@@ -4,7 +4,7 @@
 """
 Universe registry — SP500, NASDAQ-100, and liquid ETF constituents.
 
-Maintains a DuckDB-backed ``universe`` table of ~700 symbols.  Refreshed
+Maintains a PostgreSQL-backed ``universe`` table of ~700 symbols.  Refreshed
 weekly via FinancialDatasets.ai ``stock_screener`` endpoint (for equities)
 and a hardcoded liquid ETF list (ETFs don't rebalance frequently enough
 to warrant API calls).
@@ -24,8 +24,9 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 
 class UniverseSource(str, Enum):
@@ -162,7 +163,7 @@ LIQUID_ETFS: list[dict[str, str]] = [
 
 class UniverseRegistry:
     """
-    DuckDB-backed universe of ~700 symbols with weekly refresh.
+    PostgreSQL-backed universe of ~700 symbols with weekly refresh.
 
     The registry is populated from three sources:
     1. SP500 approximation via stock_screener (market_cap > $10B, ADV > 500k)
@@ -170,14 +171,14 @@ class UniverseRegistry:
     3. Hardcoded liquid ETF list (~50 ETFs)
 
     Args:
-        conn: DuckDB write connection (from open_db).
+        conn: PostgreSQL connection.
         client: FinancialDatasetsClient for stock_screener calls.
             Pass None if you only need read operations.
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         client: Any | None = None,
     ) -> None:
         self._conn = conn

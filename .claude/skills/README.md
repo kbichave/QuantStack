@@ -1,81 +1,48 @@
 # Skills
 
-Claude Code slash commands for the QuantPod trading system. Type `/skill-name` to invoke.
+Claude Code slash commands for QuantPod. These are for **human-invoked workflows only**.
+Autonomous trading and research is handled by the loops in `prompts/`.
 
 ---
 
 ## User-Invocable Skills
 
-| Skill | Command | When to Use | Frequency |
-|-------|---------|-------------|-----------|
-| [trade](trade.md) | `/trade` | Run TradingCrew analysis for a symbol and decide whether to enter, hold, or skip | Daily, before market open |
-| [review](review.md) | `/review` | Check open positions, P&L, stop proximity, and strategy health | Daily or mid-session |
-| [meta](meta.md) | `/meta` | Orchestrate across multiple symbols — allocate, resolve conflicts, batch trade | When managing >1 position or symbol |
-| [workshop](workshop.md) | `/workshop` | Research and backtest a new strategy hypothesis | When a regime slot is empty or a strategy has failed |
-| [reflect](reflect.md) | `/reflect` | Review recent outcomes, update memory, fix broken skills and IC prompts | Weekly or after 10+ trades |
-| [decode](decode.md) | `/decode` | Reverse-engineer a strategy from external signal history or your own trade log | When you see a pattern worth formalising |
-| [invest](invest.md) | `/invest` | Long-term fundamental investing — weekly cadence, DCF + quality scoring | When building or reviewing long-term equity positions |
-| [options](options.md) | `/options` | Short-term options trading — event-driven, Greeks/IV-based, expiry cadence | When entering options structures on events or IV signals |
-| [compact-memory](compact_memory.md) | `/compact-memory` | Distil memory files, remove stale/redundant entries | When any memory file exceeds 200 lines, or after 5+ sessions |
+| Skill | Command | When to Use |
+|-------|---------|-------------|
+| [lit-review](lit_review.md) | `/lit-review` | Academic research → product gap analysis |
+| [get-alerts](get-alerts.md) | `/get-alerts` | View and manage equity/investment alerts |
+| [update-data](update-data.md) | `/update-data` | Audit DB coverage and fill data gaps |
+| [compact-memory](compact_memory.md) | `/compact-memory` | Distil memory files when any exceeds 200 lines |
 
 ---
 
-## Reference (Internal — Not User-Invocable)
+## When to Use Each
 
-| File | Purpose |
-|------|---------|
-| [deep_analysis.md](deep_analysis.md) | QuantCore tool guide — when to call which raw-data, options, and risk tools to enrich a DailyBrief analysis |
-
----
-
-## Session Flow
-
-Typical day:
 ```
-/review  →  /meta  →  /trade
-```
-
-Weekly (Friday close):
-```
-/reflect  →  (if signal quality issues) fix collector code in signal_engine/collectors/
-```
-
-Strategy R&D (any time):
-```
-/workshop  →  (if decoding external signals) /decode
-```
-
-Long-term investing (weekly cadence):
-```
-/invest  →  /review (weekly fundamental check)
-```
-
-Options trading:
-```
-/options  →  /review (DTE + theta monitoring)
+Research:            /lit-review
+Data maintenance:    /update-data
+Alert management:    /get-alerts
+Memory hygiene:      /compact-memory  (run when memory files > 200 lines)
+Reflection:          automatic — trade-reflector agent fires on close (per_trade) and every 10th close / Friday EOD (weekly_review)
 ```
 
 ---
 
-## Automated Triggers (scheduler.py)
+## Agents (spawned by loops — not user-invocable)
 
-| Time (ET) | Days | Trigger |
-|-----------|------|---------|
-| 09:15 | Mon–Fri | `/review → /meta → /trade` |
-| 12:30 | Mon–Fri | `/review` |
-| 15:45 | Mon–Fri | `/review` |
-| 17:00 | Friday | `/reflect` |
+Trading loop agents live in `.claude/agents/`:
 
-Run manually: `python scripts/scheduler.py --run-now morning_routine`
-
----
-
-## Workshop Prompt History
-
-Versioned prompts live in `tmp/` (gitignored). Current series:
-
-| File | Status | Description |
-|------|--------|-------------|
-| `tmp/workshop_v4_quality_rsimr.md` | Done — forward_testing | Quality/low-beta filter (XOM, IBM, MSFT) |
-| `tmp/workshop_v5_mtf_rsimr.md` | Done — forward_testing | Multi-timeframe: Swing/Medium profiles on XOM, IBM, MSFT. Tools: `run_backtest_mtf`, `run_walkforward_mtf` |
-| `tmp/workshop_v6_options_convexity.md` | **Next** | Options convexity on v4/v5 signals. Tool: `run_backtest_options` |
+| Agent | Spawned By | Role |
+|-------|-----------|------|
+| `market-intel` | trading_loop Step 1d | Real-time news and macro intel |
+| `position-monitor` | trading_loop Step 2 | Per-position exit recommendations |
+| `trade-debater` | trading_loop Steps 2+3 | Bull/bear/risk debate |
+| `fund-manager` | trading_loop Step 3f | Batch portfolio approval |
+| `options-analyst` | trading_loop Step 3g | Options structure selection and validation |
+| `earnings-analyst` | trading_loop Step 3c | Earnings event structure selection |
+| `trade-reflector` | trading_loop Step 2f (on close) | Root cause classification + lesson extraction |
+| `risk` | trading_loop (deep analysis) | VaR, Kelly sizing, stress testing |
+| `quant-researcher` | research_loop | Multi-week hypothesis generation |
+| `ml-scientist` | research_loop | ML training and feature quality |
+| `strategy-rd` | research_loop | Overfitting gates, strategy lifecycle |
+| `execution-researcher` | research_loop (monthly) | TCA, fill quality, factor exposure audit |

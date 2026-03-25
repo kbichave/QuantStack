@@ -31,12 +31,13 @@ from typing import Any
 
 import json
 
-import duckdb
 import numpy as np
 from loguru import logger
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
+
+from quantstack.db import PgConnection
 
 
 # The vote keys that synthesis.py uses
@@ -88,13 +89,13 @@ class WeightLearner:
     Learn optimal synthesis weights from trade history.
 
     Args:
-        conn: DuckDB connection.
+        conn: PostgreSQL connection.
         min_trades_per_regime: Minimum trades needed to learn weights for a regime.
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         min_trades_per_regime: int = 20,
     ) -> None:
         self._conn = conn

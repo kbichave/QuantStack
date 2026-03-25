@@ -9,9 +9,10 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-import duckdb
 import pandas as pd
 from loguru import logger
+
+from quantstack.db import PgConnection, open_db
 
 
 class OptionsDataStore:
@@ -38,14 +39,14 @@ class OptionsDataStore:
         # Ensure directory exists
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
 
-        self._conn: duckdb.DuckDBPyConnection | None = None
+        self._conn: PgConnection | None = None
         self._init_schema()
 
     @property
-    def conn(self) -> duckdb.DuckDBPyConnection:
+    def conn(self) -> PgConnection:
         """Get or create database connection."""
         if self._conn is None:
-            self._conn = duckdb.connect(self.db_path)
+            self._conn = open_db()
         return self._conn
 
     def _init_schema(self) -> None:

@@ -3,13 +3,13 @@
 
 """Schema mixin — DDL methods for KnowledgeStore."""
 
-import duckdb
+from quantstack.db import PgConnection
 
 
 class SchemaMixin:
     """DDL methods: CREATE TABLE, CREATE INDEX, CREATE SEQUENCE."""
 
-    conn: duckdb.DuckDBPyConnection
+    conn: PgConnection
 
     def _init_schema(self) -> None:
         """Initialize database schema."""

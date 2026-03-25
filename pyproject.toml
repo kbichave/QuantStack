@@ -30,7 +30,7 @@ dependencies = [
     "pandas>=2.0.0",
     "numpy>=1.24.0,<2.0.0",
     "scipy>=1.10.0",
-    "duckdb>=0.9.0",
+    "psycopg2-binary>=2.9.0",
     "requests>=2.31.0",
     "aiohttp>=3.9.0",
     "pydantic>=2.0.0",
@@ -116,7 +116,20 @@ dev = [
 ]
 
 [project.scripts]
-quantstack-mcp     = "quantstack.mcp.server:main"
+# Monolithic server (kept for backward compatibility during migration)
+quantstack-mcp       = "quantstack.mcp.server:main"
+# Domain-scoped servers
+quantstack-execution = "quantstack.mcp.servers.execution:main"
+quantstack-portfolio = "quantstack.mcp.servers.portfolio:main"
+quantstack-signals   = "quantstack.mcp.servers.signals:main"
+quantstack-data      = "quantstack.mcp.servers.data:main"
+quantstack-research  = "quantstack.mcp.servers.research:main"
+quantstack-options   = "quantstack.mcp.servers.options:main"
+quantstack-ml        = "quantstack.mcp.servers.ml:main"
+quantstack-finrl     = "quantstack.mcp.servers.finrl:main"
+quantstack-intel     = "quantstack.mcp.servers.intel:main"
+quantstack-risk      = "quantstack.mcp.servers.risk:main"
+# Broker adapters
 alpaca-mcp       = "alpaca_mcp.server:main"
 ibkr-mcp         = "ibkr_mcp.server:main"
 etrade-mcp       = "etrade_mcp.server:main"
@@ -165,7 +178,7 @@ ignore = [
 python_version = "3.11"
 warn_unused_configs = true
 ignore_missing_imports = true
-# warn_return_any disabled: third-party libraries (fastmcp, duckdb, litellm)
+# warn_return_any disabled: third-party libraries (fastmcp, litellm)
 # return Any in many places; enabling it generates ~125 false positives.
 
 [[tool.mypy.overrides]]

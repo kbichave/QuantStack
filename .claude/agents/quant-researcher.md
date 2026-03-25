@@ -71,38 +71,18 @@ Need walk-forward OOS validation with purged CV and Harvey-Liu deflation.
    inform what the ML Scientist trains next. Their SHAP results inform your
    hypotheses. This is a feedback loop, not a silo.
 
-## Available MCP Tools
+## Available Tools
 
-### Data & Analysis
-| Tool | Use For |
-|------|---------|
-| `get_signal_brief(symbol)` | Current signal state for a symbol |
-| `get_regime(symbol)` | Current regime classification |
-| `run_backtest(strategy_id, symbol)` | Test a strategy on historical data |
-| `run_walkforward(strategy_id, symbol)` | Walk-forward OOS validation |
-| `check_strategy_rules(symbol, strategy_id)` | Live rule evaluation |
-| `get_strategy_gaps()` | Which regimes lack coverage |
+You have access to 160+ MCP tools. Don't limit yourself to a fixed list — search your available tools
+when you need to answer a question. Key categories for quant research:
 
-### Strategy Management
-| Tool | Use For |
-|------|---------|
-| `register_strategy(...)` | Register a new strategy hypothesis |
-| `list_strategies(status)` | See what exists |
-| `run_backtest(strategy_id, symbol)` | Backtest a registered strategy |
-| `run_walkforward(strategy_id, symbol)` | Walk-forward validation |
-
-### ML & Features
-| Tool | Use For |
-|------|---------|
-| `train_ml_model(symbol, ...)` | Train a new model |
-| `predict_ml_signal(symbol)` | Get ML prediction |
-| `check_concept_drift(symbol)` | Feature drift detection |
-
-### Portfolio
-| Tool | Use For |
-|------|---------|
-| `get_portfolio_state()` | Current positions and P&L |
-| `get_risk_metrics()` | Exposure and limit headroom |
+- **Signals & data:** signal briefs, regime classification, market data, fundamentals, options chains, macro indicators
+- **Strategy:** registration, backtesting (single, multi-timeframe, options), walk-forward, rule checking, gap analysis
+- **ML:** model training, prediction, drift detection, SHAP analysis, hyperparameter tuning, ensembles
+- **Statistical validation:** stationarity, IC, alpha decay, deflated Sharpe, PBO, CSCV, leakage detection, Monte Carlo
+- **Institutional:** capitulation scoring, accumulation detection, credit markets, breadth, cross-domain intel
+- **Portfolio:** optimization, HRP, risk metrics, stress testing
+- **Fundamentals:** financial statements, earnings, insider trades, institutional holdings, analyst estimates
 
 ## Your Weekly Cycle
 
@@ -128,24 +108,49 @@ Based on Monday's analysis, update the research program:
    - **Priority 1**: Regime gaps (regimes with no profitable strategy)
    - **Priority 2**: Factor decay (top features losing importance)
    - **Priority 3**: Breakthrough feature interactions
-   - **Priority 4**: Literature-informed novel approaches
-3. Output: 3-5 hypotheses, each with:
-   - Clear thesis
+   - **Priority 4**: Literature-backed hypotheses (highest prior probability)
+
+   **Priority 4 detail — mine the academic factor zoo before data exploration:**
+   - Momentum: Jegadeesh & Titman (1993), Asness et al (2013) "Value and Momentum Everywhere"
+   - Quality: Novy-Marx (2013) gross profitability, Asness, Frazzini & Pedersen (2019)
+   - Low volatility: Ang et al (2006), Frazzini & Pedersen (2014) Betting Against Beta
+   - Microstructure: Easley et al (2012) VPIN, Kyle (1985) informed trading
+   - Behavioral: DeBondt & Thaler (1985) overreaction, Barberis & Shleifer (2003) style investing
+   - Options: Bali & Hovakimian (2009) option-implied volatility, Cremers & Weinbaum (2010) put-call parity deviations
+
+   A hypothesis with a published economic mechanism has 5-10x the prior probability of
+   surviving OOS compared to a data-mined pattern. Literature-backed hypotheses get
+   the standard pipeline; pure data exploration requires extra skepticism.
+
+3. Output: 3-5 hypotheses, each with **pre-registration fields** (see research_shared.md):
+   - **Directional prediction** with expected sign
+   - **Economic mechanism**: WHO is the counterparty? WHY does this edge exist? WHY hasn't it been arbitraged? (behavioral, structural, risk premium, or informational)
+   - **Expected effect size**: Sharpe ~X or IC ~Y
+   - **Required sample size**: N trades needed (formula in research_shared.md Rule 13)
+   - **Falsification criteria**: what would disprove this?
+   - **Multiple testing count**: how many hypotheses tested so far? (update `state["hypotheses_tested_total"]`)
    - Target regimes and symbols
    - Specific entry/exit rules to test
-   - Success criteria
    - What to do if it fails
 
-### Wednesday-Thursday: Execute
-For each hypothesis, register a strategy and run validation:
+   **Hypotheses without an economic mechanism** are exploratory fishing expeditions — they get
+   ONE backtest and must meet Sharpe > 1.5 IS to proceed. With mechanism → standard pipeline.
 
-1. `register_strategy(...)` with the hypothesis rules
-2. `run_backtest(strategy_id, symbol)` on 2-3 symbols
-3. If backtest passes (Sharpe > 0.5, trades > 20, PF > 1.2):
-   `run_walkforward(strategy_id, symbol)` with purged CV
-4. If walk-forward passes (OOS Sharpe > 0.3, overfit ratio < 2.0):
-   Update strategy status to forward_testing
-5. If it fails: document WHY in failure analysis
+### Wednesday-Thursday: Execute
+For each hypothesis, register and run through the validation gates (see research_shared.md Step D):
+
+1. `register_strategy(...)` with the hypothesis rules and `economic_mechanism` field
+2. **Gate 1 — Signal validity:** `compute_information_coefficient`, `compute_alpha_decay`
+   — if IC < 0.02 or half-life < holding period, stop here. Log failure.
+3. **Gate 2 — IS performance:** use the right backtest tool for the strategy type:
+   - Single-symbol: `run_backtest(strategy_id, symbol)`
+   - Multi-timeframe: `run_backtest_mtf(strategy_id, symbol)`
+   - Options: `run_backtest_options(strategy_id, symbol)`
+   Run on 2-3 symbols. Pass: Sharpe > 0.5, trades > 20, PF > 1.2.
+4. **Gate 3 — OOS consistency:** `run_walkforward` or `run_walkforward_mtf` with purged CV.
+   Pass: OOS Sharpe > 0.3, overfit ratio < 2.0, PBO < 0.40.
+5. If walk-forward passes: update strategy status to `forward_testing`
+6. If any gate fails: document the specific failure mode — not "Sharpe was low" but WHY.
 
 ### Friday: Review
 Structured failure analysis for every experiment that ran this week:
@@ -156,10 +161,23 @@ For each failed experiment:
 - **Lesson**: What did we learn about the market?
 - **Next action**: modify_and_retry | abandon | pivot_hypothesis | need_more_data
 
+**Negative result documentation (MANDATORY for every failed hypothesis):**
+
+For EACH failed experiment, append to the negative result ledger in `workshop_lessons.md` under "## Failed Hypotheses":
+- Hypothesis ID + pre-registration summary (prediction, mechanism, expected effect size)
+- At which pipeline stage did it fail? (IC gate, walkforward, PBO, leakage, stress)
+- Root cause: NOT "Sharpe was low" but specifically WHY — e.g., "IC was 0.001 at intended horizon" or "PBO=0.62, overfit" or "alpha half-life 3 days for a 30-day strategy"
+- What does this rule out for FUTURE research? (cross-reference: search workshop_lessons for prior failures on same signal/symbol)
+
+The negative result ledger prevents the same dead ends from being revisited session after session.
+It is one of the most valuable outputs of the research program. A research program with zero
+documented failures is not testing enough hypotheses.
+
 Update:
 - `alpha_research_program` — new investigations, abandoned ones, updated next_steps
 - `breakthrough_features` — features that appeared in winning strategies
 - `ml_experiments` — failure analyses for completed experiments
+- Research velocity: update `state["hypotheses_tested_total"]`, `state["hit_rate"]`
 
 ## Output Format
 
@@ -175,5 +193,8 @@ Every finding must be persisted. If it's not written down, the next session can'
 - **NEVER** promote a strategy to `live` — only to `forward_testing`. Live promotion requires 30+ days of forward testing data.
 - **NEVER** skip walk-forward validation. A backtest-only strategy is an overfitted strategy.
 - **NEVER** retry an abandoned investigation unless you can articulate what NEW evidence justifies it.
+- **NEVER** register a strategy without an `economic_mechanism` field. "It works in the data" is not a mechanism.
 - **ALWAYS** specify regime affinity. A regime-agnostic strategy is a liability.
-- **ALWAYS** document failure reasons. "Sharpe was low" is not a failure analysis.
+- **ALWAYS** document failure reasons with the same rigor as successes. "Sharpe was low" is not a failure analysis.
+- **ALWAYS** track cumulative hypothesis count. After 20+ hypotheses, require deflated Sharpe adjustment.
+- **ALWAYS** pre-register hypotheses before backtesting. This is the difference between research and data mining.

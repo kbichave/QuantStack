@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-TCA Storage — persist pre-trade forecasts and post-trade results to DuckDB.
+TCA Storage — persist pre-trade forecasts and post-trade results to PostgreSQL.
 
 Enables /reflect to analyze execution quality trends:
 - Average slippage over time
@@ -16,18 +16,14 @@ Usage:
     store.save_forecast(forecast)
     store.save_result(result)
     stats = store.get_aggregate_stats(lookback_days=30)
-    store.close()
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-import duckdb
 from loguru import logger
 
 from quantstack.core.execution.tca_engine import (
@@ -35,13 +31,7 @@ from quantstack.core.execution.tca_engine import (
     PreTradeForecast,
     TradeTCAResult,
 )
-
-# ---------------------------------------------------------------------------
-# Default DB path
-# ---------------------------------------------------------------------------
-
-_DEFAULT_DB_DIR = Path.home() / ".quant_pod"
-_DEFAULT_DB_PATH = _DEFAULT_DB_DIR / "tca.duckdb"
+from quantstack.db import PgConnection, pg_conn
 
 
 # ---------------------------------------------------------------------------
@@ -50,59 +40,54 @@ _DEFAULT_DB_PATH = _DEFAULT_DB_DIR / "tca.duckdb"
 
 
 class TCAStore:
-    """DuckDB persistence for TCA forecasts and post-trade results.
+    """PostgreSQL persistence for TCA forecasts and post-trade results.
 
-    Args:
-        db_path: Path to DuckDB file. Defaults to ``~/.quant_pod/tca.duckdb``.
-                 Pass ``:memory:`` for in-memory (tests).
+    Uses the shared PostgreSQL connection pool. Tables are created on first
+    use via ``run_migrations`` at MCP server startup; ``_ensure_tables``
+    is a no-op safety net for standalone construction.
     """
 
-    def __init__(self, db_path: str | None = None) -> None:
-        resolved_path = db_path or str(_DEFAULT_DB_PATH)
-
-        # Ensure parent directory exists for file-backed databases
-        if resolved_path != ":memory:":
-            parent = Path(resolved_path).parent
-            parent.mkdir(parents=True, exist_ok=True)
-
-        self._conn = duckdb.connect(resolved_path)
+    def __init__(self) -> None:
+        # Tables are managed by run_migrations; this is a safety-net call
+        # in case TCAStore is constructed outside the normal MCP startup path.
         self._ensure_tables()
-        logger.debug(f"[TCAStore] Opened at {resolved_path}")
+        logger.debug("[TCAStore] Initialized (PostgreSQL)")
 
     def _ensure_tables(self) -> None:
         """Create tables if they do not exist."""
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tca_forecasts (
-                trade_id        VARCHAR PRIMARY KEY,
-                symbol          VARCHAR NOT NULL,
-                side            VARCHAR NOT NULL,
-                shares          DOUBLE NOT NULL,
-                arrival_price   DOUBLE NOT NULL,
-                spread_bps      DOUBLE,
-                impact_bps      DOUBLE,
-                total_bps       DOUBLE,
-                recommended_algo VARCHAR,
-                timestamp       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        with pg_conn() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tca_forecasts (
+                    trade_id        VARCHAR PRIMARY KEY,
+                    symbol          VARCHAR NOT NULL,
+                    side            VARCHAR NOT NULL,
+                    shares          DOUBLE PRECISION NOT NULL,
+                    arrival_price   DOUBLE PRECISION NOT NULL,
+                    spread_bps      DOUBLE PRECISION,
+                    impact_bps      DOUBLE PRECISION,
+                    total_bps       DOUBLE PRECISION,
+                    recommended_algo VARCHAR,
+                    timestamp       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
             )
-        """
-        )
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS tca_results (
-                trade_id                    VARCHAR PRIMARY KEY,
-                symbol                      VARCHAR NOT NULL,
-                side                        VARCHAR NOT NULL,
-                shares                      DOUBLE,
-                fill_price                  DOUBLE NOT NULL,
-                arrival_price               DOUBLE NOT NULL,
-                shortfall_vs_arrival_bps    DOUBLE,
-                shortfall_vs_vwap_bps       DOUBLE,
-                shortfall_dollar            DOUBLE,
-                is_favorable                BOOLEAN,
-                timestamp                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS tca_results (
+                    trade_id                    VARCHAR PRIMARY KEY,
+                    symbol                      VARCHAR NOT NULL,
+                    side                        VARCHAR NOT NULL,
+                    shares                      DOUBLE PRECISION,
+                    fill_price                  DOUBLE PRECISION NOT NULL,
+                    arrival_price               DOUBLE PRECISION NOT NULL,
+                    shortfall_vs_arrival_bps    DOUBLE PRECISION,
+                    shortfall_vs_vwap_bps       DOUBLE PRECISION,
+                    shortfall_dollar            DOUBLE PRECISION,
+                    is_favorable                BOOLEAN,
+                    timestamp                   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
         )
 
     # ── Write methods ────────────────────────────────────────────────────────
@@ -119,26 +104,27 @@ class TCAStore:
         """
         trade_id = f"{forecast.symbol}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 
-        self._conn.execute(
-            """
-            INSERT INTO tca_forecasts
-                (trade_id, symbol, side, shares, arrival_price,
-                 spread_bps, impact_bps, total_bps, recommended_algo, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                trade_id,
-                forecast.symbol,
-                forecast.side.value,
-                forecast.shares,
-                forecast.arrival_price,
-                forecast.spread_cost_bps,
-                forecast.market_impact_bps,
-                forecast.total_expected_bps,
-                forecast.recommended_algo.value,
-                datetime.now(timezone.utc),
-            ],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO tca_forecasts
+                    (trade_id, symbol, side, shares, arrival_price,
+                     spread_bps, impact_bps, total_bps, recommended_algo, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    trade_id,
+                    forecast.symbol,
+                    forecast.side.value,
+                    forecast.shares,
+                    forecast.arrival_price,
+                    forecast.spread_cost_bps,
+                    forecast.market_impact_bps,
+                    forecast.total_expected_bps,
+                    forecast.recommended_algo.value,
+                    datetime.now(timezone.utc),
+                ],
+            )
         logger.debug(f"[TCAStore] Saved forecast: {trade_id}")
         return trade_id
 
@@ -148,28 +134,40 @@ class TCAStore:
         Args:
             result: TradeTCAResult from tca_engine.post_trade_tca().
         """
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO tca_results
-                (trade_id, symbol, side, shares, fill_price, arrival_price,
-                 shortfall_vs_arrival_bps, shortfall_vs_vwap_bps,
-                 shortfall_dollar, is_favorable, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                result.trade_id,
-                result.symbol,
-                result.side.value,
-                None,  # shares not on TradeTCAResult — populated from forecast join
-                0.0,  # fill_price not stored on result — computed from shortfall
-                0.0,  # arrival_price same
-                result.shortfall_vs_arrival_bps,
-                result.shortfall_vs_vwap_bps,
-                result.shortfall_dollar,
-                result.is_favorable,
-                datetime.now(timezone.utc),
-            ],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO tca_results
+                    (trade_id, symbol, side, shares, fill_price, arrival_price,
+                     shortfall_vs_arrival_bps, shortfall_vs_vwap_bps,
+                     shortfall_dollar, is_favorable, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (trade_id) DO UPDATE SET
+                    symbol = EXCLUDED.symbol,
+                    side = EXCLUDED.side,
+                    shares = EXCLUDED.shares,
+                    fill_price = EXCLUDED.fill_price,
+                    arrival_price = EXCLUDED.arrival_price,
+                    shortfall_vs_arrival_bps = EXCLUDED.shortfall_vs_arrival_bps,
+                    shortfall_vs_vwap_bps = EXCLUDED.shortfall_vs_vwap_bps,
+                    shortfall_dollar = EXCLUDED.shortfall_dollar,
+                    is_favorable = EXCLUDED.is_favorable,
+                    timestamp = EXCLUDED.timestamp
+                """,
+                [
+                    result.trade_id,
+                    result.symbol,
+                    result.side.value,
+                    None,  # shares not on TradeTCAResult — populated from forecast join
+                    0.0,  # fill_price not stored on result — computed from shortfall
+                    0.0,  # arrival_price same
+                    result.shortfall_vs_arrival_bps,
+                    result.shortfall_vs_vwap_bps,
+                    result.shortfall_dollar,
+                    result.is_favorable,
+                    datetime.now(timezone.utc),
+                ],
+            )
         logger.debug(f"[TCAStore] Saved result: {result.trade_id}")
 
     def save_result_raw(
@@ -189,28 +187,40 @@ class TCAStore:
 
         Useful when the caller computes shortfall externally (e.g. from broker fills).
         """
-        self._conn.execute(
-            """
-            INSERT OR REPLACE INTO tca_results
-                (trade_id, symbol, side, shares, fill_price, arrival_price,
-                 shortfall_vs_arrival_bps, shortfall_vs_vwap_bps,
-                 shortfall_dollar, is_favorable, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                trade_id,
-                symbol,
-                side,
-                shares,
-                fill_price,
-                arrival_price,
-                shortfall_vs_arrival_bps,
-                shortfall_vs_vwap_bps,
-                shortfall_dollar,
-                is_favorable,
-                datetime.now(timezone.utc),
-            ],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO tca_results
+                    (trade_id, symbol, side, shares, fill_price, arrival_price,
+                     shortfall_vs_arrival_bps, shortfall_vs_vwap_bps,
+                     shortfall_dollar, is_favorable, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (trade_id) DO UPDATE SET
+                    symbol = EXCLUDED.symbol,
+                    side = EXCLUDED.side,
+                    shares = EXCLUDED.shares,
+                    fill_price = EXCLUDED.fill_price,
+                    arrival_price = EXCLUDED.arrival_price,
+                    shortfall_vs_arrival_bps = EXCLUDED.shortfall_vs_arrival_bps,
+                    shortfall_vs_vwap_bps = EXCLUDED.shortfall_vs_vwap_bps,
+                    shortfall_dollar = EXCLUDED.shortfall_dollar,
+                    is_favorable = EXCLUDED.is_favorable,
+                    timestamp = EXCLUDED.timestamp
+                """,
+                [
+                    trade_id,
+                    symbol,
+                    side,
+                    shares,
+                    fill_price,
+                    arrival_price,
+                    shortfall_vs_arrival_bps,
+                    shortfall_vs_vwap_bps,
+                    shortfall_dollar,
+                    is_favorable,
+                    datetime.now(timezone.utc),
+                ],
+            )
 
     # ── Read methods ─────────────────────────────────────────────────────────
 
@@ -236,8 +246,9 @@ class TCAStore:
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
 
-        rows = self._conn.execute(query, params).fetchall()
-        columns = [desc[0] for desc in self._conn.description]
+        with pg_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            columns = [desc[0] for desc in conn.description]
         return [dict(zip(columns, row)) for row in rows]
 
     def get_aggregate_stats(
@@ -261,55 +272,72 @@ class TCAStore:
 
         where_sql = " AND ".join(where_clauses)
 
-        # Aggregate result stats
-        result_stats = self._conn.execute(
-            f"""
-            SELECT
-                COUNT(*) AS trade_count,
-                AVG(shortfall_vs_arrival_bps) AS avg_slippage_bps,
-                MEDIAN(shortfall_vs_arrival_bps) AS median_slippage_bps,
-                MAX(shortfall_vs_arrival_bps) AS worst_slippage_bps,
-                MIN(shortfall_vs_arrival_bps) AS best_slippage_bps,
-                SUM(shortfall_dollar) AS total_shortfall_dollar,
-                AVG(CASE WHEN is_favorable THEN 1.0 ELSE 0.0 END) * 100
-                    AS favorable_pct,
-                AVG(shortfall_vs_vwap_bps) AS avg_vs_vwap_bps
-            FROM tca_results
-            WHERE {where_sql}
-            """,
-            params,
-        ).fetchone()
+        with pg_conn() as conn:
+            # Aggregate result stats
+            result_stats = conn.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS trade_count,
+                    AVG(shortfall_vs_arrival_bps) AS avg_slippage_bps,
+                    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY shortfall_vs_arrival_bps) AS median_slippage_bps,
+                    MAX(shortfall_vs_arrival_bps) AS worst_slippage_bps,
+                    MIN(shortfall_vs_arrival_bps) AS best_slippage_bps,
+                    SUM(shortfall_dollar) AS total_shortfall_dollar,
+                    AVG(CASE WHEN is_favorable THEN 1.0 ELSE 0.0 END) * 100
+                        AS favorable_pct,
+                    AVG(shortfall_vs_vwap_bps) AS avg_vs_vwap_bps
+                FROM tca_results
+                WHERE {where_sql}
+                """,
+                params,
+            ).fetchone()
 
-        if result_stats is None or result_stats[0] == 0:
-            return {
-                "trade_count": 0,
-                "lookback_days": lookback_days,
-                "symbol_filter": symbol,
-                "message": "No TCA results in the lookback window.",
-            }
+            if result_stats is None or result_stats[0] == 0:
+                return {
+                    "trade_count": 0,
+                    "lookback_days": lookback_days,
+                    "symbol_filter": symbol,
+                    "message": "No TCA results in the lookback window.",
+                }
 
-        (
-            trade_count,
-            avg_slip,
-            median_slip,
-            worst_slip,
-            best_slip,
-            total_dollar,
-            fav_pct,
-            avg_vwap,
-        ) = result_stats
+            (
+                trade_count,
+                avg_slip,
+                median_slip,
+                worst_slip,
+                best_slip,
+                total_dollar,
+                fav_pct,
+                avg_vwap,
+            ) = result_stats
 
-        # Worst fills (top 5)
-        worst_fills = self._conn.execute(
-            f"""
-            SELECT trade_id, symbol, side, shortfall_vs_arrival_bps, timestamp
-            FROM tca_results
-            WHERE {where_sql}
-            ORDER BY shortfall_vs_arrival_bps DESC
-            LIMIT 5
-            """,
-            params,
-        ).fetchall()
+            # Worst fills (top 5)
+            worst_fills = conn.execute(
+                f"""
+                SELECT trade_id, symbol, side, shortfall_vs_arrival_bps, timestamp
+                FROM tca_results
+                WHERE {where_sql}
+                ORDER BY shortfall_vs_arrival_bps DESC
+                LIMIT 5
+                """,
+                params,
+            ).fetchall()
+
+            # Algo accuracy: compare forecast algo vs actual performance
+            algo_stats = conn.execute(
+                f"""
+                SELECT
+                    f.recommended_algo,
+                    COUNT(*) AS count,
+                    AVG(r.shortfall_vs_arrival_bps) AS avg_shortfall_bps
+                FROM tca_forecasts f
+                JOIN tca_results r ON f.trade_id = r.trade_id
+                WHERE r.{where_sql.replace('timestamp', 'r.timestamp').replace('symbol', 'r.symbol')}
+                GROUP BY f.recommended_algo
+                ORDER BY count DESC
+                """,
+                params,
+            ).fetchall()
 
         worst_fill_list = [
             {
@@ -321,22 +349,6 @@ class TCAStore:
             }
             for r in worst_fills
         ]
-
-        # Algo accuracy: compare forecast algo vs actual performance
-        algo_stats = self._conn.execute(
-            f"""
-            SELECT
-                f.recommended_algo,
-                COUNT(*) AS count,
-                AVG(r.shortfall_vs_arrival_bps) AS avg_shortfall_bps
-            FROM tca_forecasts f
-            JOIN tca_results r ON f.trade_id = r.trade_id
-            WHERE r.{where_sql.replace('timestamp', 'r.timestamp').replace('symbol', 'r.symbol')}
-            GROUP BY f.recommended_algo
-            ORDER BY count DESC
-            """,
-            params,
-        ).fetchall()
 
         algo_breakdown = [
             {
@@ -380,18 +392,8 @@ class TCAStore:
             "algo_breakdown": algo_breakdown,
         }
 
-    # ── Lifecycle ────────────────────────────────────────────────────────────
-
-    def close(self) -> None:
-        """Close the DuckDB connection."""
-        try:
-            self._conn.close()
-            logger.debug("[TCAStore] Connection closed")
-        except Exception:
-            pass
-
     def __enter__(self) -> TCAStore:
         return self
 
     def __exit__(self, *exc: Any) -> None:
-        self.close()
+        pass  # Connection pool manages lifecycle; nothing to close here

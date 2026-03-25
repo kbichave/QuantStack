@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Conversation logger — persists agent interactions to DuckDB and posts to Slack.
+Conversation logger — persists agent interactions to PostgreSQL and posts to Slack.
 
 Every desk agent report, PM decision, signal scan, trade, and alert flows
 through this module. It handles both sides:
@@ -20,8 +20,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.coordination.slack_client import SlackClient
 
@@ -31,14 +32,14 @@ class ConversationLogger:
     Unified logging for agent conversations, signals, trades, and alerts.
 
     Args:
-        conn: DuckDB write connection.
+        conn: PostgreSQL connection.
         slack: SlackClient instance. Pass None to disable Slack posting.
         session_id: Current session ID for grouping conversations.
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         slack: SlackClient | None = None,
         session_id: str = "",
     ) -> None:

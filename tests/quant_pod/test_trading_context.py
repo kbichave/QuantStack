@@ -4,8 +4,8 @@
 """
 Integration tests for TradingContext and the execution hot path.
 
-All tests use in-memory DuckDB — no file system side-effects,
-no shared state between test cases.
+All tests use an in-memory PgConnection (DuckDB in-memory via PgConnection._from_memory())
+— no file system side-effects, no PostgreSQL server required, no shared state between tests.
 
 Coverage:
   - create_trading_context() wires all services to the same connection
@@ -27,7 +27,6 @@ from quantstack.context import TradingContext, create_trading_context
 from quantstack.execution.portfolio_state import Position
 from quantstack.execution.signal_cache import TradeSignal
 from quantstack.execution.tick_executor import Tick, TickExecutor
-import quantstack.db as _db
 
 # =============================================================================
 # Fixtures
@@ -52,7 +51,7 @@ def ctx() -> TradingContext:
 
 class TestTradingContextWiring:
     def test_all_services_share_same_connection(self, ctx):
-        """Every service receives the same DuckDB connection object."""
+        """Every service receives the same PgConnection object."""
         assert ctx.portfolio._conn is ctx.db
         assert ctx.broker._conn is ctx.db
         assert ctx.signal_cache._conn is ctx.db
@@ -69,7 +68,7 @@ class TestTradingContextWiring:
     def test_two_contexts_are_isolated(self):
         """Two in-memory contexts do not share data."""
         a = create_trading_context(db_path=":memory:", initial_cash=50_000.0)
-        _db._managed = None  # reset singleton so b gets a fresh connection
+        # Each ":memory:" call creates an independent DuckDB in-memory instance
         b = create_trading_context(db_path=":memory:", initial_cash=200_000.0)
         try:
             assert a.portfolio.get_cash() == 50_000.0

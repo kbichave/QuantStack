@@ -3,8 +3,11 @@
 Provides DDL for all tables: OHLCV, intraday, options, news sentiment.
 """
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
+
+from quantstack.db import PgConnection
 
 
 class SchemaMixin:
@@ -18,7 +21,7 @@ class SchemaMixin:
         finally:
             conn.close()
 
-    def _run_schema_ddl(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def _run_schema_ddl(self, conn: PgConnection) -> None:
         """Execute all CREATE TABLE/INDEX DDL statements.
 
         Temporarily sets self._conn so sub-methods that reference self.conn

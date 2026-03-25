@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-DuckDB-based inter-loop event bus.
+PostgreSQL-based inter-loop event bus.
 
 The three Ralph loops (Strategy Factory, Live Trader, ML Research) run as
 independent Claude Opus sessions in tmux.  They need a lightweight coordination
@@ -21,9 +21,9 @@ Design choices:
   - **7-day TTL.**  Events older than 7 days are pruned on each publish() to
     prevent unbounded growth.
 
-All writes go through the MCP server's DuckDB connection (single writer).
-Read-only consumers can poll via open_db_readonly() but cannot acknowledge
-(ack is a write operation).
+All writes go through the MCP server's PostgreSQL connection.
+Multiple consumers can poll concurrently via PostgreSQL's MVCC — no lock
+contention between readers and writers.
 
 Usage:
     from quantstack.coordination.event_bus import EventBus, Event, EventType
@@ -43,8 +43,9 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 
 class EventType(str, Enum):
@@ -78,13 +79,13 @@ _EVENT_TTL_DAYS = 7
 
 class EventBus:
     """
-    Append-only DuckDB event log with per-consumer cursors.
+    Append-only PostgreSQL event log with per-consumer cursors.
 
-    Thread-safe only via DuckDB's single-writer serialization — the caller
-    (MCP server) is responsible for ensuring writes go through one connection.
+    PostgreSQL MVCC ensures concurrent readers and writers do not block each
+    other. The MCP server injects the shared connection pool connection.
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: PgConnection) -> None:
         self._conn = conn
 
     def publish(self, event: Event) -> str:

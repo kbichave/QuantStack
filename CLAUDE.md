@@ -54,7 +54,7 @@ Data Pipeline (no LLM):
 - **Paper mode is default.** Live requires `USE_REAL_TRADING=true`.
 - **Audit trail is mandatory.** Every decision logged with reasoning.
 - **Never modify:** `risk_gate.py`, `kill_switch.py`, broker credentials, paper/live defaults.
-- **DB writes are short-lived.** DuckDB allows one writer at a time. All writes use `db_conn()` context manager (<100ms). If a write fails due to lock contention: log, retry once, skip.
+- **DB writes use `db_conn()` context managers.** Operational state (positions, signals, strategies, fills) lives in PostgreSQL — true MVCC, no file-lock concept. Multiple MCP servers read/write concurrently without contention. DuckDB is analytics-only (backtests, ML experiments, research programs).
 
 ---
 
@@ -147,6 +147,7 @@ ALPHA_VANTAGE_API_KEY       # primary data (premium, 75 calls/min)
 ALPACA_API_KEY / ALPACA_SECRET_KEY / ALPACA_PAPER=true
 GROQ_API_KEY                # sentiment collector
 USE_REAL_TRADING=true       # required for live execution
+TRADER_PG_URL               # PostgreSQL DSN (default: postgresql://localhost/quantpod)
 ```
 
 ---

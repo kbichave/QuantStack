@@ -17,26 +17,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quantstack.core.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn
-from quantstack.core.options.adapters.financepy_adapter import (
-    price_american_option as price_american,
-)
-from quantstack.core.options.adapters.quantsbin_adapter import (
-    analyze_structure_quantsbin,
-)
-from quantstack.core.options.engine import (
-    compute_greeks_dispatch,
-    compute_iv_dispatch,
-    price_option_dispatch,
-)
-from quantstack.data.adapters.alpaca import AlpacaAdapter
-from quantstack.data.adapters.polygon_adapter import PolygonAdapter
-from quantstack.data.storage import DataStore
+# financepy (~0.9s), quantsbin, ffn deferred — imported inside tool functions.
 from quantstack.mcp._helpers import (
     _get_reader,
     _parse_timeframe,
 )
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 
 
 # =============================================================================
@@ -44,6 +32,7 @@ from quantstack.mcp.server import mcp
 # =============================================================================
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def price_option(
     spot: float,
@@ -76,6 +65,7 @@ async def price_option(
         Dictionary with option price, Greeks, and analysis
     """
     try:
+        from quantstack.core.options.engine import price_option_dispatch  # noqa: PLC0415
         result = price_option_dispatch(
             spot=spot,
             strike=strike,
@@ -108,6 +98,7 @@ async def price_option(
         return {"error": str(e)}
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def compute_greeks(
     spot: float,
@@ -137,6 +128,7 @@ async def compute_greeks(
         Dictionary with detailed Greeks, interpretations, and risk metrics
     """
     try:
+        from quantstack.core.options.engine import compute_greeks_dispatch  # noqa: PLC0415
         result = compute_greeks_dispatch(
             spot=spot,
             strike=strike,
@@ -154,6 +146,7 @@ async def compute_greeks(
         return {"error": str(e)}
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def compute_implied_vol(
     spot: float,
@@ -182,6 +175,7 @@ async def compute_implied_vol(
         Dictionary with implied volatility and analysis
     """
     try:
+        from quantstack.core.options.engine import compute_iv_dispatch  # noqa: PLC0415
         result = compute_iv_dispatch(
             spot=spot,
             strike=strike,
@@ -199,6 +193,7 @@ async def compute_implied_vol(
         return {"error": str(e)}
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def analyze_option_structure(
     structure_spec: dict[str, Any],
@@ -245,6 +240,7 @@ async def analyze_option_structure(
         })
     """
     try:
+        from quantstack.core.options.adapters.quantsbin_adapter import analyze_structure_quantsbin  # noqa: PLC0415
         result = analyze_structure_quantsbin(
             structure_spec=structure_spec,
             price_range_pct=price_range_pct,
@@ -256,6 +252,7 @@ async def analyze_option_structure(
         return {"error": str(e)}
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def compute_portfolio_stats(
     equity_curve: list[float],
@@ -285,6 +282,7 @@ async def compute_portfolio_stats(
         # Convert to pandas Series
         equity = pd.Series(equity_curve)
 
+        from quantstack.core.analytics.adapters.ffn_adapter import compute_portfolio_stats_ffn  # noqa: PLC0415
         result = compute_portfolio_stats_ffn(
             equity_curve=equity,
             risk_free_rate=risk_free_rate,
@@ -297,6 +295,7 @@ async def compute_portfolio_stats(
         return {"error": str(e)}
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def price_american_option(
     spot: float,
@@ -333,6 +332,7 @@ async def price_american_option(
             - delta, gamma: Greeks from tree
     """
     try:
+        from quantstack.core.options.adapters.financepy_adapter import price_american_option as price_american  # noqa: PLC0415
         result = price_american(
             spot=spot,
             strike=strike,
@@ -402,6 +402,7 @@ async def _compute_option_chain_impl(
         puts = []
 
         for strike in strikes:
+            from quantstack.core.options.engine import price_option_dispatch  # noqa: PLC0415
             call_result = price_option_dispatch(
                 underlying_price, strike, tte, vol_estimate, rate, div_yield, "call"
             )
@@ -425,6 +426,7 @@ async def _compute_option_chain_impl(
                     }
                 )
 
+            from quantstack.core.options.engine import price_option_dispatch  # noqa: PLC0415
             put_result = price_option_dispatch(
                 underlying_price, strike, tte, vol_estimate, rate, div_yield, "put"
             )
@@ -470,6 +472,7 @@ async def _compute_option_chain_impl(
         store.close()
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def compute_option_chain(
     symbol: str,
@@ -500,6 +503,7 @@ async def compute_option_chain(
     return await _compute_option_chain_impl(symbol, expiry_date, min_delta, max_delta)
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def compute_multi_leg_price(
     legs: list[dict[str, Any]],
@@ -554,6 +558,7 @@ async def compute_multi_leg_price(
 
             tte = expiry_days / 365.0
 
+            from quantstack.core.options.engine import price_option_dispatch  # noqa: PLC0415
             result = price_option_dispatch(
                 underlying_price, strike, tte, iv, rate, dividend_yield, opt_type
             )
@@ -633,6 +638,7 @@ async def compute_multi_leg_price(
         return {"error": str(e)}
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def score_trade_structure(
     structure_spec: dict[str, Any],
@@ -662,6 +668,7 @@ async def score_trade_structure(
     """
     try:
         # Analyze structure
+        from quantstack.core.options.adapters.quantsbin_adapter import analyze_structure_quantsbin  # noqa: PLC0415
         analysis = analyze_structure_quantsbin(structure_spec)
 
         if "error" in analysis:
@@ -774,6 +781,7 @@ async def score_trade_structure(
         return {"error": str(e)}
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def simulate_trade_outcome(
     trade_template: dict[str, Any],
@@ -910,6 +918,7 @@ async def _get_options_chain_impl(
     alpaca_key = os.getenv("ALPACA_API_KEY", "")
     if alpaca_key:
         try:
+            from quantstack.data.adapters.alpaca import AlpacaAdapter  # noqa: PLC0415
             adapter = AlpacaAdapter(
                 api_key=alpaca_key, secret_key=os.getenv("ALPACA_SECRET_KEY", "")
             )
@@ -925,6 +934,7 @@ async def _get_options_chain_impl(
         polygon_key = os.getenv("POLYGON_API_KEY", "")
         if polygon_key:
             try:
+                from quantstack.data.adapters.polygon_adapter import PolygonAdapter  # noqa: PLC0415
                 adapter = PolygonAdapter(api_key=polygon_key)
                 contracts = adapter.fetch_options_chain(
                     symbol, expiry_min_days, expiry_max_days
@@ -986,16 +996,34 @@ async def _get_options_chain_impl(
 
         # Write to options_chains table for get_iv_surface to read later
         try:
+            from quantstack.data.storage import DataStore  # noqa: PLC0415
             ds = DataStore()
             today_str = str(date.today())
             for c in contracts:
                 ds.conn.execute(
                     """
-                    INSERT OR REPLACE INTO options_chains
+                    INSERT INTO options_chains
                         (contract_id, underlying, data_date, expiry, strike, option_type,
                          bid, ask, mid, last, volume, open_interest, iv,
                          delta, gamma, theta, vega, rho)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (contract_id, data_date) DO UPDATE SET
+                        underlying = EXCLUDED.underlying,
+                        expiry = EXCLUDED.expiry,
+                        strike = EXCLUDED.strike,
+                        option_type = EXCLUDED.option_type,
+                        bid = EXCLUDED.bid,
+                        ask = EXCLUDED.ask,
+                        mid = EXCLUDED.mid,
+                        last = EXCLUDED.last,
+                        volume = EXCLUDED.volume,
+                        open_interest = EXCLUDED.open_interest,
+                        iv = EXCLUDED.iv,
+                        delta = EXCLUDED.delta,
+                        gamma = EXCLUDED.gamma,
+                        theta = EXCLUDED.theta,
+                        vega = EXCLUDED.vega,
+                        rho = EXCLUDED.rho
                 """,
                     [
                         c.get("contract_id"),
@@ -1070,6 +1098,7 @@ async def _get_options_chain_impl(
     }
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def get_options_chain(
     symbol: str,
@@ -1109,6 +1138,7 @@ async def get_options_chain(
     )
 
 
+@domain(Domain.OPTIONS)
 @mcp.tool()
 async def get_iv_surface(
     symbol: str,

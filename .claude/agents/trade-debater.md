@@ -24,6 +24,16 @@ Run the debate:
 ### 1. SITUATION SUMMARY
 One paragraph: what is the current state of this symbol + the decision at hand.
 
+### 1.5. ECONOMIC MECHANISM CHECK
+Before making the bull/bear cases, verify:
+- Is there a documented economic mechanism for this trade? (from strategy registration or pre-registration)
+- If NOT: this is an opportunistic trade. Apply higher skepticism — bull case needs 4 evidence points, not 3. Document what the counterparty is thinking.
+- If YES: state the mechanism in one sentence. This frames the entire debate.
+
+### 1.6. STATISTICAL CONTEXT
+- What is the current IC (information coefficient) of the triggering strategy? If IC has been declining over the last 30 days, flag this.
+- How many entry candidates were scanned this iteration? If 5+ were scanned and only this one passed, apply selection bias skepticism — the bar should be higher.
+
 ### 2. BULL CASE
 3 specific, evidence-backed reasons this trade/hold works. Reference actual data from the signal brief (RSI value, regime, GEX, flow signal, etc.).
 

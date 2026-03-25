@@ -31,10 +31,11 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
 
 from quantstack.core.backtesting.walkforward_service import run_walkforward
+from quantstack.data.universe import STRATEGY_BACKTEST_DEFAULT
+from quantstack.db import PgConnection
 
 
 # Strategy templates — the building blocks for automated hypothesis generation.
@@ -124,17 +125,17 @@ class StrategyLifecycle:
     Autonomous strategy R&D + validation + retirement pipeline.
 
     Args:
-        conn: DuckDB connection.
+        conn: PostgreSQL connection.
         test_symbols: Symbols used for backtesting candidates.
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         test_symbols: list[str] | None = None,
     ) -> None:
         self._conn = conn
-        self._test_symbols = test_symbols or ["SPY", "QQQ", "AAPL", "MSFT", "XOM"]
+        self._test_symbols = test_symbols or list(STRATEGY_BACKTEST_DEFAULT)
 
     async def run_weekly(self) -> LifecycleReport:
         """

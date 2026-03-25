@@ -23,6 +23,8 @@ from quantstack.mcp._state import (
     live_db_or_error,
     _serialize,
 )
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +48,7 @@ def _calc_quantity_from_size(
 # ---------------------------------------------------------------------------
 
 
+@domain(Domain.EXECUTION)
 @mcp.tool()
 async def execute_trade(
     symbol: str,
@@ -266,6 +269,7 @@ async def execute_trade(
         return {"success": False, "error": str(e), "broker_mode": get_broker_mode()}
 
 
+@domain(Domain.EXECUTION)
 @mcp.tool()
 async def close_position(
     symbol: str,
@@ -311,6 +315,7 @@ async def close_position(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.EXECUTION)
 @mcp.tool()
 async def cancel_order(order_id: str) -> dict[str, Any]:
     """
@@ -335,6 +340,7 @@ async def cancel_order(order_id: str) -> dict[str, Any]:
     }
 
 
+@domain(Domain.EXECUTION)
 @mcp.tool()
 async def get_fills(
     symbol: str | None = None,
@@ -365,6 +371,7 @@ async def get_fills(
         return {"success": False, "error": str(e), "fills": [], "total": 0}
 
 
+@domain(Domain.EXECUTION)
 @mcp.tool()
 async def get_risk_metrics() -> dict[str, Any]:
     """
@@ -411,6 +418,7 @@ async def get_risk_metrics() -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.EXECUTION)
 @mcp.tool()
 async def get_audit_trail(
     session_id: str | None = None,

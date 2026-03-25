@@ -2,12 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Tests for DuckDB lock-guard logic.
+Tests for DuckDB lock-guard logic (analytics path) and PostgreSQL compat shims.
 
-Lock-guard implementation lives in ``shared.duckdb_lock`` and is used by
-``quant_pod.db`` via an aliased import.  Tests that exercise the guard
-mock ``duckdb.connect`` and ``shared.duckdb_lock.pid_is_alive`` so they
-run instantly without spawning real competing processes.
+The lock-guard (``shared.duckdb_lock``) is still used for the DuckDB analytics
+path (ML training, research programs).  Tests that exercise the guard mock
+``duckdb.connect`` and ``shared.duckdb_lock.pid_is_alive`` so they run
+instantly without spawning real competing processes.
+
+The ``open_db_readonly`` / ``reset_connection`` shims from ``db.py`` now
+delegate to the PostgreSQL pool — tests verify the shim contract.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from unittest.mock import MagicMock, patch
 import duckdb
 import pytest
 from quantstack.db import (
+    PgConnection,
     open_db_readonly,
     reset_connection,
     reset_connection_readonly,
@@ -154,47 +158,36 @@ class TestConnectWithLockGuard:
 
 
 # ---------------------------------------------------------------------------
-# open_db_readonly
+# open_db_readonly / reset_connection — PostgreSQL compat shims
 # ---------------------------------------------------------------------------
 
 
 class TestOpenDbReadonly:
-    def teardown_method(self):
-        """Reset the read-only singleton after each test."""
-        reset_connection_readonly()
+    """open_db_readonly is a compat shim that delegates to open_db().
 
-    def test_returns_connection_for_missing_file(self, tmp_path):
-        """open_db_readonly creates the DB if it doesn't exist (alias for open_db)."""
-        path = str(tmp_path / "nonexistent.duckdb")
+    Since the migration to PostgreSQL, all connections are concurrent-read-safe
+    by default — there is no special read-only mode.  The shim is kept so
+    existing call sites don't break.
+    """
+
+    def test_returns_pg_connection_for_any_path(self, tmp_path):
+        """open_db_readonly returns a PgConnection regardless of path argument."""
+        path = str(tmp_path / "ignored.duckdb")
         conn = open_db_readonly(path)
         assert conn is not None
+        assert isinstance(conn, PgConnection)
 
-    def test_succeeds_when_file_exists(self, tmp_path):
-        """open_db_readonly opens an existing DB and supports reads and writes."""
-        path = str(tmp_path / "test.duckdb")
+    def test_memory_path_returns_duckdb_in_memory(self):
+        """':memory:' still returns a DuckDB in-memory PgConnection for tests."""
+        conn = open_db_readonly(":memory:")
+        assert isinstance(conn, PgConnection)
+        # Must support DDL
+        conn.execute("CREATE TABLE test_rw (x INTEGER)")
+        conn.execute("INSERT INTO test_rw VALUES (42)")
+        result = conn.execute("SELECT x FROM test_rw").fetchone()
+        assert result == (42,)
+        conn.close()
 
-        # Create the DB with a write connection first
-        write_conn = duckdb.connect(path)
-        write_conn.execute("CREATE TABLE foo (id INTEGER)")
-        write_conn.close()
-
-        # open_db_readonly is an alias for open_db — full read/write access
-        conn = open_db_readonly(path)
-        assert conn is not None
-        result = conn.execute("SELECT COUNT(*) FROM foo").fetchone()
-        assert result is not None
-
-    def test_memory_path_returns_writable_connection(self):
-        """
-        open_db_readonly(':memory:') falls back to the regular write connection
-        so test code that calls this function behaves identically to production.
-        """
-        try:
-            conn = open_db_readonly(":memory:")
-            # Must support DDL (write connection)
-            conn.execute("CREATE TABLE test_rw (x INTEGER)")
-            conn.execute("INSERT INTO test_rw VALUES (42)")
-            result = conn.execute("SELECT x FROM test_rw").fetchone()
-            assert result == (42,)
-        finally:
-            reset_connection()
+    def test_reset_connection_readonly_is_noop(self):
+        """reset_connection_readonly is a compat no-op — does not raise."""
+        reset_connection_readonly()  # should not raise

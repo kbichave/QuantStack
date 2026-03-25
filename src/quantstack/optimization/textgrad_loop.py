@@ -102,7 +102,7 @@ class TextGradOptimizer:
     def __init__(
         self,
         conn: Any,
-        engine: str = "claude-sonnet-4-20250514",
+        engine: str = "groq/llama-3.3-70b-versatile",
     ) -> None:
         self._conn = conn
         self._engine = engine

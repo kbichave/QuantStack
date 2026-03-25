@@ -22,8 +22,12 @@ from quantstack.mcp._state import (
 )
 from quantstack.mcp.server import mcp
 from quantstack.mcp.tools.strategy import register_strategy
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 
 
+
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def decode_strategy(
     signals: list[dict[str, Any]],
@@ -75,6 +79,7 @@ async def decode_strategy(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def decode_from_trades(
     source: str = "closed_trades",

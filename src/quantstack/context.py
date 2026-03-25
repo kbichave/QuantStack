@@ -4,42 +4,27 @@
 """
 TradingContext — single dependency-injection container for the trading system.
 
-All services share one DuckDB connection and are wired together here.
-The only place a connection is opened; every downstream service receives it
-as a constructor argument.
+All services share one ``PgConnection`` (PostgreSQL pool-backed) and are
+wired together here.  The only place a connection is opened; every downstream
+service receives it as a constructor argument.
 
 Why this matters:
   - Tests call create_trading_context(":memory:") and get a fully-wired,
-    completely isolated system with zero file-system side-effects.
-  - Production calls create_trading_context() and gets the persistent DB.
+    completely isolated system backed by DuckDB in-memory — zero file-system
+    side-effects, no PostgreSQL required in unit tests.
+  - Production calls create_trading_context() and gets PostgreSQL (TRADER_PG_URL).
   - No module-level singletons are needed. Each service is instantiated once
     per context, and the context is passed explicitly.
+  - Multiple MCP server instances can each have their own TradingContext and
+    connection — no exclusive file lock, no contention.
 
 Usage — production:
     ctx = create_trading_context()
-    flow = TradingDayFlow(
-        portfolio=ctx.portfolio,
-        risk_gate=ctx.risk_gate,
-        audit=ctx.audit,
-        signal_cache=ctx.signal_cache,
-    )
-    executor = TickExecutor(
-        signal_cache=ctx.signal_cache,
-        risk_state=ctx.risk_state,
-        broker=ctx.broker,
-        kill_switch=ctx.kill_switch,
-        fill_queue=fill_queue,
-        session_id=ctx.session_id,
-    )
 
 Usage — tests:
     @pytest.fixture
     def ctx():
         return create_trading_context(db_path=":memory:")
-
-    def test_something(ctx):
-        ctx.portfolio.upsert_position(...)
-        # Each test gets a fresh in-memory DB — no shared state.
 """
 
 from __future__ import annotations
@@ -47,11 +32,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-import duckdb
 from loguru import logger
 
 from quantstack.audit.decision_log import DecisionLog
-from quantstack.db import ManagedConnection, open_db, run_migrations
+from quantstack.db import PgConnection, open_db, run_migrations
 from quantstack.execution.kill_switch import KillSwitch
 from quantstack.execution.paper_broker import PaperBroker
 from quantstack.execution.portfolio_state import PortfolioState
@@ -68,10 +52,12 @@ class TradingContext:
 
     All fields are set at construction time; the object is effectively
     immutable after create_trading_context() returns.  Services share a
-    single DuckDB connection to enable cross-service ACID transactions.
+    single PgConnection (PostgreSQL pool connection) enabling cross-service
+    ACID transactions.  Multiple TradingContexts can coexist in separate
+    processes without lock contention.
 
     Field ownership:
-      db           — raw DuckDB connection; use only for migrations / ad-hoc queries.
+      db           — PgConnection; use only for migrations / ad-hoc queries.
       portfolio    — open positions and cash; the source of truth for the system.
       risk_gate    — slow-path rule engine called by TradingDayFlow.
       risk_state   — fast in-memory mirror consumed by TickExecutor hot path.
@@ -79,11 +65,11 @@ class TradingContext:
       kill_switch  — emergency halt; checked on every tick.
       broker       — PaperBroker (paper mode) or EtradeBroker (live mode).
       audit        — append-only decision log.
-      blackboard   — structured agent memory (replaces markdown file).
+      blackboard   — structured agent memory.
       session_id   — UUID for this trading session; threaded through all logs.
     """
 
-    db: ManagedConnection | duckdb.DuckDBPyConnection
+    db: PgConnection
     portfolio: PortfolioState
     risk_gate: RiskGate
     risk_state: RiskState
@@ -93,7 +79,7 @@ class TradingContext:
     audit: DecisionLog
 
     @property
-    def conn(self) -> ManagedConnection | duckdb.DuckDBPyConnection:
+    def conn(self) -> PgConnection:
         """Alias for ``db`` — used by options_execution and other tools."""
         return self.db
 
@@ -110,34 +96,28 @@ def create_trading_context(
     """
     Build and return a fully-wired TradingContext.
 
-    All services receive the same DuckDB connection so they can participate
-    in the same transactions.  The database schema is created (idempotently)
-    before any service is initialised.
+    All services receive the same PgConnection so they can participate in the
+    same transactions.  The database schema is created (idempotently) before
+    any service is initialised.
 
     Args:
-        db_path:      File path or ":memory:".  Defaults to TRADER_DB_PATH
-                      env var, then ~/.quant_pod/trader.duckdb.
+        db_path:      Pass ``":memory:"`` for an in-memory DuckDB instance
+                      (unit tests).  Pass ``""`` or omit to use PostgreSQL
+                      (TRADER_PG_URL env var, default postgresql://localhost/quantpod).
         initial_cash: Starting cash balance for new portfolios.
         risk_limits:  Override default risk limits.  None = load from env.
         session_id:   Session UUID.  Auto-generated if not provided.
 
     Returns:
         A fully-wired TradingContext.  Every field is ready to use.
-
-    Raises:
-        duckdb.Error: If the database cannot be opened or migrations fail.
     """
     sid = session_id or str(uuid.uuid4())
 
-    # 1. Get the ManagedConnection (auto-reconnects on each execute).
-    #    For tests: pass ":memory:" to get an in-memory singleton.
+    # 1. Open connection — in-memory DuckDB for tests, PostgreSQL for production.
     conn = open_db(db_path)
 
-    # 2. Run migrations — idempotent, all CREATE IF NOT EXISTS.
-    #    Then release the lock so other processes can access the DB
-    #    before the first tool call arrives.
+    # 2. Run migrations — idempotent, all CREATE TABLE/INDEX IF NOT EXISTS.
     run_migrations(conn)
-    conn.release()
 
     # 3. Build services in dependency order.
     portfolio = PortfolioState(conn=conn, initial_cash=initial_cash)
@@ -176,6 +156,6 @@ def create_trading_context(
 
     logger.info(
         f"[TradingContext] Created | session={sid} | "
-        f"db={'memory' if db_path == ':memory:' else db_path or 'default'}"
+        f"db={'memory' if db_path == ':memory:' else 'postgres'}"
     )
     return ctx

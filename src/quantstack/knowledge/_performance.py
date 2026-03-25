@@ -5,15 +5,14 @@
 
 from datetime import datetime, timedelta
 
-import duckdb
-
+from quantstack.db import PgConnection
 from quantstack.knowledge.models import PerformanceMetrics
 
 
 class PerformanceMixin:
     """Performance metrics operations."""
 
-    conn: duckdb.DuckDBPyConnection
+    conn: PgConnection
 
     # =========================================================================
     # PERFORMANCE METRICS OPERATIONS

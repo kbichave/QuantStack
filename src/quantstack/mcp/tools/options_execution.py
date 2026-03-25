@@ -32,6 +32,9 @@ from quantstack.audit.models import DecisionEvent
 from quantstack.execution.broker_factory import get_broker_mode
 from quantstack.mcp.server import mcp
 from quantstack.mcp._state import live_db_or_error, _serialize
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 
 def _bs_price(
@@ -75,6 +78,7 @@ def _bs_delta(
     return _ncdf(d1) - 1.0
 
 
+@domain(Domain.EXECUTION)
 @mcp.tool()
 async def execute_options_trade(
     symbol: str,

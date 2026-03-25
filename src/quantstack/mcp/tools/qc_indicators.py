@@ -24,8 +24,12 @@ from quantstack.mcp._helpers import (
     _parse_timeframe,
 )
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 
 
+
+@domain(Domain.DATA)
 @mcp.tool()
 async def compute_technical_indicators(
     symbol: str,
@@ -35,6 +39,15 @@ async def compute_technical_indicators(
 ) -> dict[str, Any]:
     """
     Compute technical indicators for a symbol.
+
+    SIGNAL TIER WARNING — not all indicators are equal:
+      tier_1_retail (EXIT TIMING ONLY — never use as entry gate):
+        RSI, MACD, STOCH, CCI, WILLIAMS_R, BBANDS, ADX, SMA, EMA, OBV
+      tier_2_smart_money (valid as secondary confirmation):
+        ATR (for risk sizing), VWAP, WILLIAMS_R (as PercentRExhaustion proxy)
+      For tier_3_institutional signals (PRIMARY entry gates), use instead:
+        get_capitulation_score(), get_institutional_accumulation(),
+        get_signal_brief() (for GEX, LSV, insider_cluster, IV skew z-score)
 
     Args:
         symbol: Stock symbol
@@ -110,6 +123,7 @@ async def compute_technical_indicators(
         store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def compute_all_features(
     symbol: str,
@@ -183,121 +197,215 @@ async def compute_all_features(
         store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def list_available_indicators() -> dict[str, Any]:
     """
-    List all available technical indicators and their descriptions.
+    List all available technical indicators with signal tier classification.
+
+    CRITICAL — signal hierarchy for strategy design:
+      tier_1_retail: Use ONLY for exit timing or rough trend context. NEVER as entry gate.
+        → RSI, MACD, Stochastic, CCI, Williams %R, Bollinger Bands, SMA crossover, ADX
+        → These are retail noise: >90% of traders use them → front-run by market makers
+        → Workshop lesson (iteration 3): Stoch/RSI rules fire ~90% of time = always-on trap
+      tier_2_smart_money: Valid as secondary entry confirmation.
+        → FVG (Fair Value Gap), Order Blocks, CVD (Cumulative Vol Delta), VPIN,
+          Williams VIX Fix, PercentR Exhaustion, BOS/CHoCH, Supertrend, Kyle's Lambda
+      tier_3_institutional: PRIMARY entry gate. Need ≥2 non-neutral before any entry.
+        → GEX (Gamma Exposure), gamma flip level, IV skew z-score, LSV herding,
+          insider cluster score, institutional direction, capitulation_score, accumulation_score
+        → Use: get_capitulation_score(), get_institutional_accumulation(), get_signal_brief()
+      tier_4_regime_macro: Context gate. If deteriorating, no bottom strategy enters.
+        → HMM regime state, credit_regime, breadth_score, piotroski_f_score, yield curve
 
     Returns:
-        Dictionary with indicator categories and their indicators
+        Dictionary with indicator categories, tier classifications, and usage guidance
     """
     return {
         "total_indicators": 200,
+        "signal_hierarchy": {
+            "tier_1_retail": {
+                "description": "Retail noise — exit timing ONLY, never as primary entry gate",
+                "indicators": ["RSI", "MACD", "STOCH", "CCI", "WILLIAMS_R", "BBANDS",
+                               "ADX", "SMA_CROSSOVER", "OBV", "MFI", "EMA", "SAR",
+                               "all candlestick patterns"],
+                "permitted_uses": ["exit_timing", "rough_trend_context"],
+                "forbidden_uses": ["primary_entry_gate", "standalone_entry"],
+            },
+            "tier_2_smart_money": {
+                "description": "Order-flow derived — valid as secondary entry confirmation",
+                "indicators": ["FVG (Fair Value Gap)", "ORDER_BLOCKS", "CVD (Cumulative Volume Delta)",
+                               "VPIN", "WILLIAMS_VIX_FIX", "PERCENT_R_EXHAUSTION",
+                               "BOS_CHoCH (Break of Structure)", "SUPERTREND",
+                               "KYLE_LAMBDA", "HAWKES_INTENSITY", "BB_WIDTH_COMPRESSION"],
+                "permitted_uses": ["secondary_entry_confirmation", "setup_filter"],
+            },
+            "tier_3_institutional": {
+                "description": "Dealer/institutional positioning — PRIMARY entry gate (need ≥2)",
+                "indicators": ["GEX (Gamma Exposure)", "GAMMA_FLIP_LEVEL", "DEX (Delta Exposure)",
+                               "IV_SKEW_ZSCORE", "LSV_HERDING", "INSIDER_CLUSTER_SCORE",
+                               "INSTITUTIONAL_DIRECTION", "PUT_CALL_OI_RATIO",
+                               "CAPITULATION_SCORE (get_capitulation_score)",
+                               "ACCUMULATION_SCORE (get_institutional_accumulation)"],
+                "mcp_tools": ["get_capitulation_score", "get_institutional_accumulation",
+                              "get_signal_brief (opt_gex, opt_iv_skew_zscore, flow_signal)"],
+                "permitted_uses": ["primary_entry_gate"],
+            },
+            "tier_4_regime_macro": {
+                "description": "Context gate — if deteriorating, DO NOT enter any bottom strategy",
+                "indicators": ["HMM_REGIME", "HMM_STABILITY", "CREDIT_REGIME",
+                               "BREADTH_SCORE", "YIELD_CURVE_SLOPE", "MACRO_RATE_REGIME",
+                               "PIOTROSKI_F_SCORE", "EGARCH_REGIME"],
+                "mcp_tools": ["get_credit_market_signals", "get_market_breadth",
+                              "get_regime", "get_signal_brief (macro_rate_regime, breadth fields)"],
+                "permitted_uses": ["context_gate", "regime_filter"],
+            },
+        },
         "categories": {
             "moving_averages": {
+                "tier": "tier_1_retail",
                 "count": 10,
                 "indicators": [
-                    "SMA (Simple Moving Average)",
-                    "EMA (Exponential Moving Average)",
-                    "WMA (Weighted Moving Average)",
-                    "DEMA (Double EMA)",
-                    "TEMA (Triple EMA)",
-                    "TRIMA (Triangular MA)",
-                    "KAMA (Kaufman Adaptive MA)",
-                    "MAMA (MESA Adaptive MA)",
-                    "VWAP (Volume-Weighted Average Price)",
-                    "T3 (Triple Smooth EMA)",
+                    "SMA (Simple Moving Average) [tier_1: context only]",
+                    "EMA (Exponential Moving Average) [tier_1: context only]",
+                    "WMA (Weighted Moving Average) [tier_1: context only]",
+                    "DEMA (Double EMA) [tier_1: context only]",
+                    "TEMA (Triple EMA) [tier_1: context only]",
+                    "TRIMA (Triangular MA) [tier_1: context only]",
+                    "KAMA (Kaufman Adaptive MA) [tier_1: context only]",
+                    "MAMA (MESA Adaptive MA) [tier_1: context only]",
+                    "VWAP (Volume-Weighted Average Price) [tier_2: intraday reference]",
+                    "T3 (Triple Smooth EMA) [tier_1: context only]",
                 ],
             },
             "oscillators": {
-                "count": 23,
+                "tier": "tier_1_retail",
+                "warning": "RETAIL NOISE — exit timing only, never primary entry gate",
+                "count": 14,
                 "indicators": [
-                    "RSI (Relative Strength Index)",
-                    "MACD (Moving Average Convergence/Divergence)",
-                    "STOCH (Stochastic Oscillator)",
-                    "ADX (Average Directional Index)",
-                    "WILLIAMS_R (Williams %R)",
-                    "CCI (Commodity Channel Index)",
-                    "MFI (Money Flow Index)",
-                    "AROON (Aroon Indicator)",
-                    "ROC (Rate of Change)",
-                    "MOM (Momentum)",
-                    "PPO (Percentage Price Oscillator)",
-                    "CMO (Chande Momentum Oscillator)",
-                    "ULTOSC (Ultimate Oscillator)",
-                    "TRIX (Triple Smooth EMA Rate of Change)",
+                    "RSI [tier_1: exit timing only — RSI>70 take profit, RSI<30 means nothing alone]",
+                    "MACD [tier_1: lagging exit timing only]",
+                    "STOCH [tier_1: exit timing only — fires ~90% of time in OR-logic]",
+                    "ADX [tier_1: trend strength context only, not entry gate]",
+                    "WILLIAMS_R [tier_1: use PercentRExhaustion (tier_2) instead for exhaustion]",
+                    "CCI [tier_1: exit timing only]",
+                    "MFI [tier_1: use CVD (tier_2) instead for volume-price analysis]",
+                    "AROON [tier_1: lagging, not edge-generating]",
+                    "ROC [tier_1: momentum context only]",
+                    "MOM [tier_1: context only]",
+                    "PPO [tier_1: exit timing only]",
+                    "CMO [tier_1: exit timing only]",
+                    "ULTOSC [tier_1: exit timing only]",
+                    "TRIX [tier_1: exit timing only]",
                 ],
             },
             "volatility": {
                 "count": 8,
                 "indicators": [
-                    "ATR (Average True Range)",
-                    "NATR (Normalized ATR)",
-                    "BBANDS (Bollinger Bands)",
-                    "KELTNER (Keltner Channels)",
-                    "DONCHIAN (Donchian Channels)",
-                    "TRANGE (True Range)",
-                    "SAR (Parabolic SAR)",
-                    "REALIZED_VOL (Realized Volatility)",
+                    "ATR [tier_2 for RISK SIZING only — stop placement, position sizing]",
+                    "NATR [tier_2: normalized ATR for sizing]",
+                    "BBANDS [tier_1 as entry gate, tier_2 as compression SETUP FILTER only]",
+                    "KELTNER [tier_1: context only]",
+                    "DONCHIAN [tier_1: context only]",
+                    "TRANGE [tier_1: raw true range]",
+                    "SAR [tier_1: exit trailing stop only]",
+                    "REALIZED_VOL [tier_2: VRP computation input]",
                 ],
             },
             "volume": {
                 "count": 6,
                 "indicators": [
-                    "OBV (On-Balance Volume)",
-                    "AD (Accumulation/Distribution)",
-                    "ADOSC (AD Oscillator)",
-                    "CMF (Chaikin Money Flow)",
-                    "VWAP (Volume-Weighted Price)",
-                    "VOLUME_PROFILE (Volume Profile)",
+                    "OBV [tier_1: lagging, use CVD (tier_2) instead]",
+                    "AD [tier_1: lagging]",
+                    "ADOSC [tier_1: lagging]",
+                    "CMF [tier_1: lagging]",
+                    "VWAP [tier_2: intraday reference price]",
+                    "VOLUME_PROFILE [tier_2: identifies high-volume nodes for S/R]",
                 ],
             },
+            "smart_money_tier2": {
+                "tier": "tier_2_smart_money",
+                "description": "Valid as secondary entry confirmation",
+                "indicators": [
+                    "FAIR_VALUE_GAP (FVG) — bullish/bearish imbalance zones",
+                    "ORDER_BLOCKS — last opposing candle before institutional impulse",
+                    "BREAKER_BLOCKS — violated order blocks (shift in market structure)",
+                    "BOS_CHoCH — Break of Structure / Change of Character (trend confirmation)",
+                    "CVD (Cumulative Volume Delta) — buy/sell pressure from candle structure",
+                    "VPIN — informed trading probability (tick-level when available)",
+                    "HAWKES_INTENSITY — institutional order flow burst detection",
+                    "WILLIAMS_VIX_FIX — synthetic fear gauge. Extreme = washout signal",
+                    "PERCENT_R_EXHAUSTION — dual-timeframe bottom exhaustion",
+                    "SUPERTREND — better trend-following than SMA crossover",
+                    "KYLE_LAMBDA — price impact proxy (OHLCV approximation)",
+                    "LAGUERRE_RSI — reduced-lag momentum",
+                ],
+            },
+            "institutional_tier3": {
+                "tier": "tier_3_institutional",
+                "description": "PRIMARY entry gate — need ≥2 non-neutral for any strategy entry",
+                "indicators": [
+                    "GEX (Gamma Exposure) — positive=dealer long gamma=mean-reversion support",
+                    "GAMMA_FLIP_LEVEL — key strike where GEX crosses zero",
+                    "DEX (Delta Exposure) — net OI directional bias",
+                    "MAX_PAIN — option expiry gravitational target",
+                    "IV_SKEW_ZSCORE — put skew extreme (>2.0 = max fear = contrarian buy)",
+                    "VRP (Vol Risk Premium) — IV minus realized vol, elevated = edge for sellers",
+                    "LSV_HERDING — institutional crowding measure (13F-based)",
+                    "INSIDER_CLUSTER_SCORE — CEO/CFO-weighted insider buy ratio",
+                    "INSTITUTIONAL_DIRECTION — 13F ownership trend",
+                    "PUT_CALL_OI_RATIO — crowded short = squeeze fuel",
+                    "CAPITULATION_SCORE — composite washout score (get_capitulation_score)",
+                    "ACCUMULATION_SCORE — composite smart money accumulation (get_institutional_accumulation)",
+                ],
+                "mcp_tools": ["get_capitulation_score(symbol)", "get_institutional_accumulation(symbol)",
+                              "get_signal_brief(symbol) → opt_gex, opt_iv_skew_zscore, flow_signal"],
+            },
+            "regime_macro_tier4": {
+                "tier": "tier_4_regime_macro",
+                "description": "Context gate — deteriorating = block all bottom entries",
+                "indicators": [
+                    "HMM_REGIME — 4-state probabilistic regime (not binary ADX label)",
+                    "HMM_STABILITY — regime confidence score (>0.7 = confirmed)",
+                    "CREDIT_REGIME — HYG/LQD spread direction (get_credit_market_signals)",
+                    "BREADTH_SCORE — % sector ETFs above 50d SMA (get_market_breadth)",
+                    "BREADTH_DIVERGENCE — SPY at low but breadth stabilizing = hidden accumulation",
+                    "YIELD_CURVE_SLOPE — TLT/SHY proxy (steepening into selloff = bottom precursor)",
+                    "MACRO_RATE_REGIME — rate cycle position",
+                    "PIOTROSKI_F_SCORE — fundamental quality gate (≥7 for investment entries)",
+                    "EGARCH_REGIME — explosive vol (persistence>1.0 = widen stops, reduce size)",
+                ],
+                "mcp_tools": ["get_credit_market_signals()", "get_market_breadth()",
+                              "get_regime(symbol)", "get_signal_brief(symbol) → macro fields"],
+            },
             "market_structure": {
+                "tier": "tier_2_smart_money",
                 "count": 10,
                 "indicators": [
-                    "SWING_HIGH",
-                    "SWING_LOW",
-                    "SUPPORT_LEVELS",
-                    "RESISTANCE_LEVELS",
-                    "HH (Higher High)",
-                    "HL (Higher Low)",
-                    "LH (Lower High)",
-                    "LL (Lower Low)",
-                    "TREND_DIRECTION",
-                    "BREAKOUT_SIGNALS",
+                    "SWING_HIGH [tier_2: institutional structure]",
+                    "SWING_LOW [tier_2: institutional structure]",
+                    "SUPPORT_LEVELS [tier_2: key price memory]",
+                    "RESISTANCE_LEVELS [tier_2: key price memory]",
+                    "HH/HL/LH/LL [tier_2: trend structure]",
+                    "TREND_DIRECTION [tier_2: structural trend]",
+                    "BREAKOUT_SIGNALS [tier_2: structure break]",
                 ],
             },
             "candlestick_patterns": {
+                "tier": "tier_1_retail",
+                "warning": "RETAIL NOISE — widely known, low edge standalone",
                 "count": 40,
                 "indicators": [
-                    "DOJI",
-                    "HAMMER",
-                    "ENGULFING",
-                    "MORNING_STAR",
-                    "EVENING_STAR",
-                    "THREE_WHITE_SOLDIERS",
-                    "THREE_BLACK_CROWS",
-                    "SPINNING_TOP",
-                    "MARUBOZU",
-                    "HARAMI",
-                    "... and 30+ more patterns",
-                ],
-            },
-            "advanced": {
-                "count": 15,
-                "indicators": [
-                    "ELLIOTT_WAVE",
-                    "GANN_ANGLES",
-                    "TRENDLINES",
-                    "FIBONACCI_LEVELS",
-                    "ZSCORE",
-                    "MEAN_REVERSION_SIGNAL",
+                    "DOJI, HAMMER, ENGULFING, MORNING_STAR, EVENING_STAR [tier_1: context only]",
+                    "Use FVG and Order Blocks (tier_2) instead for institutional-grade structure",
+                    "... and 35+ more patterns (all tier_1)",
                 ],
             },
         },
     }
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def compute_feature_matrix(
     symbol: str,
@@ -372,6 +480,7 @@ async def compute_feature_matrix(
         store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def compute_quantagent_features(
     symbol: str,

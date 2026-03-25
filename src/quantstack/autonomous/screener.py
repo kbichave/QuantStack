@@ -30,8 +30,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 import numpy as np
 
@@ -93,7 +94,7 @@ class AutonomousScreener:
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         active_regimes: list[str] | None = None,
     ) -> None:
         self._conn = conn

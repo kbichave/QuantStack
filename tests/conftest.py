@@ -83,7 +83,7 @@ def test_data_dir(project_root: Path) -> Path:
 
 @pytest.fixture
 def temp_db(tmp_path: Path) -> Generator[Path, None, None]:
-    """Create a temporary DuckDB database for testing."""
+    """Create a temporary DuckDB database path for analytics tests."""
     db_path = tmp_path / "test.duckdb"
     yield db_path
     # Cleanup handled by tmp_path fixture
@@ -97,10 +97,11 @@ def temp_db(tmp_path: Path) -> Generator[Path, None, None]:
 @pytest.fixture
 def trading_ctx():
     """
-    Fully-wired TradingContext backed by an in-memory DuckDB.
+    Fully-wired TradingContext backed by an in-memory DuckDB (db_path=":memory:").
 
     Each test gets a completely fresh, isolated context — no shared state,
-    no file system side-effects, no interaction with production data.
+    no file system side-effects, no interaction with production data or PostgreSQL.
+    The ":memory:" path uses a DuckDB in-memory connection via PgConnection._from_memory().
 
     Use this as the entry point for all trading-system tests:
 
@@ -114,7 +115,6 @@ def trading_ctx():
         session_id=str(uuid.uuid4()),
     )
     yield ctx
-    # DuckDB in-memory connections are GC'd automatically; explicit close for safety
     try:
         ctx.db.close()
     except Exception:
@@ -190,17 +190,13 @@ def reset_singletons_and_seeds() -> Generator[None, None, None]:
 
     yield
 
-    # Reset ALL module-level singletons so tests are fully isolated.
-    # Without this, earlier tests pollute global state for later tests.
+    # Reset module-level singletons so tests are fully isolated.
     _rg._risk_gate = None
     _ps._portfolio_state = None
     _ps._portfolio_state_ro = None
-    _db._managed = None
 
     try:
         _mcp_state._ctx = None
-        _mcp_state._degraded = False
-        _mcp_state._degraded_reason = ""
     except Exception:
         pass
 

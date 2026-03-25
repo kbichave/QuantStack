@@ -20,13 +20,13 @@ Design invariants:
 import json
 from typing import Any
 
-import litellm
+# litellm (~1.1s) and transformers (~1.0s) deferred to backend functions.
 from loguru import logger
 
 from quantstack.llm_config import get_llm_for_role
 from quantstack.mcp.server import mcp
-
-from transformers import pipeline as _transformers_pipeline
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 
 _MAX_TEXT_CHARS = 2000
 _GROQ_MODEL_DEFAULT = "groq/llama-3.3-70b-versatile"
@@ -65,6 +65,7 @@ def _groq_sentiment(text: str) -> dict[str, Any]:
         "No markdown, no explanation, no text outside the JSON object."
     )
 
+    import litellm  # noqa: PLC0415
     response = litellm.completion(
         model=model,
         messages=[
@@ -129,6 +130,7 @@ def _parse_groq_response(raw: str) -> dict[str, Any]:
 def _finbert_sentiment(text: str) -> dict[str, Any]:
     """Run sentiment analysis via HuggingFace FinBERT."""
     truncated = text[:_MAX_TEXT_CHARS]
+    from transformers import pipeline as _transformers_pipeline  # noqa: PLC0415
     classifier = _transformers_pipeline(
         "sentiment-analysis",
         model="ProsusAI/finbert",
@@ -157,6 +159,7 @@ def _finbert_sentiment(text: str) -> dict[str, Any]:
     }
 
 
+@domain(Domain.INTEL)
 @mcp.tool()
 async def analyze_text_sentiment(
     text: str,

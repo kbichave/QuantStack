@@ -1,22 +1,72 @@
 {
   "mcpServers": {
-    "quantpod": {
+    "quantstack": {
       "type": "stdio",
-      "command": "/path/to/your/repo/.venv/bin/python",
-      "args": ["-m", "quant_pod.mcp.server"],
-      "cwd": "/path/to/your/repo",
+      "command": "/path/to/venv/bin/quantstack-mcp",
+      "cwd": "/path/to/repo",
       "env": {
-        "PYTHONPATH": "/path/to/your/repo/packages"
+        "TRADER_PG_URL": "postgresql://localhost/quantpod"
       }
     },
-    "quantcore": {
+    "quantstack-execution": {
       "type": "stdio",
-      "command": "/path/to/your/repo/.venv/bin/python",
-      "args": ["-m", "quantcore.mcp.server"],
-      "cwd": "/path/to/your/repo",
-      "env": {
-        "PYTHONPATH": "/path/to/your/repo/packages"
-      }
+      "command": "/path/to/venv/bin/quantstack-execution",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-portfolio": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-portfolio",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-signals": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-signals",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-data": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-data",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-research": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-research",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-options": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-options",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-ml": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-ml",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-finrl": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-finrl",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-intel": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-intel",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
+    },
+    "quantstack-risk": {
+      "type": "stdio",
+      "command": "/path/to/venv/bin/quantstack-risk",
+      "cwd": "/path/to/repo",
+      "env": { "TRADER_PG_URL": "postgresql://localhost/quantpod" }
     }
   }
 }

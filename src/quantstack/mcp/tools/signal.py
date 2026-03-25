@@ -24,11 +24,12 @@ from quantstack.mcp._state import (
     _read_memory_file,
     _serialize,
     ic_cache_set,
-    is_degraded,
     require_ctx,
 )
 from quantstack.mcp.server import mcp
-from quantstack.signal_engine import SignalEngine
+from quantstack.mcp.tools._registry import domain
+from quantstack.mcp.domains import Domain
+# SignalEngine deferred — pulls litellm+transformers (~1.5s).
 
 
 # =============================================================================
@@ -36,6 +37,7 @@ from quantstack.signal_engine import SignalEngine
 # =============================================================================
 
 
+@domain(Domain.SIGNALS, Domain.INTEL)
 @mcp.tool()
 async def get_signal_brief(
     symbol: str,
@@ -43,12 +45,17 @@ async def get_signal_brief(
     include_strategy_context: bool = True,
 ) -> dict[str, Any]:
     """
-    Run SignalEngine analysis for a symbol and return a DailyBrief-compatible dict.
+    Run all 15 signal collectors for a single symbol and return a unified DailyBrief.
 
-    Replaces run_analysis as the primary analysis tool.
-    - No CrewAI. No Ollama. No LLM in the analysis path.
-    - Runs in 2–6 seconds (vs 3–5 minutes with TradingCrew).
-    - Output schema is identical to run_analysis for backward compatibility.
+    WHEN TO USE: First tool to call when evaluating any symbol — entries, exits,
+    or monitoring. Provides the composite signal picture that every downstream
+    decision (debate, sizing, instrument selection) depends on.
+    WHEN NOT TO USE: Do not call for symbols you have already briefed this
+    iteration unless regime has changed.  Use run_multi_signal_brief when
+    scanning 3+ symbols.
+    SIGNAL TIER: Aggregates all tiers (tier_1_retail through tier_4_regime_macro).
+    WORKFLOW: get_regime (optional) → THIS → trade-debater / position-monitor
+    RELATED: run_multi_signal_brief, get_regime, get_portfolio_state
 
     Args:
         symbol: Ticker symbol (e.g., "SPY", "XOM").
@@ -82,6 +89,7 @@ async def get_signal_brief(
         }
 
     try:
+        from quantstack.signal_engine import SignalEngine  # noqa: PLC0415
         engine = SignalEngine()
         brief = await engine.run(symbol, regime=regime)
 
@@ -125,16 +133,24 @@ async def get_signal_brief(
 # =============================================================================
 
 
+@domain(Domain.SIGNALS)
 @mcp.tool()
 async def run_multi_signal_brief(
     symbols: list[str],
     regime: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Run SignalEngine for multiple symbols with bounded concurrency.
+    Run SignalEngine for multiple symbols in parallel with bounded concurrency.
 
-    Replaces run_multi_analysis.  Runs up to 5 symbols in parallel;
-    larger lists are automatically batched.
+    WHEN TO USE: Scanning a watchlist or universe of 3+ symbols at once.
+    Prefer this over looping get_signal_brief — it batches API calls and
+    runs up to 5 symbols concurrently.
+    WHEN NOT TO USE: For a single symbol use get_signal_brief (avoids
+    list overhead). Do not use for > 20 symbols in one call — split into
+    batches yourself to stay within Alpha Vantage rate limits.
+    SIGNAL TIER: Aggregates all tiers per symbol.
+    WORKFLOW: get_regime (optional, shared) → THIS → filter candidates → trade-debater
+    RELATED: get_signal_brief, get_regime
 
     Args:
         symbols: List of ticker symbols (e.g., ["SPY", "XOM", "MSFT"]).
@@ -165,6 +181,7 @@ async def run_multi_signal_brief(
         }
 
     try:
+        from quantstack.signal_engine import SignalEngine  # noqa: PLC0415
         engine = SignalEngine()
         clean_symbols = [s.upper().strip() for s in symbols]
         briefs = await engine.run_multi(clean_symbols, max_concurrent=5)

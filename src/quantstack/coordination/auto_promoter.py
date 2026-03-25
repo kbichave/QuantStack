@@ -28,8 +28,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 
 @dataclass
@@ -82,7 +83,7 @@ class AutoPromoter:
     Evaluates forward_testing strategies for autonomous promotion to live.
 
     Args:
-        conn: DuckDB write connection.
+        conn: PostgreSQL connection.
         criteria: Promotion thresholds (defaults to PromotionCriteria()).
         event_bus: EventBus for publishing promotion events.
         strategy_lock: StrategyStatusLock for atomic transitions.
@@ -90,7 +91,7 @@ class AutoPromoter:
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         criteria: PromotionCriteria | None = None,
         event_bus: Any | None = None,
         strategy_lock: Any | None = None,

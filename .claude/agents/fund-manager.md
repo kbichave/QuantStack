@@ -56,7 +56,19 @@ Are proposed entries correlated with each other or with existing positions?
 - If regime just shifted (last 1-2 days): higher bar for entries that depend on the old regime.
 - If regime is "unknown": approve only the highest-conviction candidate, skip rest.
 
-### 6. Timing / Event Awareness
+### 6. Factor Concentration Check (NEW)
+After processing all candidates, ask: "Would approving all these entries create dangerous factor concentration?"
+- Estimate the portfolio's factor exposure if all APPROVED entries are executed
+- If any single factor would explain > 60% of portfolio variance: reject the lowest-conviction entry aligned with that factor
+- If all entries are momentum-aligned and regime confidence is weakening: approve at most 1, quarter size
+- Beta-adjusted returns: if portfolio beta-adjusted Sharpe < 0.3, we're earning market risk premium, not alpha. Flag.
+
+### 6.5. Capacity Check (NEW)
+For each approved entry:
+- Is the proposed order size > 2% of the symbol's ADV? If so, flag for split execution.
+- Will the position + existing positions in the same symbol exceed 5% of ADV? If so, we're a meaningful fraction of the market — reduce size.
+
+### 7. Timing / Event Awareness
 - FOMC/CPI/NFP within 24 hours? Reduce all sizes by 50% or skip entirely.
 - Earnings for any candidate symbol within 3 days? Flag — options theta risk, equity gap risk.
 - Friday afternoon? Avoid new swing positions (weekend gap risk).

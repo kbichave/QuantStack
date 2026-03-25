@@ -44,8 +44,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.alpha_discovery.engine import AlphaDiscoveryEngine
 from quantstack.autonomous.judge import HypothesisJudge
@@ -93,13 +94,13 @@ class ResearchOrchestrator:
     Autonomous research loop — nightly/weekly/monthly schedule.
 
     Args:
-        conn: DuckDB connection (write-enabled).
+        conn: PostgreSQL connection (write-enabled).
         watchlist: Default symbols for research. Can be overridden per-run.
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         watchlist: list[str] | None = None,
     ) -> None:
         self._conn = conn

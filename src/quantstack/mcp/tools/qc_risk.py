@@ -20,12 +20,16 @@ from quantstack.core.options.pricing import black_scholes_price
 from quantstack.core.risk.position_sizing import ATRPositionSizer
 from quantstack.core.risk.stress_testing import STRESS_SCENARIOS
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 # =============================================================================
 # RISK TOOLS
 # =============================================================================
 
 
+@domain(Domain.RISK)
 @mcp.tool()
 async def compute_position_size(
     equity: float,
@@ -91,6 +95,7 @@ async def compute_position_size(
         return {"error": str(e)}
 
 
+@domain(Domain.RISK)
 @mcp.tool()
 async def compute_max_drawdown(
     equity_curve: list[float],
@@ -148,6 +153,7 @@ async def compute_max_drawdown(
         return {"error": str(e)}
 
 
+@domain(Domain.RISK)
 @mcp.tool()
 async def compute_var(
     returns: list[float],
@@ -238,6 +244,7 @@ async def compute_var(
         return {"error": str(e)}
 
 
+@domain(Domain.RISK)
 @mcp.tool()
 async def stress_test_portfolio(
     positions: list[dict[str, Any]],
@@ -357,6 +364,7 @@ async def stress_test_portfolio(
         return {"error": str(e)}
 
 
+@domain(Domain.RISK)
 @mcp.tool()
 async def check_risk_limits(
     equity: float,

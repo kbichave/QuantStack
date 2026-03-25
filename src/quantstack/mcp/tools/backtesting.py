@@ -25,7 +25,8 @@ from quantstack.config.timeframes import Timeframe
 from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
 from quantstack.core.features.technical_indicators import TechnicalIndicators
 from quantstack.core.validation.purged_cv import WalkForwardValidator
-from quantstack.data.storage import DataStore
+from quantstack.data.storage import DataStore  # noqa: F401
+from quantstack.mcp._helpers import _get_reader
 from quantstack.mcp._state import require_ctx, live_db_or_error, _serialize
 from quantstack.mcp.tools.strategy import _get_strategy_impl
 from quantstack.mcp.server import mcp
@@ -34,6 +35,8 @@ from quantstack.mcp.server import mcp
 # =============================================================================
 # Private Helpers — re-exported from strategies.signal_generator
 # =============================================================================
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 from quantstack.strategies.signal_generator import (
     generate_signals_from_rules as _generate_signals_from_rules,
     evaluate_rule as _evaluate_rule,
@@ -57,6 +60,7 @@ def _calc_quantity_from_size(
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_backtest(
     strategy_id: str,
@@ -164,13 +168,16 @@ async def run_backtest(
             "trades": result.trades,
         }
 
-        # 6. Persist summary on strategy record
+        # 6. Persist summary on strategy record (includes full trades list for DB storage)
         ctx.db.execute(
             "UPDATE strategies SET backtest_summary = ?, status = CASE WHEN status = 'draft' THEN 'backtested' ELSE status END, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
             [_json.dumps(summary), strategy_id],
         )
 
-        return {"success": True, **summary, "strategy_id": strategy_id}
+        # Return metrics only — omit trades list to keep response within token limits.
+        # Use get_strategy to inspect individual trades from the stored backtest_summary.
+        summary_return = {k: v for k, v in summary.items() if k != "trades"}
+        return {"success": True, **summary_return, "strategy_id": strategy_id}
 
     except Exception as e:
         logger.error(f"[quantpod_mcp] run_backtest failed: {e}")
@@ -182,6 +189,7 @@ async def run_backtest(
         }
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_backtest_mtf(
     strategy_id: str,
@@ -252,10 +260,16 @@ async def run_backtest_mtf(
 
         # 2. Load and compute indicators for both timeframes
         tf_map = {
+            "1w": Timeframe.W1,
+            "w1": Timeframe.W1,
+            "weekly": Timeframe.W1,
             "1d": Timeframe.D1,
+            "d1": Timeframe.D1,
             "daily": Timeframe.D1,
             "4h": Timeframe.H4,
+            "h4": Timeframe.H4,
             "1h": Timeframe.H1,
+            "h1": Timeframe.H1,
         }
         setup_tf = tf_map.get(setup_tf_str)
         trigger_tf = tf_map.get(trigger_tf_str)
@@ -266,9 +280,8 @@ async def run_backtest_mtf(
             }
 
         def _load_with_indicators(sym, tf_enum):
-            store = DataStore(read_only=True)
+            store = _get_reader()
             df = store.load_ohlcv(sym, tf_enum)
-            store.close()
             if df.empty:
                 return df
             ti = TechnicalIndicators(tf_enum)
@@ -490,6 +503,7 @@ async def run_backtest_mtf(
         }
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_walkforward(
     strategy_id: str,
@@ -560,10 +574,18 @@ async def run_walkforward(
         n = len(price_data)
         total_needed = min_train_size + n_splits * test_size
         if n < total_needed:
-            return {
-                "success": False,
-                "error": f"Insufficient data: need {total_needed} bars, have {n}",
-            }
+            # Auto-scale parameters to fit available data instead of hard-failing.
+            suggested_train = max(126, n // 3)
+            suggested_test = max(63, n // 6)
+            suggested_splits = max(2, (n - suggested_train) // suggested_test)
+            logger.warning(
+                f"[walkforward] Insufficient data for {symbol}: need {total_needed}, have {n}. "
+                f"Auto-adjusting to min_train_size={suggested_train}, "
+                f"test_size={suggested_test}, n_splits={suggested_splits}."
+            )
+            min_train_size = suggested_train
+            test_size = suggested_test
+            n_splits = suggested_splits
 
         # 3. Walk-forward splits
         config = BacktestConfig(
@@ -746,6 +768,7 @@ async def run_walkforward(
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_walkforward_mtf(
     strategy_id: str,
@@ -937,6 +960,7 @@ async def run_walkforward_mtf(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def walk_forward_sparse_signal(
     strategy_id: str,
@@ -1084,6 +1108,7 @@ async def walk_forward_sparse_signal(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_backtest_options(
     strategy_id: str,

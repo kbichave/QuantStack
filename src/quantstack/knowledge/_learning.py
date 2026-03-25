@@ -8,8 +8,9 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.knowledge.models import TradeStatus
 
@@ -17,7 +18,7 @@ from quantstack.knowledge.models import TradeStatus
 class LearningMixin:
     """Historical alpha arena, agentic learning, and portfolio snapshot operations."""
 
-    conn: duckdb.DuckDBPyConnection
+    conn: PgConnection
 
     # =========================================================================
     # HISTORICAL ALPHA ARENA OPERATIONS

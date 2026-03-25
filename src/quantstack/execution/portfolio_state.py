@@ -34,11 +34,10 @@ from datetime import date, datetime
 from threading import RLock
 from typing import Any
 
-import duckdb
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from quantstack.db import open_db, open_db_readonly, run_migrations
+from quantstack.db import PgConnection, open_db, run_migrations
 from quantstack.execution.hook_registry import fire as _fire_hook
 
 # =============================================================================
@@ -118,7 +117,7 @@ class PortfolioSnapshot(BaseModel):
 
 class PortfolioState:
     """
-    DuckDB-backed portfolio state.
+    PostgreSQL-backed portfolio state.
 
     Thread-safe. Survives process restarts. Injected into every crew run
     as immutable context so agents know what they currently hold.
@@ -126,7 +125,7 @@ class PortfolioState:
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection | None = None,
+        conn: PgConnection | None = None,
         initial_cash: float = 100_000.0,
         # Legacy parameter kept for backward compatibility — ignored when conn is provided
         db_path: str | None = None,
@@ -158,7 +157,7 @@ class PortfolioState:
     # -------------------------------------------------------------------------
 
     @property
-    def conn(self) -> duckdb.DuckDBPyConnection:
+    def conn(self) -> PgConnection:
         return self._conn
 
     def _seed_cash(self) -> None:

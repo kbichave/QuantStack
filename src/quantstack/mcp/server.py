@@ -7,26 +7,27 @@ QuantPod MCP Server — slim hub.
 Defines the FastMCP ``mcp`` singleton and ``lifespan``, then imports tool
 modules so their ``@mcp.tool()`` decorators register automatically.
 
+No ``_PatchedFastMCP`` or ``auto_release_db`` — those wrappers existed solely
+to release DuckDB's exclusive file lock between tool calls.  PostgreSQL handles
+concurrent access natively so no per-tool lock management is needed.
+
 Usage:
     quantpod-mcp   (via pyproject.toml entry point)
-    python -m quant_pod.mcp.server
+    python -m quantstack.mcp.server
 """
 
-import functools
 import sys
 from contextlib import asynccontextmanager
-from typing import Any
 
 from fastmcp import FastMCP
 from loguru import logger
 
 from quantstack.config.settings import get_settings
-from quantstack.context import TradingContext, create_trading_context
-from quantstack.core.features.factory import MultiTimeframeFeatureFactory
+# context (~1.1s) and features.factory (~0.8s) deferred to lifespan — only needed after handshake.
+from quantstack.data.pg_storage import PgDataStore
 from quantstack.data.registry import DataProviderRegistry
-from quantstack.data.storage import DataStore
 from quantstack.mcp._helpers import ServerContext, set_shared_reader
-from quantstack.mcp._state import auto_release_db, set_ctx, set_degraded
+from quantstack.mcp._state import set_ctx
 
 
 # =============================================================================
@@ -39,39 +40,23 @@ async def lifespan(server: FastMCP):
     """Initialize TradingContext + research infrastructure on startup."""
     logger.info("QuantPod MCP Server starting...")
 
-    # --- Trading context (execution, portfolio, signals) ---
-    try:
-        ctx = create_trading_context()
-        set_ctx(ctx)
-        set_degraded(False)
-        logger.info(f"Trading context initialized | session={ctx.session_id}")
-    except RuntimeError as exc:
-        msg = str(exc)
-        if "lock" in msg.lower():
-            logger.warning(f"[MCP] DB lock conflict — degraded mode. {msg}")
-            ctx = create_trading_context(db_path=":memory:")
-            set_ctx(ctx)
-            set_degraded(True, msg)
-        else:
-            raise
+    from quantstack.context import create_trading_context  # noqa: PLC0415
+    from quantstack.core.features.factory import MultiTimeframeFeatureFactory  # noqa: PLC0415
 
-    # --- Research infrastructure (DataStore, FeatureFactory, DataRegistry) ---
+    # PostgreSQL never holds exclusive file locks — startup always succeeds
+    # as long as the PostgreSQL daemon is running.
+    ctx = create_trading_context()
+    set_ctx(ctx)
+    logger.info(f"Trading context initialized | session={ctx.session_id}")
+
+    # --- Research infrastructure (PgDataStore, FeatureFactory, DataRegistry) ---
     settings = get_settings()
     research_ctx = ServerContext(settings=settings)
 
-    try:
-        writer = DataStore()
-        writer.close()
-    except RuntimeError as exc:
-        logger.warning(f"DuckDB write lock conflict during schema init — OK. {exc}")
-
-    try:
-        research_ctx.data_store = DataStore(read_only=True)
-        set_shared_reader(research_ctx.data_store)
-        logger.info("DataStore opened read-only for research tools.")
-    except Exception as ro_exc:
-        logger.error(f"Read-only DataStore failed: {ro_exc}.")
-        research_ctx.data_store = None
+    # PgDataStore is stateless — no persistent connection to open or fail.
+    research_ctx.data_store = PgDataStore()
+    set_shared_reader(research_ctx.data_store)
+    logger.info("PgDataStore initialized for research tools.")
 
     research_ctx.feature_factory = MultiTimeframeFeatureFactory(
         include_rrg=False,
@@ -85,47 +70,14 @@ async def lifespan(server: FastMCP):
 
     yield
 
-    if research_ctx.data_store:
-        research_ctx.data_store.close()
     logger.info("QuantPod MCP Server stopped")
 
 
 # =============================================================================
-# FastMCP Singleton — patched to auto-release DB after every tool call
+# FastMCP Singleton
 # =============================================================================
 
-_FastMCP = FastMCP
-
-
-class _PatchedFastMCP(_FastMCP):
-    """FastMCP subclass that wraps every tool with ``auto_release_db``.
-
-    After each tool function returns, the DuckDB file lock is released so
-    other processes can access the database between tool calls.
-    """
-
-    def tool(self, name_or_fn=None, **kwargs):
-        # Case 1: @mcp.tool  (no parens, fn passed directly)
-        if callable(name_or_fn):
-            fn = name_or_fn
-            wrapped = auto_release_db(fn)
-            functools.update_wrapper(wrapped, fn)
-            super().tool(wrapped, **kwargs)
-            return wrapped  # return the callable, not the FunctionTool
-
-        # Case 2: @mcp.tool() or @mcp.tool("name") — returns a decorator
-        decorator = super().tool(name_or_fn, **kwargs)
-
-        def patched_decorator(fn):
-            wrapped = auto_release_db(fn)
-            functools.update_wrapper(wrapped, fn)
-            decorator(wrapped)
-            return wrapped  # return the callable, not the FunctionTool
-
-        return patched_decorator
-
-
-mcp = _PatchedFastMCP(
+mcp = FastMCP(
     name="QuantPod",
     instructions=(
         "QuantPod MCP server — unified quantitative trading platform. "
@@ -198,6 +150,16 @@ from quantstack.mcp.tools.attribution import (  # noqa: E402, F401
     get_daily_equity,
     get_strategy_pnl,
 )
+from quantstack.mcp.tools.alerts import (  # noqa: E402, F401
+    create_equity_alert,
+    get_equity_alerts,
+    update_alert_status,
+    create_exit_signal,
+    add_alert_update,
+)
+from quantstack.mcp.tools.cross_domain import (  # noqa: E402, F401
+    get_cross_domain_intel,
+)
 import quantstack.mcp.tools.finrl_tools  # noqa: E402, F401
 from quantstack.mcp.tools.feedback import (  # noqa: E402, F401
     get_fill_quality,
@@ -218,6 +180,11 @@ from quantstack.mcp.tools.portfolio import (  # noqa: E402, F401
 )
 from quantstack.mcp.tools.nlp import analyze_text_sentiment  # noqa: E402, F401
 import quantstack.mcp.tools.coordination  # noqa: E402, F401
+
+# --- Institutional-grade bottom detection tools ---
+import quantstack.mcp.tools.capitulation  # noqa: E402, F401
+import quantstack.mcp.tools.institutional_accumulation  # noqa: E402, F401
+import quantstack.mcp.tools.macro_signals  # noqa: E402, F401
 
 # --- Research tools (formerly quantcore MCP) ---
 import quantstack.mcp.tools.qc_data  # noqa: E402, F401

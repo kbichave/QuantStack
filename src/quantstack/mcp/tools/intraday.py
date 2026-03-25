@@ -19,7 +19,9 @@ from quantstack.core.execution.algo_selector import select_algo
 from quantstack.core.execution.tca_storage import TCAStore
 from quantstack.intraday.loop import LiveIntradayLoop
 from quantstack.mcp._state import _serialize
+from quantstack.mcp.domains import Domain
 from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._registry import domain
 
 
 # =============================================================================
@@ -27,6 +29,7 @@ from quantstack.mcp.server import mcp
 # =============================================================================
 
 
+@domain(Domain.SIGNALS)
 @mcp.tool()
 async def get_intraday_status() -> dict[str, Any]:
     """
@@ -102,6 +105,7 @@ async def get_intraday_status() -> dict[str, Any]:
 # =============================================================================
 
 
+@domain(Domain.SIGNALS, Domain.PORTFOLIO)
 @mcp.tool()
 async def get_tca_report(
     lookback_days: int = 30,
@@ -139,6 +143,7 @@ async def get_tca_report(
 # =============================================================================
 
 
+@domain(Domain.SIGNALS, Domain.EXECUTION)
 @mcp.tool()
 async def get_algo_recommendation(
     symbol: str,

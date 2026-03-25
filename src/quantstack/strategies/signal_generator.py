@@ -266,6 +266,7 @@ def _simulate_exits(
     entry_bar = 0
     entry_price = 0.0
     entry_atr = 0.0
+    entry_direction = "LONG"
 
     for i in range(len(df)):
         if not in_position:
@@ -274,6 +275,7 @@ def _simulate_exits(
                 entry_bar = i
                 entry_price = closes[i]
                 entry_atr = atrs[i] if not np.isnan(atrs[i]) else 0.0
+                entry_direction = dir_vals[i]
         else:
             bars_held = i - entry_bar
             should_exit = False
@@ -281,11 +283,19 @@ def _simulate_exits(
             if time_stop_days and bars_held >= time_stop_days:
                 should_exit = True
             if tp_atr_mult and entry_atr > 0 and not should_exit:
-                if highs[i] >= entry_price + tp_atr_mult * entry_atr:
-                    should_exit = True
+                if entry_direction == "SHORT":
+                    if lows[i] <= entry_price - tp_atr_mult * entry_atr:
+                        should_exit = True
+                else:
+                    if highs[i] >= entry_price + tp_atr_mult * entry_atr:
+                        should_exit = True
             if sl_atr_mult and entry_atr > 0 and not should_exit:
-                if lows[i] <= entry_price - sl_atr_mult * entry_atr:
-                    should_exit = True
+                if entry_direction == "SHORT":
+                    if highs[i] >= entry_price + sl_atr_mult * entry_atr:
+                        should_exit = True
+                else:
+                    if lows[i] <= entry_price - sl_atr_mult * entry_atr:
+                        should_exit = True
 
             if should_exit:
                 sig_vals[i] = 0
@@ -293,7 +303,7 @@ def _simulate_exits(
                 in_position = False
             else:
                 sig_vals[i] = 1
-                dir_vals[i] = "LONG"
+                dir_vals[i] = entry_direction
 
     signals["signal"] = sig_vals
     signals["signal_direction"] = dir_vals
@@ -359,15 +369,23 @@ def evaluate_rule(
     if condition == "within_pct":
         return series.abs() <= float(value)
 
-    value = float(value)
+    # Support column references (e.g. value="sma_50" means compare against df["sma_50"])
+    def _resolve(v: Any) -> "pd.Series | float":
+        if isinstance(v, str) and not v.replace(".", "", 1).replace("-", "", 1).isdigit():
+            return df[v] if v in df.columns else pd.Series(float("nan"), index=df.index)
+        return float(v)
+
+    rhs = _resolve(value)
     if condition in ("above", "greater_than"):
-        return series > value
+        return series > rhs
     elif condition in ("below", "less_than"):
-        return series < value
+        return series < rhs
     elif condition == "crosses_above":
-        return (series.shift(1) <= value) & (series > value)
+        rhs_prev = rhs.shift(1) if isinstance(rhs, pd.Series) else rhs
+        return (series.shift(1) <= rhs_prev) & (series > rhs)
     elif condition == "crosses_below":
-        return (series.shift(1) >= value) & (series < value)
+        rhs_prev = rhs.shift(1) if isinstance(rhs, pd.Series) else rhs
+        return (series.shift(1) >= rhs_prev) & (series < rhs)
     elif condition == "between":
         upper = float(rule.get("upper", value))
         lower = float(rule.get("lower", 0))

@@ -19,8 +19,12 @@ from loguru import logger
 
 from quantstack.mcp._state import live_db_or_error
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 
 
+
+@domain(Domain.PORTFOLIO)
 @mcp.tool()
 async def get_daily_equity(
     start_date: str = "",
@@ -93,6 +97,7 @@ async def get_daily_equity(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.PORTFOLIO)
 @mcp.tool()
 async def get_strategy_pnl(
     strategy_id: str = "",

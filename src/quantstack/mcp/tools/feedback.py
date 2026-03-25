@@ -16,8 +16,9 @@ from typing import Any
 from loguru import logger
 
 from quantstack.agents.regime_detector import RegimeDetectorAgent
-from quantstack.data.storage import DataStore
+from quantstack.data.storage import DataStore  # noqa: F401
 from quantstack.config.timeframes import Timeframe as _TF
+from quantstack.mcp._helpers import _get_reader
 from quantstack.mcp._state import (
     _serialize,
     live_db_or_error,
@@ -25,6 +26,9 @@ from quantstack.mcp._state import (
     require_live_db,
 )
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 
 # =============================================================================
@@ -32,6 +36,7 @@ from quantstack.mcp.server import mcp
 # =============================================================================
 
 
+@domain(Domain.PORTFOLIO, Domain.SIGNALS)
 @mcp.tool()
 async def get_fill_quality(order_id: str) -> dict[str, Any]:
     """
@@ -81,7 +86,7 @@ async def get_fill_quality(order_id: str) -> dict[str, Any]:
         vwap: float | None = None
         fill_vs_vwap_bps: float | None = None
         try:
-            store = DataStore(read_only=True)
+            store = _get_reader()
             df = store.load_ohlcv(symbol, _TF.D1)
             if df is not None and not df.empty and "vwap" in df.columns:
                 fill_date = str(filled_at)[:10]
@@ -120,6 +125,7 @@ async def get_fill_quality(order_id: str) -> dict[str, Any]:
         return {"success": False, "error": str(e), "order_id": order_id}
 
 
+@domain(Domain.PORTFOLIO, Domain.SIGNALS)
 @mcp.tool()
 async def get_position_monitor(symbol: str) -> dict[str, Any]:
     """

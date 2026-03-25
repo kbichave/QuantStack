@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Compliance audit trail — append-only DuckDB log of all agent decisions.
+Compliance audit trail — append-only log of all agent decisions.
 
 Every IC analysis, pod synthesis, assistant brief, SuperTrader decision,
 and execution/rejection event is written here in full. No deletes.
 
 Key properties:
   - Append-only: no UPDATE or DELETE operations, ever
-  - Queryable: DuckDB supports full SQL queries on the log
+  - Queryable: full SQL queries on the log via PostgreSQL
   - Human-readable: output_summary is plain text, auditable without tools
   - Immutable context hash: SHA256 of inputs so data integrity is provable
 
@@ -40,12 +40,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import uuid
-from pathlib import Path
 from threading import Lock
 
-import duckdb
 from loguru import logger
 
 from quantstack.audit.models import (
@@ -54,7 +51,7 @@ from quantstack.audit.models import (
     IndicatorAttribution,
     ToolCall,
 )
-from quantstack.db import open_db_readonly
+from quantstack.db import PgConnection, open_db_readonly
 
 # =============================================================================
 # DECISION LOG
@@ -69,39 +66,26 @@ class DecisionLog:
     explainability, and debugging.
 
     Preferred construction is via TradingContext which injects a shared
-    DuckDB connection.  The legacy db_path parameter is kept for backward
-    compatibility with code that constructs DecisionLog directly.
+    PostgreSQL connection.  Schema is created by run_migrations() at startup.
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection | None = None,
-        db_path: str | None = None,
+        conn: PgConnection | None = None,
     ):
         # Instance-level lock so multiple DecisionLog objects don't share state
         self._lock = Lock()
-
-        if conn is not None:
-            # Injected connection — schema already migrated by db.run_migrations()
-            self._conn: duckdb.DuckDBPyConnection | None = conn
-            self.db_path = Path(":memory:")
-        else:
-            # Legacy standalone mode: open own file
-            if db_path is None:
-                db_path = os.getenv(
-                    "AUDIT_LOG_DB_PATH", "~/.quant_pod/audit_log.duckdb"
-                )
-            self.db_path = Path(db_path).expanduser()
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = None  # lazy open in .conn property
-            self._init_schema()
-
-        logger.info(f"DecisionLog initialized (db={self.db_path})")
+        # Connection is injected; schema already managed by run_migrations()
+        self._conn: PgConnection | None = conn
+        logger.info("DecisionLog initialized")
 
     @property
-    def conn(self) -> duckdb.DuckDBPyConnection:
+    def conn(self) -> PgConnection:
         if self._conn is None:
-            self._conn = duckdb.connect(str(self.db_path))
+            raise RuntimeError(
+                "DecisionLog requires an injected PgConnection. "
+                "Construct via TradingContext or pass conn= explicitly."
+            )
         return self._conn
 
     def _init_schema(self) -> None:
@@ -517,31 +501,30 @@ def extract_indicator_attributions(
 _decision_log: DecisionLog | None = None
 
 
-def get_decision_log(db_path: str | None = None) -> DecisionLog:
-    """Get the singleton DecisionLog instance (write connection)."""
+def get_decision_log(conn: PgConnection | None = None) -> DecisionLog:
+    """Get the singleton DecisionLog instance.
+
+    Args:
+        conn: PostgreSQL connection to inject. If None, the singleton must have
+              been previously initialized with a connection.
+    """
     global _decision_log
     if _decision_log is None:
-        _decision_log = DecisionLog(db_path=db_path)
+        _decision_log = DecisionLog(conn=conn or open_db_readonly())
     return _decision_log
 
 
-# Read-only singleton — for processes that must not compete for the write lock.
+# Read-only singleton — for processes that query the audit trail without writing.
 _decision_log_ro: DecisionLog | None = None
 
 
 def get_decision_log_readonly() -> DecisionLog:
     """
-    Get a read-only DecisionLog singleton.
+    Get a read-only DecisionLog singleton backed by a PostgreSQL connection.
 
     Use this in processes (FastAPI, scripts) that run alongside the MCP server
-    and only need to QUERY the audit trail.  The returned instance cannot
-    record new events — those calls will raise at runtime.
-
-    DecisionLog.__init__ already skips schema creation when a connection is
-    injected, so no DDL is attempted on the read-only connection.
-
-    Raises:
-        FileNotFoundError: if trader.duckdb doesn't exist yet (MCP server not started).
+    and only need to QUERY the audit trail.  The returned instance uses the
+    shared PostgreSQL pool, which supports unlimited concurrent readers.
     """
     global _decision_log_ro
     if _decision_log_ro is None:

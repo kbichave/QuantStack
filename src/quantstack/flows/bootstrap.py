@@ -40,7 +40,9 @@ from quantstack.performance.trading_sheet import TradingSheetGenerator
 from alpaca.trading.client import TradingClient as _AlpacaTradingClient
 from dotenv import load_dotenv as _load_dotenv
 
-DEFAULT_SYMBOLS = ["SPY", "QQQ", "IWM", "TSLA", "NVDA"]
+from quantstack.data.universe import BOOTSTRAP_DEFAULT
+
+DEFAULT_SYMBOLS = list(BOOTSTRAP_DEFAULT)
 
 
 class BootstrapFlow:

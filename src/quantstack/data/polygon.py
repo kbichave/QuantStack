@@ -31,9 +31,10 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-import duckdb
 import requests
 from loguru import logger
+
+from quantstack.db import PgConnection, open_db
 
 import websockets
 
@@ -81,13 +82,13 @@ class _BarCache:
         self._db_path = Path(db_path).expanduser()
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
-        self._conn: duckdb.DuckDBPyConnection | None = None
+        self._conn: PgConnection | None = None
         self._init_schema()
 
     @property
-    def conn(self) -> duckdb.DuckDBPyConnection:
+    def conn(self) -> PgConnection:
         if self._conn is None:
-            self._conn = duckdb.connect(str(self._db_path))
+            self._conn = open_db()
         return self._conn
 
     def _init_schema(self) -> None:

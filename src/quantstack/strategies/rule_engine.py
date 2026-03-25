@@ -318,7 +318,10 @@ def _build_evaluator(
             "It may work if a feature enricher provides it at runtime."
         )
 
-    # Validate value for numeric conditions
+    # Validate value for numeric conditions.
+    # The value can be either a numeric literal (e.g., 30) or a string naming
+    # another indicator column (e.g., "sma_200").  Column references are resolved
+    # at evaluation time by _build_column_evaluator.
     if condition in (
         RuleCondition.ABOVE,
         RuleCondition.BELOW,
@@ -330,12 +333,15 @@ def _build_evaluator(
             raise CompilationError(
                 f"{context}: condition '{condition.value}' requires a 'value'"
             )
-        try:
-            float(value)
-        except (TypeError, ValueError):
-            raise CompilationError(
-                f"{context}: condition '{condition.value}' requires numeric value, got {value!r}"
-            )
+        # Accept numeric literals and string indicator references.
+        if not isinstance(value, str):
+            try:
+                float(value)
+            except (TypeError, ValueError):
+                raise CompilationError(
+                    f"{context}: condition '{condition.value}' requires numeric value "
+                    f"or indicator name, got {value!r}"
+                )
 
     if condition == RuleCondition.BETWEEN:
         lower = rule.get("lower")
@@ -442,6 +448,11 @@ def _build_breakout_evaluator(
     raise CompilationError(f"{context}: breakout only supports 'above' and 'below'")
 
 
+def _is_column_ref(value: Any) -> bool:
+    """True if *value* is a string naming another indicator column."""
+    return isinstance(value, str) and not value.replace(".", "", 1).replace("-", "", 1).isdigit()
+
+
 def _build_column_evaluator(
     indicator: str,
     condition: RuleCondition,
@@ -449,9 +460,24 @@ def _build_column_evaluator(
     rule: dict[str, Any],
     context: str,
 ) -> RuleFunction:
-    """Build evaluator for a standard numeric column."""
+    """Build evaluator for a standard numeric column.
+
+    ``value`` can be a numeric literal *or* a string referencing another column
+    (e.g. ``"sma_200"``).  Column references are resolved at evaluation time so
+    strategies like ``close > sma_200`` work without hardcoded numbers.
+    """
 
     if condition in (RuleCondition.ABOVE, RuleCondition.GREATER_THAN):
+        if _is_column_ref(value):
+            ref_col = str(value)
+
+            def _eval(df: pd.DataFrame) -> pd.Series:
+                if indicator not in df.columns or ref_col not in df.columns:
+                    return pd.Series(False, index=df.index)
+                return df[indicator] > df[ref_col]
+
+            return _eval
+
         threshold = float(value)
 
         def _eval(df: pd.DataFrame) -> pd.Series:
@@ -462,6 +488,16 @@ def _build_column_evaluator(
         return _eval
 
     if condition in (RuleCondition.BELOW, RuleCondition.LESS_THAN):
+        if _is_column_ref(value):
+            ref_col = str(value)
+
+            def _eval(df: pd.DataFrame) -> pd.Series:
+                if indicator not in df.columns or ref_col not in df.columns:
+                    return pd.Series(False, index=df.index)
+                return df[indicator] < df[ref_col]
+
+            return _eval
+
         threshold = float(value)
 
         def _eval(df: pd.DataFrame) -> pd.Series:
@@ -472,6 +508,18 @@ def _build_column_evaluator(
         return _eval
 
     if condition == RuleCondition.CROSSES_ABOVE:
+        if _is_column_ref(value):
+            ref_col = str(value)
+
+            def _eval(df: pd.DataFrame) -> pd.Series:
+                if indicator not in df.columns or ref_col not in df.columns:
+                    return pd.Series(False, index=df.index)
+                series = df[indicator]
+                ref = df[ref_col]
+                return (series.shift(1) <= ref.shift(1)) & (series > ref)
+
+            return _eval
+
         threshold = float(value)
 
         def _eval(df: pd.DataFrame) -> pd.Series:
@@ -483,6 +531,18 @@ def _build_column_evaluator(
         return _eval
 
     if condition == RuleCondition.CROSSES_BELOW:
+        if _is_column_ref(value):
+            ref_col = str(value)
+
+            def _eval(df: pd.DataFrame) -> pd.Series:
+                if indicator not in df.columns or ref_col not in df.columns:
+                    return pd.Series(False, index=df.index)
+                series = df[indicator]
+                ref = df[ref_col]
+                return (series.shift(1) >= ref.shift(1)) & (series < ref)
+
+            return _eval
+
         threshold = float(value)
 
         def _eval(df: pd.DataFrame) -> pd.Series:

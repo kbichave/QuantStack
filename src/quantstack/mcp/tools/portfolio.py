@@ -19,8 +19,12 @@ from quantstack.config.settings import get_settings
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.base import AssetClass
 from quantstack.data.registry import DataProviderRegistry
-from quantstack.data.storage import DataStore
+from quantstack.data.storage import DataStore  # noqa: F401
+from quantstack.mcp._helpers import _get_reader
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 
 # ---------------------------------------------------------------------------
@@ -49,8 +53,8 @@ def _load_returns(symbols: list[str], lookback_days: int) -> pd.DataFrame:
 
         # 1. DuckDB cache
         try:
-            with DataStore(read_only=True) as store:
-                df = store.load_ohlcv(symbol, Timeframe.D1)
+            store = _get_reader()
+            df = store.load_ohlcv(symbol, Timeframe.D1)
         except Exception as exc:
             logger.debug(f"DuckDB miss for {symbol}: {exc}")
 
@@ -138,7 +142,10 @@ def _hrp_recursive_bisection(
 def _cluster_variance(cov: pd.DataFrame, indices: list[int]) -> float:
     """Inverse-variance–weighted portfolio variance for a cluster."""
     sub_cov = cov.iloc[indices, indices].values
-    inv_diag = 1.0 / np.diag(sub_cov)
+    diag = np.diag(sub_cov)
+    if np.any(diag < 1e-9):
+        raise ValueError(f"Degenerate covariance matrix: zero/near-zero variance in cluster {indices}")
+    inv_diag = 1.0 / diag
     inv_diag /= inv_diag.sum()
     return float(inv_diag @ sub_cov @ inv_diag)
 
@@ -282,6 +289,7 @@ def _portfolio_stats(
 _VALID_METHODS = {"hrp", "min_variance", "risk_parity", "max_sharpe", "equal_weight"}
 
 
+@domain(Domain.PORTFOLIO)
 @mcp.tool()
 async def optimize_portfolio(
     symbols: list[str],
@@ -348,6 +356,7 @@ async def optimize_portfolio(
         return {"success": False, "error": str(exc)}
 
 
+@domain(Domain.PORTFOLIO)
 @mcp.tool()
 async def compute_hrp_weights(
     symbols: list[str],

@@ -17,21 +17,22 @@ import pandas as pd
 
 from quantstack.config.settings import get_settings
 from quantstack.config.timeframes import Timeframe
-from quantstack.core.features.factory import MultiTimeframeFeatureFactory
 from quantstack.core.features.technical_indicators import TechnicalIndicators
 from quantstack.core.hierarchy.regime_classifier import WeeklyRegimeClassifier
 from quantstack.core.microstructure.liquidity import LiquidityAnalyzer
-from quantstack.core.options.adapters.quantsbin_adapter import (
-    analyze_structure_quantsbin,
-)
+# MultiTimeframeFeatureFactory (~0.8s) and quantsbin_adapter (~0.7s) deferred.
 from quantstack.mcp._helpers import _get_reader, _parse_timeframe
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 # =============================================================================
 # MAS-ORIENTED TOOLS (Multi-Agent System Optimization)
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_symbol_snapshot(
     symbol: str,
@@ -81,6 +82,7 @@ async def get_symbol_snapshot(
         latest = df.iloc[-1]
 
         # Compute features
+        from quantstack.core.features.factory import MultiTimeframeFeatureFactory  # noqa: PLC0415
         factory = MultiTimeframeFeatureFactory(
             include_rrg=False,
             include_waves=False,
@@ -151,6 +153,7 @@ async def get_symbol_snapshot(
         store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_market_regime_snapshot(
     end_date: str | None = None,
@@ -189,6 +192,7 @@ async def get_market_regime_snapshot(
                 return {"error": f"No SPY data before {end_date}"}
 
         # Compute features
+        from quantstack.core.features.factory import MultiTimeframeFeatureFactory  # noqa: PLC0415
         factory = MultiTimeframeFeatureFactory(include_rrg=False)
         features = factory.compute_all_timeframes({_parse_timeframe("daily"): df})[
             _parse_timeframe("daily")
@@ -256,6 +260,7 @@ async def get_market_regime_snapshot(
         store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def generate_trade_template(
     symbol: str,
@@ -448,6 +453,7 @@ async def generate_trade_template(
             "legs": legs,
         }
 
+        from quantstack.core.options.adapters.quantsbin_adapter import analyze_structure_quantsbin  # noqa: PLC0415
         analysis = analyze_structure_quantsbin(structure_spec)
 
         # Calculate quantity based on risk
@@ -463,6 +469,7 @@ async def generate_trade_template(
 
         # Recalculate with scaled quantity
         structure_spec["legs"] = legs
+        from quantstack.core.options.adapters.quantsbin_adapter import analyze_structure_quantsbin  # noqa: PLC0415
         analysis = analyze_structure_quantsbin(structure_spec)
 
         return {
@@ -502,6 +509,7 @@ async def generate_trade_template(
         return {"error": str(e)}
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def validate_trade(
     trade_template: dict[str, Any],
@@ -629,6 +637,7 @@ async def validate_trade(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def run_screener(
     symbols: list[str] | None = None,
@@ -766,6 +775,7 @@ async def run_screener(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def analyze_liquidity(
     symbol: str,
@@ -854,6 +864,7 @@ async def analyze_liquidity(
         store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def analyze_volume_profile(
     symbol: str,
@@ -963,6 +974,7 @@ async def analyze_volume_profile(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_trading_calendar(
     year: int | None = None,
@@ -1066,6 +1078,7 @@ async def get_trading_calendar(
         return {"error": str(e)}
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_event_calendar(
     symbol: str | None = None,

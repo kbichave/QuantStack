@@ -12,6 +12,8 @@ from pathlib import Path
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
+
 # =============================================================================
 # Per-provider settings — separate classes so env prefixes don't collide.
 # =============================================================================
@@ -160,9 +162,10 @@ class Settings(BaseSettings):
         default="data/trader.duckdb", description="Path to DuckDB database file"
     )
 
-    # Symbol Universe
+    # Symbol Universe — defaults to the full INITIAL_LIQUID_UNIVERSE.
+    # Override via env: QUANTSTACK_SYMBOLS="SPY,QQQ,AAPL"
     symbols: list[str] = Field(
-        default=["SPY", "QQQ", "AAPL", "MSFT", "NVDA"],
+        default_factory=lambda: list(INITIAL_LIQUID_UNIVERSE.keys()),
         description="Trading universe symbols",
     )
     benchmark_symbol: str = Field(

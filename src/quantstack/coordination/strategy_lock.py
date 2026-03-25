@@ -11,10 +11,9 @@ The strategy lifecycle FSM:
       └──> retired   └──> retired   └──> forward_testing (demotion)
 
 Multiple processes (Factory loop, /review skill, AutoPromoter) can attempt
-status changes concurrently.  Since all writes are serialized through the
-MCP server's single DuckDB connection, the risk is TOCTOU within the async
-MCP handler: between reading the current status and writing the new one,
-another coroutine may interleave.
+status changes concurrently.  Since PostgreSQL uses MVCC, the risk is TOCTOU
+within the async MCP handler: between reading the current status and writing
+the new one, another coroutine may interleave.
 
 Solution: conditional UPDATE (compare-and-swap).  The UPDATE's WHERE clause
 checks ``status = expected_status``.  If another coroutine already changed
@@ -36,8 +35,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.coordination.event_bus import Event, EventBus, EventType
 
@@ -63,7 +63,7 @@ class StrategyStatusLock:
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         event_bus: EventBus | None = None,
     ) -> None:
         self._conn = conn

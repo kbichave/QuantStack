@@ -28,6 +28,8 @@ from quantstack.mcp._state import (
     require_ctx,
 )
 from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._registry import domain
+from quantstack.mcp.domains import Domain
 
 
 # =============================================================================
@@ -35,10 +37,19 @@ from quantstack.mcp.server import mcp
 # =============================================================================
 
 
+@domain(Domain.PORTFOLIO, Domain.EXECUTION, Domain.RESEARCH)
 @mcp.tool()
 async def get_portfolio_state() -> dict[str, Any]:
     """
     Return the current portfolio state: positions, cash, equity, and P&L.
+
+    WHEN TO USE: At the start of every trading iteration to ground decisions in
+    current exposure, at any point you need cash/equity for sizing, and before
+    close_position to confirm a position exists.
+    WHEN NOT TO USE: Do not poll repeatedly within the same iteration — the
+    snapshot does not change unless a trade was executed.
+    WORKFLOW: get_system_status → THIS → get_signal_brief / execute_trade
+    RELATED: get_risk_metrics, get_system_status, execute_trade
 
     Returns:
         Dict with keys: snapshot, positions, context_string.
@@ -69,13 +80,21 @@ async def get_portfolio_state() -> dict[str, Any]:
 # =============================================================================
 
 
+@domain(Domain.SIGNALS, Domain.DATA, Domain.RESEARCH, Domain.ML, Domain.FINRL, Domain.INTEL, Domain.RISK)
 @mcp.tool()
 async def get_regime(symbol: str) -> dict[str, Any]:
     """
-    Detect the current market regime for a symbol.
+    Detect the current market regime for a symbol using ADX/ATR classification.
 
-    Uses ADX for trend strength/direction and ATR percentile for volatility.
-    Deterministic — no LLM calls.
+    WHEN TO USE: Cross-cutting — needed by almost every workflow. Call before
+    get_signal_brief to pass a pre-computed regime (saves one redundant
+    detection), before strategy selection to filter the regime-strategy matrix,
+    and in research loops to label backtest periods.
+    WHEN NOT TO USE: Do not call if you already have a regime dict from a
+    prior get_signal_brief in the same iteration (it embeds regime_used).
+    SIGNAL TIER: tier_4_regime_macro
+    WORKFLOW: THIS → get_signal_brief / strategy selection / backtest labeling
+    RELATED: get_signal_brief, run_multi_signal_brief
 
     Args:
         symbol: Ticker symbol (e.g., "SPY").
@@ -100,13 +119,22 @@ async def get_regime(symbol: str) -> dict[str, Any]:
 # =============================================================================
 
 
+@domain(Domain.PORTFOLIO)
 @mcp.tool()
 async def get_recent_decisions(
     symbol: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """
-    Query recent audit trail entries.
+    Query recent audit trail entries for decision review.
+
+    WHEN TO USE: During after-market review to inspect today's decisions, when
+    debugging why a trade was taken or rejected, or to check for duplicate
+    actions before entering a new trade.
+    WHEN NOT TO USE: Do not use for detailed fill data — use get_fills instead.
+    Do not use for risk metrics — use get_risk_metrics.
+    WORKFLOW: execute_trade / close_position → THIS (post-hoc review)
+    RELATED: get_audit_trail, get_fills, get_portfolio_state
 
     Args:
         symbol: Filter by ticker symbol.  None returns all symbols.
@@ -145,6 +173,7 @@ async def get_recent_decisions(
 # =============================================================================
 
 
+@domain(Domain.EXECUTION, Domain.SIGNALS, Domain.PORTFOLIO)
 @mcp.tool()
 async def get_system_status() -> dict[str, Any]:
     """

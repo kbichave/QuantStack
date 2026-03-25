@@ -49,15 +49,17 @@ TIMEZONE = "US/Eastern"
 # ---------------------------------------------------------------------------
 
 def run_data_refresh(dry_run: bool = False) -> None:
-    """Refresh Alpha Vantage cache — OHLCV, macro, news, insider, fundamentals."""
+    """Full daily data refresh — all 12 phases for all universe symbols.
+
+    All phases are idempotent: existing rows are skipped, only deltas fetched.
+    At 75 req/min (AV premium) incremental runs take ~5-15 min after cold start.
+    """
     label = "data_refresh"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     logger.info(f"[{timestamp}] Triggering {label}")
 
-    cmd = [
-        sys.executable, "scripts/acquire_historical_data.py",
-        "--phases", "ohlcv_daily", "macro", "news", "insider", "fundamentals",
-    ]
+    # No --phases flag = defaults to all 12 phases
+    cmd = [sys.executable, "scripts/acquire_historical_data.py"]
 
     if dry_run:
         print(f"\n[DRY RUN] Would run at {timestamp}: {' '.join(cmd)}")
@@ -65,14 +67,14 @@ def run_data_refresh(dry_run: bool = False) -> None:
 
     try:
         result = subprocess.run(
-            cmd, cwd=str(WORKDIR), timeout=1800, check=False,
+            cmd, cwd=str(WORKDIR), timeout=7200, check=False,
         )
         if result.returncode != 0:
             logger.warning(f"'{label}' exited with code {result.returncode}")
         else:
             logger.info(f"'{label}' completed successfully")
     except subprocess.TimeoutExpired:
-        logger.error(f"'{label}' timed out after 30 minutes")
+        logger.error(f"'{label}' timed out after 120 minutes")
     except Exception as exc:
         logger.error(f"'{label}' failed: {exc}")
 
@@ -101,6 +103,7 @@ def run_autonomous_loop(dry_run: bool = False) -> None:
         logger.error(f"'{label}' timed out after 5 minutes")
     except Exception as exc:
         logger.error(f"'{label}' failed: {exc}")
+
 
 
 def run_daily_attribution(dry_run: bool = False) -> None:
@@ -148,6 +151,8 @@ def run_daily_attribution(dry_run: bool = False) -> None:
 # ---------------------------------------------------------------------------
 
 JOBS = [
+    # Full refresh every weekday morning — all 12 phases, all universe symbols.
+    # Idempotent: safe to re-run; only fetches what's missing since last run.
     {"hour": 8, "minute": 0, "weekdays": "mon-fri", "func": run_data_refresh, "label": "data_refresh_08:00"},
     {"hour": 16, "minute": 10, "weekdays": "mon-fri", "func": run_daily_attribution, "label": "daily_attribution_16:10"},
     # autonomous_09:35 and autonomous_13:00 REMOVED in v2.
@@ -179,8 +184,8 @@ def start_scheduler(dry_run: bool = False) -> None:
     print(
         f"\nQuantStack Scheduler started (workdir={WORKDIR})\n"
         f"Scheduled {len(JOBS)} jobs. Press Ctrl+C to stop.\n\n"
-        f"  08:00 — Data refresh (Alpha Vantage cache)\n"
-        f"  16:10 — Daily P&L attribution (equity snapshot + benchmark comparison)\n"
+        f"  08:00 Mon-Fri — Full data refresh (all 12 phases, all universe symbols)\n"
+        f"  16:10 Mon-Fri — Daily P&L attribution (equity snapshot + benchmark comparison)\n"
         f"\n"
         f"  Note: Trading execution handled by tmux trading loop (start_trading_loop.sh)\n"
     )
@@ -194,7 +199,7 @@ def start_scheduler(dry_run: bool = False) -> None:
 def _print_cron() -> None:
     """Print equivalent cron entries."""
     print("# QuantStack scheduled jobs (add to crontab, TZ=America/New_York)")
-    print(f"0  8 * * 1-5  cd {WORKDIR} && python scripts/acquire_historical_data.py --phases ohlcv_daily macro news insider fundamentals")
+    print(f"0  8 * * 1-5  cd {WORKDIR} && python scripts/acquire_historical_data.py")
     print(f"10 16 * * 1-5  cd {WORKDIR} && python scripts/scheduler.py --run-now daily_attribution")
     print("# Trading execution: start_trading_loop.sh (tmux-based Claude loop)")
     print(f"# 30 9 * * 1-5  cd {WORKDIR} && ./scripts/start_trading_loop.sh")

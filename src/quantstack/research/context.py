@@ -9,7 +9,7 @@ last week, which strategies are making money, which features matter, and
 what the current market regime is. This module provides equivalent context
 to the LLM research pods.
 
-Every context loading function queries DuckDB and returns structured dicts
+Every context loading function queries PostgreSQL and returns structured dicts
 that get injected into the pod's system prompt.
 """
 
@@ -19,8 +19,9 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
@@ -30,13 +31,13 @@ from quantstack.signal_engine.collectors.regime import _rule_based_regime
 
 class ResearchContext:
     """
-    Loads research context from DuckDB for pod system prompts.
+    Loads research context from the database for pod system prompts.
 
     Each method returns a dict that can be JSON-serialized into the prompt.
     Methods are safe — they return empty/default on any error.
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: PgConnection) -> None:
         self._conn = conn
 
     def get_experiment_history(self, days: int = 30, limit: int = 20) -> list[dict]:

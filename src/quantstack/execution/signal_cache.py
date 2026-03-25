@@ -10,7 +10,7 @@ Architecture contract:
     after each analysis cycle, with a TTL that expires if analysis stalls.
   - The TICK EXECUTOR reads signals from here in the hot path — no DB,
     no LLM, no I/O.  If a signal is absent or stale, the executor skips.
-  - DuckDB `signal_state` table is used only for persistence / crash recovery.
+  - The `signal_state` table is used only for persistence / crash recovery.
 
 Invariants:
   - Expired signals are NEVER executed (staleness is a hard safety property).
@@ -50,8 +50,9 @@ from datetime import UTC, datetime, timedelta
 from threading import RLock
 from typing import Literal
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -130,7 +131,7 @@ class SignalCache:
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection | None = None,
+        conn: PgConnection | None = None,
         default_ttl_seconds: int = 900,
     ):
         self._lock = RLock()

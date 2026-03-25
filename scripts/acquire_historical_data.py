@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 
 from loguru import logger
 
@@ -50,7 +51,7 @@ from quantstack.data.acquisition_pipeline import (
     AcquisitionPipeline,
 )
 from quantstack.data.fetcher import AlphaVantageClient
-from quantstack.data.storage import DataStore
+from quantstack.data.pg_storage import PgDataStore
 from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
 
 # AV calls per phase per symbol (used in dry-run estimates)
@@ -152,7 +153,7 @@ async def main() -> int:
     logger.info(f"Symbols: {len(symbols)} | Phases: {args.phases}")
 
     av_client = AlphaVantageClient()
-    store = DataStore(persistent=True)
+    store = PgDataStore()
 
     alpaca = None
     try:

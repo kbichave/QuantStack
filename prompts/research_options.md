@@ -84,41 +84,111 @@ P(exploit) = 0.2  on iterations 1-5 (cold start)
 
 ---
 
+## CROSS-DOMAIN SIGNAL INTEGRATION
+
+Before designing any options strategy, check what investment and swing domains see:
+
+```python
+intel = get_cross_domain_intel(symbol=symbol, requesting_domain="options")
+```
+
+**How to use each intel type for options decisions:**
+
+1. **`thesis_status=intact/strengthening`** — Investment domain has a high-conviction
+   directional thesis. Use for:
+   - Directional BTO: long calls if thesis is bullish, long puts if bearish
+   - Strike selection: use investment's target_price as reference
+   - DTE selection: align with the thesis catalyst timeline
+
+2. **`fundamental_event`** — Upcoming catalyst from investment domain:
+   - Pre-event: check if IV is already pricing it in (IV rank > 60% = overpriced for buying)
+   - Post-event: IV crush trades (sell premium after the event)
+
+3. **`technical_levels`** — Swing-identified support/resistance for:
+   - Strike selection: sell premium at support (puts) or resistance (calls)
+   - Spread width: short leg at support/resistance, long leg 1-2 strikes further
+   - Breakout targets: structure debit spread above resistance on breakout signals
+
+4. **`momentum_signal`** — Timing for directional entries:
+   - Momentum confirming thesis = closer DTE (7-14d), save theta
+   - Momentum unclear = further DTE (30-45d), pay for time
+   - Bearish momentum + bullish thesis = wait (momentum wins for short-dated options)
+
+5. **`convergence`** — Multi-domain bullish + IV rank < 40%: ideal long options setup.
+   Multi-domain conflict: prefer defined-risk structures (spreads, not naked).
+
+---
+
 ## EXECUTE
+
+**MANDATORY: Execute the full MANDATORY RESEARCH PIPELINE from `research_shared.md` (Steps A→B→C→D)
+for EACH symbol before forming any strategy hypothesis. Strategies are DRAFT until all angles are checked.**
 
 **Gate:** Before ANY backtest or strategy registration, run the hypothesis through the judge. If rejected, log flags + reasoning to `workshop_lessons.md`.
 
-### Primary: OPTIONS RESEARCH (spawn `quant-researcher`)
+### Phase 1: Evidence Gathering (Steps A+B from research_shared.md)
 
-**Delegation template:**
+For each target symbol, run the full parallel tool scan from `research_shared.md` Step A.
+Before starting, survey available tools in the options-specific categories below — the ones
+you haven't called yet are where undiscovered edge lives.
+
+**Options evidence categories** (pick best available tools per category, not just these examples):
+
+| Category | What You're Proving | Example tools — search for more |
+|---|---|---|
+| **IV surface** | Is vol rich or cheap? Where is skew? Term structure shape? | `get_iv_surface`, `get_iv_rank`, vol cone, skew z-score |
+| **Vol forecasting** | What should IV be? What is the VRP? | `fit_garch_model`, `forecast_volatility`, EGARCH, GJR-GARCH, realized vol |
+| **Options chain / Greeks** | What structures are liquid? Where is OI concentrated? | `get_options_chain`, `compute_greeks`, OI heatmap |
+| **GEX / dealer positioning** | Which way are dealers hedging? Where is the gamma wall? | `get_gex_levels`, put/call ratio, dealer gamma exposure |
+| **Earnings / event vol** | Is vol pricing in an event correctly? Historical beat/miss? | earnings history, IV crush history, expected move vs realized move |
+| **Structure scoring** | Which structure fits the thesis and vol regime? | `score_options_structure`, `simulate_option_trade`, `finrl_screen_options` |
+| **Cross-domain** | What do equity and investment domains say about direction? | `get_cross_domain_intel` — always run |
+
+Run evidence gathering in parallel batches. Build the evidence map from `research_shared.md`
+Step A, adding options-specific rows. Key derived metric to compute: **VRP = IV - vol_forecast**
+(positive VRP = options overpriced → sell premium; negative = underpriced → buy).
+
+### Phase 2: Thesis Formation (only after Phase 1)
+
+From the evidence map, identify which options strategy type fits:
+
+| Strategy Type | Required Evidence |
+|---------------|------------------|
+| **Directional (BTO)** | Cross-domain thesis alignment + IV rank < 40% + momentum confirming |
+| **Debit Spread** | Moderate conviction + IV rank 30-60% + defined catalyst timeline |
+| **VRP Harvest** | VRP > 5 pct pts + GARCH persistence < 1.0 + regime stable |
+| **Earnings Vol** | Upcoming earnings + IV rank > 60% + historical beat/miss pattern |
+| **Skew/Term Structure** | Skew inversion or term structure anomaly from IV surface |
+
+### Phase 3: Composite Strategy Design (Step C from research_shared.md)
+
+Options-specific requirements:
+- Entry must combine vol signal (IV rank, VRP) + directional signal (technicals/fundamentals) + timing signal (regime/macro)
+- Structure selection must be justified by the evidence (e.g., high IV → sell premium, low IV → buy)
+- Register with: `instrument_type="options"`, `time_horizon="swing"`
+
+### Phase 4: Validation (Gates from research_shared.md Step D)
+
+Apply all 6 validation gates. Options-specific thresholds:
+
+| Gate | Options Threshold |
+|------|-----------------|
+| Gate 1 — Signal validity | VRP IC positive OOS; vol model beats GARCH baseline (OOS R² > 0.05 — vol prediction is hard; if it can't beat random, the VRP strategy is noise) |
+| Gate 2 — IS performance | IS Sharpe > 0.6; ≥ 60 trades; average DTE at exit > 2 (never hold to gamma risk) |
+| Gate 3 — OOS consistency | OOS Sharpe > 0.6; win rate > 55% for premium selling; EV > 0 for directional; PBO < 0.40 |
+| Gate 4 — Robustness | Sharpe > 0.5 at 2x bid-ask; max single-trade loss < 3% equity; survives VIX +50% stress; Greeks within limits at underlying ±2 ATR (delta/gamma/vega/theta at entry AND worst-case — if theta cost over holding period > expected edge, wrong structure) |
+| Gate 5 — ML/RL lift | Vol prediction model (IV → RV direction); RL agent for DTE/strike selection if trade history allows |
+
+### Phase 5: Delegation (spawn `quant-researcher` only for deep-dive)
+
+Only spawn agents AFTER Phase 1-2 are complete:
+
 ```
-Research program: {thesis}
+Research program: {thesis from Phase 2 evidence map}
 Strategy type: directional | debit_spread | vrp_harvest | earnings_vol | skew_term_structure
+Evidence summary: {VRP, IV rank, convergence score from Phase 1}
 Target symbols: {symbols}
-Last experiment: {what_tried}
-Result: {sharpe, win_rate, avg_premium, avg_hold_days, max_loss, failure_reason}
-This iteration: {specific_next_step from failure analysis}
-
-REQUIREMENTS:
-- Explore options data: get_options_chain, get_iv_surface, compute_implied_vol, fit_garch_model,
-  forecast_volatility, get_earnings_call_transcript
-- Analyze: VRP, GEX, skew, term structure. Design from findings.
-- Pipeline: register -> run_backtest_options -> walkforward
-- Report for each strategy:
-  - BTO/STC prices (entry/exit premiums)
-  - Premium at risk (% of equity)
-  - Win rate
-  - Average holding time
-  - Maximum single-trade loss
-  - DTE at entry / DTE at exit
-  - IV rank at entry vs realized vol over holding period
-- Register with: instrument_type="options", time_horizon="swing"
-- Validation thresholds:
-  - OOS Sharpe > 0.4
-  - Win rate > 50% (premium selling) or expected value > 0 (directional)
-  - Max single-trade loss < 3% of equity
-  - Average DTE at exit > 2 (never holding to gamma risk)
-  - Survives vol spike stress test (VIX +50%)
+This iteration: {specific_next_step}
 ```
 
 **After return:** Update program. Document premium stats, Greeks exposure, and vol conditions where strategy performs best/worst.
@@ -146,12 +216,22 @@ REQUIREMENTS:
 
 When spawning `ml-scientist` for options research:
 ```
-Focus on VOLATILITY prediction models:
-- Target: realized vol over next 5/10/20 days vs current IV
-- Features: IV rank, IV percentile, term structure slope, put/call ratio, GEX,
-  historical vol cones, earnings proximity, VIX term structure
-- Goal: identify when options are overpriced (sell premium) vs underpriced (buy premium)
-Use `fit_garch_model(symbol)` + `forecast_volatility(symbol)` as baselines to beat.
+Goal: identify when options are overpriced (sell premium) vs underpriced (buy premium).
+
+Target: realized vol over next 5/10/20 days vs current IV — or direction/magnitude of
+the underlying if building a directional vol model.
+
+Features to explore (not exhaustive — search available feature tools):
+IV rank, IV percentile, term structure slope, put/call ratio, GEX, historical vol cones,
+earnings proximity, VIX term structure, skew z-score, dealer gamma exposure.
+
+Baseline to beat: whatever vol forecasting tools are available (GARCH, EGARCH, GJR-GARCH,
+historical vol, implied vol). A model that can't beat the simplest available baseline
+is not worth deploying. Search the tool catalog for all vol forecasting options before
+deciding what "baseline" means.
+
+RL agents for DTE/strike selection and position sizing are also valid — if there's
+sufficient trade history, explore finrl_* tools for execution optimization.
 ```
 
 ---
@@ -165,9 +245,9 @@ Output `<promise>TRADING_READY</promise>` when ALL of:
 | Options strategies with full reporting (BTO/STC, premium, win rate, hold time, max loss, DTE) | >= 1 per cached symbol |
 | Strategy type coverage | At least 3 of 5 types (directional, debit_spread, vrp_harvest, earnings_vol, skew_term_structure) |
 | Regime coverage | Every regime has at least one options strategy |
-| Walk-forward | Passed for each strategy, PBO < 0.5 |
+| Walk-forward | Passed for each strategy, PBO < 0.40 |
 | ML models | Vol prediction model per symbol, beating GARCH baseline |
-| Portfolio Sharpe | > 0.4 |
+| Portfolio Sharpe | > 0.7 after costs |
 | Stress test | Survives VIX +50%, max DD < 15% |
 | `trading_sheets_monday.md` | Complete with options plans per symbol (structure, DTE, IV entry criteria) |
 | Experiment history | Meaningful entries in `ml_experiments` and `breakthrough_features` |

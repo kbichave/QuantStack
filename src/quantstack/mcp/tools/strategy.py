@@ -13,11 +13,16 @@ from loguru import logger
 
 from quantstack.core.features.technical_indicators import TechnicalIndicators
 from quantstack.data import DataStore
+from quantstack.db import pg_conn
 from quantstack.learning.drift_detector import TRACKED_FEATURES, DriftDetector
 from quantstack.mcp._state import _serialize, live_db_or_error, require_ctx
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 
 
+
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def register_strategy(
     name: str,
@@ -53,36 +58,37 @@ async def register_strategy(
     Returns:
         Dict with strategy_id and status.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     strategy_id = f"strat_{uuid.uuid4().hex[:12]}"
 
     try:
-        ctx.db.execute(
-            """
-            INSERT INTO strategies
-                (strategy_id, name, description, asset_class, regime_affinity,
-                 parameters, entry_rules, exit_rules, risk_params, status, source,
-                 instrument_type, time_horizon, holding_period_days)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
-            """,
-            [
-                strategy_id,
-                name,
-                description,
-                asset_class,
-                json.dumps(regime_affinity or {}),
-                json.dumps(parameters),
-                json.dumps(entry_rules),
-                json.dumps(exit_rules),
-                json.dumps(risk_params or {}),
-                source,
-                instrument_type,
-                time_horizon,
-                holding_period_days,
-            ],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO strategies
+                    (strategy_id, name, description, asset_class, regime_affinity,
+                     parameters, entry_rules, exit_rules, risk_params, status, source,
+                     instrument_type, time_horizon, holding_period_days)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+                """,
+                [
+                    strategy_id,
+                    name,
+                    description,
+                    asset_class,
+                    json.dumps(regime_affinity or {}),
+                    json.dumps(parameters),
+                    json.dumps(entry_rules),
+                    json.dumps(exit_rules),
+                    json.dumps(risk_params or {}),
+                    source,
+                    instrument_type,
+                    time_horizon,
+                    holding_period_days,
+                ],
+            )
         logger.info(f"[quantpod_mcp] Registered strategy {strategy_id}: {name}")
         return {"success": True, "strategy_id": strategy_id, "status": "draft"}
     except Exception as e:
@@ -90,6 +96,7 @@ async def register_strategy(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def list_strategies(
     status: str | None = None,
@@ -214,6 +221,7 @@ async def _get_strategy_impl(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def get_strategy(
     strategy_id: str | None = None,
@@ -232,6 +240,7 @@ async def get_strategy(
     return await _get_strategy_impl(strategy_id=strategy_id, name=name)
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def update_strategy(
     strategy_id: str,
@@ -271,7 +280,7 @@ async def update_strategy(
     Returns:
         Updated strategy record.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -310,18 +319,19 @@ async def update_strategy(
         sets.append("updated_at = CURRENT_TIMESTAMP")
         params.append(strategy_id)
 
-        ctx.db.execute(
-            f"UPDATE strategies SET {', '.join(sets)} WHERE strategy_id = ?",
-            params,
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                f"UPDATE strategies SET {', '.join(sets)} WHERE strategy_id = ?",
+                params,
+            )
         logger.info(f"[quantpod_mcp] Updated strategy {strategy_id}")
 
         # Auto-create drift baseline when promoted to forward_testing
         if status == "forward_testing":
             _create_drift_baseline(strategy_id)
 
-        # Return the updated record
-        return await _get_strategy_impl(strategy_id=strategy_id)
+        updated_fields = [k for k, v in {**field_map, **json_fields}.items() if v is not None]
+        return {"success": True, "strategy_id": strategy_id, "updated_fields": updated_fields}
     except Exception as e:
         logger.error(f"[quantpod_mcp] update_strategy failed: {e}")
         return {"success": False, "error": str(e)}
@@ -335,7 +345,7 @@ def _create_drift_baseline(strategy_id: str) -> None:
     Best-effort — failure does not block the promotion.
     """
     try:
-        store = DataStore()
+        store = DataStore(read_only=True)
         detector = DriftDetector()
 
         # Try to load recent data — use SPY as a reasonable broad-market proxy

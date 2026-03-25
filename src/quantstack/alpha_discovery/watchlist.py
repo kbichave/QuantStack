@@ -28,9 +28,9 @@ from typing import Sequence
 from loguru import logger
 
 from quantstack.db import open_db, open_db_readonly
+from quantstack.data.universe import WATCHLIST_DEFAULT
 
-
-DEFAULT_SYMBOLS = ["SPY", "QQQ", "IWM", "XOM", "MSFT", "AAPL", "JPM", "GLD"]
+DEFAULT_SYMBOLS = list(WATCHLIST_DEFAULT)
 
 # Tier sizes
 _MAX_TIER_1 = 15

@@ -19,13 +19,14 @@ from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
+from quantstack.data.universe import CROSS_ASSET_ETFS
 from quantstack.core.features.carry import FuturesBasis
 from quantstack.core.features.rrg import RRGFeatures
 from quantstack.core.features.smart_money import SMTDivergence
 
 
 _MIN_BARS = 10  # need at least 5 + buffer for return computation
-_CROSS_ASSET_SYMBOLS = ("SPY", "QQQ", "IWM", "TLT", "GLD")
+_CROSS_ASSET_SYMBOLS = CROSS_ASSET_ETFS
 
 
 async def collect_cross_asset(symbol: str, store: DataStore) -> dict[str, Any]:

@@ -15,7 +15,6 @@ from typing import Any
 from loguru import logger
 
 from quantstack.data.base import AssetClass
-from quantstack.data.storage import DataStore
 from quantstack.mcp._helpers import (
     ServerContext,
     _dataframe_to_dict,
@@ -24,6 +23,9 @@ from quantstack.mcp._helpers import (
     _parse_timeframe,
 )
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 
 # =============================================================================
@@ -31,6 +33,7 @@ from quantstack.mcp.server import mcp
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def fetch_market_data(
     symbol: str,
@@ -87,6 +90,7 @@ async def fetch_market_data(
         return {"error": str(e), "symbol": symbol}
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def load_market_data(
     symbol: str,
@@ -136,6 +140,7 @@ async def load_market_data(
         store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def list_stored_symbols() -> dict[str, Any]:
     """
@@ -147,25 +152,18 @@ async def list_stored_symbols() -> dict[str, Any]:
     store = _get_reader()
 
     try:
-        # Query metadata table
-        result = store.conn.execute(
-            """
-            SELECT symbol, timeframe,
-                   first_timestamp, last_timestamp, row_count
-            FROM data_metadata
-            ORDER BY symbol, timeframe
-        """
-        ).fetchall()
+        meta_df = store.get_metadata()
 
-        symbols = {}
-        for row in result:
-            sym, tf, first_ts, last_ts, count = row
+        symbols: dict[str, Any] = {}
+        for _, row in meta_df.iterrows():
+            sym = row.get("symbol")
+            tf = row.get("timeframe")
             if sym not in symbols:
                 symbols[sym] = {"timeframes": {}}
             symbols[sym]["timeframes"][tf] = {
-                "first_date": str(first_ts) if first_ts else None,
-                "last_date": str(last_ts) if last_ts else None,
-                "row_count": count,
+                "first_date": str(row.get("first_timestamp")) if row.get("first_timestamp") is not None else None,
+                "last_date": str(row.get("last_timestamp")) if row.get("last_timestamp") is not None else None,
+                "row_count": row.get("row_count"),
             }
 
         return {
@@ -183,6 +181,7 @@ async def list_stored_symbols() -> dict[str, Any]:
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_financial_statements(
     symbol: str,
@@ -202,7 +201,7 @@ async def get_financial_statements(
     Returns:
         List of period rows with key metrics and full JSON data blob.
     """
-    store = DataStore(read_only=True)
+    store = _get_reader()
     try:
         df = store.load_financial_statements(
             symbol, statement_type=statement_type, period_type=period_type, limit=limit
@@ -222,10 +221,9 @@ async def get_financial_statements(
         }
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_macro_indicator(
     indicator: str,
@@ -245,7 +243,7 @@ async def get_macro_indicator(
     Returns:
         Series of date/value pairs.
     """
-    store = DataStore(read_only=True)
+    store = _get_reader()
     try:
         df = store.load_macro_indicator(indicator, start_date=start_date)
         if df.empty:
@@ -263,10 +261,9 @@ async def get_macro_indicator(
         }
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_insider_trades(
     symbol: str,
@@ -282,7 +279,7 @@ async def get_insider_trades(
     Returns:
         List of transactions with date, owner, type, shares, price.
     """
-    store = DataStore(read_only=True)
+    store = _get_reader()
     try:
         df = store.load_insider_trades(symbol, limit=limit)
         if df.empty:
@@ -294,10 +291,9 @@ async def get_insider_trades(
         return {"symbol": symbol, "records": _dataframe_to_dict(df), "count": len(df)}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_institutional_ownership(
     symbol: str,
@@ -311,7 +307,7 @@ async def get_institutional_ownership(
     Returns:
         List of institutions with shares held, market value, portfolio weight.
     """
-    store = DataStore(read_only=True)
+    store = _get_reader()
     try:
         df = store.load_institutional_ownership(symbol)
         if df.empty:
@@ -323,10 +319,9 @@ async def get_institutional_ownership(
         return {"symbol": symbol, "records": _dataframe_to_dict(df), "count": len(df)}
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        store.close()
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_corporate_actions(
     symbol: str,
@@ -342,7 +337,7 @@ async def get_corporate_actions(
     Returns:
         List of corporate action records with effective date and amount.
     """
-    store = DataStore(read_only=True)
+    store = _get_reader()
     try:
         df = store.load_corporate_actions(symbol, action_type=action_type)
         if df.empty:
@@ -360,5 +355,3 @@ async def get_corporate_actions(
         }
     except Exception as e:
         return {"error": str(e)}
-    finally:
-        store.close()

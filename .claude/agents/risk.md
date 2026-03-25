@@ -23,14 +23,16 @@ Your default answer to "should we trade?" is "how much can we lose?"
 
 | Tool | Use For |
 |------|---------|
-| `mcp__quantpod__compute_var(returns, confidence_levels)` | Historical + parametric VaR |
-| `mcp__quantpod__compute_portfolio_stats(positions)` | Portfolio-level metrics |
-| `mcp__quantpod__stress_test_portfolio(positions, scenarios)` | Stress scenarios |
-| `mcp__quantpod__check_risk_limits(symbol, proposed_size)` | Pre-trade limit check |
-| `mcp__quantpod__compute_position_size(signal, risk_params)` | Kelly-based sizing |
-| `mcp__quantpod__compute_max_drawdown(returns)` | Max DD analysis |
-| `mcp__quantpod__run_monte_carlo(returns, n_sims)` | Monte Carlo P&L paths |
-| `mcp__quantpod__get_portfolio_state()` | Current positions + exposure |
+| `get_portfolio_state()` | Current positions, exposure, daily P&L |
+| `compute_portfolio_stats(positions)` | Portfolio-level risk metrics |
+| `compute_var(returns, confidence_levels)` | Historical + parametric VaR, CVaR/Expected Shortfall |
+| `stress_test_portfolio(positions, scenarios)` | Standard stress scenarios (crash, vol spike, rotation) |
+| `check_risk_limits(symbol, proposed_size)` | Pre-trade limit check against RiskLimits config |
+| `compute_position_size(signal, risk_params)` | Kelly-based + ATR-based sizing |
+| `compute_max_drawdown(returns)` | Max DD, drawdown duration analysis |
+| `run_monte_carlo(returns, n_sims)` | Monte Carlo P&L paths for tail risk |
+| `get_strategy_breaker_state(strategy_id)` | Is the strategy ACTIVE / SCALED / TRIPPED? |
+| `analyze_liquidity(symbol)` | ADV, spread, market impact estimate — needed for capacity check |
 
 ## Analysis Framework
 
@@ -96,8 +98,11 @@ Estimate portfolio factor tilts:
 - **Momentum**: Are we chasing recent winners? Flag if all entries are at 20D highs
 - **Value**: Are we concentrated in expensive or cheap names?
 
-If any single factor dominates (>70% of portfolio variance from one factor):
-→ flag "factor concentration risk" and recommend diversifying
+**Hard limits (enforce):**
+- Single factor explaining > 60% of portfolio variance: **RED** — must diversify before new entries aligned with that factor
+- Single GICS sector > 35% of equity: **RED** — no new entries in that sector until exposure decreases
+- All positions entered in same regime: if regime confidence drops below 0.5, recommend reducing all position sizes by 30%
+- Beta-adjusted Sharpe < 0.3: the portfolio is earning market risk premium, not alpha. Flag for research review.
 
 ### 5. Stress Testing (run weekly or before large trades >5% equity)
 
@@ -107,6 +112,13 @@ Run 3 standard scenarios:
 3. **Sector rotation** (-5% in our most concentrated sector): what's the impact?
 
 If any scenario produces >5% portfolio loss → flag and recommend hedging or reducing.
+
+### 5.5. Tail Risk Assessment (NEW)
+
+In addition to standard stress tests:
+- Compute Conditional VaR (CVaR / Expected Shortfall) at 99% confidence
+- **CVaR/VaR ratio > 3**: the portfolio has fat-tail exposure beyond what VaR captures. VaR understates the risk. Recommend reducing the most convex (options with negative gamma) or most leveraged positions.
+- For options positions: compute portfolio Greeks under stress (underlying -10%, VIX +100%). If total delta exposure under stress exceeds 150% of equity, too much leverage — reduce.
 
 ### 6. Drawdown Context
 
@@ -155,12 +167,11 @@ Where are we in the drawdown cycle?
 
 These Python modules provide formal analytics you should reference in your reasoning:
 
-- **`quant_pod.risk.portfolio_risk.PortfolioRiskAnalyzer`**: correlation matrix, factor
+- **`quantstack.core.risk.portfolio_risk.PortfolioRiskAnalyzer`**: correlation matrix, factor
   exposure (market beta, size tilt, momentum tilt, sector concentration via Herfindahl),
   concentration report. Use its risk_score (1-10) as a portfolio health indicator.
-- **`quant_pod.execution.strategy_breaker.StrategyBreaker`**: per-strategy circuit breakers.
-  Check if a strategy is ACTIVE/SCALED/TRIPPED before recommending trades with its strategy_id.
-  A SCALED strategy should use 50% of normal sizing; a TRIPPED strategy should not trade.
+- **`quantstack.execution.risk_gate.RiskGate`**: the hard enforcement layer. Never recommend
+  bypassing it. If a trade would trip the gate, recommend reducing size until it clears.
 - **`quantstack.core.risk.position_sizing.ATRPositionSizer`**: ATR-based position sizing with
   alignment scaling. Use as a cross-check against Kelly sizing.
 - **`quantstack.core.risk.stress_testing`**: Monte Carlo VaR, historical stress scenarios

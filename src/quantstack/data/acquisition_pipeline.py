@@ -72,6 +72,7 @@ MACRO_SERIES: list[tuple[str, str, str | None]] = [
     ("UNEMPLOYMENT", "monthly", None),
     ("NONFARM_PAYROLL", "monthly", None),
     ("DURABLES", "monthly", None),
+    ("VIX", "daily", None),
 ]
 
 ALL_PHASES = [
@@ -125,7 +126,7 @@ class AcquisitionPipeline:
 
     Args:
         av_client: AlphaVantageClient (rate-limited AV wrapper).
-        store:     DataStore (DuckDB persistence).
+        store:     DataStore (PostgreSQL persistence).
         alpaca:    Optional AlpacaAdapter (fallback OHLCV when AV returns empty).
     """
 
@@ -441,10 +442,10 @@ class AcquisitionPipeline:
 
     async def run_macro(self) -> PhaseReport:
         """
-        Fetch 9 global macro series: GDP, Fed funds, Treasury 10yr, CPI,
-        inflation, retail sales, unemployment, nonfarm payroll, durable goods.
+        Fetch 10 global macro series: GDP, Fed funds, Treasury 10yr, CPI,
+        inflation, retail sales, unemployment, nonfarm payroll, durable goods, VIX.
 
-        9 AV calls total regardless of universe size.
+        10 AV calls total regardless of universe size.
         Skips indicators whose last cached date is less than 28 days ago.
         """
         start = _now()
@@ -835,20 +836,25 @@ class AcquisitionPipeline:
         if ex_div in (None, "None", "N/A", ""):
             ex_div = None
 
+        # AV returns a full paragraph in "Description" — first sentence only (≤200 chars)
+        raw_desc = overview.get("Description", "") or ""
+        short_desc = raw_desc.split(". ")[0][:200] if raw_desc else ""
+
         with self._store._use_conn() as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO company_overview
-                    (symbol, name, sector, industry, market_cap,
+                    (symbol, name, sector, industry, description, market_cap,
                      dividend_yield, ex_dividend_date,
                      fifty_two_week_high, fifty_two_week_low, beta, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
                 [
                     overview.get("Symbol"),
                     overview.get("Name"),
                     overview.get("Sector"),
                     overview.get("Industry"),
+                    short_desc,
                     _safe_float(overview.get("MarketCapitalization")),
                     _safe_float(overview.get("DividendYield")),
                     ex_div,

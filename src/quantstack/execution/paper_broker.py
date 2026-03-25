@@ -35,11 +35,10 @@ import uuid
 from datetime import datetime
 from threading import RLock
 
-import duckdb
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from quantstack.db import open_db, run_migrations
+from quantstack.db import PgConnection, open_db, run_migrations
 from quantstack.execution.portfolio_state import (
     PortfolioState,
     Position,
@@ -111,7 +110,7 @@ class PaperBroker:
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection | None = None,
+        conn: PgConnection | None = None,
         portfolio: PortfolioState | None = None,
         # Legacy parameter — ignored when conn is provided
         db_path: str | None = None,
@@ -135,7 +134,7 @@ class PaperBroker:
         logger.info("PaperBroker initialized")
 
     @property
-    def conn(self) -> duckdb.DuckDBPyConnection:
+    def conn(self) -> PgConnection:
         return self._conn
 
     # -------------------------------------------------------------------------
@@ -393,7 +392,7 @@ _paper_broker: PaperBroker | None = None
 
 
 def get_paper_broker(
-    conn: duckdb.DuckDBPyConnection | None = None,
+    conn: PgConnection | None = None,
     db_path: str | None = None,
 ) -> PaperBroker:
     """Get the singleton PaperBroker instance."""

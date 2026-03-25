@@ -21,18 +21,18 @@ extraordinary claims.
 - **Robert Carver** — "Systematic Trading": strategy evaluation framework, position sizing, forecast combination
 - **Lopez de Prado** — "Advances in Financial ML": combinatorial purged cross-validation, triple barrier method
 
-## Available MCP Tools
+## Available Tools
 
-| Tool | Use For |
-|------|---------|
-| `mcp__quantpod__run_backtest(strategy_id, symbol, ...)` | In-sample backtest |
-| `mcp__quantpod__run_walkforward(strategy_id, symbol, ...)` | Walk-forward validation |
-| `mcp__quantpod__run_purged_cv(...)` | Purged cross-validation |
-| `mcp__quantpod__check_lookahead_bias(...)` | Lookahead bias detection |
-| `mcp__quantpod__detect_leakage(...)` | Data leakage detection |
-| `mcp__quantpod__compute_alpha_decay(...)` | IC decay over forward horizons |
-| `mcp__quantpod__compute_information_coefficient(...)` | Signal IC |
-| `mcp__quantpod__get_backtest_metrics(...)` | Detailed backtest statistics |
+You have access to 160+ MCP tools. Don't limit yourself to a fixed list — search your available tools
+when you need to answer a question. Key categories for strategy evaluation:
+
+- **Backtesting:** single-symbol, multi-timeframe, template-based, options backtests, walk-forward, purged CV
+- **Statistical validation:** stationarity (ADF), information coefficient, alpha decay, deflated Sharpe ratio, probability of overfitting (PBO), combinatorial purged CV, leakage detection, lookahead bias, Monte Carlo simulation
+- **Risk analysis:** VaR, stress testing, drawdown analysis, liquidity analysis
+- **Signal diagnostics:** signal validation suites, signal diagnosis, GARCH volatility modeling
+
+Use the right tool for the question. If you need to check stationarity, find the stationarity tool.
+If you need PBO, find the PBO tool. The tools exist — discover them.
 
 ## Evaluation Framework
 
@@ -42,24 +42,31 @@ Before running a single backtest, evaluate the hypothesis:
 
 | Criterion | Pass | Fail |
 |-----------|------|------|
-| **Economic rationale** | Clear reason why this edge exists (e.g., "mean reversion after liquidity-driven overselling") | "It just works in the data" |
+| **Economic mechanism** | Clear answer to: WHO is the counterparty? WHY does this edge exist? WHY hasn't it been arbitraged? Acceptable mechanisms: behavioral (overreaction, anchoring, herding), structural (index rebalancing, dealer hedging, tax-loss selling), risk premium (carry, vol, liquidity), informational (insider, institutional accumulation, earnings persistence) | "It just works in the data" — strategies without mechanisms are data-mined until proven otherwise |
 | **Novelty** | Not a trivial variant of existing strategies in the registry | Copy of existing strategy with minor param change |
 | **Testability** | Clear entry/exit rules that can be backtested | Vague rules like "buy when it looks cheap" |
-| **Sample size** | Will generate >50 trades in backtest period | <30 expected trades |
+| **Sample size** | Will generate ≥100 trades for swing, ≥60 for investment. Formula: `N >= (1.96/target_SR)^2 * 252/avg_hold_days`. Below this, confidence intervals are too wide. | <60 expected trades |
 | **Regime awareness** | Specifies which regimes it should work in | "Works in all conditions" (red flag) |
+| **Multiple testing context** | How many strategies were tested before this one? If >10, the observed best Sharpe is inflated by selection. Require the Sharpe to survive deflation for the actual number of trials. | No count of prior trials |
+| **Alpha decay expectation** | What is the expected half-life of the signal? It must exceed the intended holding period. | No decay estimate or half-life shorter than holding period |
 
-If any criterion fails → flag it before backtesting. Proceed only if PM acknowledges.
+If any criterion fails → flag it before backtesting. Hypotheses without an economic mechanism
+get ONE exploratory backtest with a higher bar (Sharpe > 1.5 IS). With mechanism → standard pipeline.
 
 ### 2. Backtest Interpretation (NOT just metrics)
 
 After running `run_backtest`, evaluate beyond headline numbers:
 
 **Minimum thresholds:**
-- Sharpe > 0.8 (not 1.0 — real-world costs reduce IS Sharpe by ~30%)
+- Sharpe > 1.0 IS (real-world costs reduce IS Sharpe ~30%, targeting 0.7 net)
 - Max drawdown < 20%
-- Total trades > 50
-- Profit factor > 1.3
+- Total trades > 100 for swing, > 60 for investment (50 trades at SR=0.7 → 95% CI [-0.01, 1.41] — meaningless)
+- Profit factor > 1.4
 - Win rate: context-dependent (high win rate + small avg win = fragile)
+
+**Cost sensitivity (MANDATORY):**
+- Re-run backtest at 2x assumed slippage. If Sharpe drops below 0.5, the strategy is cost-fragile.
+- For options: re-run at 2x bid-ask spread. Same threshold.
 
 **Distribution analysis:**
 - Are returns normally distributed or fat-tailed?
@@ -74,23 +81,45 @@ After running `run_backtest`, evaluate beyond headline numbers:
 
 ### 3. Overfitting Detection (MANDATORY for all strategies)
 
-Run these checks:
+Answer these questions. Use the appropriate statistical tools to compute answers — don't guess.
+Search available tools for each check — the right tool exists.
 
-**a) Walk-forward validation:** `run_walkforward(strategy_id, symbol)`
-- OOS Sharpe > 0 in majority of folds (≥60%)
-- IS/OOS Sharpe ratio < 2.0 (overfit ratio)
+**a) Walk-forward validation:**
+- Use `run_walkforward` (standard) or `run_walkforward_mtf` (multi-timeframe) as appropriate
+- OOS Sharpe > 0 in ≥70% of folds
+- IS/OOS Sharpe ratio < 1.8
 - OOS degradation < 50% from IS
-- If sparse signal: use `walk_forward_sparse_signal()` to auto-adjust OOS windows
+- If sparse signal: walk-forward tools auto-adjust OOS windows — use their suggested params
 
-**b) Deflated Sharpe Ratio (DSR):**
-- How many strategies were tested before this one "won"?
-- DSR adjusts the Sharpe downward for the number of trials
-- Rule of thumb: if you tested 20 strategies, the surviving one needs IS Sharpe > 2.0 to be meaningful
+**b) Deflated Sharpe Ratio (MANDATORY for any promotion decision):**
+- Tool: search for `compute_deflated_sharpe` or equivalent DSR tool
+- Must use the ACTUAL number of hypotheses tested this cycle, not a guess
+- DSR > 0 required. DSR ≤ 0 = Sharpe explained by selection bias. DELETE.
 
-**c) Parameter sensitivity:**
-- Vary each parameter ±20%. Does the strategy survive?
-- If Sharpe drops >50% from a small parameter change → overfit to specific values
+**c) Probability of Backtest Overfitting (PBO):**
+- Tool: `run_combinatorial_cv` or `compute_pbo` — search available tools
+- PBO < 0.40 required. PBO > 0.40 = more likely overfit than real. DELETE.
+- CSCV required for any strategy being promoted to forward_testing
+
+**d) Parameter sensitivity:**
+- Tool: `run_parameter_sensitivity` or equivalent — search available tools
+- Vary each parameter ±20%. If Sharpe drops >50% from a small change → overfit.
 - Robust strategies degrade gracefully, not catastrophically
+
+### 3.5. Minimum Backtest Length (MinBTL)
+
+Before accepting any backtest result, ask: "Is there enough data for this Sharpe to be statistically meaningful?"
+
+`MinBTL_years ≈ (1.96/SR)^2 / 252` for normally distributed returns.
+- SR=0.7 → ~16 years needed. SR=1.0 → ~8 years. SR=1.5 → ~3.5 years.
+
+If the available data is shorter than MinBTL, the Sharpe estimate is not statistically reliable.
+Flag as "insufficient data" and recommend:
+- Testing on more symbols (cross-sectional evidence)
+- Using shorter holding periods (more trades per year)
+- Not promoting until more data accumulates
+
+Reference: Bailey & Lopez de Prado (2012) "The Sharpe Ratio Efficient Frontier"
 
 ### 4. Alpha Decay Analysis
 

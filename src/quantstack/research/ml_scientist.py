@@ -28,8 +28,9 @@ from typing import Any
 
 import litellm
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.llm_config import get_llm_for_role
 from quantstack.research.context import ResearchContext
@@ -76,7 +77,7 @@ class MLScientist:
     2. Rule-based fallback: Deterministic retraining rules
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: PgConnection) -> None:
         self._conn = conn
         self._context = ResearchContext(conn)
 

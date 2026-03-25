@@ -133,6 +133,56 @@ failure reason — this prevents re-testing the same hypothesis.
 - Training run details (keep the final metrics only)
 - Deprecated models (status: retired > 3 months ago with no active successors)
 
+**Target: ≤ 60 lines**
+
+---
+
+## Step 7b: `ml_experiment_log.md`
+
+**Keep:**
+- One row per completed experiment (date, symbol, model type, OOS AUC, verdict)
+- Experiments that revealed a reusable insight (flag with `★`)
+- The 5 most recent experiments regardless of outcome
+
+**Remove:**
+- Hyperparameter tuning iterations (keep only the winning config per experiment)
+- Experiments older than 90 days where the insight is already captured in `workshop_lessons.md`
+- Duplicate runs of the same experiment with no new findings
+
+**Target: ≤ 120 lines**
+
+---
+
+## Step 7c: `lit_review_findings.md`
+
+**Keep:**
+- Current roadmap table (all rows — this is the actionable output)
+- Findings marked BUILD or INVESTIGATE with their key result and effort estimate
+- Domain summaries updated after each review (one paragraph per domain, latest only)
+- Papers that directly influenced a `/workshop` session
+
+**Remove:**
+- Superseded domain summaries (keep only the most recent per domain)
+- SKIP/DEFER findings older than 6 months (they're not coming back)
+- Full paper abstracts — keep title, venue, year, and the single key metric
+
+**Target: ≤ 150 lines**
+
+---
+
+## Step 7d: `ml_research_program.md`
+
+**Keep:**
+- Active research programs with status and next action
+- Completed programs: one-line summary only (hypothesis → outcome)
+- Programs that were abandoned with the reason (prevents re-starting dead ends)
+
+**Remove:**
+- Iteration-level logs for completed programs
+- Programs completed > 6 months ago where findings are in `workshop_lessons.md`
+
+**Target: ≤ 100 lines**
+
 ---
 
 ## Step 8: Commit Compacted State
@@ -170,3 +220,6 @@ N from regime_history.md. Rollback: <prev commit hash>
 | `session_handoffs.md` | 80 | Pending actions + last 30d |
 | `strategy_registry.md` | unlimited | Never compact |
 | `ml_model_registry.md` | 60 | One row per model |
+| `ml_experiment_log.md` | 120 | Rolling 90-day window, flag key insights |
+| `lit_review_findings.md` | 150 | Roadmap table always kept, drop stale SKIP/DEFER |
+| `ml_research_program.md` | 100 | Active programs full, completed one-line summary |

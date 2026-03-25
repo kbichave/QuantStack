@@ -9,10 +9,10 @@ the full rule set and has disk-backed persistence.  RiskState is its
 read-optimised shadow that the tick executor checks in sub-microseconds.
 
 Invariants:
-  - Loaded from DuckDB (portfolio + risk_gate state) on startup.
+  - Loaded from PostgreSQL (portfolio + risk_gate state) on startup.
   - Updated in-memory after every fill and every mark-to-market.
-  - Written back to DuckDB asynchronously by a background flusher.
-  - The tick executor NEVER reads from DuckDB — only from this object.
+  - Written back to PostgreSQL asynchronously by a background flusher.
+  - The tick executor NEVER reads from the database — only from this object.
 
 The split allows the tick executor to run at market-data frequency without
 being blocked by DB I/O or the RiskGate's full rule evaluation.  When
@@ -40,8 +40,9 @@ import json as _json
 from dataclasses import dataclass, field
 from threading import RLock
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.execution.risk_gate import RiskLimits, RiskVerdict, RiskViolation
 from quantstack.execution.signal_cache import TradeSignal
@@ -321,7 +322,7 @@ class RiskState:
     # Persistence (async background flusher — NOT called in hot path)
     # ---------------------------------------------------------------------------
 
-    def flush_to_db(self, conn: duckdb.DuckDBPyConnection) -> None:  # type: ignore
+    def flush_to_db(self, conn: PgConnection) -> None:
         """
         Persist current risk state to the system_state table.
 

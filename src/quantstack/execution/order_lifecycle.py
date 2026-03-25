@@ -62,11 +62,10 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum
 from threading import RLock
 
-import duckdb
 from loguru import logger
 
 from quantstack.core.execution.tca_storage import TCAStore
-from quantstack.db import open_db, run_migrations
+from quantstack.db import PgConnection, open_db, run_migrations
 from quantstack.observability.trace import TraceContext
 
 
@@ -179,7 +178,7 @@ class OrderLifecycle:
     # Default order TTL — orders not filled within this time are expired.
     _DEFAULT_TTL_SECONDS = 900  # 15 minutes
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: PgConnection) -> None:
         self.conn = conn
         self._orders: dict[str, Order] = {}  # order_id → Order (in-memory)
         self._ensure_table()
@@ -744,7 +743,7 @@ _oms: OrderLifecycle | None = None
 
 
 def get_order_lifecycle(
-    conn: duckdb.DuckDBPyConnection | None = None,
+    conn: PgConnection | None = None,
 ) -> OrderLifecycle:
     """
     Get the singleton OrderLifecycle instance.

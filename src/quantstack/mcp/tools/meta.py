@@ -29,12 +29,15 @@ from quantstack.mcp._state import (
 )
 from quantstack.mcp.allocation import resolve_conflicts
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
 from quantstack.strategies.signal_generator import (
     fetch_price_data as _fetch_price_data,
     generate_signals_from_rules as _generate_signals_from_rules,
 )
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def get_regime_strategies(regime: str) -> dict[str, Any]:
     """
@@ -76,6 +79,7 @@ async def get_regime_strategies(regime: str) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def set_regime_allocation(
     regime: str,
@@ -144,6 +148,7 @@ async def set_regime_allocation(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def resolve_portfolio_conflicts(
     proposed_trades: list[dict[str, Any]],
@@ -194,6 +199,7 @@ _DEGRADED_SHARPE_THRESHOLD = 0.3
 _MIN_STRATEGIES_PER_REGIME = 2
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def get_strategy_gaps() -> dict[str, Any]:
     """
@@ -387,6 +393,7 @@ def _parse_json_field(value: Any) -> Any:
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def promote_draft_strategies(
     min_oos_sharpe: float = 0.6,
@@ -484,9 +491,12 @@ async def promote_draft_strategies(
 
             oos_sharpe = wf_summary.get("oos_sharpe_mean", 0.0)
             is_sharpe = wf_summary.get("is_sharpe_mean", 0.0)
+            # Negative or near-zero OOS Sharpe → maximally overfit (reject)
             overfit_ratio = (
                 (is_sharpe / oos_sharpe) if oos_sharpe > 1e-9 else float("inf")
             )
+            if oos_sharpe <= 0:
+                overfit_ratio = float("inf")
 
             if oos_sharpe < min_oos_sharpe:
                 rejected.append(
@@ -560,6 +570,7 @@ def _update_strategy_status(ctx: Any, strategy_id: str, new_status: str) -> None
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def check_strategy_rules(
     symbol: str,

@@ -6,8 +6,7 @@
 import uuid
 from datetime import datetime
 
-import duckdb
-
+from quantstack.db import PgConnection
 from quantstack.knowledge.models import (
     RegimeState,
     WaveScenario,
@@ -17,7 +16,7 @@ from quantstack.knowledge.models import (
 class WavesRegimeMixin:
     """Wave scenario and regime state operations."""
 
-    conn: duckdb.DuckDBPyConnection
+    conn: PgConnection
 
     # =========================================================================
     # WAVE SCENARIO OPERATIONS

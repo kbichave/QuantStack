@@ -28,8 +28,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 
 @dataclass
@@ -78,16 +79,16 @@ DEFAULT_LOOP_CONFIGS = [
 
 class LoopSupervisor:
     """
-    Monitors Ralph loop health via heartbeat events in DuckDB.
+    Monitors Ralph loop health via heartbeat events in PostgreSQL.
 
     Args:
-        conn: DuckDB read-only connection (supervisor only reads).
+        conn: PostgreSQL connection (supervisor reads heartbeat events).
         configs: Loop configurations. Defaults to the three Ralph loops.
     """
 
     def __init__(
         self,
-        conn: duckdb.DuckDBPyConnection,
+        conn: PgConnection,
         configs: list[LoopConfig] | None = None,
     ) -> None:
         self._conn = conn

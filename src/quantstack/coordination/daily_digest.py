@@ -4,7 +4,7 @@
 """
 Daily digest — aggregated summary of all autonomous loop activity.
 
-Collects data from DuckDB tables (events, heartbeats, trades, strategies)
+Collects data from PostgreSQL tables (events, heartbeats, trades, strategies)
 and produces a structured report that can be sent to Discord or written to
 a memory file.
 
@@ -20,8 +20,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.coordination.slack_client import SlackClient
 
@@ -67,13 +68,13 @@ class DigestReport:
 
 class DailyDigest:
     """
-    Generates aggregated daily reports from DuckDB state.
+    Generates aggregated daily reports from PostgreSQL state.
 
     Args:
-        conn: DuckDB connection (read-only is sufficient).
+        conn: PostgreSQL connection (read-only is sufficient).
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: PgConnection) -> None:
         self._conn = conn
 
     def generate(self, target_date: date | None = None) -> DigestReport:

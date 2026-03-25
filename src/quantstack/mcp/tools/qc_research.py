@@ -35,12 +35,16 @@ from quantstack.core.research.stat_tests import (
 )
 from quantstack.mcp._helpers import _get_reader, _parse_timeframe, _serialize_result
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 # =============================================================================
 # RESEARCH / STATISTICAL TOOLS
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_adf_test(
     symbol: str,
@@ -118,6 +122,7 @@ async def run_adf_test(
         store.close()
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def compute_alpha_decay(
     symbol: str,
@@ -207,6 +212,7 @@ async def compute_alpha_decay(
         store.close()
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def compute_information_coefficient(
     symbol: str,
@@ -287,11 +293,11 @@ async def compute_information_coefficient(
             "symbol": symbol,
             "signal_column": signal_column,
             "forward_period": forward_return_periods,
-            "ic": round(ic, 4),
-            "p_value": round(p_value, 4),
-            "t_statistic": round(t_stat, 2),
-            "sample_size": n,
-            "is_significant": p_value < 0.05,
+            "ic": float(round(ic, 4)),
+            "p_value": float(round(p_value, 4)),
+            "t_statistic": float(round(t_stat, 2)),
+            "sample_size": int(n),
+            "is_significant": bool(p_value < 0.05),
             "interpretation": (
                 "Strong predictive signal"
                 if abs(ic) > 0.1
@@ -308,6 +314,7 @@ async def compute_information_coefficient(
         store.close()
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_monte_carlo(
     symbol: str,
@@ -395,6 +402,7 @@ async def run_monte_carlo(
         store.close()
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def validate_signal(
     signal: list[float],
@@ -498,6 +506,7 @@ async def validate_signal(
         return {"error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def diagnose_signal(
     signal: list[float],
@@ -544,6 +553,7 @@ async def diagnose_signal(
         return {"error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def detect_leakage(
     symbol: str,
@@ -629,6 +639,7 @@ async def detect_leakage(
         store.close()
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def check_lookahead_bias(
     symbol: str,
@@ -762,6 +773,7 @@ def _fit_garch_sync(
     return {"result": result, "success": True}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def fit_garch_model(
     symbol: str,
@@ -855,6 +867,7 @@ async def fit_garch_model(
         store.close()
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def forecast_volatility(
     symbol: str,
@@ -976,6 +989,7 @@ async def forecast_volatility(
 # =============================================================================
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def compute_deflated_sharpe_ratio(
     observed_sharpe: float,
@@ -1070,6 +1084,7 @@ async def compute_deflated_sharpe_ratio(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def run_combinatorial_purged_cv(
     symbol: str,
@@ -1240,6 +1255,7 @@ async def run_combinatorial_purged_cv(
         store.close()
 
 
+@domain(Domain.RESEARCH)
 @mcp.tool()
 async def compute_probability_of_overfitting(
     is_sharpe_ratios: list[float],

@@ -31,11 +31,15 @@ from loguru import logger
 
 from quantstack.mcp._state import _serialize, live_db_or_error, require_ctx
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 # In-memory env config cache (environments are created per-training-run)
 _env_configs: dict[str, dict[str, Any]] = {}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_create_environment(
     env_type: str,
@@ -126,6 +130,7 @@ async def finrl_create_environment(
     }
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_train_model(
     env_id: str,
@@ -220,6 +225,7 @@ async def finrl_train_model(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_train_ensemble(
     env_id: str,
@@ -277,6 +283,7 @@ async def finrl_train_ensemble(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_evaluate_model(
     model_id: str,
@@ -355,6 +362,7 @@ async def finrl_evaluate_model(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_predict(
     model_id: str,
@@ -424,6 +432,7 @@ async def finrl_predict(
         return {"success": True, "prediction": None, "note": f"Unavailable: {e}"}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_list_models(
     env_type: str | None = None,
@@ -459,6 +468,7 @@ async def finrl_list_models(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_compare_models(
     model_ids: list[str],
@@ -496,6 +506,7 @@ async def finrl_compare_models(
     }
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_get_model_status(model_id: str) -> dict[str, Any]:
     """
@@ -553,6 +564,7 @@ async def finrl_get_model_status(model_id: str) -> dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_promote_model(
     model_id: str,
@@ -628,6 +640,7 @@ async def finrl_promote_model(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_screen_stocks(
     symbols: list[str],
@@ -688,6 +701,7 @@ async def finrl_screen_stocks(
         return {"success": False, "error": str(e)}
 
 
+@domain(Domain.FINRL)
 @mcp.tool()
 async def finrl_screen_options(
     symbols: list[str],

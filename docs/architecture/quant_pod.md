@@ -128,7 +128,7 @@ LLM_MODEL_ASSISTANT=openai/gpt-4o   # mix providers freely
 
 ## Execution Layer
 
-`packages/quant_pod/execution/` — 12 modules, all receiving a single DuckDB connection via dependency injection.
+`packages/quant_pod/execution/` — 12 modules, all receiving a single `PgConnection` via dependency injection.
 
 ### Execution Path
 
@@ -144,7 +144,7 @@ TradingDayFlow.run()
     │      enforces: position size, daily loss, liquidity, restricted list
     │
     ├─ 4. Signal → SignalCache (TTL: 15 min default)
-    │      DuckDB-backed for crash recovery
+    │      PostgreSQL-backed for crash recovery
     │
     ├─ 5. TickExecutor reads cache → SmartOrderRouter
     │
@@ -172,19 +172,19 @@ TradingDayFlow.run()
 
 ## Dependency Injection (TradingContext)
 
-`packages/quant_pod/context.py` is the single wiring point. All services share one DuckDB connection.
+`packages/quant_pod/context.py` is the single wiring point. All services share one `PgConnection` instance.
 
 ```python
 from quant_pod.context import create_trading_context
 
-# Production — persistent DB
+# Production — PostgreSQL (TRADER_PG_URL env var)
 ctx = create_trading_context()
 
-# Tests — fully isolated, zero file-system side-effects
+# Tests — in-memory DuckDB via PgConnection._from_memory(), zero server required
 ctx = create_trading_context(db_path=":memory:")
 
 # ctx fields:
-#   db           — raw DuckDB connection
+#   db           — PgConnection (PostgreSQL pool connection, or DuckDB in-memory for tests)
 #   portfolio    — PortfolioState
 #   risk_gate    — RiskGate
 #   risk_state   — RiskState (hot-path mirror)
@@ -192,15 +192,17 @@ ctx = create_trading_context(db_path=":memory:")
 #   kill_switch  — KillSwitch
 #   broker       — PaperBroker (or EtradeBroker when USE_REAL_TRADING=true)
 #   audit        — DecisionLog
-#   blackboard   — Blackboard (DuckDB-backed agent memory)
+#   blackboard   — Blackboard (PostgreSQL-backed agent memory)
 #   session_id   — UUID threaded through all logs
 ```
 
 ---
 
-## State Management (DuckDB)
+## State Management (PostgreSQL + DuckDB)
 
-Single consolidated database at `~/.quant_pod/trader.duckdb` (default). All services share one connection for ACID cross-service transactions.
+**Operational state** lives in PostgreSQL (`TRADER_PG_URL`, default `postgresql://localhost/quantpod`). All four MCP server instances share the same pool — true MVCC, no file-lock contention. All services share one `PgConnection` for ACID cross-service transactions.
+
+**Analytics state** (ML experiments, backtests, research programs, reflexion, prompt optimization) stays in DuckDB at `data/trader.duckdb` — append-heavy workloads where DuckDB's columnar engine excels and concurrency is not required.
 
 | Table | Owner | Description |
 |-------|-------|-------------|
@@ -217,7 +219,7 @@ Single consolidated database at `~/.quant_pod/trader.duckdb` (default). All serv
 | `calibration_records` | `Calibration` | Stated confidence vs actual P&L |
 | `system_state` | `KillSwitch` | Kill switch and halt flags |
 
-**Why DuckDB over files?** ACID transactions prevent partial state on crash. Indexed queries replace O(n) full-file reads. JSON-structured content prevents prompt injection.
+**Why PostgreSQL for operational state?** MVCC allows concurrent reads and writes from all four MCP server instances simultaneously — no file-lock serialization, no degraded mode, no retry logic. ACID transactions still guarantee consistency across services.
 
 ---
 
@@ -330,7 +332,7 @@ packages/quant_pod/
 │   ├── registry.py
 │   ├── schemas.py                  DailyBrief + all crew schemas
 │   └── trading_crew.py             Main 13-IC crew
-├── db.py                           DuckDB schema + migrations
+├── db.py                           PostgreSQL + DuckDB schema, migrations, PgConnection pool
 ├── execution/                      12-module execution layer
 ├── flows/
 │   ├── intraday_monitor_flow.py    Intraday monitoring
@@ -341,7 +343,7 @@ packages/quant_pod/
 ├── learning/
 │   ├── calibration.py              Stated confidence vs P&L tracking
 │   └── skill_tracker.py            IC prediction accuracy
-├── memory/blackboard.py            DuckDB-backed agent memory
+├── memory/blackboard.py            PostgreSQL-backed agent memory
 ├── mcp/server.py                   30+ MCP tools (Phases 1–6)
 ├── monitoring/
 │   ├── alpha_monitor.py            Signal quality degradation

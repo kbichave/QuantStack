@@ -21,6 +21,9 @@ from quantstack.mcp._helpers import (
 )
 from quantstack.data.fundamentals import FundamentalsProvider
 from quantstack.mcp.server import mcp
+from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._registry import domain
+
 
 
 def _get_fundamentals_provider():
@@ -42,6 +45,7 @@ def _get_fundamentals_provider():
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_financial_statements(
     ticker: str,
@@ -126,6 +130,7 @@ async def get_financial_statements(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_financial_metrics(
     ticker: str,
@@ -186,6 +191,7 @@ async def get_financial_metrics(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_earnings_data(
     ticker: str,
@@ -226,6 +232,7 @@ async def get_earnings_data(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_insider_trades(
     ticker: str,
@@ -284,6 +291,7 @@ async def get_insider_trades(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_institutional_ownership(
     ticker: str,
@@ -342,6 +350,7 @@ async def get_institutional_ownership(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_analyst_estimates(
     ticker: str,
@@ -398,6 +407,7 @@ async def get_analyst_estimates(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_company_news(
     ticker: str,
@@ -438,6 +448,7 @@ async def get_company_news(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def screen_stocks(
     filters: dict[str, Any],
@@ -479,6 +490,7 @@ async def screen_stocks(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_segmented_revenues(
     ticker: str,
@@ -522,6 +534,7 @@ async def get_segmented_revenues(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_earnings_press_releases(
     ticker: str,
@@ -562,6 +575,7 @@ async def get_earnings_press_releases(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_sec_filing_items(
     ticker: str,
@@ -646,6 +660,7 @@ async def get_sec_filing_items(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_interest_rates(
     snapshot: bool = False,
@@ -697,6 +712,7 @@ async def get_interest_rates(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_crypto_prices(
     ticker: str,
@@ -742,6 +758,7 @@ async def get_crypto_prices(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_price_snapshot(
     ticker: str,
@@ -783,6 +800,7 @@ async def get_price_snapshot(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def list_sec_filings(
     ticker: str,
@@ -833,6 +851,7 @@ async def list_sec_filings(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def get_company_facts(
     ticker: str,
@@ -874,6 +893,7 @@ async def get_company_facts(
 # =============================================================================
 
 
+@domain(Domain.DATA)
 @mcp.tool()
 async def search_financial_statements(
     metric: str,

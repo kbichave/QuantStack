@@ -110,6 +110,11 @@ class EconomicFetcher:
             name="nonfarm_payroll",
             frequency="monthly",
         ),
+        EconomicIndicator(
+            function="VIX",
+            name="vix",
+            frequency="daily",
+        ),
     ]
 
     def __init__(self, api_key: str | None = None):

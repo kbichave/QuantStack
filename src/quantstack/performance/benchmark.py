@@ -21,8 +21,9 @@ import math
 from datetime import date, timedelta
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
@@ -33,10 +34,10 @@ class BenchmarkTracker:
     Benchmark return ingestion and rolling comparison vs portfolio.
 
     Args:
-        conn: DuckDB connection (write-enabled).
+        conn: PostgreSQL connection (write-enabled).
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: PgConnection) -> None:
         self._conn = conn
 
     def update_benchmark(

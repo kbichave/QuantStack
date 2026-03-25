@@ -1,29 +1,24 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime
-from pathlib import Path
 
-import duckdb
 from loguru import logger
 
-from .models import DiscordMessage
+from quantstack.db import pg_conn
 
-# Default to the project's main DuckDB so Discord messages sit alongside
-# market data and can be JOINed directly in research queries.
-_DEFAULT_DB = str(Path(__file__).parents[4] / "data" / "trader.duckdb")
+from .models import DiscordMessage
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS discord_messages (
     message_id   VARCHAR NOT NULL,
     channel_id   VARCHAR NOT NULL,
-    channel_label VARCHAR NOT NULL,   -- e.g. "watchlist" or "results"
+    channel_label VARCHAR NOT NULL,
     author_id    VARCHAR NOT NULL,
     author_name  VARCHAR NOT NULL,
     content      TEXT    NOT NULL,
     timestamp    TIMESTAMPTZ NOT NULL,
-    attachments  TEXT,                -- JSON array
-    embeds       TEXT,                -- JSON array
+    attachments  TEXT,
+    embeds       TEXT,
     fetched_at   TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (message_id)
 );
@@ -38,24 +33,19 @@ CREATE INDEX IF NOT EXISTS idx_discord_channel_ts
 
 class DiscordStore:
     """
-    DuckDB-backed persistence for Discord messages.
+    PostgreSQL persistence for Discord messages.
 
-    Opens a new connection per operation — DuckDB handles concurrent readers
-    safely and we avoid holding a long-lived connection across async awaits.
+    Uses the shared PostgreSQL connection pool. Each method acquires a
+    connection from the pool for the duration of the operation.
     """
 
-    def __init__(self, db_path: str | None = None) -> None:
-        raw = db_path or os.getenv("DISCORD_DB_PATH") or _DEFAULT_DB
-        self.db_path = str(Path(raw).expanduser().resolve())
+    def __init__(self) -> None:
         self._init_schema()
 
-    def _connect(self) -> duckdb.DuckDBPyConnection:
-        return duckdb.connect(self.db_path)
-
     def _init_schema(self) -> None:
-        with self._connect() as conn:
+        with pg_conn() as conn:
             conn.execute(_SCHEMA)
-        logger.debug(f"Discord schema ready at {self.db_path}")
+        logger.debug("Discord schema ready (PostgreSQL)")
 
     def upsert_messages(self, messages: list[DiscordMessage], label: str) -> int:
         """
@@ -80,7 +70,7 @@ class DiscordStore:
             for m in messages
         ]
 
-        with self._connect() as conn:
+        with pg_conn() as conn:
             conn.executemany(
                 """
                 INSERT INTO discord_messages
@@ -99,7 +89,7 @@ class DiscordStore:
         Return the snowflake ID of the most recently stored message for a
         given channel. Used as the `after=` cursor for incremental fetches.
         """
-        with self._connect() as conn:
+        with pg_conn() as conn:
             row = conn.execute(
                 """
                 SELECT message_id
@@ -133,8 +123,8 @@ class DiscordStore:
         params.append(min(limit, 1000))
         where = " AND ".join(clauses)
 
-        with self._connect() as conn:
-            df = conn.execute(
+        with pg_conn() as conn:
+            rows = conn.execute(
                 f"""
                 SELECT message_id, channel_id, channel_label,
                        author_id, author_name, content, timestamp,
@@ -145,18 +135,21 @@ class DiscordStore:
                 LIMIT  ?
                 """,
                 params,
-            ).df()
+            ).fetchall()
+            columns = [desc[0] for desc in conn.description]
 
+        records = [dict(zip(columns, row)) for row in rows]
         # Serialize timestamps so callers get plain strings
-        if not df.empty and "timestamp" in df.columns:
-            df["timestamp"] = df["timestamp"].astype(str)
+        for rec in records:
+            if "timestamp" in rec and rec["timestamp"] is not None:
+                rec["timestamp"] = str(rec["timestamp"])
 
-        return df.to_dict(orient="records")
+        return records
 
     def get_status(self) -> list[dict]:
         """Return per-channel summary stats for the fetch_status tool."""
-        with self._connect() as conn:
-            df = conn.execute(
+        with pg_conn() as conn:
+            rows = conn.execute(
                 """
                 SELECT
                     channel_label,
@@ -169,10 +162,13 @@ class DiscordStore:
                 GROUP  BY channel_label, channel_id
                 ORDER  BY channel_label, latest DESC
                 """
-            ).df()
+            ).fetchall()
+            columns = [desc[0] for desc in conn.description]
 
-        for col in ("earliest", "latest", "last_fetched_at"):
-            if col in df.columns:
-                df[col] = df[col].astype(str)
+        records = [dict(zip(columns, row)) for row in rows]
+        for rec in records:
+            for col in ("earliest", "latest", "last_fetched_at"):
+                if col in rec and rec[col] is not None:
+                    rec[col] = str(rec[col])
 
-        return df.to_dict(orient="records")
+        return records

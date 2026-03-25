@@ -7,8 +7,9 @@ import json
 import uuid
 from datetime import datetime, timedelta
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.knowledge.models import (
     MarketObservation,
@@ -21,7 +22,7 @@ from quantstack.knowledge.models import (
 class TradesMixin:
     """Trade journal, market observations, and trading signal operations."""
 
-    conn: duckdb.DuckDBPyConnection
+    conn: PgConnection
 
     # =========================================================================
     # TRADE OPERATIONS

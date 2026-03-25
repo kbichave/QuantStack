@@ -15,7 +15,7 @@ This is the non-parametric RLHF described in the architecture:
 
 Design invariants:
   - All DB writes are best-effort (try/except). A DB failure NEVER blocks a fill.
-  - Reads are via open_db_readonly() — no write-lock competition with MCP server.
+  - Reads use PostgreSQL (pg_conn) — no file-lock competition.
   - apply_learning() calls update_strategy() MCP tool rather than writing DB
     directly, so all audit trail and validation logic in that tool is respected.
 

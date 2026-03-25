@@ -18,7 +18,7 @@ from loguru import logger
 
 from quantstack.config.settings import Settings
 from quantstack.config.timeframes import Timeframe
-from quantstack.data.storage import DataStore
+from quantstack.data.pg_storage import PgDataStore
 from quantstack.shared.serializers import serialize_for_json
 
 
@@ -27,7 +27,7 @@ class ServerContext:
     """Shared context for MCP server, set during lifespan."""
 
     settings: Settings
-    data_store: Any = None
+    data_store: PgDataStore | None = None
     feature_factory: Any = None
     data_registry: Any = None
 
@@ -36,27 +36,23 @@ class ServerContext:
 # DataStore read/write separation
 # ---------------------------------------------------------------------------
 
-_shared_reader: Any = None
 
+def _get_reader() -> PgDataStore:
+    """Return a PgDataStore for read operations.
 
-def _get_reader() -> Any:
-    """Return the shared read-only DataStore.  Falls back to a fresh one if lifespan hasn't run."""
-    global _shared_reader
-    if _shared_reader is not None:
-        return _shared_reader
-    _shared_reader = DataStore(read_only=True)
-    return _shared_reader
+    PgDataStore is stateless — each method opens and closes a pg_conn()
+    context manager, so there is no persistent connection to share or reuse.
+    """
+    return PgDataStore()
 
 
 def set_shared_reader(reader: Any) -> None:
-    """Set the shared reader (called from lifespan)."""
-    global _shared_reader
-    _shared_reader = reader
+    """No-op: PgDataStore is stateless, no persistent connection to share."""
 
 
-def _get_writer() -> Any:
-    """Return a short-lived write DataStore for data ingestion.  Caller must close it."""
-    return DataStore()
+def _get_writer() -> PgDataStore:
+    """Return a PgDataStore for write operations.  Caller may call .close() (no-op)."""
+    return PgDataStore()
 
 
 # ---------------------------------------------------------------------------

@@ -23,8 +23,9 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-import duckdb
 from loguru import logger
+
+from quantstack.db import PgConnection
 
 from quantstack.execution.hook_registry import fire as _fire_hook
 
@@ -34,10 +35,10 @@ class EquityTracker:
     Daily equity snapshot and strategy P&L attribution writer.
 
     Args:
-        conn: DuckDB connection (write-enabled).
+        conn: PostgreSQL connection (write-enabled).
     """
 
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, conn: PgConnection) -> None:
         self._conn = conn
 
     def snapshot_daily(self, as_of: date | None = None) -> dict[str, Any]:

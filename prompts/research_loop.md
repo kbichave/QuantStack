@@ -64,12 +64,34 @@ options_pnl       = sum realized_pnl WHERE instrument_type='options' (last 30d)
 
 **Pick the domain with the highest priority score.** Ties: prefer the domain with fewer validated strategies (fill gaps first).
 
-**Rotation rule:** Don't work on the same domain 4 iterations in a row unless it's the only one with active programs. Force rotation to prevent tunnel vision.
+**Rotation rule:** Don't work on the same domain 3 iterations in a row (tightened from 4). After completing a full domain cycle (all 3 domains visited), run a mandatory cross-domain review iteration using the Review + Cross-Pollinate path.
+
+### 2e: Cross-Domain Alpha Transfer
+
+When a signal proves statistically significant in one domain, test it in others:
+- Swing momentum signal works? → Test if options directional strategies using the same signal improve.
+- Investment quality signal works? → Test if swing strategies with quality overlay outperform.
+- Options VRP signal works? → Test if equity sizing benefits from a vol regime filter.
+
+Log transfer attempts and results in `state["cross_domain_transfers"]`. Cross-domain signals that work in 2+ domains are your highest-conviction alpha.
+
+### 2f: Literature-Driven Hypothesis Queue
+
+Maintain 5-10 literature-backed ideas in `state["literature_queue"]`. Refresh when the queue empties.
+Sources to mine:
+- Harvey, Liu, Zhu (2016) — 400+ documented factors in the factor zoo
+- Jegadeesh & Titman momentum, Novy-Marx quality, Asness value/momentum/carry
+- Ang et al low-vol anomaly, Frazzini & Pedersen BAB
+- Easley et al VPIN, Kyle lambda (microstructure)
+- DeBondt & Thaler overreaction, Barberis & Shleifer style investing
+
+Literature-backed hypotheses start with higher priors and require less multiple-testing correction.
 
 ### 2c: Mandatory checks
 
 - **Every iteration** (<1 min): `get_system_status()`. Kill switch/halt? STOP.
 - **Every 5 iterations**: full cross-domain review (kill fakes, flag leakage, concept drift, alpha decay, cross-pollinate between domains, update `workshop_lessons.md`).
+- **Monthly** (if `state["last_execution_audit"]` is missing or > 30 days old AND at least 20 fills exist): spawn `execution-researcher` sub-agent. On completion, set `state["last_execution_audit"] = today`. This replaces normal domain work for that iteration — skip to Step 3 after the agent returns.
 
 **Write decision + reasoning to state file BEFORE acting.**
 
@@ -86,6 +108,7 @@ Based on Step 2b decision, read and execute the appropriate domain prompt:
 | Options | Read `prompts/research_options.md`, execute its research steps |
 | Cross-Domain Review | Execute the Review + Cross-Pollinate path from `prompts/research_shared.md` |
 | Portfolio Construction | Execute the Portfolio + Output path from `prompts/research_shared.md` (requires strategies from 2+ domains) |
+| Execution Audit | Spawn `execution-researcher` sub-agent (triggered by monthly check in 2c, not domain scoring) |
 
 ---
 
@@ -100,6 +123,8 @@ Execute write procedures from `prompts/research_shared.md`:
 ```python
 state["last_domain"] = chosen_domain  # "equity_investment", "equity_swing", "options", "review"
 state["domain_history"].append({"iteration": N, "domain": chosen_domain, "result": summary})
+# If this iteration was an execution audit:
+state["last_execution_audit"] = today  # ISO date string, e.g. "2026-03-25"
 ```
 
 ---
@@ -115,14 +140,19 @@ Output `<promise>TRADING_READY</promise>` when ALL of:
 | Options strategies with full reporting | >= 1 per cached symbol |
 | Thesis type coverage | At least 3 equity investment types + 3 swing types + 3 options types |
 | Regime coverage | Every regime has strategies across all three domains |
-| Walk-forward | Passed for each strategy, PBO < 0.5 |
-| ML models | Champion + challenger per symbol, avg OOS AUC > 0.56 |
-| Beat SPY | Investment strategies must beat SPY buy-and-hold over OOS period |
+| Walk-forward | Passed for each strategy, PBO < 0.40 |
+| ML models | Champion + challenger per symbol, avg OOS AUC > 0.58 |
+| Beat SPY | Investment strategies must beat SPY on alpha-adjusted basis |
 | Cross-instrument portfolio | HRP/risk-parity allocation across equity + options |
 | Stacking ensemble | Built where it improves OOS |
 | RL agents | Trained, recording in shadow mode |
-| Portfolio Sharpe | > 0.4 |
-| Stress test max DD | < 15% (swing/options), < 20% (investment) |
+| Portfolio Sharpe | > 0.7 after costs |
+| Deflated Sharpe Ratio | DSR > 0 for portfolio-level returns (accounting for all strategies tested) |
+| Factor diversification | No single factor explains > 50% of portfolio variance |
+| Strategy correlation | No strategy pair with correlation > 0.70 in the final portfolio |
+| Stress test max DD | < 15% (swing/options), < 18% (investment) |
+| Negative result ledger | >= 20 documented failed hypotheses (proves research breadth) |
+| Research velocity | >= 30 total hypotheses tested across the research program |
 | `trading_sheets_monday.md` | Complete with investment, swing, AND options plans per symbol |
 | Experiment history | Meaningful entries in `ml_experiments` and `breakthrough_features` |
 

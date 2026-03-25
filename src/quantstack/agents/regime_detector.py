@@ -29,6 +29,8 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
+from quantstack.config.timeframes import Timeframe
+from quantstack.data.pg_storage import PgDataStore
 from quantstack.data.provider import get_provider
 
 
@@ -290,7 +292,32 @@ class RegimeDetectorAgent:
     # -------------------------------------------------------------------------
 
     def _fetch_bars(self, symbol: str) -> list[dict]:
-        """Fetch OHLCV bars from the active DataProvider."""
+        """Fetch OHLCV bars, preferring the local PgDataStore over the live API.
+
+        PgDataStore is tried first — it's the same source used by all other
+        tools (compute_technical_indicators, get_signal_brief, etc.).  The live
+        provider is only called if the local store returns fewer than 30 bars.
+        """
+        # --- 1. Try local PostgreSQL store ---
+        try:
+            store = PgDataStore()
+            df = store.load_ohlcv(symbol, Timeframe.D1)
+            if df is not None and len(df) >= 30:
+                df = df.sort_index().tail(300)
+                return [
+                    {
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": int(row.get("volume", 0)),
+                    }
+                    for _, row in df.iterrows()
+                ]
+        except Exception as e:
+            logger.debug(f"[REGIME] PgDataStore miss for {symbol}: {e}")
+
+        # --- 2. Fall back to live provider ---
         try:
             provider = get_provider()
             bars_obj = provider.get_bars(symbol, interval="1d", limit=300)

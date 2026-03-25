@@ -1,5 +1,5 @@
 """
-Model registry — DuckDB-backed storage for trained FinRL models.
+Model registry — PostgreSQL-backed storage for trained FinRL models.
 
 Tracks model metadata, training metrics, evaluation results, and lifecycle
 status (shadow → live → retired).
@@ -24,7 +24,7 @@ from loguru import logger
 
 class ModelRegistry:
     """
-    DuckDB-backed registry for FinRL model metadata and lifecycle.
+    PostgreSQL-backed registry for FinRL model metadata and lifecycle.
 
     Table: finrl_models
     """
@@ -165,7 +165,7 @@ class ModelRegistry:
         self.db.execute("DELETE FROM finrl_models WHERE model_id = ?", [model_id])
 
     def _row_to_dict(self, row: tuple) -> dict[str, Any]:
-        """Convert a DuckDB row to dict."""
+        """Convert a database row to dict."""
         cols = [
             "model_id", "name", "env_type", "algorithm", "symbols",
             "train_start", "train_end", "hyperparams", "training_metrics",

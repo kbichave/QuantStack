@@ -4,7 +4,7 @@
 """
 Persistent portfolio state — survives process restarts.
 
-Stores positions, cash balance, and daily P&L in DuckDB so the agent
+Stores positions, cash balance, and daily P&L in PostgreSQL so the agent
 always knows what it already holds before making new decisions.
 
 Usage:
@@ -142,12 +142,12 @@ class PortfolioState:
         else:
             # Fall back to own file for backward compatibility
             if db_path is None:
-                db_path = os.getenv("PORTFOLIO_DB_PATH", "~/.quant_pod/trader.duckdb")
+                db_path = os.getenv("PORTFOLIO_DB_PATH", "")
             self._conn = open_db(db_path)
             run_migrations(self._conn)
 
         # Skip seeding on read-only connections — the write owner seeds on first run,
-        # and DDL/INSERT would raise duckdb.InvalidInputException on a read-only conn.
+        # and DDL/INSERT would raise an error on a read-only conn.
         if not self._read_only:
             self._seed_cash()
         logger.info("PortfolioState initialized")
@@ -764,7 +764,7 @@ _portfolio_state: PortfolioState | None = None
 
 
 def get_portfolio_state(
-    conn: duckdb.DuckDBPyConnection | None = None,
+    conn: PgConnection | None = None,
     initial_cash: float = 100_000.0,
     # Legacy parameter — ignored when conn is provided
     db_path: str | None = None,
@@ -791,10 +791,10 @@ def get_portfolio_state_readonly() -> PortfolioState:
     Use this in processes (FastAPI, scripts) that run alongside the MCP server
     and only need to READ portfolio data.  The returned instance cannot execute
     writes (upsert_position, adjust_cash, etc.) — those calls will raise a
-    duckdb.InvalidInputException at runtime.
+    permission error at runtime.
 
     Raises:
-        FileNotFoundError: if trader.duckdb doesn't exist yet (MCP server not started).
+        RuntimeError: if the database is not accessible yet (MCP server not started).
     """
     global _portfolio_state_ro
     if _portfolio_state_ro is None:

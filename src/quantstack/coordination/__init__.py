@@ -9,5 +9,5 @@ Provides inter-loop communication (event bus), atomic strategy transitions
 enforcement, loop health monitoring, portfolio-level entry gating, and
 daily digest reporting.
 
-All state is persisted in the shared DuckDB database (trader.duckdb).
+All state is persisted in the shared PostgreSQL database.
 """

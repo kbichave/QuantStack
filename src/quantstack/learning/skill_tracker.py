@@ -1,4 +1,4 @@
-"""Agent skill tracking helpers — persisted to DuckDB."""
+"""Agent skill tracking helpers — persisted to the database."""
 
 from __future__ import annotations
 
@@ -106,7 +106,7 @@ class AgentSkill:
 
 
 class SkillTracker:
-    """Tracks prediction and signal quality per agent — persisted to DuckDB."""
+    """Tracks prediction and signal quality per agent — persisted to the database."""
 
     _lock = Lock()
 
@@ -147,7 +147,7 @@ class SkillTracker:
             logger.warning(f"[SKILL] Could not create agent_skills table: {e}")
 
     def _load_from_db(self) -> None:
-        """Load persisted skill records and IC observations from DuckDB on startup."""
+        """Load persisted skill records and IC observations from the database on startup."""
         try:
             rows = self.store.conn.execute(
                 "SELECT agent_id, prediction_count, correct_predictions, "
@@ -193,7 +193,7 @@ class SkillTracker:
             logger.debug(f"[SKILL] Could not load IC observations: {e}")
 
     def _persist(self, skill: AgentSkill) -> None:
-        """Upsert a skill record to DuckDB."""
+        """Upsert a skill record to the database."""
         try:
             existing = self.store.conn.execute(
                 "SELECT COUNT(*) FROM agent_skills WHERE agent_id = ?",
@@ -251,7 +251,7 @@ class SkillTracker:
         prediction_correct: bool | None = None,
         signal_pnl: float | None = None,
     ) -> AgentSkill:
-        """Update metrics for an agent and persist to DuckDB."""
+        """Update metrics for an agent and persist to the database."""
         with self._lock:
             skill = self._get_skill(agent_id)
 

@@ -54,7 +54,7 @@ Data Pipeline (no LLM):
 - **Paper mode is default.** Live requires `USE_REAL_TRADING=true`.
 - **Audit trail is mandatory.** Every decision logged with reasoning.
 - **Never modify:** `risk_gate.py`, `kill_switch.py`, broker credentials, paper/live defaults.
-- **DB writes use `db_conn()` context managers.** Operational state (positions, signals, strategies, fills) lives in PostgreSQL — true MVCC, no file-lock concept. Multiple MCP servers read/write concurrently without contention. DuckDB is analytics-only (backtests, ML experiments, research programs).
+- **DB writes use `db_conn()` context managers.** Operational state (positions, signals, strategies, fills) lives in PostgreSQL — true MVCC, no file-lock concept. Multiple MCP servers read/write concurrently without contention. PostgreSQL stores all state including analytics tables (ML experiments, research programs, backtests).
 
 ---
 

@@ -47,7 +47,7 @@ class LoadMarketDataTool(BaseTool):
 
     name: str = "load_market_data"
     description: str = (
-        "Load OHLCV data from local DuckDB storage. Faster than fetching from API."
+        "Load OHLCV data from local PostgreSQL storage. Faster than fetching from API."
     )
     args_schema: type[BaseModel] = LoadMarketDataInput
 

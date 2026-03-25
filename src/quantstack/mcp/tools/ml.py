@@ -778,7 +778,7 @@ def _tune_sync(
     }
 
 # ---------------------------------------------------------------------------
-# Model Registry (DuckDB-backed)
+# Model Registry (PostgreSQL-backed)
 # ---------------------------------------------------------------------------
 
 _REGISTRY_TABLE_CREATED = False
@@ -2234,7 +2234,7 @@ async def compute_and_store_features(
     lookback_days: int = _DEFAULT_LOOKBACK_DAYS,
 ) -> dict[str, Any]:
     """
-    Compute features and store them in the DuckDB feature store.
+    Compute features and store them in the PostgreSQL feature store.
 
     Runs the full feature pipeline (TechnicalIndicators + FeatureEnricher)
     and persists results to the feature_store table. Feature version is
@@ -2318,7 +2318,7 @@ def _compute_and_store_features_sync(
     ]
     df_features = df[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
 
-    # Store in DuckDB
+    # Store in PostgreSQL
     ctx, db_err = live_db_or_error()
     if db_err:
         return {

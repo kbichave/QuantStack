@@ -425,7 +425,7 @@ class AlphaResearcher:
     # ── Persistence ──────────────────────────────────────────────────────
 
     def _persist_plan(self, plan: ResearchPlan) -> None:
-        """Store the research plan in DuckDB."""
+        """Store the research plan in the database."""
         try:
             self._conn.execute(
                 """

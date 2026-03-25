@@ -1008,7 +1008,7 @@ class LearningMixin:
         Return the most recently saved portfolio snapshot.
 
         Used at startup to surface the last known portfolio state without
-        requiring the full PortfolioState DuckDB to be open.
+        requiring the full PortfolioState database to be open.
         """
         try:
             row = self.conn.execute(

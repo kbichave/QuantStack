@@ -36,7 +36,7 @@ def _load_returns(symbols: list[str], lookback_days: int) -> pd.DataFrame:
     """Load daily close prices for *symbols* and return a log-returns DataFrame.
 
     Uses the same resolution chain as the backtesting tools:
-      1. Local DuckDB cache (read-only)
+      1. Local PostgreSQL cache (read-only)
       2. Provider registry (DATA_PROVIDER_PRIORITY)
 
     Raises ValueError when fewer than 2 symbols have sufficient data.
@@ -51,12 +51,12 @@ def _load_returns(symbols: list[str], lookback_days: int) -> pd.DataFrame:
     for symbol in symbols:
         df: pd.DataFrame | None = None
 
-        # 1. DuckDB cache
+        # 1. PostgreSQL cache
         try:
             store = _get_reader()
             df = store.load_ohlcv(symbol, Timeframe.D1)
         except Exception as exc:
-            logger.debug(f"DuckDB miss for {symbol}: {exc}")
+            logger.debug(f"Cache miss for {symbol}: {exc}")
 
         # 2. Provider registry fallback
         if df is None or df.empty:

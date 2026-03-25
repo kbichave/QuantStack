@@ -5,7 +5,7 @@ Wires the existing streaming primitives into a single startup/shutdown unit:
 
     AlpacaStreamingAdapter (WebSocket)
         → BarPublisher (fan-out)
-            → LiveBarStore (memory + DuckDB persistence)
+            → LiveBarStore (memory + PostgreSQL persistence)
             → IncrementalFeatureEngine (O(1) rolling features)
 
 Provides a simple interface for the SignalEngine and AutonomousRunner:
@@ -67,8 +67,8 @@ class StreamManager:
     ) -> None:
         """
         Args:
-            db_path: DuckDB path for LiveBarStore persistence.
-                     None → use default DataStore path.
+            db_path: Ignored — DataStore uses PostgreSQL.
+                     Kept for call-site compatibility.
             bar_window: Number of bars to keep in memory per symbol.
         """
         self._db_path = db_path
@@ -225,7 +225,7 @@ class StreamManager:
         """
         Get recent bars as a standard OHLCV DataFrame.
 
-        Uses the in-memory LiveBarStore window. Falls back to DuckDB if
+        Uses the in-memory LiveBarStore window. Falls back to PostgreSQL if
         the live store is empty (e.g., passive mode or just started).
 
         Args:
@@ -241,7 +241,7 @@ class StreamManager:
             if df is not None and not df.empty:
                 return df
 
-        # Fall back to DuckDB historical data
+        # Fall back to PostgreSQL historical data
         if self._store is not None:
             df = self._store.load_ohlcv(symbol, Timeframe.D1)
             if df is not None and not df.empty:
@@ -332,7 +332,7 @@ class StreamManager:
             await self._warm_symbol(symbol)
 
     async def _warm_symbol(self, symbol: str) -> None:
-        """Warm a single symbol's feature state from DuckDB."""
+        """Warm a single symbol's feature state from PostgreSQL."""
         if self._store is None or self._feature_engine is None:
             return
 

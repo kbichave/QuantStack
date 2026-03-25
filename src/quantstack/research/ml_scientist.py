@@ -287,7 +287,7 @@ class MLScientist:
         return plan
 
     def _persist_plan(self, plan: MLExperimentPlan) -> None:
-        """Store the ML experiment plan in DuckDB."""
+        """Store the ML experiment plan in the database."""
         try:
             self._conn.execute(
                 """

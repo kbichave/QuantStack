@@ -10,7 +10,7 @@ state (context, cache) and the functions that guard it.
 
 No degraded mode, no lock release logic — PostgreSQL handles concurrent
 access natively.  The ``auto_release_db`` / ``release_db`` wrappers that
-existed to work around DuckDB's exclusive file lock have been removed.
+existed to work around file-lock contention have been removed.
 """
 
 from __future__ import annotations

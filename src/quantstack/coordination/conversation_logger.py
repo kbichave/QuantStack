@@ -6,7 +6,7 @@ Conversation logger — persists agent interactions to PostgreSQL and posts to S
 
 Every desk agent report, PM decision, signal scan, trade, and alert flows
 through this module. It handles both sides:
-  1. DuckDB INSERT for history, debugging, and optimization analysis
+  1. PostgreSQL INSERT for history, debugging, and optimization analysis
   2. Slack post for real-time monitoring
 
 The /reflect skill and Slack MCP server can later read these conversations
@@ -58,7 +58,7 @@ class ConversationLogger:
         metadata: dict[str, Any] | None = None,
     ) -> str:
         """
-        Log a desk agent report to DuckDB and post to Slack #agent-activity.
+        Log a desk agent report to the database and post to Slack #agent-activity.
 
         Args:
             agent_name: Agent identifier (market_intel, risk, etc.).
@@ -151,7 +151,7 @@ class ConversationLogger:
         failures: list[str] | None = None,
     ) -> str:
         """
-        Log raw SignalEngine collector outputs to DuckDB and post summary to Slack.
+        Log raw SignalEngine collector outputs to the database and post summary to Slack.
 
         Args:
             symbol: Ticker symbol.

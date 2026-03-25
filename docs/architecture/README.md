@@ -58,7 +58,7 @@ Seven concurrent Python collectors produce a `SignalBrief` — structured output
 ### quantstack.coordination — Autonomous Operations
 
 - **UniverseRegistry**: SP500 + NASDAQ-100 + 50 ETFs (~700 symbols)
-- **EventBus**: DuckDB pub/sub for inter-loop communication
+- **EventBus**: PostgreSQL pub/sub for inter-loop communication
 - **AutoPromoter**: evidence-based forward_testing → live promotion
 - **LoopSupervisor**: heartbeat monitoring, crash recovery
 - **PortfolioOrchestrator**: correlation, sector cap, position gating
@@ -87,7 +87,7 @@ Single `quantstack-mcp` server exposes 120+ tools across all subsystems. Replace
           ┌───────────────────┼───────────────────┐
           ▼                   ▼                   ▼
 ┌──────────────────┐ ┌─────────────────┐ ┌────────────────────┐
-│ SignalEngine      │ │ Execution Layer │ │ DuckDB State       │
+│ SignalEngine      │ │ Execution Layer │ │ PostgreSQL State   │
 │ 7 collectors      │ │ RiskGate        │ │ positions/fills/   │
 │ No LLM, 2–6s     │ │ KillSwitch      │ │ audit/strategies/  │
 │ → SignalBrief     │ │ SmartOrderRouter│ │ universe/events    │
@@ -111,7 +111,7 @@ Single `quantstack-mcp` server exposes 120+ tools across all subsystems. Replace
 4. **Decision**: Claude Code reads `SignalBrief` via `get_signal_brief` MCP, makes trade decision
 5. **Risk Check**: `RiskGate` enforces position size, daily loss, and liquidity limits
 6. **Execution**: `SmartOrderRouter` routes to best available broker (or `PaperBroker`)
-7. **Audit**: every decision and fill logged to DuckDB audit trail
+7. **Audit**: every decision and fill logged to PostgreSQL audit trail
 8. **Learning**: IC/ICIR tracking, calibration, and optimization modules update from outcomes
 
 ---
@@ -119,8 +119,8 @@ Single `quantstack-mcp` server exposes 120+ tools across all subsystems. Replace
 ## Key Design Principles
 
 1. **Hard-coded risk controls**: `RiskGate` and `KillSwitch` are code-enforced, not prompt-enforced. No agent can bypass them.
-2. **ACID state**: single DuckDB connection prevents partial-failure state on crash.
-3. **Dependency injection**: `TradingContext` wires all services; `:memory:` gives fully isolated test environments.
+2. **ACID state**: PostgreSQL MVCC prevents partial-failure state on crash; multiple concurrent connections without contention.
+3. **Dependency injection**: `TradingContext` wires all services; each test gets its own fresh context.
 4. **Unified MCP**: single server exposes the entire tool surface — no split between research and execution.
 5. **Paper mode default**: `USE_REAL_TRADING=false` by default; live trading requires explicit opt-in.
 6. **No LLM in execution path**: SignalEngine and RiskGate are pure Python. LLMs assist in research and reasoning, not in the hot path.

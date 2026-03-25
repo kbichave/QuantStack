@@ -122,9 +122,7 @@ class PaperBroker:
         else:
 
             if db_path is None:
-                db_path = os.getenv(
-                    "PAPER_BROKER_DB_PATH", "~/.quant_pod/trader.duckdb"
-                )
+                db_path = os.getenv("PAPER_BROKER_DB_PATH", "")
             self._conn = open_db(db_path)
             run_migrations(self._conn)
 

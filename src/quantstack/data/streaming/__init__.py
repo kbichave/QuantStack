@@ -17,7 +17,7 @@ Tick-level (individual trades + NBBO quotes + L2 depth):
 Bar pipeline:
     StreamingAdapter (or TickAggregator wrapping a TickStreamingAdapter)
         → BarPublisher  (fan-out to N async subscribers)
-            → LiveBarStore              (write-through DuckDB + in-memory deque)
+            → LiveBarStore              (write-through PostgreSQL + in-memory deque)
             → IncrementalFeatureEngine  (rolling O(1) feature updates)
 """
 

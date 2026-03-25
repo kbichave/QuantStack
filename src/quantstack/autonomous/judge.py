@@ -323,7 +323,7 @@ class HypothesisJudge:
     # ------------------------------------------------------------------
 
     def _persist_verdict(self, hypothesis: dict, verdict: JudgeVerdict) -> None:
-        """Store verdict in DuckDB for tracking false-negative rates."""
+        """Store verdict in the database for tracking false-negative rates."""
         try:
             self._conn.execute(
                 f"INSERT INTO {JUDGE_VERDICTS_TABLE} "

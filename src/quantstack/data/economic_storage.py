@@ -1,8 +1,4 @@
-"""
-DuckDB storage for economic indicators.
-
-Separate database from market data to keep economic indicators isolated.
-"""
+"""PostgreSQL storage for economic indicators."""
 
 from datetime import datetime
 from pathlib import Path
@@ -16,21 +12,10 @@ from quantstack.config.settings import get_settings
 
 
 class EconomicStorage:
-    """Storage manager for economic indicators using DuckDB."""
+    """Storage manager for economic indicators."""
 
-    def __init__(self, db_path: Path | None = None):
-        """Initialize economic storage.
-
-        Args:
-            db_path: Path to DuckDB file. If None, uses settings.
-        """
+    def __init__(self):
         self.settings = get_settings()
-        self.db_path = db_path or (
-            self.settings.data_dir / "economic_indicators.duckdb"
-        )
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Create database and schema
         self._initialize_database()
 
     def _initialize_database(self):

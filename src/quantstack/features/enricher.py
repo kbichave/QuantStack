@@ -174,7 +174,7 @@ class FeatureEnricher:
     # ------------------------------------------------------------------
 
     def _merge_fundamentals(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-        """Load fundamental metrics from DuckDB cache and forward-fill to daily."""
+        """Load fundamental metrics from PostgreSQL cache and forward-fill to daily."""
         try:
             store = DataStore()
             metrics = store.load_financial_metrics(symbol)
@@ -272,7 +272,7 @@ class FeatureEnricher:
             return df
 
     def _merge_flow(self, df: pd.DataFrame, symbol: str) -> pd.DataFrame:
-        """Load insider and institutional flow features from DuckDB cache."""
+        """Load insider and institutional flow features from PostgreSQL cache."""
         try:
             store = DataStore()
             result = df

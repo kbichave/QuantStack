@@ -6,7 +6,7 @@ WatchlistLoader — derives the symbol list for AutonomousRunner.
 
 Symbol priority order:
 1. AUTONOMOUS_WATCHLIST env var (comma-separated): "XOM,MSFT,SPY"
-2. Screener results from ``screener_results`` DuckDB table (tiered)
+2. Screener results from ``screener_results`` table (tiered)
 3. Symbols inferred from live + forward_testing strategies
    (strategies with a ``symbols`` field in their parameters)
 4. DEFAULT_SYMBOLS fallback (broad liquid ETFs)
@@ -44,9 +44,7 @@ _MAX_SYMBOLS = 20
 def _get_db_connection():
     """Get a DB connection, preferring the existing write connection."""
     try:
-        # If the write connection is already open, reuse it (avoids DuckDB
-        # "different configuration" error when both RW and RO are attempted
-        # on the same file in the same process).
+        # Prefer a write connection; fall back to read-only if unavailable.
         return open_db()
     except Exception:
         pass

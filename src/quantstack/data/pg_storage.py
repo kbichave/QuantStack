@@ -6,8 +6,7 @@ PostgreSQL-backed market data store.
 
 Provides the same public interface as DataStore (save_* / load_* / list_* /
 get_* methods) but uses pg_conn() for all reads and writes.  Multiple MCP
-server instances can call these methods concurrently without DuckDB file-lock
-contention.
+server instances can call these methods concurrently without contention.
 
 Design notes
 ------------

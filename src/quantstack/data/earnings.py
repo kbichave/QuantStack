@@ -304,7 +304,7 @@ def load_earnings_from_store(data_store) -> EarningsManager:
     """
     manager = get_earnings_manager()
 
-    # Load from DuckDB
+    # Load from PostgreSQL
     df = data_store.load_earnings_calendar()
     if not df.empty:
         manager.load_from_dataframe(df)

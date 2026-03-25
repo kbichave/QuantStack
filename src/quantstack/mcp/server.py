@@ -7,9 +7,9 @@ QuantPod MCP Server — slim hub.
 Defines the FastMCP ``mcp`` singleton and ``lifespan``, then imports tool
 modules so their ``@mcp.tool()`` decorators register automatically.
 
-No ``_PatchedFastMCP`` or ``auto_release_db`` — those wrappers existed solely
-to release DuckDB's exclusive file lock between tool calls.  PostgreSQL handles
-concurrent access natively so no per-tool lock management is needed.
+No ``_PatchedFastMCP`` or ``auto_release_db`` — those wrappers were removed
+because PostgreSQL handles concurrent access natively; no per-tool lock
+management is needed.
 
 Usage:
     quantpod-mcp   (via pyproject.toml entry point)

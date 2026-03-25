@@ -4,7 +4,7 @@
 """
 Pydantic models for knowledge store schemas.
 
-Defines the structured data types stored in DuckDB and shared between agents.
+Defines the structured data types stored in PostgreSQL and shared between agents.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ class TradeRecord(BaseModel):
     """
     Complete trade record for journal.
 
-    Stored in DuckDB trade_journal table.
+    Stored in the trade_journal table.
     """
 
     id: int | None = None

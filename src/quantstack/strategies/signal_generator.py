@@ -403,7 +403,7 @@ def fetch_price_data(
     """Fetch OHLCV price data using the configured provider registry.
 
     Resolution order:
-      1. Local DuckDB cache (fastest, no network)
+      1. Local PostgreSQL cache (fastest, no network)
       2. Provider registry (DATA_PROVIDER_PRIORITY from .env)
 
     Returns None if all sources fail.
@@ -432,14 +432,14 @@ def fetch_price_data(
             frame = frame[frame.index <= end_date]
         return frame
 
-    # 1. Local DuckDB cache
+    # 1. Local PostgreSQL cache
     try:
         with DataStore(read_only=True) as store:
             df = store.load_ohlcv(symbol, tf)
             if df is not None and not df.empty:
                 return _apply_date_filter(df)
     except Exception as exc:
-        logger.debug(f"DuckDB cache miss for {symbol} [{timeframe}]: {exc}")
+        logger.debug(f"PostgreSQL cache miss for {symbol} [{timeframe}]: {exc}")
 
     # 2. Provider registry
     try:

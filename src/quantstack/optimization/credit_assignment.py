@@ -245,7 +245,7 @@ class CreditAssigner:
     # ------------------------------------------------------------------
 
     def _persist_credits(self, credits: list[StepCredit], trade_context: dict) -> None:
-        """Write step credits to DuckDB."""
+        """Write step credits to the database."""
         trade_id = trade_context.get("trade_id", 0)
         for credit in credits:
             try:

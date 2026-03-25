@@ -2,7 +2,7 @@
 FRED (Federal Reserve Economic Data) fetcher.
 
 Separate from EconomicFetcher (Alpha Vantage) — different API, auth, rate limits.
-Stores data into EconomicStorage (DuckDB) for unified downstream consumption.
+Stores data into EconomicStorage for unified downstream consumption.
 
 Requires: FRED_API_KEY environment variable and fredapi package.
 Free tier: 120 requests/minute.
@@ -43,13 +43,13 @@ class FREDFetcher:
     """
     Fetches economic time series from FRED.
 
-    Uses fredapi library, caches results in EconomicStorage (DuckDB).
+    Uses fredapi library, caches results in EconomicStorage.
     Gracefully returns empty DataFrame if FRED_API_KEY is not set.
 
     Parameters
     ----------
     storage : EconomicStorage, optional
-        DuckDB storage backend. Creates default if None.
+        Storage backend. Creates default if None.
     """
 
     def __init__(self, storage: EconomicStorage | None = None) -> None:
@@ -84,7 +84,7 @@ class FREDFetcher:
         """
         Fetch a FRED series by friendly name.
 
-        Checks DuckDB cache first. Falls back to FRED API if stale or missing.
+        Checks local cache first. Falls back to FRED API if stale or missing.
 
         Parameters
         ----------
@@ -127,7 +127,7 @@ class FREDFetcher:
             df = pd.DataFrame({"date": raw.index.date, "value": raw.values})
             df = df.dropna(subset=["value"])
 
-            # Cache to DuckDB
+            # Cache to storage
             self._write_cache(name, df)
             logger.debug(f"[FRED] Fetched {name} ({series_id}): {len(df)} rows")
             return df

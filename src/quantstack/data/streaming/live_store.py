@@ -1,22 +1,22 @@
 """
-LiveBarStore — write-through cache: streaming bars → memory + DuckDB.
+LiveBarStore — write-through cache: streaming bars → memory + PostgreSQL.
 
 Design
 ------
 * ``on_bar`` is ``BarCallback``-compatible and non-blocking:
   - Appends to the in-memory ``deque(maxlen=window)`` for the symbol immediately.
-  - Enqueues the bar for DuckDB persistence (oldest-drop if queue is full).
+  - Enqueues the bar for PostgreSQL persistence (oldest-drop if queue is full).
 
 * A single background asyncio Task drains the write queue in batches.
-  All DuckDB writes happen on one asyncio task, so there is no thread-safety
-  concern with the DataStore connection.  DuckDB handles a batch of 50 bars in
+  All PostgreSQL writes happen on one asyncio task, so there is no thread-safety
+  concern with the DataStore connection.  A batch of 50 bars is persisted in
   well under 1ms, so the event loop is never blocked for a meaningful duration.
 
 * On startup, call ``start()`` to launch the writer task.
   On shutdown, call ``stop()`` to flush pending writes and cancel the task.
 
 * ``get_window(symbol, n)`` returns the last ``n`` BarEvents from the in-memory
-  deque.  On the first access for a symbol it seeds the deque from DuckDB so
+  deque.  On the first access for a symbol it seeds the deque from PostgreSQL so
   that the feature engine has a warm window immediately after restart.
 
 * ``as_dataframe(symbol, n)`` converts the in-memory window to the standard
@@ -24,7 +24,7 @@ Design
 
 Failure modes
 -------------
-* DuckDB write fails: logged as warning, bar is dropped from the write queue
+* PostgreSQL write fails: logged as warning, bar is dropped from the write queue
   but is still in the in-memory deque.  No data is lost from the live window;
   only persistence is affected.
 * Write queue overflow (producer faster than writer): oldest enqueued bars are
@@ -48,18 +48,18 @@ from quantstack.data.storage import DataStore
 from quantstack.data.streaming.base import BarEvent
 
 _DEFAULT_WINDOW = 500  # bars kept per symbol in memory
-_DEFAULT_BATCH_SIZE = 50  # bars batched per DuckDB write cycle
+_DEFAULT_BATCH_SIZE = 50  # bars batched per write cycle
 _FLUSH_INTERVAL_S = 10.0  # max seconds between flushes when queue is sparse
 _WRITE_QUEUE_DEPTH = 5_000  # oldest-drop when this limit is hit
 
 
 class LiveBarStore:
-    """Write-through in-memory + DuckDB cache for live streaming bars.
+    """Write-through in-memory + PostgreSQL cache for live streaming bars.
 
     Args:
-        store:      ``DataStore`` instance owning the DuckDB connection.
+        store:      ``DataStore`` instance owning the database connection.
         window:     Number of BarEvents to keep per symbol in memory.
-        batch_size: Max bars to accumulate before flushing to DuckDB.
+        batch_size: Max bars to accumulate before flushing to PostgreSQL.
     """
 
     def __init__(
@@ -74,7 +74,7 @@ class LiveBarStore:
 
         # in-memory ring buffers: symbol → deque of BarEvents
         self._buffers: dict[str, deque[BarEvent]] = {}
-        # symbols whose deque has been seeded from DuckDB
+        # symbols whose deque has been seeded from PostgreSQL
         self._seeded: set[str] = set()
         # protects _buffers and _seeded (reads from any thread; writes from event loop)
         self._lock = threading.RLock()
@@ -86,7 +86,7 @@ class LiveBarStore:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def start(self) -> None:
-        """Launch the background DuckDB writer task.
+        """Launch the background writer task.
 
         Must be called once from within the asyncio event loop before any bars
         are published.
@@ -126,7 +126,7 @@ class LiveBarStore:
                 self._buffers[bar.symbol] = deque(maxlen=self._window)
             self._buffers[bar.symbol].append(bar)
 
-        # 2. Enqueue for DuckDB persistence (oldest-drop policy when full)
+        # 2. Enqueue for PostgreSQL persistence (oldest-drop policy when full)
         if self._write_queue is None:
             return
         if self._write_queue.full():
@@ -148,7 +148,7 @@ class LiveBarStore:
     def get_window(self, symbol: str, n: int | None = None) -> list[BarEvent]:
         """Return the last ``n`` BarEvents for ``symbol`` (thread-safe).
 
-        Seeds the in-memory deque from DuckDB on first call per symbol so the
+        Seeds the in-memory deque from PostgreSQL on first call per symbol so the
         feature engine has a warm window immediately after restart.
 
         Args:
@@ -227,7 +227,7 @@ class LiveBarStore:
     # ── Background writer ────────────────────────────────────────────────────
 
     async def _writer_loop(self) -> None:
-        """Drain the write queue and persist bars to DuckDB in batches."""
+        """Drain the write queue and persist bars to PostgreSQL in batches."""
         assert self._write_queue is not None
         batch: list[BarEvent] = []
 
@@ -275,10 +275,10 @@ class LiveBarStore:
             logger.info("[LiveBarStore] Writer task exited")
 
     async def _flush(self, bars: list[BarEvent]) -> None:
-        """Write a batch of BarEvents to DuckDB.
+        """Write a batch of BarEvents to PostgreSQL.
 
         Grouped by symbol to minimise INSERT overhead.  Runs in the event loop
-        (DuckDB handles 50 rows in < 1ms; blocking cost is negligible).
+        (a batch of 50 rows persists in < 1ms; blocking cost is negligible).
         """
         if not bars:
             return
@@ -318,7 +318,7 @@ class LiveBarStore:
     # ── DB seed ───────────────────────────────────────────────────────────────
 
     def _seed_from_db(self, symbol: str) -> None:
-        """Load recent bars from DuckDB to seed the in-memory deque.
+        """Load recent bars from PostgreSQL to seed the in-memory deque.
 
         Called under ``self._lock`` on first access for a symbol.
         A 30-day look-back is generous enough to always find ``self._window``
@@ -331,7 +331,7 @@ class LiveBarStore:
             df = self._store.load_ohlcv_1m(symbol, start_date=start, end_date=end)
         except Exception as exc:
             logger.warning(
-                f"[LiveBarStore] Could not seed '{symbol}' from DuckDB: {exc}"
+                f"[LiveBarStore] Could not seed '{symbol}' from PostgreSQL: {exc}"
             )
             return
 
@@ -369,6 +369,6 @@ class LiveBarStore:
             self._buffers[symbol].append(bar)
 
         logger.info(
-            f"[LiveBarStore] Seeded '{symbol}' with {len(df)} bars from DuckDB "
+            f"[LiveBarStore] Seeded '{symbol}' with {len(df)} bars from PostgreSQL "
             f"(window={self._window})"
         )

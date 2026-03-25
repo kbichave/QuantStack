@@ -150,7 +150,7 @@ class SignalCache:
         """
         Store or replace the signal for a symbol.
 
-        Also persists to DuckDB for crash recovery.
+        Also persists to the database for crash recovery.
         """
         with self._lock:
             self._signals[signal.symbol.upper()] = signal
@@ -245,7 +245,7 @@ class SignalCache:
 
     def _persist(self, signal: TradeSignal) -> None:
         """
-        Upsert signal to DuckDB for crash recovery.
+        Upsert signal to the database for crash recovery.
 
         Called with self._lock held — don't acquire it here.
         """
@@ -288,7 +288,7 @@ class SignalCache:
 
     def _load_from_db(self) -> None:
         """
-        Recover non-expired signals from DuckDB on startup.
+        Recover non-expired signals from the database on startup.
 
         Only loads signals that haven't expired — stale signals from before
         a crash are not re-loaded.
@@ -327,7 +327,7 @@ class SignalCache:
 
 
 def _ensure_tz(dt: datetime) -> datetime:
-    """Attach UTC timezone if the datetime is naive (DuckDB strips tz info)."""
+    """Attach UTC timezone if the datetime is naive (may be stripped by the database driver)."""
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt

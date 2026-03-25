@@ -80,25 +80,26 @@ All runtime data lives under `~/.quant_pod/` by default. Every path is configura
 
 ```
 ~/.quant_pod/
-├── trader.duckdb          # Primary state DB (positions, fills, audit, memory)
 ├── KILL_SWITCH_ACTIVE     # Sentinel — present = kill switch on
 └── DAILY_HALT_ACTIVE      # Sentinel — present = daily loss halt active
 ```
 
+All state (positions, fills, audit, memory) lives in PostgreSQL: `TRADER_PG_URL`.
+
 ### Env overrides
 
 ```bash
-TRADER_DB_PATH=~/.quant_pod/trader.duckdb
+TRADER_PG_URL=postgresql://localhost/quantpod
 KILL_SWITCH_SENTINEL=~/.quant_pod/KILL_SWITCH_ACTIVE
 ```
 
-The `trader.duckdb` file contains all nine schema tables. Use DuckDB CLI to inspect:
+Use psql to inspect the database:
 
 ```bash
-duckdb ~/.quant_pod/trader.duckdb
-> .tables
-> SELECT * FROM positions;
-> SELECT symbol, realized_pnl, closed_at FROM closed_trades ORDER BY closed_at DESC LIMIT 20;
+psql $TRADER_PG_URL
+=> \dt
+=> SELECT * FROM positions;
+=> SELECT symbol, realized_pnl, closed_at FROM closed_trades ORDER BY closed_at DESC LIMIT 20;
 ```
 
 ---
@@ -178,6 +179,6 @@ See `.env.example` for the full annotated list. Summary of the most important va
 | `ALPACA_PAPER` | `true` | Paper mode toggle |
 | `DATA_PROVIDER_PRIORITY` | `alpaca,polygon,alpha_vantage` | Data source order |
 | `USE_REAL_TRADING` | `false` | Master live trading switch |
-| `TRADER_DB_PATH` | `~/.quant_pod/trader.duckdb` | Consolidated state DB |
+| `TRADER_PG_URL` | `postgresql://localhost/quantpod` | PostgreSQL connection string |
 | `RISK_DAILY_LOSS_LIMIT_PCT` | `0.02` | Daily loss halt threshold |
 | `DISCORD_WEBHOOK_URL` | — | Alert notifications |

@@ -5,7 +5,7 @@
 QuantCore MCP fundamentals tools — financial statements, metrics, earnings,
 insider trades, institutional ownership, analyst estimates, and company news.
 
-Data sourced from FinancialDatasets.ai.  Results are cached in DuckDB so
+Data sourced from FinancialDatasets.ai.  Results are cached in PostgreSQL so
 subsequent calls for the same ticker are served locally.
 """
 
@@ -56,7 +56,7 @@ async def get_financial_statements(
     """
     Fetch financial statements (income, balance sheet, or cash flow) for a company.
 
-    Fetches from FinancialDatasets.ai and caches in DuckDB. Subsequent calls
+    Fetches from FinancialDatasets.ai and caches in PostgreSQL. Subsequent calls
     for the same ticker are served from local storage.
 
     Args:
@@ -103,7 +103,7 @@ async def get_financial_statements(
         if df.empty:
             return {"error": f"No {statement_type} statements found", "ticker": ticker}
 
-        # Persist to DuckDB.
+        # Persist to PostgreSQL.
         try:
             writer = _get_writer()
             writer.save_financial_statements(df)

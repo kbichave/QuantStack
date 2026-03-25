@@ -38,14 +38,14 @@ async def lifespan(server: FastMCP):
     settings = get_settings()
     ctx = ServerContext(settings=settings)
 
-    # Short-lived write to ensure schema exists, then release lock.
+    # Short-lived write to ensure schema exists, then release connection.
     try:
         writer = DataStore()
         writer.close()
-        logger.info("DuckDB schema initialized via short-lived write connection.")
+        logger.info("Schema initialized via short-lived write connection.")
     except RuntimeError as exc:
         logger.warning(
-            f"DuckDB write lock conflict during schema init — OK, another process owns it. {exc}"
+            f"Write conflict during schema init — OK, another process owns it. {exc}"
         )
 
     try:

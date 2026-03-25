@@ -1,10 +1,5 @@
-"""
-Options-specific DuckDB storage for IV history, earnings, and fundamentals.
+"""PostgreSQL storage for options-specific data: IV history, earnings, and fundamentals."""
 
-Separate database (data/options.duckdb) for options-specific data.
-"""
-
-import os
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -17,7 +12,7 @@ from quantstack.db import PgConnection, open_db
 
 class OptionsDataStore:
     """
-    DuckDB-based storage for options-specific data.
+    PostgreSQL storage for options-specific data.
 
     Tables:
     - iv_history: Historical ATM IV and realized volatility
@@ -25,20 +20,7 @@ class OptionsDataStore:
     - company_fundamentals: Company overview data (P/E, beta, etc.)
     """
 
-    DEFAULT_DB_PATH = Path(__file__).parent.parent.parent / "data" / "options.duckdb"
-
-    def __init__(self, db_path: str | None = None):
-        """
-        Initialize the options data store.
-
-        Args:
-            db_path: Path to database file (default: data/options.duckdb)
-        """
-        self.db_path = db_path or str(self.DEFAULT_DB_PATH)
-
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
-
+    def __init__(self):
         self._conn: PgConnection | None = None
         self._init_schema()
 

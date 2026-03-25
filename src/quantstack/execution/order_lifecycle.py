@@ -166,7 +166,7 @@ class OrderLifecycle:
     Injected between the analysis plane (SignalCache) and the execution plane
     (broker.execute) to provide order-level auditability and compliance checks.
 
-    Persist to `orders` table in the shared DuckDB connection.
+    Persist to `orders` table in the shared database connection.
     """
 
     _lock = RLock()
@@ -207,7 +207,7 @@ class OrderLifecycle:
           1. Duplicate order check (same symbol+side within 60s → REJECTED)
           2. Expiry time check (0-quantity or zero price → REJECTED)
           3. Execution algorithm selection (based on size / ADV)
-          4. Persist order to DuckDB
+          4. Persist order to the database
           5. Transition NEW → SUBMITTED
 
         Returns the order. Callers must check order.status — if REJECTED or
@@ -575,7 +575,7 @@ class OrderLifecycle:
             logger.warning(f"[OMS] Could not create orders table: {e}")
 
     def _load_pending(self) -> None:
-        """Reload non-terminal orders from DuckDB on startup (crash recovery)."""
+        """Reload non-terminal orders from the database on startup (crash recovery)."""
         try:
             terminal_values = ", ".join(f"'{s.value}'" for s in _TERMINAL_STATES)
             rows = self.conn.execute(
@@ -599,7 +599,7 @@ class OrderLifecycle:
             logger.warning(f"[OMS] Could not load orders from DB: {e}")
 
     def _persist(self, order: Order) -> None:
-        """Upsert order to DuckDB. Called with _lock held."""
+        """Upsert order to the database. Called with _lock held."""
         try:
             self.conn.execute(
                 """
@@ -685,7 +685,7 @@ class OrderLifecycle:
 
     @staticmethod
     def _row_to_order(row: tuple) -> Order:
-        """Reconstruct an Order from a DuckDB row."""
+        """Reconstruct an Order from a database row."""
         (
             order_id,
             symbol,

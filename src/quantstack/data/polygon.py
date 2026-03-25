@@ -48,7 +48,7 @@ from quantstack.data.validator import DataValidator
 
 class _BarCache:
     """
-    DuckDB-backed cache for bar responses with per-interval TTLs.
+    Local cache for bar responses with per-interval TTLs.
 
     Why: Polygon Starter = unlimited calls, but redundant fetches during a
     single trading session waste latency and count against rate limits.
@@ -74,13 +74,7 @@ class _BarCache:
     }
     _DEFAULT_TTL = 15 * 60  # 15 min for anything not listed
 
-    def __init__(self, db_path: str | None = None):
-        if db_path is None:
-            db_path = os.getenv(
-                "POLYGON_CACHE_DB_PATH", "~/.quant_pod/polygon_cache.duckdb"
-            )
-        self._db_path = Path(db_path).expanduser()
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self):
         self._lock = Lock()
         self._conn: PgConnection | None = None
         self._init_schema()
@@ -172,7 +166,7 @@ class PolygonProvider(DataProvider):
       - Starter ($29/month): unlimited calls, 15-min delayed quotes
       - Developer ($79/month): unlimited, real-time
 
-    Caches bar responses locally in DuckDB to avoid redundant calls.
+    Caches bar responses locally to avoid redundant calls.
     """
 
     BASE_URL = "https://api.polygon.io"
@@ -216,7 +210,7 @@ class PolygonProvider(DataProvider):
         start: date | None = None,
         end: date | None = None,
     ) -> list[Bar]:
-        """Fetch OHLCV bars from Polygon /v2/aggs endpoint, with local DuckDB cache."""
+        """Fetch OHLCV bars from Polygon /v2/aggs endpoint, with local cache."""
         multiplier, timespan = self._INTERVAL_MAP.get(interval, ("1", "day"))
         end_date = end or date.today()
         if start is None:
@@ -383,7 +377,7 @@ class PolygonStreamClient:
     """
     Real-time streaming client for Polygon.io WebSocket API.
 
-    Streams minute-bar aggregates and trades into the local DuckDB cache
+    Streams minute-bar aggregates and trades into the local cache
     so the rest of the system can read intraday bars without changing its
     interface — `PolygonProvider.get_bars()` will serve the cached data.
 
@@ -429,7 +423,7 @@ class PolygonStreamClient:
             api_key: Polygon API key (defaults to POLYGON_API_KEY env var).
             subscription: Message type prefix — "AM" (minute agg), "T" (trade), "Q" (quote).
             on_bar_callback: Optional function called with each Bar as it arrives.
-            cache: DuckDB bar cache to write into (shared with PolygonProvider).
+            cache: Bar cache to write into (shared with PolygonProvider).
         """
         self._api_key = api_key or os.getenv("POLYGON_API_KEY")
         if not self._api_key:

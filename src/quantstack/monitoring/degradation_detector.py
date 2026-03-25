@@ -105,7 +105,7 @@ class DegradationDetector:
     """
     Monitors the gap between backtested (IS) and live (OOS) performance.
 
-    Pulls closed trades from PortfolioState DuckDB, computes rolling metrics,
+    Pulls closed trades from the database, computes rolling metrics,
     and compares them against registered IS benchmarks.
     """
 
@@ -122,7 +122,7 @@ class DegradationDetector:
     def __init__(self, conn=None) -> None:
         """
         Args:
-            conn: DuckDB connection. If None, opens the default portfolio DB.
+            conn: Database connection. If None, opens the default portfolio DB.
         """
         self._conn = conn
         self._benchmarks: dict[str, ISBenchmark] = {}
@@ -416,7 +416,7 @@ class DegradationDetector:
     # -------------------------------------------------------------------------
 
     def _load_closed_trades(self, since: datetime) -> list[dict]:
-        """Load closed trades from PortfolioState DuckDB within the window."""
+        """Load closed trades from the database within the window."""
         conn = self._get_conn()
         if conn is None:
             return []
@@ -446,7 +446,7 @@ class DegradationDetector:
             return []
 
     def _get_conn(self):
-        """Get DuckDB connection, creating from PortfolioState if not injected."""
+        """Get database connection, creating from PortfolioState if not injected."""
         if self._conn is not None:
             return self._conn
         try:

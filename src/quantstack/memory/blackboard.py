@@ -78,10 +78,9 @@ class BlackboardEntry:
 
 class Blackboard:
     """
-    DuckDB-backed shared memory for all agents.
+    Database-backed shared memory for all agents.
 
-    Thread-safe.  Accepts an injected DuckDB connection so tests can use
-    an in-memory database without touching the filesystem.
+    Thread-safe.  Accepts an injected PostgreSQL connection.
     """
 
     def __init__(

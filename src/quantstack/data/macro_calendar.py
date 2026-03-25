@@ -11,7 +11,7 @@ Two data sources:
    (CPI reading, Fed Funds Rate, unemployment). Requires API key.
 
 The calendar dates are generated programmatically. The actual values
-are fetched from Alpha Vantage and stored in DuckDB for the events
+are fetched from Alpha Vantage and stored in PostgreSQL for the events
 collector and research pods to use.
 
 Usage:
@@ -228,10 +228,10 @@ class MacroCalendarGenerator:
     ) -> dict[str, int]:
         """
         Fetch historical economic indicator values from Alpha Vantage
-        and store in DuckDB for the research pods.
+        and store in PostgreSQL for the research pods.
 
         Args:
-            conn: DuckDB connection.
+            conn: Database connection.
             indicators: Which indicators to fetch. Default: all major ones.
 
         Returns:

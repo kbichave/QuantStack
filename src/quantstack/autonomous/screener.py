@@ -5,7 +5,7 @@
 Autonomous screener — scores universe symbols and produces a tiered watchlist.
 
 Runs daily at 08:00 ET (after CacheWarmer at 06:00 ET).  Uses ONLY cached
-DuckDB data — no API calls.  This keeps the screener fast (~2-5 seconds for
+cached database data — no API calls.  This keeps the screener fast (~2-5 seconds for
 700 symbols) and free from rate-limit concerns.
 
 Scoring weights match the interactive watchlist agent (.claude/agents/watchlist.md):
@@ -89,7 +89,7 @@ class AutonomousScreener:
     Scores universe symbols using cached OHLCV data.
 
     Does NOT call SignalEngine (too expensive for 700 symbols).
-    Uses only DuckDB-cached data from DataStore + universe table.
+    Uses only cached data from DataStore + universe table.
     """
 
     def __init__(
@@ -109,7 +109,7 @@ class AutonomousScreener:
         """
         Score all active universe symbols and return a tiered watchlist.
 
-        This is an async method but all work is CPU/DuckDB-bound (no I/O).
+        This is an async method but all work is CPU/database-bound (no I/O).
         It's async for compatibility with the runner's event loop.
         """
         return await asyncio.to_thread(self._screen_sync, regime)

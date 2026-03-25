@@ -13,7 +13,7 @@ Architecture:
 
 This executor is intentionally free of:
   - LLM calls
-  - DuckDB reads
+  - Database reads
   - File I/O
   - Blocking network calls in the hot path
 
@@ -71,7 +71,7 @@ class TickExecutor:
     fill enqueued (no DB write in this path).
 
     The fill queue is drained by FillWriter which runs as a separate
-    asyncio task and persists fills to DuckDB after the hot path completes.
+    asyncio task and persists fills to the database after the hot path completes.
     """
 
     # Minimum interval between orders for the same symbol (anti-thrash)
@@ -252,13 +252,13 @@ class TickExecutor:
 
 
 # ---------------------------------------------------------------------------
-# Fill writer — background task that drains the fill queue to DuckDB
+# Fill writer — background task that drains the fill queue to the database
 # ---------------------------------------------------------------------------
 
 
 class FillWriter:
     """
-    Async background task that persists fills to DuckDB.
+    Async background task that persists fills to the database.
 
     Runs at low priority alongside the tick executor.  Fills in the queue
     are already recorded by PaperBroker (synchronously in execute()), so

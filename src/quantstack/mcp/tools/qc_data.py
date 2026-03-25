@@ -44,7 +44,7 @@ async def fetch_market_data(
     Fetch OHLCV market data using the configured provider chain.
 
     Uses DATA_PROVIDER_PRIORITY (default: alpaca,polygon,alpha_vantage) with
-    automatic fallback. Stores fetched data in DuckDB for future load_market_data calls.
+    automatic fallback. Stores fetched data in PostgreSQL for future load_market_data calls.
 
     Args:
         symbol: Stock/ETF symbol (e.g., "SPY", "AAPL", "QQQ")
@@ -69,7 +69,7 @@ async def fetch_market_data(
         if df.empty:
             return {"error": f"No data returned for {symbol}", "symbol": symbol}
 
-        # Persist to local DuckDB so load_market_data works without re-fetching.
+        # Persist to local storage so load_market_data works without re-fetching.
         # Uses a short-lived write connection — the only writer in this server.
         try:
             writer = _get_writer()
@@ -99,7 +99,7 @@ async def load_market_data(
     end_date: str | None = None,
 ) -> dict[str, Any]:
     """
-    Load OHLCV data from local DuckDB storage.
+    Load OHLCV data from local PostgreSQL storage.
 
     Args:
         symbol: Stock symbol

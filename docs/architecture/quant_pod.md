@@ -180,11 +180,11 @@ from quant_pod.context import create_trading_context
 # Production — PostgreSQL (TRADER_PG_URL env var)
 ctx = create_trading_context()
 
-# Tests — in-memory DuckDB via PgConnection._from_memory(), zero server required
-ctx = create_trading_context(db_path=":memory:")
+# Tests — PostgreSQL via TRADER_PG_URL (same as production)
+ctx = create_trading_context()
 
 # ctx fields:
-#   db           — PgConnection (PostgreSQL pool connection, or DuckDB in-memory for tests)
+#   db           — PgConnection (PostgreSQL pool connection)
 #   portfolio    — PortfolioState
 #   risk_gate    — RiskGate
 #   risk_state   — RiskState (hot-path mirror)
@@ -198,11 +198,9 @@ ctx = create_trading_context(db_path=":memory:")
 
 ---
 
-## State Management (PostgreSQL + DuckDB)
+## State Management (PostgreSQL)
 
-**Operational state** lives in PostgreSQL (`TRADER_PG_URL`, default `postgresql://localhost/quantpod`). All four MCP server instances share the same pool — true MVCC, no file-lock contention. All services share one `PgConnection` for ACID cross-service transactions.
-
-**Analytics state** (ML experiments, backtests, research programs, reflexion, prompt optimization) stays in DuckDB at `data/trader.duckdb` — append-heavy workloads where DuckDB's columnar engine excels and concurrency is not required.
+**All state** lives in PostgreSQL (`TRADER_PG_URL`, default `postgresql://localhost/quantpod`). All four MCP server instances share the same pool — true MVCC, no file-lock contention. All services share one `PgConnection` for ACID cross-service transactions. This includes both operational state (positions, fills, signals) and analytics state (ML experiments, backtests, research programs, reflexion, prompt optimization).
 
 | Table | Owner | Description |
 |-------|-------|-------------|
@@ -225,7 +223,7 @@ ctx = create_trading_context(db_path=":memory:")
 
 ## Blackboard (Agent Memory)
 
-The `Blackboard` class (`packages/quant_pod/memory/blackboard.py`) is a drop-in replacement for the old markdown file. The public API is unchanged; the backing store is `agent_memory` in DuckDB.
+The `Blackboard` class (`packages/quant_pod/memory/blackboard.py`) is a drop-in replacement for the old markdown file. The public API is unchanged; the backing store is `agent_memory` in PostgreSQL.
 
 ```python
 from quant_pod.memory.blackboard import Blackboard
@@ -332,7 +330,7 @@ packages/quant_pod/
 │   ├── registry.py
 │   ├── schemas.py                  DailyBrief + all crew schemas
 │   └── trading_crew.py             Main 13-IC crew
-├── db.py                           PostgreSQL + DuckDB schema, migrations, PgConnection pool
+├── db.py                           PostgreSQL schema, migrations, PgConnection pool
 ├── execution/                      12-module execution layer
 ├── flows/
 │   ├── intraday_monitor_flow.py    Intraday monitoring

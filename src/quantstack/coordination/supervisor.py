@@ -99,7 +99,7 @@ class LoopSupervisor:
     def check_health(self) -> list[LoopHealth]:
         """Check all monitored loops and return their health status."""
         results: list[LoopHealth] = []
-        # Use naive local time — DuckDB stores timestamps without timezone
+        # Use naive local time for comparison
         now = datetime.now()
 
         for name, config in self._configs.items():
@@ -140,7 +140,7 @@ class LoopSupervisor:
             if not isinstance(last_ts, datetime):
                 health.status = "unknown"
                 return health
-            # DuckDB returns naive timestamps in local time
+            # Normalize to naive local time for comparison
             if last_ts.tzinfo is not None:
                 last_ts = last_ts.replace(tzinfo=None)
             health.last_heartbeat = last_ts

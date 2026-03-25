@@ -8,7 +8,7 @@ all have optional real-data parameters (alpha_returns, signals, data) but they
 are never populated from real data at construction time. Instead they fall back
 to generating synthetic noise, which produces agents that learn nothing useful.
 
-Solution: This bridge queries the KnowledgeStore DuckDB and formats historical
+Solution: This bridge queries the KnowledgeStore database and formats historical
 data into exactly what each environment expects.
 
 Also provides bootstrap_from_alphavantage() for when the KnowledgeStore is

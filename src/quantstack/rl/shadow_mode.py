@@ -9,8 +9,7 @@ After min_observations trading days, ShadowEvaluator.evaluate_shadow_period()
 produces a ShadowEvaluationResult that PromotionGate uses to decide whether
 to remove the [SHADOW] tag.
 
-All shadow data persists in the existing KnowledgeStore DuckDB database.
-No new database file is created.
+All shadow data persists in the existing KnowledgeStore database.
 
 Usage:
     from quantstack.rl.shadow_mode import ShadowEvaluator
@@ -82,7 +81,7 @@ class ShadowEvaluator:
     """
     Tracks and evaluates RL recommendations during the shadow period.
 
-    Persists all data to rl_shadow_decisions table in KnowledgeStore DuckDB.
+    Persists all data to rl_shadow_decisions table in the KnowledgeStore database.
     Thread-safe for concurrent crew execution.
     """
 

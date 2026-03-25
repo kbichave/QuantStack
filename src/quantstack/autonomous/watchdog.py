@@ -166,13 +166,13 @@ class Watchdog:
     # ── Individual checks ──────────────────────────────────────────────────
 
     def _check_db(self) -> HealthCheck:
-        """Check DuckDB is responding."""
+        """Check the database is responding."""
         try:
             self._conn.execute("SELECT 1").fetchone()
-            return HealthCheck(name="db", status="OK", message="DuckDB responsive")
+            return HealthCheck(name="db", status="OK", message="Database responsive")
         except Exception as exc:
             return HealthCheck(
-                name="db", status="CRITICAL", message=f"DuckDB failed: {exc}"
+                name="db", status="CRITICAL", message=f"Database failed: {exc}"
             )
 
     def _check_kill_switch(self) -> HealthCheck:

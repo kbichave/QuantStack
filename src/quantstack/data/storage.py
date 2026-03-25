@@ -1,7 +1,7 @@
 """
 Compatibility shim — DataStore is now backed by PostgreSQL via PgDataStore.
 
-The DuckDB-based implementation has been removed. All callers that import
+The legacy DuckDB-based implementation has been removed. All callers that import
 DataStore continue to work; legacy constructor kwargs (db_path, read_only,
 persistent) are accepted and silently ignored.
 """
@@ -10,7 +10,7 @@ from quantstack.data.pg_storage import PgDataStore
 
 
 class DataStore(PgDataStore):
-    """PostgreSQL-backed data store (replaces the former DuckDB DataStore).
+    """PostgreSQL-backed data store (replaces the former DataStore).
 
     Legacy kwargs ``db_path``, ``read_only``, and ``persistent`` are accepted
     for call-site compatibility but have no effect — PgDataStore manages its

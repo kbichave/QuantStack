@@ -9,9 +9,8 @@ wired together here.  The only place a connection is opened; every downstream
 service receives it as a constructor argument.
 
 Why this matters:
-  - Tests call create_trading_context(":memory:") and get a fully-wired,
-    completely isolated system backed by DuckDB in-memory — zero file-system
-    side-effects, no PostgreSQL required in unit tests.
+  - Tests call create_trading_context() and get a fully-wired system backed
+    by PostgreSQL (TRADER_PG_URL).
   - Production calls create_trading_context() and gets PostgreSQL (TRADER_PG_URL).
   - No module-level singletons are needed. Each service is instantiated once
     per context, and the context is passed explicitly.
@@ -24,7 +23,7 @@ Usage — production:
 Usage — tests:
     @pytest.fixture
     def ctx():
-        return create_trading_context(db_path=":memory:")
+        return create_trading_context()
 """
 
 from __future__ import annotations
@@ -101,9 +100,9 @@ def create_trading_context(
     any service is initialised.
 
     Args:
-        db_path:      Pass ``":memory:"`` for an in-memory DuckDB instance
-                      (unit tests).  Pass ``""`` or omit to use PostgreSQL
+        db_path:      Ignored — all connections use PostgreSQL
                       (TRADER_PG_URL env var, default postgresql://localhost/quantpod).
+                      Kept for backward compatibility.
         initial_cash: Starting cash balance for new portfolios.
         risk_limits:  Override default risk limits.  None = load from env.
         session_id:   Session UUID.  Auto-generated if not provided.
@@ -113,7 +112,7 @@ def create_trading_context(
     """
     sid = session_id or str(uuid.uuid4())
 
-    # 1. Open connection — in-memory DuckDB for tests, PostgreSQL for production.
+    # 1. Open connection — PostgreSQL (TRADER_PG_URL).
     conn = open_db(db_path)
 
     # 2. Run migrations — idempotent, all CREATE TABLE/INDEX IF NOT EXISTS.

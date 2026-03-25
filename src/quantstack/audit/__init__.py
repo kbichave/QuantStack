@@ -4,7 +4,7 @@
 """
 Compliance audit trail for QuantPod.
 
-Records every agent decision append-only in DuckDB for regulatory review.
+Records every agent decision append-only in PostgreSQL for regulatory review.
 """
 
 from quantstack.audit.decision_log import (

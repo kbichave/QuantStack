@@ -110,7 +110,7 @@ Bear penalties from reflexion episodes are capped at +0.30 total.
 2. **Execution path stays LLM-free** — all optimization is offline (post-market close)
 3. **Paper mode for all experiments** — new prompts tested on paper for 1 week minimum
 4. **Proposals, not auto-applies** — TextGrad critiques require OPRO validation or human review
-5. **Audit trail** — every verdict, critique, and promotion logged in DuckDB
+5. **Audit trail** — every verdict, critique, and promotion logged in PostgreSQL
 6. **Auto-rollback** — champion reverts if Sharpe drops >1σ below baseline
 
 ## Paper References

@@ -210,7 +210,7 @@ class EventBus:
         now = datetime.now(timezone.utc)
         if events:
             new_cursor = events[-1].event_id
-            # Upsert cursor: delete + insert (DuckDB ON CONFLICT has limitations)
+            # Upsert cursor: delete + insert (for compatibility with the cursor table)
             self._conn.execute(
                 "DELETE FROM loop_cursors WHERE consumer_id = ?",
                 [consumer_id],

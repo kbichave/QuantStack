@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Fetch all historical VIX data from FRED and store in DuckDB."""
+"""Fetch all historical VIX data from FRED and store in PostgreSQL."""
 
 from quantstack.data.fred_fetcher import FREDFetcher
 from quantstack.data.economic_storage import EconomicStorage
 
 
 def main():
-    """Fetch VIX data from FRED and store in DuckDB."""
+    """Fetch VIX data from FRED and store in PostgreSQL."""
     # Create storage
     storage = EconomicStorage()
 

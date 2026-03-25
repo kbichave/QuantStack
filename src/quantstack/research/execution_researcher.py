@@ -234,7 +234,7 @@ class ExecutionResearcher:
         return []
 
     def _persist_plan(self, plan: ExecutionResearchPlan) -> None:
-        """Store the execution research plan in DuckDB."""
+        """Store the execution research plan in the database."""
         try:
             self._conn.execute(
                 """

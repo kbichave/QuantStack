@@ -5,7 +5,7 @@
 Pydantic models for the compliance audit trail.
 
 Every agent decision — from IC analysis through to SuperTrader execution —
-is captured as a DecisionEvent and stored append-only in DuckDB.
+is captured as a DecisionEvent and stored append-only in PostgreSQL.
 """
 
 from __future__ import annotations

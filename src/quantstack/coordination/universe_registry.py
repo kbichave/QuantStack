@@ -328,7 +328,6 @@ class UniverseRegistry:
                 last = datetime.fromisoformat(str(last))
             except (ValueError, TypeError):
                 return float("inf")
-        # DuckDB stores timestamps as naive local time.
         # Compare using naive local time to avoid timezone offset issues.
         if last.tzinfo is not None:
             last = last.replace(tzinfo=None)

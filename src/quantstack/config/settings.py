@@ -159,7 +159,7 @@ class Settings(BaseSettings):
         default=Path("data"), description="Directory for data storage"
     )
     database_path: str = Field(
-        default="data/trader.duckdb", description="Path to DuckDB database file"
+        default="", description="PostgreSQL DSN (overridden by TRADER_PG_URL env var)"
     )
 
     # Symbol Universe — defaults to the full INITIAL_LIQUID_UNIVERSE.

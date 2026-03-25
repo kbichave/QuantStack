@@ -16,7 +16,7 @@ USE_REAL_TRADING=false
 USE_REAL_TRADING=true
 ```
 
-When `USE_REAL_TRADING=false`, the `PaperBroker` simulates fills with configurable slippage and commission against your internal DuckDB portfolio state. All risk limits still apply.
+When `USE_REAL_TRADING=false`, the `PaperBroker` simulates fills with configurable slippage and commission against your PostgreSQL portfolio state. All risk limits still apply.
 
 ---
 
@@ -155,12 +155,7 @@ The router evaluates spread, latency, and commission from each available venue a
 
 ## Data Storage
 
-All state is stored in a single DuckDB file:
-
-```bash
-# Default path (configurable via TRADER_DB_PATH)
-~/.quant_pod/trader.duckdb
-```
+All state is stored in PostgreSQL (connection string: `TRADER_PG_URL`, default `postgresql://localhost/quantpod`).
 
 Tables in the database:
 
@@ -177,7 +172,7 @@ Tables in the database:
 
 ```bash
 # Inspect manually
-duckdb ~/.quant_pod/trader.duckdb
-> SELECT * FROM positions;
-> SELECT * FROM fills ORDER BY filled_at DESC LIMIT 10;
+psql $TRADER_PG_URL
+=> SELECT * FROM positions;
+=> SELECT * FROM fills ORDER BY filled_at DESC LIMIT 10;
 ```

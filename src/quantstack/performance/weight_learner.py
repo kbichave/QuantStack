@@ -14,7 +14,7 @@ Method:
 4. Fit logistic regression (per regime) — coefficients = optimal weights
 5. Validate OOS: if learned weights produce worse classification than
    hand-tuned defaults, keep the defaults
-6. Store versioned weights in DuckDB
+6. Store versioned weights in the database
 
 Runs monthly as an autonomous job. No LLM involved.
 
@@ -466,7 +466,7 @@ class WeightLearner:
         metadata: dict[str, dict[str, Any]],
         effective_date: date,
     ) -> None:
-        """Store versioned weights in DuckDB."""
+        """Store versioned weights in the database."""
         try:
             self._conn.execute(
                 """

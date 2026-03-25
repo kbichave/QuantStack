@@ -232,7 +232,7 @@ class SchemaMixin:
         )
 
         # Historical signals from strategy pods
-        # Use SEQUENCE for auto-increment in DuckDB
+        # Use SEQUENCE for auto-increment
         self.conn.execute(
             "CREATE SEQUENCE IF NOT EXISTS seq_historical_signals START 1"
         )

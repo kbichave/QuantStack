@@ -503,6 +503,106 @@ async def compute_option_chain(
     return await _compute_option_chain_impl(symbol, expiry_date, min_delta, max_delta)
 
 
+def _compute_multi_leg_price_impl(
+    legs: list[dict[str, Any]],
+    underlying_price: float,
+    rate: float = 0.05,
+    dividend_yield: float = 0.0,
+) -> dict[str, Any]:
+    """Pure-Python pricing helper — callable directly without going through the MCP FunctionTool wrapper."""
+    from quantstack.core.options.engine import price_option_dispatch
+
+    if not legs:
+        return {"error": "No legs provided"}
+
+    leg_results = []
+    total_premium = 0.0
+    net_delta = 0.0
+    net_gamma = 0.0
+    net_theta = 0.0
+    net_vega = 0.0
+    net_rho = 0.0
+
+    for i, leg in enumerate(legs):
+        opt_type = leg.get("option_type", "call")
+        strike = leg["strike"]
+        expiry_days = leg.get("expiry_days", 30)
+        quantity = leg.get("quantity", 1)
+        iv = leg.get("iv", 0.25)
+
+        tte = expiry_days / 365.0
+
+        result = price_option_dispatch(
+            underlying_price, strike, tte, iv, rate, dividend_yield, opt_type
+        )
+
+        price = result["price"]
+        greeks = result.get("greeks", {})
+
+        leg_premium = price * quantity * 100  # Per contract value
+        total_premium += leg_premium
+
+        net_delta += greeks.get("delta", 0) * quantity * 100
+        net_gamma += greeks.get("gamma", 0) * quantity * 100
+        net_theta += greeks.get("theta", 0) * quantity * 100
+        net_vega += greeks.get("vega", 0) * quantity * 100
+        net_rho += greeks.get("rho", 0) * quantity * 100
+
+        leg_results.append(
+            {
+                "leg_index": i,
+                "option_type": opt_type,
+                "strike": strike,
+                "expiry_days": expiry_days,
+                "quantity": quantity,
+                "price_per_contract": round(price, 2),
+                "total_value": round(leg_premium, 2),
+                "delta": round(greeks.get("delta", 0), 4),
+            }
+        )
+
+    is_debit = total_premium > 0
+    strikes = sorted([leg["strike"] for leg in legs])
+
+    if is_debit:
+        max_loss = -abs(total_premium)
+        max_profit = None
+    else:
+        max_profit = abs(total_premium)
+        max_loss = None
+
+    if len(legs) >= 2:
+        strike_width = max(strikes) - min(strikes)
+        if strike_width > 0:
+            if is_debit:
+                max_profit = strike_width * 100 - abs(total_premium)
+            else:
+                max_loss = -(strike_width * 100 - abs(total_premium))
+
+    return {
+        "underlying_price": underlying_price,
+        "total_premium": round(total_premium, 2),
+        "is_debit": is_debit,
+        "leg_prices": leg_results,
+        "net_greeks": {
+            "delta": round(net_delta, 2),
+            "gamma": round(net_gamma, 4),
+            "theta": round(net_theta, 2),
+            "vega": round(net_vega, 2),
+            "rho": round(net_rho, 2),
+        },
+        "risk_profile": {
+            "max_profit": round(max_profit, 2) if max_profit else "unlimited",
+            "max_loss": round(max_loss, 2) if max_loss else "undefined",
+            "risk_reward_ratio": (
+                round(abs(max_profit / max_loss), 2)
+                if max_profit and max_loss and max_loss != 0
+                else None
+            ),
+        },
+    }
+
+
 @domain(Domain.OPTIONS)
 @mcp.tool()
 async def compute_multi_leg_price(
@@ -538,102 +638,7 @@ async def compute_multi_leg_price(
             - break_evens: Break-even prices
     """
     try:
-        if not legs:
-            return {"error": "No legs provided"}
-
-        leg_results = []
-        total_premium = 0.0
-        net_delta = 0.0
-        net_gamma = 0.0
-        net_theta = 0.0
-        net_vega = 0.0
-        net_rho = 0.0
-
-        for i, leg in enumerate(legs):
-            opt_type = leg.get("option_type", "call")
-            strike = leg["strike"]
-            expiry_days = leg.get("expiry_days", 30)
-            quantity = leg.get("quantity", 1)
-            iv = leg.get("iv", 0.25)
-
-            tte = expiry_days / 365.0
-
-            from quantstack.core.options.engine import price_option_dispatch  # noqa: PLC0415
-            result = price_option_dispatch(
-                underlying_price, strike, tte, iv, rate, dividend_yield, opt_type
-            )
-
-            price = result["price"]
-            greeks = result.get("greeks", {})
-
-            # Aggregate (negative quantity = short position = credit)
-            leg_premium = price * quantity * 100  # Per contract value
-            total_premium += leg_premium
-
-            net_delta += greeks.get("delta", 0) * quantity * 100
-            net_gamma += greeks.get("gamma", 0) * quantity * 100
-            net_theta += greeks.get("theta", 0) * quantity * 100
-            net_vega += greeks.get("vega", 0) * quantity * 100
-            net_rho += greeks.get("rho", 0) * quantity * 100
-
-            leg_results.append(
-                {
-                    "leg_index": i,
-                    "option_type": opt_type,
-                    "strike": strike,
-                    "expiry_days": expiry_days,
-                    "quantity": quantity,
-                    "price_per_contract": round(price, 2),
-                    "total_value": round(leg_premium, 2),
-                    "delta": round(greeks.get("delta", 0), 4),
-                }
-            )
-
-        # Determine structure type and estimate max profit/loss
-        is_debit = total_premium > 0
-
-        # Simplified max profit/loss calculation
-        strikes = sorted([leg["strike"] for leg in legs])
-
-        if is_debit:
-            max_loss = -abs(total_premium)
-            max_profit = None  # Potentially unlimited for naked calls
-        else:
-            max_profit = abs(total_premium)
-            max_loss = None  # Need more analysis for spreads
-
-        # For defined risk spreads, calculate actual max loss
-        if len(legs) >= 2:
-            strike_width = max(strikes) - min(strikes)
-            if strike_width > 0:
-                if is_debit:
-                    max_profit = strike_width * 100 - abs(total_premium)
-                else:
-                    max_loss = -(strike_width * 100 - abs(total_premium))
-
-        return {
-            "underlying_price": underlying_price,
-            "total_premium": round(total_premium, 2),
-            "is_debit": is_debit,
-            "leg_prices": leg_results,
-            "net_greeks": {
-                "delta": round(net_delta, 2),
-                "gamma": round(net_gamma, 4),
-                "theta": round(net_theta, 2),
-                "vega": round(net_vega, 2),
-                "rho": round(net_rho, 2),
-            },
-            "risk_profile": {
-                "max_profit": round(max_profit, 2) if max_profit else "unlimited",
-                "max_loss": round(max_loss, 2) if max_loss else "undefined",
-                "risk_reward_ratio": (
-                    round(abs(max_profit / max_loss), 2)
-                    if max_profit and max_loss and max_loss != 0
-                    else None
-                ),
-            },
-        }
-
+        return _compute_multi_leg_price_impl(legs, underlying_price, rate, dividend_yield)
     except Exception as e:
         return {"error": str(e)}
 
@@ -822,10 +827,7 @@ async def simulate_trade_outcome(
             }
 
         # Entry premium (current value)
-        entry_result = await compute_multi_leg_price(
-            legs=legs,
-            underlying_price=underlying_price,
-        )
+        entry_result = _compute_multi_leg_price_impl(legs, underlying_price)
         entry_premium = entry_result.get("total_premium", 0)
 
         # Simulate scenarios
@@ -858,10 +860,7 @@ async def simulate_trade_outcome(
                 new_legs.append(new_leg)
 
             # Calculate exit value
-            exit_result = await compute_multi_leg_price(
-                legs=new_legs,
-                underlying_price=final_price,
-            )
+            exit_result = _compute_multi_leg_price_impl(new_legs, final_price)
             exit_premium = exit_result.get("total_premium", 0)
 
             # P&L = exit value - entry value

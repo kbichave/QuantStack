@@ -19,6 +19,7 @@ from quantstack.mcp._helpers import (
     _get_reader,
     _get_writer,
 )
+from quantstack.data.fetcher import AlphaVantageClient
 from quantstack.data.fundamentals import FundamentalsProvider
 from quantstack.mcp.server import mcp
 from quantstack.mcp.domains import Domain
@@ -200,31 +201,35 @@ async def get_earnings_data(
     """
     Fetch earnings data with estimates and surprises for a company.
 
+    Uses Alpha Vantage EARNINGS endpoint (free tier). Returns both annual
+    and quarterly EPS history with reported vs estimated and surprise %.
+
     Args:
         ticker: Stock symbol
-        limit: Number of earnings records
+        limit: Number of quarterly records to return (most recent first)
 
     Returns:
         Dictionary with earnings data including estimates, reported EPS, and surprise
     """
-    fp = _get_fundamentals_provider()
-    if fp is None:
-        return {"error": "FINANCIAL_DATASETS_API_KEY not configured", "ticker": ticker}
-
     try:
-        df = fp.fetch_earnings(ticker, limit)
-        if df.empty:
+        client = AlphaVantageClient()
+        data = client.fetch_earnings_history(ticker)
+        if not data:
             return {"error": "No earnings data found", "ticker": ticker}
+
+        quarterly = data.get("quarterlyEarnings", [])[:limit]
+        annual = data.get("annualEarnings", [])
 
         return {
             "ticker": ticker,
-            "rows": len(df),
-            "data": _dataframe_to_dict(df),
+            "source": "alpha_vantage",
+            "quarterly_count": len(quarterly),
+            "annual_count": len(annual),
+            "quarterly_earnings": quarterly,
+            "annual_earnings": annual,
         }
     except Exception as e:
         return {"error": str(e), "ticker": ticker}
-    finally:
-        fp.close()
 
 
 # =============================================================================
@@ -764,35 +769,36 @@ async def get_price_snapshot(
     ticker: str,
 ) -> dict[str, Any]:
     """
-    Get current price snapshot: last price, change, change%, volume, bid, ask.
+    Get current price snapshot: last price, open, high, low, change, change%, volume.
 
     Lightweight alternative to a full OHLCV fetch when you only need the
-    latest quote. Calls the FinancialDatasets.ai price snapshot endpoint.
+    latest quote. Uses Alpha Vantage REALTIME_BULK_QUOTES (premium).
 
     Args:
         ticker: Stock symbol (e.g., "AAPL", "NVDA")
 
     Returns:
-        Dictionary with price snapshot data (last, change, change_pct, volume, bid, ask)
+        Dictionary with price snapshot data (price, open, high, low, volume,
+        previous_close, change, change_percent, latest_day)
     """
-    fp = _get_fundamentals_provider()
-    if fp is None:
-        return {"error": "FINANCIAL_DATASETS_API_KEY not configured", "ticker": ticker}
-
     try:
-        snapshot = fp.fetch_price_snapshot(ticker)
-        if not snapshot:
+        client = AlphaVantageClient()
+        df = client.fetch_bulk_quotes([ticker])
+        if df.empty:
             return {"error": "No price snapshot available", "ticker": ticker}
 
+        row = df[df["symbol"].str.upper() == ticker.upper()]
+        if row.empty:
+            row = df.iloc[[0]]
+
+        snapshot = row.iloc[0].to_dict()
         return {
             "ticker": ticker,
-            "source": "api",
-            "snapshot": snapshot,
+            "source": "alpha_vantage",
+            "snapshot": {k: v for k, v in snapshot.items() if k != "symbol"},
         }
     except Exception as e:
         return {"error": str(e), "ticker": ticker}
-    finally:
-        fp.close()
 
 
 # =============================================================================

@@ -23,8 +23,13 @@ Usage::
 
 from __future__ import annotations
 
+import atexit
 import importlib
+import os
+import signal
+import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
@@ -107,8 +112,14 @@ _DOMAIN_MODULES: dict[Domain, list[str]] = {
     ],
 }
 
-# Domains that need the full TradingContext (broker, risk gate, portfolio)
-_TRADING_DOMAINS = Domain.EXECUTION | Domain.PORTFOLIO | Domain.SIGNALS
+# All servers need TradingContext: analysis.py (cross-cutting) uses live_db_or_error
+# for get_portfolio_state / get_recent_decisions / get_system_status, and domain-specific
+# tools (strategy, backtesting, ml, cross_domain, finrl_tools, etc.) write to the DB.
+_TRADING_DOMAINS = (
+    Domain.EXECUTION | Domain.PORTFOLIO | Domain.SIGNALS
+    | Domain.DATA | Domain.RESEARCH | Domain.OPTIONS
+    | Domain.ML | Domain.FINRL | Domain.INTEL | Domain.RISK
+)
 
 # Domains that need heavy ML imports (sklearn, lightgbm, torch, etc.)
 _ML_DOMAINS = Domain.ML | Domain.FINRL
@@ -244,3 +255,46 @@ def create_server(
     _srv_mod.mcp = original_mcp
 
     return server
+
+
+# ── PID lockfile — prevents stale orphan processes ─────────────────────────
+
+
+_PID_DIR = Path("/tmp")
+
+
+def _kill_stale_and_lock(name: str) -> None:
+    """Kill any previously running instance of this server and claim the PID slot.
+
+    stdio MCP servers become orphaned when Claude Code disconnects: the stdio
+    pipe closes but the OS process keeps running.  On the next startup Claude
+    Code spawns a fresh copy without killing the old one, which piles up stale
+    processes over time.
+
+    This runs before ``server.run()`` so the old instance is gone before the
+    new one begins serving requests.
+    """
+    pid_file = _PID_DIR / f"quantstack_{name.replace('-', '_')}.pid"
+
+    if pid_file.exists():
+        try:
+            old_pid = int(pid_file.read_text().strip())
+            if old_pid != os.getpid():
+                os.kill(old_pid, signal.SIGTERM)
+                # Brief pause so the old process can flush / close its pool
+                time.sleep(0.3)
+        except (ProcessLookupError, ValueError, OSError):
+            pass  # already gone or bad file — ignore
+
+    pid_file.write_text(str(os.getpid()))
+    atexit.register(lambda: pid_file.unlink(missing_ok=True))
+    logger.debug(f"[{name}] PID {os.getpid()} registered, stale instance cleared")
+
+
+def run_server(server: "FastMCP") -> None:
+    """Kill any stale predecessor, then start the MCP server.
+
+    Call this instead of ``server.run()`` in each domain server's ``main()``.
+    """
+    _kill_stale_and_lock(server.name)
+    server.run()

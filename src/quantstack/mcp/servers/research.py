@@ -1,6 +1,6 @@
 """quantstack-research — backtesting, walk-forward, strategy lifecycle, statistical validation."""
 from quantstack.mcp.domains import Domain
-from quantstack.mcp.server_factory import create_server
+from quantstack.mcp.server_factory import create_server, run_server
 
 server = create_server(
     name="quantstack-research",
@@ -9,7 +9,7 @@ server = create_server(
 )
 
 def main():
-    server.run()
+    run_server(server)
 
 if __name__ == "__main__":
     main()

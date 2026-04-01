@@ -308,6 +308,23 @@ The rule engine supports indicator-vs-indicator comparisons (e.g., `close > sma_
 - At least 1 entry rule must use a tier_2+ signal (or an empirically promoted signal)
 - Regime should be ONE input rule, not the entire strategy
 
+**Pre-registration validation (MANDATORY — run before every `register_strategy()` call):**
+
+```bash
+python3 -c "
+import json, sys
+rules = json.loads(r'''PASTE_ENTRY_RULES_JSON_HERE''')
+assert isinstance(rules, list), 'FAIL: must be a JSON array, not a string or dict'
+for i, r in enumerate(rules):
+    if r.get('type') == 'time_stop': continue
+    for field in ['indicator', 'condition']:
+        assert field in r, f'FAIL rule {i}: missing {field}'
+    print(f'Rule {i}: {r[\"indicator\"]} {r[\"condition\"]} {r.get(\"value\",\"?\")}')
+print('ALL VALID — safe to register')
+"
+```
+Only proceed with `register_strategy()` if output ends with `ALL VALID`. If it fails, rewrite the failing rule.
+
 **Anti-patterns (will be rejected):**
 - ❌ Single RSI/MACD/SMA threshold as sole entry
 - ❌ Entry rules all from the same category (e.g., RSI + MACD + Stoch = all tier_1 technicals)

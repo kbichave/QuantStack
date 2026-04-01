@@ -922,6 +922,15 @@ def _migrate_coordination_pg(conn: PgConnection) -> None:
         CREATE INDEX IF NOT EXISTS heartbeats_loop_idx
         ON loop_heartbeats (loop_name, started_at DESC)
     """)
+    # Backfill: mark any pre-existing orphaned rows so the supervisor and
+    # counter queries exclude them. Idempotent — safe to run on every startup.
+    conn.execute("""
+        UPDATE loop_heartbeats
+           SET status = 'orphaned'
+         WHERE status = 'running'
+           AND finished_at IS NULL
+           AND started_at < NOW() - INTERVAL '30 minutes'
+    """)
 
 
 def _migrate_conversations_pg(conn: PgConnection) -> None:

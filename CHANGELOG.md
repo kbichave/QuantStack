@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-04-01
+
+### Changed — Market-Aware Model Routing & Loop Restructure
+
+**Research loop** now selects model based on market hours instead of always using haiku:
+- **Market hours (09:30–16:00 ET):** `claude-haiku-4-5-20251001` at 5 min intervals — lightweight data refresh, signal checks, watchlist updates. Context is short; expensive model is wasteful.
+- **After hours:** `claude-sonnet-4-6` at 30 min intervals — full research cycles (evidence gathering, strategy design, walk-forward validation). Deep work requires a capable model.
+
+**Trading loop** adaptive sleep replaces fixed 5-min polling:
+- Market hours: 60s polling for responsive entry scanning
+- After hours: 30 min sleep (market is closed; no reason to burn tokens)
+
+**Subagent model downgrade** (opus → sonnet):
+- `quant-researcher`, `strategy-rd`, `ml-scientist` agents changed from `model: opus` to `model: sonnet`
+- Opus was spawned for every BLITZ iteration (6–9 agents per symbol). Sonnet produces equivalent strategy research quality at significantly lower cost.
+
+### Added — `scripts/db_repair.py`
+
+One-shot DB repair utility. Cleans accumulated bad state:
+- Removes paper strategies with plain-text `entry_rules` (never evaluatable by the rule engine)
+- Fixes forward_testing strategies with `{"mechanism": "..."}` dicts (demotes to draft, sets structured JSON rules)
+- Clears zombie `research_queue` tasks with null topics
+- Promotes `validated` strategies to `forward_testing`
+- Seeds `regime_states` table via live signal engine for SPY, QQQ, IWM
+
+### Added — Mandatory entry_rules schema enforcement in research prompts
+
+Added validation blocks to `prompts/research_loop.md` and `prompts/research_shared.md` requiring all strategies to have structured JSON arrays as `entry_rules` before calling `register_strategy()`. Plain-text strings and mechanism-dict formats are explicitly documented as invalid with inline validation script.
+
+### Fixed — Heartbeat race condition (iteration counter inflation)
+
+`scripts/heartbeat.sh` rewritten to fix a race condition where orphaned `running` rows from killed sessions were included in `MAX(iteration)`, inflating the counter and causing false duplicate iterations:
+- `running` call: marks stale orphans (>30 min without `finished_at`) as `orphaned` before reading MAX; only counts rows with `finished_at IS NOT NULL`
+- Prints `HEARTBEAT_ITERATION=N` to stdout for the shell wrapper to export
+- `completed` call: reads iteration from `HEARTBEAT_ITERATION` env var (set by the `running` call in the same shell loop), avoiding a second MAX() query that could target the wrong row
+
+`start.sh` loop wrappers updated to capture and export `HEARTBEAT_ITERATION` between the two heartbeat calls.
+
+`src/quantstack/coordination/supervisor.py` health query excludes `status='orphaned'` rows.
+
+`src/quantstack/db.py` backfill migration marks existing stale running rows as orphaned on startup.
+
 ## [1.0.0] - 2026-03-22
 
 ### Changed — Unified Package Architecture

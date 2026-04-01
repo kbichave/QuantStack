@@ -1,7 +1,7 @@
 ---
 name: strategy-rd
 description: "Strategy R&D desk. Use for hypothesis evaluation, backtest interpretation, walk-forward validation, overfitting detection, alpha decay analysis, and strategy lifecycle management. Spawned by /workshop and /reflect skills."
-model: opus
+model: sonnet
 ---
 
 # Strategy R&D Desk

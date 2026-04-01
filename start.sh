@@ -244,17 +244,40 @@ echo "[start.sh] Starting tmux session quantstack-loops..."
 # tmux windows inherit the session environment, not the parent shell's env.
 ENV_PREFIX="set -a; source $(pwd)/.env; set +a;"
 
-# Trading window — fresh claude session every 5 min.
+# Trading window — sonnet, market-aware sleep.
+# 60s poll during market hours (09:30–16:00 ET); 30 min outside to avoid wasteful idle sessions.
 # Shell wrapper calls scripts/heartbeat.sh before/after each Claude session,
 # guaranteeing heartbeats even if the model doesn't execute code blocks.
 tmux new-session -d -s quantstack-loops -n trading \
-    "$ENV_PREFIX while :; do bash scripts/heartbeat.sh trading_loop running; cat prompts/trading_loop.md | claude --model sonnet 2>&1 | tee -a data/logs/trading_loop.log; bash scripts/heartbeat.sh trading_loop completed; sleep 300; done"
+    "$ENV_PREFIX while :; do
+       export HEARTBEAT_ITERATION=\$(bash scripts/heartbeat.sh trading_loop running 2>/dev/null | grep '^HEARTBEAT_ITERATION=' | cut -d= -f2)
+       cat prompts/trading_loop.md | claude --model claude-sonnet-4-6 2>&1 | tee -a data/logs/trading_loop.log
+       bash scripts/heartbeat.sh trading_loop completed
+       HOUR=\$(TZ='America/New_York' date +%H)
+       if [[ \"\$HOUR\" -ge 9 && \"\$HOUR\" -lt 16 ]]; then sleep 60; else sleep 1800; fi
+     done"
 
-# Research window — fresh claude session every 2 min.
-# Haiku handles routine iterations (read registry, check queue, skip).
-# BLITZ mode spawns subagents (quant-researcher=opus, strategy-rd=opus) via Agent tool.
+# Research window — market-aware model routing + adaptive interval.
+# Market hours (09:30–16:00 ET): haiku — task is short (data refresh, signal check, watchlist).
+#   Context is lightweight; no deep work needed while market is open.
+# After hours: sonnet — full research cycles (evidence gathering, strategy design, backtest).
+#   Subagents spawned by research loop inherit this model via .claude/agents/ frontmatter.
+# Sleep: 5 min during market hours, 30 min outside.
 tmux new-window -t quantstack-loops -n research \
-    "$ENV_PREFIX while :; do bash scripts/heartbeat.sh research_loop running; cat prompts/research_loop.md | claude --model haiku 2>&1 | tee -a data/logs/research_loop.log; bash scripts/heartbeat.sh research_loop completed; sleep 120; done"
+    "$ENV_PREFIX while :; do
+       export HEARTBEAT_ITERATION=\$(bash scripts/heartbeat.sh research_loop running 2>/dev/null | grep '^HEARTBEAT_ITERATION=' | cut -d= -f2)
+       HOUR=\$(TZ='America/New_York' date +%H)
+       if [[ \"\$HOUR\" -ge 9 && \"\$HOUR\" -lt 16 ]]; then
+         MODEL='claude-haiku-4-5-20251001'
+         SLEEP=300
+       else
+         MODEL='claude-sonnet-4-6'
+         SLEEP=1800
+       fi
+       cat prompts/research_loop.md | claude --model \"\$MODEL\" 2>&1 | tee -a data/logs/research_loop.log
+       bash scripts/heartbeat.sh research_loop completed
+       sleep \$SLEEP
+     done"
 
 # Add supervisor window
 tmux new-window -t quantstack-loops -n supervisor \

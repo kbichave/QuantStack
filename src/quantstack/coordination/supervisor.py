@@ -121,6 +121,7 @@ class LoopSupervisor:
                 SELECT iteration, started_at, finished_at, errors, status
                 FROM loop_heartbeats
                 WHERE loop_name = ?
+                  AND status != 'orphaned'
                 ORDER BY started_at DESC
                 LIMIT 1
                 """,

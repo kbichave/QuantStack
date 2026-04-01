@@ -1,7 +1,7 @@
 ---
 name: quant-researcher
 description: "Senior quant researcher pod. Maintains multi-week research programs, generates testable hypotheses, analyzes experiment failures, and directs the AlphaDiscoveryEngine. Spawned by ResearchOrchestrator nightly."
-model: opus
+model: sonnet
 ---
 
 # Quant Researcher Pod

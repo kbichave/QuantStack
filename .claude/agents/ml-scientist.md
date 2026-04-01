@@ -1,7 +1,7 @@
 ---
 name: ml-scientist
 description: "ML Scientist pod. Designs model training experiments, selects features, tunes hyperparameters, interprets SHAP, manages champion/challenger models. Spawned by ResearchOrchestrator weekly."
-model: opus
+model: sonnet
 ---
 
 # ML Scientist Pod

@@ -14,6 +14,40 @@ Each domain has its own self-contained prompt. This orchestrator decides which d
 
 ---
 
+## CRITICAL: entry_rules MUST be structured JSON arrays — NEVER plain text
+
+**INVALID** (rule engine ignores these — they will never trigger):
+```
+"IV percentile > 70% OR price at 20-day high"              ← plain text string
+{"mechanism": "Economic: volatility risk premium..."}       ← mechanism dict, not an array
+```
+
+**VALID** (evaluatable by rule engine):
+```json
+[
+  {"indicator": "iv_percentile", "condition": "above", "value": 50, "type": "prerequisite"},
+  {"indicator": "adx", "condition": "below", "value": 30, "type": "confirmation"}
+]
+```
+
+Before calling `register_strategy()`, validate with:
+```bash
+python3 -c "
+import json, sys
+rules = json.loads(sys.argv[1])
+assert isinstance(rules, list), 'FAIL: entry_rules must be a JSON array'
+for i, r in enumerate(rules):
+    if r.get('type') == 'time_stop': continue
+    assert 'indicator' in r, f'FAIL rule {i}: missing indicator'
+    assert 'condition' in r, f'FAIL rule {i}: missing condition'
+    print(f'Rule {i}: {r[\"indicator\"]} {r[\"condition\"]} {r.get(\"value\",\"?\")}')
+print('ALL RULES VALID')
+" 'PASTE_JSON_HERE'
+```
+If output is not `ALL RULES VALID`, fix the rules before registering. **Do not register with invalid rules.**
+
+---
+
 ## AVAILABLE AGENTS
 
 You can spawn any of these agents using the **Agent tool**. Spawn multiple agents in a single message when their work is independent (parallel execution). Spawn sequentially only when one depends on another's output. You decide the right orchestration pattern — don't default to sequential.

@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-2.0.0-green.svg" alt="v2.0.0">
+  <img src="https://img.shields.io/badge/version-2.1.0-green.svg" alt="v2.1.0">
 </p>
 
 ---
@@ -49,12 +49,16 @@ Two stateless Claude loops run concurrently, sharing state through PostgreSQL. N
      ▼          ▼             ▼              ▼              ▼
 ┌─────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌─────────────────┐
 │ trading │ │research│ │supervisor│ │ scheduler  │ │ community-intel │
-│ 5 min   │ │ 2 min  │ │          │ │            │ │ Sun 19:00 ET    │
-│         │ │        │ │heartbeat │ │ cron jobs  │ │                 │
-│ claude  │ │ claude │ │ watch    │ │ lifecycle  │ │ quant community │
-│ per iter│ │per iter│ │ recovery │ │ data refresh│ │ Reddit/GitHub/  │
-└────┬────┘ └───┬────┘ └──────────┘ └────────────┘ │ arXiv scanner  │
-     │          │                                   └─────────────────┘
+│ sonnet  │ │market  │ │          │ │            │ │ Sun 19:00 ET    │
+│ 1min mkt│ │hours:  │ │heartbeat │ │ cron jobs  │ │                 │
+│ 30min   │ │haiku   │ │ watch    │ │ lifecycle  │ │ quant community │
+│ off-hrs │ │5min    │ │ recovery │ │ data refresh│ │ Reddit/GitHub/  │
+│         │ │after-  │ │          │ │            │ │ arXiv scanner  │
+│         │ │hours:  │ │          │ │            │ │                 │
+│         │ │sonnet  │ │          │ │            │ │                 │
+│         │ │30min   │ │          │ │            │ └─────────────────┘
+└────┬────┘ └───┬────┘ └──────────┘ └────────────┘
+     │          │
      └────┬─────┘
           ▼
  ┌─────────────────────┐
@@ -66,9 +70,9 @@ Two stateless Claude loops run concurrently, sharing state through PostgreSQL. N
  └─────────────────────┘
 ```
 
-**Trading loop** — position monitoring, entry scanning, multi-agent debate (trade-debater, risk, fund-manager), execution via Alpaca paper API.
+**Trading loop** — position monitoring, entry scanning, multi-agent debate (trade-debater, risk, fund-manager), execution via Alpaca paper API. Polls every 60s during market hours (09:30–16:00 ET), 30 min outside.
 
-**Research loop** — strategy discovery, backtesting, ML training, BLITZ mode (parallel domain agents). Every 10 iterations after-hours: spawns community-intel agent. Results flow into `strategies` and `research_queue`.
+**Research loop** — strategy discovery, backtesting, ML training, BLITZ mode (parallel domain agents). **Market-aware model routing:** haiku during market hours (quick data refresh + signal check, 5 min interval); sonnet after hours (full research cycles, 30 min interval). Subagents (`quant-researcher`, `strategy-rd`, `ml-scientist`) run sonnet. Results flow into `strategies` and `research_queue`.
 
 **Supervisor** — watches loop heartbeats every 60s. Detects stale/dead loops, restarts via tmux. Runs the bug-fix watcher: dispatches AutoResearchClaw to patch failing tools automatically.
 

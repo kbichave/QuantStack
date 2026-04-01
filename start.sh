@@ -251,7 +251,7 @@ ENV_PREFIX="set -a; source $(pwd)/.env; set +a;"
 tmux new-session -d -s quantstack-loops -n trading \
     "$ENV_PREFIX while :; do
        export HEARTBEAT_ITERATION=\$(bash scripts/heartbeat.sh trading_loop running 2>/dev/null | grep '^HEARTBEAT_ITERATION=' | cut -d= -f2)
-       cat prompts/trading_loop.md | claude --model claude-sonnet-4-6 2>&1 | tee -a data/logs/trading_loop.log
+       cat prompts/trading_loop.md | claude --model sonnet 2>&1 | tee -a data/logs/trading_loop.log
        bash scripts/heartbeat.sh trading_loop completed
        HOUR=\$(TZ='America/New_York' date +%H)
        if [[ \"\$HOUR\" -ge 9 && \"\$HOUR\" -lt 16 ]]; then sleep 60; else sleep 1800; fi
@@ -268,10 +268,10 @@ tmux new-window -t quantstack-loops -n research \
        export HEARTBEAT_ITERATION=\$(bash scripts/heartbeat.sh research_loop running 2>/dev/null | grep '^HEARTBEAT_ITERATION=' | cut -d= -f2)
        HOUR=\$(TZ='America/New_York' date +%H)
        if [[ \"\$HOUR\" -ge 9 && \"\$HOUR\" -lt 16 ]]; then
-         MODEL='claude-haiku-4-5-20251001'
+         MODEL='haiku'
          SLEEP=300
        else
-         MODEL='claude-sonnet-4-6'
+         MODEL='sonnet'
          SLEEP=1800
        fi
        cat prompts/research_loop.md | claude --model \"\$MODEL\" 2>&1 | tee -a data/logs/research_loop.log

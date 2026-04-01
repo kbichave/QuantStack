@@ -14,8 +14,11 @@ from quantstack.db import pg_conn, run_migrations
 @pytest.fixture
 def conn():
     with pg_conn() as c:
+        c.execute("DELETE FROM judge_verdicts")
+    with pg_conn() as c:
         run_migrations(c)
         yield c
+        c.execute("DELETE FROM judge_verdicts")
 
 
 @pytest.fixture

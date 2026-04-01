@@ -154,7 +154,8 @@ class ResearchContext:
                 """
             ).fetchall()
             return [{"id": r[0], "thesis": r[1], "reason": r[2]} for r in rows]
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[ResearchContext] dead_ends failed: {exc}")
             return []
 
     def get_breakthrough_features(self) -> list[dict]:
@@ -179,7 +180,8 @@ class ResearchContext:
                 }
                 for r in rows
             ]
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[ResearchContext] breakthrough_features failed: {exc}")
             return []
 
     def get_regime_summary(self) -> dict:
@@ -194,8 +196,8 @@ class ResearchContext:
                     "spy_vol": regime.get("volatility_regime", "normal"),
                     "spy_confidence": regime.get("confidence", 0),
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"[ResearchContext] regime_summary failed: {exc}")
         return {"spy_trend": "unknown", "spy_vol": "normal", "spy_confidence": 0}
 
     def get_strategy_breaker_states(self) -> list[dict]:
@@ -214,7 +216,8 @@ class ResearchContext:
                 for sid, s in states.items()
                 if s.status != "ACTIVE"
             ]
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[ResearchContext] strategy_breaker_states failed: {exc}")
             return []
 
     def get_live_strategies(self) -> list[dict]:
@@ -240,7 +243,8 @@ class ResearchContext:
                 }
                 for r in rows
             ]
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[ResearchContext] live_strategies failed: {exc}")
             return []
 
     def get_equity_summary(self, days: int = 30) -> dict:
@@ -273,7 +277,8 @@ class ResearchContext:
                 "max_drawdown_30d": round(max_dd, 2),
                 "total_return_30d": round(sum(returns), 2),
             }
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[ResearchContext] equity_summary failed: {exc}")
             return {}
 
     def get_model_status(self) -> list[dict]:
@@ -311,7 +316,8 @@ class ResearchContext:
                         }
                     )
             return results
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[ResearchContext] model_status failed: {exc}")
             return []
 
     def build_alpha_researcher_context(self) -> dict[str, Any]:

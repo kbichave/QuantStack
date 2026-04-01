@@ -329,8 +329,8 @@ class TestFundamentalsSchema:
 
     def test_schema_creation(self, store):
         """Verify all fundamentals tables exist after init."""
-        from quantstack.db import open_db
-        with open_db() as conn:
+        from quantstack.db import pg_conn
+        with pg_conn() as conn:
             tables = conn.execute(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
             ).fetchdf()

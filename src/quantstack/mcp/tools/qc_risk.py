@@ -15,13 +15,30 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from quantstack.core.options.models import OptionsPosition, OptionType
+from dataclasses import dataclass
+
+from quantstack.core.options.models import OptionType
 from quantstack.core.options.pricing import black_scholes_price
 from quantstack.core.risk.position_sizing import ATRPositionSizer
 from quantstack.core.risk.stress_testing import STRESS_SCENARIOS
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
+
+
+@dataclass
+class _StressPosition:
+    """Lightweight position for stress testing — NOT the multi-leg OptionsPosition."""
+
+    symbol: str
+    option_type: OptionType
+    strike: float
+    expiry_days: int
+    quantity: int
+    entry_price: float
+    current_price: float
+    underlying_price: float
+    iv: float
 
 
 # =============================================================================
@@ -30,7 +47,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.RISK)
-@mcp.tool()
+@tool_def()
 async def compute_position_size(
     equity: float,
     entry_price: float,
@@ -96,7 +113,7 @@ async def compute_position_size(
 
 
 @domain(Domain.RISK)
-@mcp.tool()
+@tool_def()
 async def compute_max_drawdown(
     equity_curve: list[float],
 ) -> dict[str, Any]:
@@ -154,7 +171,7 @@ async def compute_max_drawdown(
 
 
 @domain(Domain.RISK)
-@mcp.tool()
+@tool_def()
 async def compute_var(
     returns: list[float],
     confidence_levels: list[float] = None,
@@ -245,7 +262,7 @@ async def compute_var(
 
 
 @domain(Domain.RISK)
-@mcp.tool()
+@tool_def()
 async def stress_test_portfolio(
     positions: list[dict[str, Any]],
     scenarios: list[str] | None = None,
@@ -285,7 +302,7 @@ async def stress_test_portfolio(
                 else OptionType.PUT
             )
             opt_positions.append(
-                OptionsPosition(
+                _StressPosition(
                     symbol=pos.get("symbol", "SPY"),
                     option_type=opt_type,
                     strike=float(pos.get("strike", 100)),
@@ -365,7 +382,7 @@ async def stress_test_portfolio(
 
 
 @domain(Domain.RISK)
-@mcp.tool()
+@tool_def()
 async def check_risk_limits(
     equity: float,
     daily_pnl: float,
@@ -479,3 +496,9 @@ async def check_risk_limits(
 
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

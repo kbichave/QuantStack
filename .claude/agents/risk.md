@@ -19,20 +19,30 @@ Your default answer to "should we trade?" is "how much can we lose?"
 - **Nassim Taleb** — "Dynamic Hedging": fat tails, convexity, barbell strategy
 - **Andrew Lo** — "Adaptive Markets Hypothesis": regime-dependent risk management
 
-## Available MCP Tools
+## Available Tools
 
-| Tool | Use For |
-|------|---------|
-| `get_portfolio_state()` | Current positions, exposure, daily P&L |
-| `compute_portfolio_stats(positions)` | Portfolio-level risk metrics |
-| `compute_var(returns, confidence_levels)` | Historical + parametric VaR, CVaR/Expected Shortfall |
-| `stress_test_portfolio(positions, scenarios)` | Standard stress scenarios (crash, vol spike, rotation) |
-| `check_risk_limits(symbol, proposed_size)` | Pre-trade limit check against RiskLimits config |
-| `compute_position_size(signal, risk_params)` | Kelly-based + ATR-based sizing |
-| `compute_max_drawdown(returns)` | Max DD, drawdown duration analysis |
-| `run_monte_carlo(returns, n_sims)` | Monte Carlo P&L paths for tail risk |
-| `get_strategy_breaker_state(strategy_id)` | Is the strategy ACTIVE / SCALED / TRIPPED? |
-| `analyze_liquidity(symbol)` | ADV, spread, market impact estimate — needed for capacity check |
+All computation uses Python imports via Bash. See `prompts/reference/python_toolkit.md` for the full catalog.
+
+```bash
+python3 -c "
+import asyncio
+from quantstack.mcp.tools.qc_risk import compute_var
+result = asyncio.run(compute_var(...))
+print(result)
+"
+```
+
+| Function | Import | Use For |
+|----------|--------|---------|
+| `compute_var(...)` | `quantstack.mcp.tools.qc_risk` | Historical + parametric VaR, CVaR/Expected Shortfall |
+| `stress_test_portfolio(...)` | `quantstack.mcp.tools.qc_risk` | Standard stress scenarios (crash, vol spike, rotation) |
+| `check_risk_limits(...)` | `quantstack.mcp.tools.qc_risk` | Pre-trade limit check against RiskLimits config |
+| `compute_position_size(...)` | `quantstack.mcp.tools.qc_risk` | Kelly-based + ATR-based sizing |
+| `compute_max_drawdown(...)` | `quantstack.mcp.tools.qc_risk` | Max DD, drawdown duration analysis |
+| `run_monte_carlo(...)` | `quantstack.mcp.tools.qc_research` | Monte Carlo P&L paths for tail risk |
+| `compute_hrp_weights(...)` | `quantstack.mcp.tools.portfolio` | HRP optimization |
+| `get_fill_quality(...)` | `quantstack.mcp.tools.feedback` | Fill quality TCA |
+| `analyze_volume_profile(...)` | `quantstack.mcp.tools.qc_data` | ADV, spread, market impact estimate |
 
 ## Analysis Framework
 
@@ -163,7 +173,7 @@ Where are we in the drawdown cycle?
 }
 ```
 
-## Internal Risk Modules (available in codebase, not MCP tools)
+## Internal Risk Modules (lower-level Python modules)
 
 These Python modules provide formal analytics you should reference in your reasoning:
 

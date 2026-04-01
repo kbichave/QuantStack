@@ -20,6 +20,7 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.db import pg_conn
 from quantstack.features.enricher import FeatureEnricher
 from quantstack.mcp._state import (
     _serialize,
@@ -28,7 +29,7 @@ from quantstack.mcp._state import (
     require_live_db,
 )
 from quantstack.mcp.allocation import resolve_conflicts
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 from quantstack.strategies.signal_generator import (
@@ -38,7 +39,7 @@ from quantstack.strategies.signal_generator import (
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def get_regime_strategies(regime: str) -> dict[str, Any]:
     """
     Get strategy allocations for a given regime from the matrix.
@@ -49,15 +50,16 @@ async def get_regime_strategies(regime: str) -> dict[str, Any]:
     Returns:
         Dict with list of (strategy_id, allocation_pct, confidence).
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
-        rows = ctx.db.execute(
-            "SELECT strategy_id, allocation_pct, confidence, last_updated "
-            "FROM regime_strategy_matrix WHERE regime = ? ORDER BY allocation_pct DESC",
-            [regime],
-        ).fetchall()
+        with pg_conn() as conn:
+            rows = conn.execute(
+                "SELECT strategy_id, allocation_pct, confidence, last_updated "
+                "FROM regime_strategy_matrix WHERE regime = ? ORDER BY allocation_pct DESC",
+                [regime],
+            ).fetchall()
 
         allocations = [
             {
@@ -80,7 +82,7 @@ async def get_regime_strategies(regime: str) -> dict[str, Any]:
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def set_regime_allocation(
     regime: str,
     allocations: list[dict[str, Any]],
@@ -98,7 +100,7 @@ async def set_regime_allocation(
     Returns:
         Confirmation with the updated allocations.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -110,46 +112,48 @@ async def set_regime_allocation(
                 "error": f"Total allocation {total:.0%} exceeds 100%. Reduce allocations.",
             }
 
-        for alloc in allocations:
-            strategy_id = alloc.get("strategy_id")
-            allocation_pct = alloc.get("allocation_pct", 0)
-            confidence = alloc.get("confidence", 0.5)
+        with pg_conn() as conn:
+            for alloc in allocations:
+                strategy_id = alloc.get("strategy_id")
+                allocation_pct = alloc.get("allocation_pct", 0)
+                confidence = alloc.get("confidence", 0.5)
 
-            if not strategy_id:
-                continue
+                if not strategy_id:
+                    continue
 
-            # Upsert: try update, then insert
-            ctx.db.execute(
-                "UPDATE regime_strategy_matrix "
-                "SET allocation_pct = ?, confidence = ?, last_updated = CURRENT_TIMESTAMP "
-                "WHERE regime = ? AND strategy_id = ?",
-                [allocation_pct, confidence, regime, strategy_id],
-            ).fetchone()
-
-            # Check if row existed
-            exists = ctx.db.execute(
-                "SELECT 1 FROM regime_strategy_matrix WHERE regime = ? AND strategy_id = ?",
-                [regime, strategy_id],
-            ).fetchone()
-
-            if not exists:
-                ctx.db.execute(
-                    "INSERT INTO regime_strategy_matrix (regime, strategy_id, allocation_pct, confidence) "
-                    "VALUES (?, ?, ?, ?)",
-                    [regime, strategy_id, allocation_pct, confidence],
+                # Upsert: try update, then insert
+                conn.execute(
+                    "UPDATE regime_strategy_matrix "
+                    "SET allocation_pct = ?, confidence = ?, last_updated = CURRENT_TIMESTAMP "
+                    "WHERE regime = ? AND strategy_id = ?",
+                    [allocation_pct, confidence, regime, strategy_id],
                 )
+
+                # Check if row existed
+                exists = conn.execute(
+                    "SELECT 1 FROM regime_strategy_matrix WHERE regime = ? AND strategy_id = ?",
+                    [regime, strategy_id],
+                ).fetchone()
+
+                if not exists:
+                    conn.execute(
+                        "INSERT INTO regime_strategy_matrix (regime, strategy_id, allocation_pct, confidence) "
+                        "VALUES (?, ?, ?, ?)",
+                        [regime, strategy_id, allocation_pct, confidence],
+                    )
 
         logger.info(
             f"[quantpod_mcp] Updated regime matrix for '{regime}': {len(allocations)} strategies"
         )
-        return await get_regime_strategies(regime)
+        _fn = get_regime_strategies.fn if hasattr(get_regime_strategies, "fn") else get_regime_strategies
+        return await _fn(regime)
     except Exception as e:
         logger.error(f"[quantpod_mcp] set_regime_allocation failed: {e}")
         return {"success": False, "error": str(e)}
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def resolve_portfolio_conflicts(
     proposed_trades: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -200,7 +204,7 @@ _MIN_STRATEGIES_PER_REGIME = 2
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def get_strategy_gaps() -> dict[str, Any]:
     """
     Analyze the strategy registry for coverage gaps.
@@ -223,46 +227,47 @@ async def get_strategy_gaps() -> dict[str, Any]:
             "total_draft": int,
         }
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
     try:
-        # Count strategies by status
-        status_counts = ctx.db.execute(
-            "SELECT status, COUNT(*) FROM strategies GROUP BY status"
-        ).fetchall()
-        counts_by_status = {row[0]: row[1] for row in status_counts}
+        with pg_conn() as conn:
+            # Count strategies by status
+            status_counts = conn.execute(
+                "SELECT status, COUNT(*) FROM strategies GROUP BY status"
+            ).fetchall()
+            counts_by_status = {row[0]: row[1] for row in status_counts}
 
-        # Load all active strategies (live + forward_testing) with their regime_affinity
-        active_rows = ctx.db.execute(
-            "SELECT strategy_id, name, status, regime_affinity "
-            "FROM strategies WHERE status IN ('live', 'forward_testing')"
-        ).fetchall()
+            # Load all active strategies (live + forward_testing) with their regime_affinity
+            active_rows = conn.execute(
+                "SELECT strategy_id, name, status, regime_affinity "
+                "FROM strategies WHERE status IN ('live', 'forward_testing')"
+            ).fetchall()
 
-        # Build regime → strategy mapping
-        regime_strategies: dict[str, list[dict[str, Any]]] = {
-            r: [] for r in _KNOWN_REGIMES
-        }
-        for row in active_rows:
-            strategy_id, name, status, affinity_raw = row
-            affinity = _parse_json_field(affinity_raw)
-            if not isinstance(affinity, dict):
-                continue
-            for regime_key in affinity:
-                normalized = regime_key.strip().lower().replace(" ", "_")
-                if normalized in regime_strategies:
-                    regime_strategies[normalized].append(
-                        {
-                            "strategy_id": strategy_id,
-                            "name": name,
-                            "status": status,
-                            "affinity_score": affinity[regime_key],
-                        }
-                    )
+            # Build regime → strategy mapping
+            regime_strategies: dict[str, list[dict[str, Any]]] = {
+                r: [] for r in _KNOWN_REGIMES
+            }
+            for row in active_rows:
+                strategy_id, name, status, affinity_raw = row
+                affinity = _parse_json_field(affinity_raw)
+                if not isinstance(affinity, dict):
+                    continue
+                for regime_key in affinity:
+                    normalized = regime_key.strip().lower().replace(" ", "_")
+                    if normalized in regime_strategies:
+                        regime_strategies[normalized].append(
+                            {
+                                "strategy_id": strategy_id,
+                                "name": name,
+                                "status": status,
+                                "affinity_score": affinity[regime_key],
+                            }
+                        )
 
-        # Compute trailing Sharpe per strategy from strategy_outcomes
-        trailing_sharpe = _compute_trailing_sharpe(ctx, days=30)
+            # Compute trailing Sharpe per strategy from strategy_outcomes
+            trailing_sharpe = _compute_trailing_sharpe(conn, days=30)
 
         # Identify gaps
         gaps: list[dict[str, Any]] = []
@@ -335,7 +340,7 @@ async def get_strategy_gaps() -> dict[str, Any]:
 
 
 def _compute_trailing_sharpe(
-    ctx: Any,
+    conn: Any,
     days: int = 30,
 ) -> dict[str, float | None]:
     """Compute trailing Sharpe ratio per strategy from strategy_outcomes.
@@ -346,13 +351,14 @@ def _compute_trailing_sharpe(
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     try:
-        rows = ctx.db.execute(
+        rows = conn.execute(
             "SELECT strategy_id, realized_pnl_pct "
             "FROM strategy_outcomes "
             "WHERE closed_at IS NOT NULL AND closed_at >= ?",
             [cutoff],
         ).fetchall()
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"[meta] _compute_trailing_sharpe failed: {exc}")
         return {}
 
     # Group returns by strategy
@@ -394,7 +400,7 @@ def _parse_json_field(value: Any) -> Any:
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def promote_draft_strategies(
     min_oos_sharpe: float = 0.6,
     max_overfit_ratio: float = 2.0,
@@ -428,16 +434,16 @@ async def promote_draft_strategies(
             "retired": [{"strategy_id", "name", "reason"}],
         }
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
     try:
-        # Load all draft strategies
-        drafts = ctx.db.execute(
-            "SELECT strategy_id, name, walkforward_summary, backtest_summary, created_at "
-            "FROM strategies WHERE status = 'draft'"
-        ).fetchall()
+        with pg_conn() as conn:
+            drafts = conn.execute(
+                "SELECT strategy_id, name, walkforward_summary, backtest_summary, created_at "
+                "FROM strategies WHERE status = 'draft'"
+            ).fetchall()
 
         if not drafts:
             return {
@@ -451,6 +457,8 @@ async def promote_draft_strategies(
         promoted: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
         retired: list[dict[str, Any]] = []
+        # Collect status updates to apply in a single pooled connection
+        status_updates: list[tuple[str, str]] = []  # (strategy_id, new_status)
 
         age_cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
 
@@ -467,7 +475,7 @@ async def promote_draft_strategies(
                 if created_dt.tzinfo is None:
                     created_dt = created_dt.replace(tzinfo=timezone.utc)
                 if created_dt < age_cutoff:
-                    _update_strategy_status(ctx, strategy_id, "retired")
+                    status_updates.append((strategy_id, "retired"))
                     retired.append(
                         {
                             "strategy_id": strategy_id,
@@ -532,7 +540,7 @@ async def promote_draft_strategies(
                     continue
 
             # --- Promote ---
-            _update_strategy_status(ctx, strategy_id, "forward_testing")
+            status_updates.append((strategy_id, "forward_testing"))
             promoted.append(
                 {
                     "strategy_id": strategy_id,
@@ -546,6 +554,12 @@ async def promote_draft_strategies(
                 f"to forward_testing (OOS Sharpe={oos_sharpe:.2f})"
             )
 
+        # Apply all status updates in a single pooled connection
+        if status_updates:
+            with pg_conn() as conn:
+                for sid, new_status in status_updates:
+                    _update_strategy_status(conn, sid, new_status)
+
         return {
             "success": True,
             "promoted": promoted,
@@ -557,9 +571,9 @@ async def promote_draft_strategies(
         return {"success": False, "error": str(e)}
 
 
-def _update_strategy_status(ctx: Any, strategy_id: str, new_status: str) -> None:
+def _update_strategy_status(conn: Any, strategy_id: str, new_status: str) -> None:
     """Update a strategy's status and timestamp in the DB."""
-    ctx.db.execute(
+    conn.execute(
         "UPDATE strategies SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
         [new_status, strategy_id],
     )
@@ -571,7 +585,7 @@ def _update_strategy_status(ctx: Any, strategy_id: str, new_status: str) -> None
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def check_strategy_rules(
     symbol: str,
     strategy_id: str,
@@ -604,16 +618,16 @@ async def check_strategy_rules(
             "features_loaded": ["fundamentals"],
         }
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
     try:
-        # Load strategy rules from DB
-        row = ctx.db.execute(
-            "SELECT entry_rules, exit_rules, parameters FROM strategies WHERE strategy_id = ?",
-            [strategy_id],
-        ).fetchone()
+        with pg_conn() as conn:
+            row = conn.execute(
+                "SELECT entry_rules, exit_rules, parameters FROM strategies WHERE strategy_id = ?",
+                [strategy_id],
+            ).fetchone()
 
         if row is None:
             return {"success": False, "error": f"Strategy '{strategy_id}' not found"}
@@ -759,3 +773,9 @@ def _evaluate_rules_detail(
         )
 
     return details
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

@@ -44,6 +44,7 @@ import pandas as pd
 from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
+from quantstack.db import pg_conn
 
 if TYPE_CHECKING:
     from quantstack.data.adapters.alpaca import AlpacaAdapter
@@ -271,13 +272,27 @@ class AcquisitionPipeline:
         return report
 
     def _fetch_1h_delta(self, symbol: str) -> int:
-        # Full fetch — save_ohlcv handles deduplication via INSERT OR REPLACE
-        df = self._av.fetch_all_intraday_history(
-            symbol, interval="60min", start_year=2022, end_year=2026,
+        last_dt = self._last_ohlcv_ts(symbol, Timeframe.H1)
+        today = date.today()
+        first_month = (
+            _add_months(last_dt.date(), 0)
+            if last_dt
+            else date(2022, 1, 1)
         )
-        if df is None or df.empty:
-            return 0
-        return self._store.save_ohlcv(df, symbol, Timeframe.H1)
+        total = 0
+        for month_str in _month_range(first_month, today):
+            try:
+                df = self._av.fetch_intraday_by_month(symbol, "60min", month_str, "full")
+                if df.empty:
+                    continue
+                if last_dt:
+                    df = df[df.index > last_dt]
+                if df.empty:
+                    continue
+                total += self._store.save_ohlcv(df, symbol, Timeframe.H1)
+            except Exception as exc:
+                logger.debug(f"[1h] {symbol} {month_str}: {exc}")
+        return total
 
     # -----------------------------------------------------------------------
     # Phase: daily adjusted OHLCV
@@ -342,7 +357,7 @@ class AcquisitionPipeline:
     def _fetch_and_store_financials(self, symbol: str) -> int:
         # Skip if already fetched this quarter (statements change quarterly)
         try:
-            with self._store._use_conn() as conn:
+            with pg_conn() as conn:
                 row = conn.execute(
                     "SELECT MAX(report_period) FROM financial_statements WHERE ticker = ?",
                     [symbol],
@@ -423,18 +438,10 @@ class AcquisitionPipeline:
             return 0
 
         df = pd.DataFrame(rows)
-        with self._store._use_conn() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO earnings_calendar
-                    (symbol, report_date, fiscal_date_ending,
-                     estimate, reported_eps, surprise, surprise_pct)
-                SELECT symbol, report_date, fiscal_date_ending,
-                       estimate, reported_eps, surprise, surprise_pct
-                FROM df
-            """
-            )
-        return len(rows)
+        # AV sometimes returns duplicate entries for the same period; deduplicate
+        # before upsert to avoid "ON CONFLICT DO UPDATE cannot affect row twice".
+        df = df.drop_duplicates(subset=["symbol", "report_date"], keep="last")
+        return self._store.save_earnings_calendar(df)
 
     # -----------------------------------------------------------------------
     # Phase: macro indicators (global — not per symbol)
@@ -472,7 +479,7 @@ class AcquisitionPipeline:
     ) -> int:
         # Skip if refreshed in the last 28 days
         try:
-            with self._store._use_conn() as conn:
+            with pg_conn() as conn:
                 row = conn.execute(
                     "SELECT MAX(date) FROM macro_indicators WHERE indicator = ?",
                     [function],
@@ -520,7 +527,7 @@ class AcquisitionPipeline:
     def _fetch_and_store_insider(self, symbol: str) -> int:
         # Skip if refreshed in the last 7 days
         try:
-            with self._store._use_conn() as conn:
+            with pg_conn() as conn:
                 row = conn.execute(
                     "SELECT MAX(fetched_at) FROM insider_trades WHERE ticker = ?",
                     [symbol],
@@ -550,6 +557,12 @@ class AcquisitionPipeline:
         df.rename(
             columns={k: v for k, v in rename.items() if k in df.columns}, inplace=True
         )
+        # AV sometimes returns duplicate rows for the same transaction; deduplicate
+        # before upsert to avoid "ON CONFLICT DO UPDATE cannot affect row twice".
+        conflict_cols = ["ticker", "transaction_date", "owner_name", "shares"]
+        dedup_cols = [c for c in conflict_cols if c in df.columns]
+        if dedup_cols:
+            df = df.drop_duplicates(subset=dedup_cols, keep="last")
         return self._store.save_insider_trades(df)
 
     # -----------------------------------------------------------------------
@@ -580,7 +593,7 @@ class AcquisitionPipeline:
     def _fetch_and_store_institutional(self, symbol: str) -> int:
         # Skip if refreshed in the last 80 days (~1 quarter)
         try:
-            with self._store._use_conn() as conn:
+            with pg_conn() as conn:
                 row = conn.execute(
                     "SELECT MAX(fetched_at) FROM institutional_ownership WHERE ticker = ?",
                     [symbol],
@@ -644,7 +657,7 @@ class AcquisitionPipeline:
     def _fetch_and_store_corp_actions(self, symbol: str) -> int:
         # Skip if refreshed in the last 28 days
         try:
-            with self._store._use_conn() as conn:
+            with pg_conn() as conn:
                 row = conn.execute(
                     "SELECT MAX(fetched_at) FROM corporate_actions WHERE ticker = ?",
                     [symbol],
@@ -699,7 +712,7 @@ class AcquisitionPipeline:
 
     def _fetch_and_store_options(self, symbol: str, date_str: str) -> int:
         try:
-            with self._store._use_conn() as conn:
+            with pg_conn() as conn:
                 row = conn.execute(
                     "SELECT COUNT(*) FROM options_chains WHERE underlying = ? AND data_date = ?",
                     [symbol, date_str],
@@ -769,22 +782,7 @@ class AcquisitionPipeline:
             if col not in df.columns:
                 df[col] = None
 
-        with self._store._use_conn() as conn:
-            # Use ON CONFLICT instead of INSERT OR IGNORE (PostgreSQL prefers ON CONFLICT)
-            conn.execute(
-                """
-                INSERT INTO news_sentiment
-                    (time_published, title, summary, source, url, ticker,
-                     overall_sentiment_score, overall_sentiment_label,
-                     ticker_sentiment_score, ticker_sentiment_label, relevance_score)
-                SELECT time_published, title, summary, source, url, ticker,
-                       overall_sentiment_score, overall_sentiment_label,
-                       ticker_sentiment_score, ticker_sentiment_label, relevance_score
-                FROM df
-                ON CONFLICT (time_published, title, ticker) DO NOTHING
-            """
-            )
-        return len(df)
+        return self._store.save_news_sentiment(df)
 
     # -----------------------------------------------------------------------
     # Phase: company overview + fundamentals
@@ -811,7 +809,7 @@ class AcquisitionPipeline:
     def _fetch_and_store_overview(self, symbol: str) -> bool:
         # Skip if refreshed in the last 7 days
         try:
-            with self._store._use_conn() as conn:
+            with pg_conn() as conn:
                 row = conn.execute(
                     "SELECT updated_at FROM company_overview WHERE symbol = ?",
                     [symbol],
@@ -831,38 +829,7 @@ class AcquisitionPipeline:
         if not overview or "Symbol" not in overview:
             return False
 
-        # AV returns the string "None" for missing dates — convert to Python None
-        ex_div = overview.get("ExDividendDate")
-        if ex_div in (None, "None", "N/A", ""):
-            ex_div = None
-
-        # AV returns a full paragraph in "Description" — first sentence only (≤200 chars)
-        raw_desc = overview.get("Description", "") or ""
-        short_desc = raw_desc.split(". ")[0][:200] if raw_desc else ""
-
-        with self._store._use_conn() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO company_overview
-                    (symbol, name, sector, industry, description, market_cap,
-                     dividend_yield, ex_dividend_date,
-                     fifty_two_week_high, fifty_two_week_low, beta, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            """,
-                [
-                    overview.get("Symbol"),
-                    overview.get("Name"),
-                    overview.get("Sector"),
-                    overview.get("Industry"),
-                    short_desc,
-                    _safe_float(overview.get("MarketCapitalization")),
-                    _safe_float(overview.get("DividendYield")),
-                    ex_div,
-                    _safe_float(overview.get("52WeekHigh")),
-                    _safe_float(overview.get("52WeekLow")),
-                    _safe_float(overview.get("Beta")),
-                ],
-            )
+        self._store.save_company_overview(overview)
         logger.debug(f"[fundamentals] {symbol}: overview saved")
         return True
 
@@ -872,7 +839,7 @@ class AcquisitionPipeline:
 
     def _last_ohlcv_ts(self, symbol: str, tf: Timeframe) -> datetime | None:
         try:
-            with self._store._use_conn() as conn:
+            with pg_conn() as conn:
                 row = conn.execute(
                     "SELECT last_timestamp FROM data_metadata WHERE symbol = ? AND timeframe = ?",
                     [symbol, tf.value],

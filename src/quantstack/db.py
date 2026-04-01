@@ -40,10 +40,27 @@ from pathlib import Path
 from threading import Lock, RLock
 from typing import Iterator
 
+import pandas as pd
 import psycopg2
 import psycopg2.extensions
+import psycopg2.extras
 import psycopg2.pool
+import pyarrow as pa
 from loguru import logger
+
+# ---------------------------------------------------------------------------
+# psycopg2 JSON behaviour — keep JSON/JSONB columns as raw strings
+# ---------------------------------------------------------------------------
+# Legacy: DuckDB-era code calls json.loads() explicitly on JSON fields.
+# psycopg2 by default parses JSON/JSONB into Python objects, which causes
+# json.loads(list) → TypeError in those code paths.
+#
+# Migration path: new code should use coerce_json() from
+# quantstack.mcp.tools._base instead of calling json.loads() directly.
+# Once all explicit json.loads() calls on DB columns are removed, delete
+# these two lines and let psycopg2 parse JSON normally.
+psycopg2.extras.register_default_json(loads=lambda x: x)
+psycopg2.extras.register_default_jsonb(loads=lambda x: x)
 
 # ---------------------------------------------------------------------------
 # Path / URL resolution
@@ -67,7 +84,12 @@ def _get_pg_pool() -> psycopg2.pool.ThreadedConnectionPool:
     with _pg_pool_lock:
         if _pg_pool is None or _pg_pool.closed:
             url = _resolve_pg_url()
-            _pg_pool = psycopg2.pool.ThreadedConnectionPool(minconn=2, maxconn=10, dsn=url)
+            # With 10 domain-scoped MCP servers, each running its own pool,
+            # keep per-process limits low to stay under PostgreSQL's
+            # max_connections (default 100).  10 servers × 8 = 80, leaving
+            # headroom for psql, monitoring, and the TradingContext connection.
+            maxconn = int(os.getenv("PG_POOL_MAX", "8"))
+            _pg_pool = psycopg2.pool.ThreadedConnectionPool(minconn=1, maxconn=maxconn, dsn=url)
             logger.debug(f"[DB] PostgreSQL pool created → {url}")
     return _pg_pool
 
@@ -124,6 +146,14 @@ class PgConnection:
         """Lazily acquire a connection from the pool."""
         if self._raw is None or self._raw.closed:
             self._raw = self._pool.getconn()
+            # Set session-level timeout before entering any transaction.
+            # If this connection goes idle inside a transaction for > 30s
+            # (e.g. the process is killed mid-write), PostgreSQL auto-terminates
+            # it and releases locks instead of blocking migrations forever.
+            self._raw.autocommit = True
+            _cur = self._raw.cursor()
+            _cur.execute("SET idle_in_transaction_session_timeout = '30s'")
+            _cur.close()
             self._raw.autocommit = False
             logger.debug("[DB] PostgreSQL connection acquired from pool")
         return self._raw
@@ -164,6 +194,46 @@ class PgConnection:
                     self._cur.execute(translated, params)
                 else:
                     self._cur.execute(translated)
+            except psycopg2.OperationalError as op_err:
+                # The server may have killed an idle connection (TCP timeout,
+                # idle_in_transaction_session_timeout, admin terminate, etc.).
+                # Discard the broken connection, acquire a fresh one, and retry
+                # once before surfacing the error.
+                err_msg = str(op_err).lower()
+                is_broken = (
+                    "server closed" in err_msg
+                    or "connection" in err_msg
+                    or raw.closed != 0
+                )
+                if is_broken:
+                    try:
+                        self._pool.putconn(self._raw, close=True)
+                    except Exception:
+                        pass
+                    self._raw = None
+                    self._cur = None
+                    logger.warning(
+                        "[DB] broken connection detected — reacquiring and retrying"
+                    )
+                    try:
+                        raw = self._ensure_raw()
+                        self._cur = raw.cursor()
+                        if params is not None:
+                            self._cur.execute(translated, params)
+                        else:
+                            self._cur.execute(translated)
+                    except Exception:
+                        try:
+                            self._raw.rollback()
+                        except Exception as rb_err:
+                            logger.debug(f"[DB] rollback after retry also failed: {rb_err}")
+                        raise
+                else:
+                    try:
+                        raw.rollback()
+                    except Exception as rb_err:
+                        logger.debug(f"[DB] rollback after failed execute also failed: {rb_err}")
+                    raise
             except Exception:
                 # Roll back immediately so the connection is clean for the next
                 # caller.  ctx.db is a long-lived shared connection — without
@@ -172,8 +242,8 @@ class PgConnection:
                 # connection fails with "current transaction is aborted".
                 try:
                     raw.rollback()
-                except Exception:
-                    pass
+                except Exception as rb_err:
+                    logger.debug(f"[DB] rollback after failed execute also failed: {rb_err}")
                 raise
         return self
 
@@ -187,8 +257,8 @@ class PgConnection:
             except Exception:
                 try:
                     raw.rollback()
-                except Exception:
-                    pass
+                except Exception as rb_err:
+                    logger.debug(f"[DB] rollback after failed executemany also failed: {rb_err}")
                 raise
         return self
 
@@ -201,8 +271,6 @@ class PgConnection:
             return self._cur.fetchall() if self._cur else []
 
     def fetchdf(self):
-        import pandas as pd
-
         rows = self.fetchall()
         cols = (
             [d[0] for d in self._cur.description]
@@ -216,8 +284,6 @@ class PgConnection:
         return {col: df[col].values for col in df.columns}
 
     def fetch_arrow_table(self):
-        import pyarrow as pa
-
         return pa.Table.from_pandas(self.fetchdf())
 
     @property
@@ -227,6 +293,27 @@ class PgConnection:
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def commit(self) -> None:
+        """Explicitly commit the current transaction.
+
+        Provided for compatibility with DuckDB-era code that called
+        ``conn.commit()`` directly.  Prefer letting ``release()`` commit
+        automatically, but explicit commits are safe here too.
+        """
+        with self._lock:
+            if self._raw is not None and not self._raw.closed:
+                self._raw.commit()
+
+    def rollback(self) -> None:
+        """Explicitly roll back the current transaction.
+
+        Provided for compatibility with DuckDB-era code that called
+        ``conn.rollback()`` directly.
+        """
+        with self._lock:
+            if self._raw is not None and not self._raw.closed:
+                self._raw.rollback()
 
     def release(self) -> None:
         """Return the connection to the pool.
@@ -238,15 +325,16 @@ class PgConnection:
             if self._raw is not None and not self._raw.closed:
                 try:
                     self._raw.commit()
-                except Exception:
+                except Exception as commit_err:
+                    logger.warning(f"[DB] commit failed on release, attempting rollback: {commit_err}")
                     try:
                         self._raw.rollback()
-                    except Exception:
-                        pass
+                    except Exception as rb_err:
+                        logger.warning(f"[DB] rollback also failed on release: {rb_err}")
                 try:
                     self._pool.putconn(self._raw)
-                except Exception:
-                    pass
+                except Exception as putconn_err:
+                    logger.warning(f"[DB] putconn failed, connection may be leaked: {putconn_err}")
                 self._raw = None
                 self._cur = None
                 logger.debug("[DB] PostgreSQL connection returned to pool")
@@ -366,36 +454,81 @@ def _alter_safe(conn: PgConnection, table: str, column: str, col_type: str) -> N
 # ---------------------------------------------------------------------------
 
 
+_MIGRATION_ADVISORY_LOCK = 5145534154  # "QUANT" ASCII → unique lock key
+_migrations_done: bool = False  # module-level flag — migrations run once per process
+
+
 def run_migrations_pg(conn: PgConnection) -> None:
     """Create all tables in PostgreSQL.
 
     Idempotent — uses CREATE TABLE IF NOT EXISTS and ADD COLUMN IF NOT EXISTS.
+
+    Uses a PostgreSQL advisory lock so that when 10 MCP servers start
+    simultaneously, only one runs migrations; the others skip (tables already
+    exist).  Each DDL runs in autocommit mode so that:
+      - No long-held transaction blocks concurrent tool calls
+      - A server killed mid-migration leaves no orphaned locks
+      - lock_timeout = '8s' makes any blocked DDL fail fast rather than hang
+
+    Also uses a module-level ``_migrations_done`` flag so that within a single
+    process (e.g. the test suite) migrations only run once — subsequent calls
+    return immediately, avoiding DDL lock contention with concurrent test
+    transactions.
     """
-    conn.execute("BEGIN")
+    global _migrations_done
+    if _migrations_done:
+        logger.debug("[DB] Migrations already run this process — skipping")
+        return
+    raw = conn._ensure_raw()
+    prev_autocommit = raw.autocommit
+    raw.autocommit = True
+    cur = raw.cursor()
     try:
-        _migrate_portfolio_pg(conn)
-        _migrate_broker_pg(conn)
-        _migrate_audit_pg(conn)
-        _migrate_learning_pg(conn)
-        _migrate_memory_pg(conn)
-        _migrate_signals_pg(conn)
-        _migrate_system_pg(conn)
-        _migrate_strategies_pg(conn)
-        _migrate_regime_matrix_pg(conn)
-        _migrate_strategy_outcomes_pg(conn)
-        _migrate_universe_pg(conn)
-        _migrate_screener_pg(conn)
-        _migrate_coordination_pg(conn)
-        _migrate_conversations_pg(conn)
-        _migrate_attribution_pg(conn)
-        _migrate_equity_alerts_pg(conn)
-        _migrate_market_data_pg(conn)
-        _migrate_analytics_pg(conn)
-        conn.execute("COMMIT")
-        logger.info("[DB] PostgreSQL migrations complete")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+        # Advisory lock: only one process runs migrations at a time.
+        cur.execute("SELECT pg_try_advisory_lock(%s)", (_MIGRATION_ADVISORY_LOCK,))
+        locked = cur.fetchone()[0]
+        if not locked:
+            logger.info("[DB] Migration lock held by another server — skipping (tables already exist)")
+            return
+
+        try:
+            # Fail fast if any DDL is blocked by an existing lock (e.g. stale
+            # idle-in-transaction session).  8s is long enough to be safe on
+            # a loaded dev machine, short enough to not hang startup.
+            cur.execute("SET lock_timeout = '8s'")
+
+            # Each _migrate_* call runs in autocommit mode — every DDL
+            # statement commits immediately, no transaction to orphan.
+            _migrate_portfolio_pg(conn)
+            _migrate_broker_pg(conn)
+            _migrate_audit_pg(conn)
+            _migrate_learning_pg(conn)
+            _migrate_memory_pg(conn)
+            _migrate_signals_pg(conn)
+            _migrate_system_pg(conn)
+            _migrate_strategies_pg(conn)
+            _migrate_regime_matrix_pg(conn)
+            _migrate_strategy_outcomes_pg(conn)
+            _migrate_universe_pg(conn)
+            _migrate_screener_pg(conn)
+            _migrate_coordination_pg(conn)
+            _migrate_research_wip_pg(conn)
+            _migrate_conversations_pg(conn)
+            _migrate_attribution_pg(conn)
+            _migrate_equity_alerts_pg(conn)
+            _migrate_market_data_pg(conn)
+            _migrate_analytics_pg(conn)
+
+            logger.info("[DB] PostgreSQL migrations complete")
+            _migrations_done = True
+        except Exception:
+            logger.exception("[DB] Migration failed")
+            raise
+        finally:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_ADVISORY_LOCK,))
+    finally:
+        cur.close()
+        raw.autocommit = prev_autocommit
 
 
 def _migrate_portfolio_pg(conn: PgConnection) -> None:
@@ -614,24 +747,10 @@ def _migrate_strategies_pg(conn: PgConnection) -> None:
             holding_period_days INTEGER DEFAULT 5
         )
     """))
-    # Backfill defaults on pre-existing tables that were created without them.
-    # ALTER COLUMN SET DEFAULT is idempotent — safe to run repeatedly.
-    for col, default in (
-        ("created_at", "NOW()"),
-        ("updated_at", "NOW()"),
-        ("status", "'draft'"),
-        ("source", "'manual'"),
-        ("instrument_type", "'equity'"),
-        ("time_horizon", "'swing'"),
-        ("holding_period_days", "5"),
-        ("description", "''"),
-        ("asset_class", "'equities'"),
-        ("created_by", "'claude_code'"),
-    ):
-        conn.execute(
-            f"ALTER TABLE strategies ALTER COLUMN {col} SET DEFAULT {default}"
-        )
     # Backfill NULL created_at / updated_at on existing rows.
+    # Note: ALTER TABLE ... SET DEFAULT was removed — it requires AccessExclusiveLock
+    # which blocks concurrent SELECTs.  CREATE TABLE IF NOT EXISTS already sets all
+    # defaults correctly for new installs; existing rows are backfilled below.
     conn.execute(
         "UPDATE strategies SET created_at = NOW() WHERE created_at IS NULL"
     )
@@ -640,6 +759,27 @@ def _migrate_strategies_pg(conn: PgConnection) -> None:
     )
     conn.execute("""
         CREATE INDEX IF NOT EXISTS strategies_status_idx ON strategies (status)
+    """)
+    # Add symbol column for direct filtering without JSON extraction.
+    conn.execute("""
+        ALTER TABLE strategies ADD COLUMN IF NOT EXISTS symbol TEXT
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS strategies_symbol_idx ON strategies (symbol)
+    """)
+    # Backfill symbol from parameters JSON where available,
+    # otherwise extract the uppercase ticker prefix from the name.
+    conn.execute("""
+        UPDATE strategies
+        SET symbol = COALESCE(
+            (parameters::jsonb)->>'symbol',
+            CASE
+                WHEN name ~ '^[A-Z]{3,5}_' THEN split_part(name, '_', 1)
+                WHEN name ~ '^[a-z]{3,5}_' THEN UPPER(split_part(name, '_', 1))
+                ELSE NULL
+            END
+        )
+        WHERE symbol IS NULL
     """)
 
 
@@ -763,8 +903,10 @@ def _migrate_coordination_pg(conn: PgConnection) -> None:
             last_polled_at  TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    # Drop and recreate to ensure constraint exists (idempotent migrations)
+    conn.execute("DROP TABLE IF EXISTS loop_heartbeats CASCADE")
     conn.execute(_to_pg("""
-        CREATE TABLE IF NOT EXISTS loop_heartbeats (
+        CREATE TABLE loop_heartbeats (
             loop_name           TEXT NOT NULL,
             iteration           INTEGER NOT NULL,
             started_at          TIMESTAMPTZ NOT NULL,
@@ -779,6 +921,27 @@ def _migrate_coordination_pg(conn: PgConnection) -> None:
         CREATE INDEX IF NOT EXISTS heartbeats_loop_idx
         ON loop_heartbeats (loop_name, started_at DESC)
     """)
+
+    # Fix migration drift: ensure composite PK exists on loop_heartbeats.
+    # If the table was created before the PRIMARY KEY was added, ON CONFLICT
+    # (loop_name, iteration) in record_heartbeat will fail.
+    try:
+        conn.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conrelid = 'loop_heartbeats'::regclass
+                      AND contype = 'p'
+                ) THEN
+                    ALTER TABLE loop_heartbeats
+                        ADD CONSTRAINT loop_heartbeats_pkey
+                        PRIMARY KEY (loop_name, iteration);
+                END IF;
+            END $$;
+        """)
+    except Exception:
+        pass  # PK already exists or table doesn't exist yet
 
 
 def _migrate_conversations_pg(conn: PgConnection) -> None:
@@ -909,6 +1072,20 @@ def _migrate_equity_alerts_pg(conn: PgConnection) -> None:
             expired_at          TIMESTAMPTZ
         )
     """))
+    # Fix column defaults if table was created before sequences/defaults existed
+    _alert_defaults = [
+        ("equity_alerts", "id", "nextval('equity_alerts_seq')"),
+        ("equity_alerts", "created_at", "NOW()"),
+        ("equity_alerts", "status", "'pending'"),
+        ("equity_alerts", "urgency", "'today'"),
+        ("alert_exit_signals", "id", "nextval('alert_exit_signals_seq')"),
+        ("alert_exit_signals", "created_at", "NOW()"),
+        ("alert_updates", "id", "nextval('alert_updates_seq')"),
+        ("alert_updates", "created_at", "NOW()"),
+    ]
+    for tbl, col, default in _alert_defaults:
+        conn.execute(f"ALTER TABLE IF EXISTS {tbl} ALTER COLUMN {col} SET DEFAULT {default}")
+
     conn.execute(_to_pg("""
         CREATE TABLE IF NOT EXISTS alert_exit_signals (
             id                  BIGINT PRIMARY KEY DEFAULT nextval('alert_exit_signals_seq'),
@@ -1264,6 +1441,25 @@ def _migrate_market_data_pg(conn: PgConnection) -> None:
 # ---------------------------------------------------------------------------
 # Migrations — Analytics tables (PostgreSQL)
 # ---------------------------------------------------------------------------
+
+
+def _migrate_research_wip_pg(conn: PgConnection) -> None:
+    """Research work-in-progress tracking (prevents duplicate research by parallel agents)."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS research_wip (
+            symbol              TEXT NOT NULL,
+            domain              TEXT NOT NULL CHECK (domain IN ('investment', 'swing', 'options')),
+            agent_id            TEXT NOT NULL,
+            started_at          TIMESTAMPTZ DEFAULT NOW(),
+            heartbeat_at        TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (symbol, domain)
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_research_wip_heartbeat
+        ON research_wip(heartbeat_at)
+    """)
+    logger.debug("[DB] Research WIP table migrated")
 
 
 def _migrate_analytics_pg(conn: PgConnection) -> None:

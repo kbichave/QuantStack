@@ -19,13 +19,14 @@ from quantstack.agents.regime_detector import RegimeDetectorAgent
 from quantstack.data.storage import DataStore  # noqa: F401
 from quantstack.config.timeframes import Timeframe as _TF
 from quantstack.mcp._helpers import _get_reader
+from quantstack.db import pg_conn
 from quantstack.mcp._state import (
     _serialize,
     live_db_or_error,
     require_ctx,
     require_live_db,
 )
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -37,7 +38,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.PORTFOLIO, Domain.SIGNALS)
-@mcp.tool()
+@tool_def()
 async def get_fill_quality(order_id: str) -> dict[str, Any]:
     """
     Assess execution quality for a completed fill.
@@ -51,19 +52,20 @@ async def get_fill_quality(order_id: str) -> dict[str, Any]:
     Returns:
         Dict with fill_price, slippage_bps, vwap, fill_vs_vwap_bps, quality_note.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
-        row = ctx.db.execute(
-            """
-            SELECT order_id, symbol, side, fill_price, filled_quantity,
-                   slippage_bps, commission, filled_at
-            FROM fills
-            WHERE order_id = ? AND rejected = FALSE
-            """,
-            [order_id],
-        ).fetchone()
+        with pg_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT order_id, symbol, side, fill_price, filled_quantity,
+                       slippage_bps, commission, filled_at
+                FROM fills
+                WHERE order_id = ? AND rejected = FALSE
+                """,
+                [order_id],
+            ).fetchone()
 
         if not row:
             return {
@@ -95,8 +97,8 @@ async def get_fill_quality(order_id: str) -> dict[str, Any]:
                     vwap = float(day_rows["vwap"].iloc[-1])
                     if vwap > 0 and fill_price and fill_price > 0:
                         fill_vs_vwap_bps = round((fill_price - vwap) / vwap * 10_000, 1)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"[feedback] VWAP comparison for order {order_id} failed: {exc}")
 
         direction_label = "above" if (fill_vs_vwap_bps or 0) > 0 else "below"
         quality_note = f"Recorded slippage: {(recorded_slippage or 0):.1f} bps. " + (
@@ -126,7 +128,7 @@ async def get_fill_quality(order_id: str) -> dict[str, Any]:
 
 
 @domain(Domain.PORTFOLIO, Domain.SIGNALS)
-@mcp.tool()
+@tool_def()
 async def get_position_monitor(symbol: str) -> dict[str, Any]:
     """
     Comprehensive position status for an open position.
@@ -167,18 +169,19 @@ async def get_position_monitor(symbol: str) -> dict[str, Any]:
         days_held: int | None = None
         entry_time: str | None = None
         try:
-            row = ctx.db.execute(
-                "SELECT opened_at FROM positions WHERE symbol = ?",
-                [symbol],
-            ).fetchone()
+            with pg_conn() as conn:
+                row = conn.execute(
+                    "SELECT opened_at FROM positions WHERE symbol = ?",
+                    [symbol],
+                ).fetchone()
             if row and row[0]:
                 opened_at = row[0]
                 if isinstance(opened_at, str):
                     opened_at = _dt.fromisoformat(opened_at)
                 days_held = (_dt.now() - opened_at).days
                 entry_time = str(row[0])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"[feedback] days held lookup for {symbol} failed: {exc}")
 
         # Current regime
         current_regime = "unknown"
@@ -190,8 +193,8 @@ async def get_position_monitor(symbol: str) -> dict[str, Any]:
             )
             current_regime = r.get("trend_regime", "unknown")
             atr = float(r.get("atr", 0))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"[feedback] regime detection for {symbol} failed: {exc}")
 
         # ATR-based stop proximity
         near_stop = False
@@ -247,3 +250,9 @@ async def get_position_monitor(symbol: str) -> dict[str, Any]:
     except Exception as e:
         logger.error(f"[quantpod_mcp] get_position_monitor({symbol}) failed: {e}")
         return {"success": False, "symbol": symbol, "error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

@@ -26,7 +26,10 @@ def halt_sentinel(tmp_path: Path) -> Path:
 @pytest.fixture
 def ctx():
     context = create_trading_context(db_path=":memory:", initial_cash=100_000.0)
+    context.portfolio.reset()
+    context.db.execute("DELETE FROM closed_trades")
     yield context
+    context.db.execute("ROLLBACK")
     context.db.close()
 
 

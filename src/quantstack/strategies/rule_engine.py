@@ -100,6 +100,41 @@ _KNOWN_INDICATORS = frozenset(
     }
 )
 
+# Common indicator name aliases → canonical names used by signal_generator.
+# Strategies often register with suffixed names (e.g. "rsi_14", "adx_14")
+# but the signal generator computes unsuffixed columns ("rsi", "adx").
+_INDICATOR_ALIASES: dict[str, str] = {
+    "rsi_14": "rsi",
+    "rsi14": "rsi",
+    "adx_14": "adx",
+    "adx14": "adx",
+    "atr_14": "atr",
+    "atr14": "atr",
+    "cci_14": "cci",
+    "cci_20": "cci",
+    "bb_width": "bb_pct",
+    "bb_width_20": "bb_pct",
+    "bb_pctb": "bb_pct",
+    "bb_percent_b": "bb_pct",
+    "bollinger_pct": "bb_pct",
+    "stochastic_k": "stoch_k",
+    "stochastic_d": "stoch_d",
+    "stoch_k_14": "stoch_k",
+    "stoch_d_14": "stoch_d",
+    "plus_di_14": "plus_di",
+    "minus_di_14": "minus_di",
+    "zscore_20": "zscore",
+}
+
+
+def _normalize_indicator(name: str) -> str:
+    """Map common indicator aliases to the canonical name used by signal_generator."""
+    canonical = _INDICATOR_ALIASES.get(name)
+    if canonical:
+        logger.debug(f"Normalized indicator alias '{name}' → '{canonical}'")
+        return canonical
+    return name
+
 
 class RuleFunction(Protocol):
     """Callable that evaluates a rule against a DataFrame of indicators."""
@@ -228,11 +263,12 @@ def _compile_rule(
     context: str = "",
 ) -> CompiledRule:
     """Compile a single rule dict into a CompiledRule with a callable evaluator."""
-    indicator = rule.get("indicator", "")
+    indicator = _normalize_indicator(rule.get("indicator", ""))
     condition_str = rule.get("condition", "")
     value = rule.get("value")
     rule_type_str = rule.get("type", "plain")
-    direction = rule.get("direction", "long").lower()
+    default_direction = parameters.get("direction", "LONG").lower()
+    direction = rule.get("direction", default_direction).lower()
 
     if not indicator:
         raise CompilationError(f"{context}: missing 'indicator' field")
@@ -466,6 +502,10 @@ def _build_column_evaluator(
     (e.g. ``"sma_200"``).  Column references are resolved at evaluation time so
     strategies like ``close > sma_200`` work without hardcoded numbers.
     """
+    # Normalize both indicator and value column references through alias map.
+    indicator = _normalize_indicator(indicator)
+    if _is_column_ref(value):
+        value = _normalize_indicator(str(value))
 
     if condition in (RuleCondition.ABOVE, RuleCondition.GREATER_THAN):
         if _is_column_ref(value):

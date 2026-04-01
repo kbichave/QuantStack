@@ -30,7 +30,7 @@ from loguru import logger
 
 from quantstack.audit.models import DecisionEvent
 from quantstack.execution.broker_factory import get_broker_mode
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp._state import live_db_or_error, _serialize
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
@@ -79,7 +79,7 @@ def _bs_delta(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 async def execute_options_trade(
     symbol: str,
     option_type: str,
@@ -165,8 +165,8 @@ async def execute_options_trade(
                 ).fetchone()
                 if row:
                     underlying_price = row[0]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"[options] OHLCV price lookup for {symbol} failed: {exc}")
 
         if underlying_price <= 0:
             return {
@@ -238,6 +238,7 @@ async def execute_options_trade(
                     session_id=ctx.session_id,
                     event_type="options_risk_rejection",
                     agent_name="ClaudeCode",
+                    agent_role="execution",
                     symbol=symbol,
                     action=f"{action}_{option_type}",
                     confidence=confidence,
@@ -323,6 +324,7 @@ async def execute_options_trade(
                 session_id=ctx.session_id,
                 event_type="options_execution",
                 agent_name="ClaudeCode",
+                agent_role="execution",
                 symbol=symbol,
                 action=f"{action}_{option_type}",
                 confidence=confidence,
@@ -422,7 +424,8 @@ def _estimate_vol(conn, symbol: str, window: int = 20) -> float:
         var_r = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
         daily_vol = math.sqrt(var_r)
         return daily_vol * math.sqrt(252)  # Annualize
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"[options] vol estimation for {symbol} failed, using 25% default: {exc}")
         return 0.25
 
 
@@ -496,3 +499,9 @@ def _execute_alpaca_options(
 
     except Exception as exc:
         return {"success": False, "error": f"Alpaca options order failed: {exc}"}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

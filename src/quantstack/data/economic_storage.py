@@ -1,49 +1,40 @@
 """PostgreSQL storage for economic indicators."""
 
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 from loguru import logger
 
-from quantstack.db import PgConnection, open_db
-
-from quantstack.config.settings import get_settings
+from quantstack.db import PgConnection, pg_conn
 
 
 class EconomicStorage:
     """Storage manager for economic indicators."""
 
     def __init__(self):
-        self.settings = get_settings()
         self._initialize_database()
 
     def _initialize_database(self):
         """Create database schema for economic indicators."""
-        with open_db() as conn:
-            # Create main indicators table
+        with pg_conn() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS economic_indicators (
                     indicator VARCHAR NOT NULL,
                     date DATE NOT NULL,
-                    value DOUBLE NOT NULL,
+                    value DOUBLE PRECISION NOT NULL,
                     frequency VARCHAR NOT NULL,
                     fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (indicator, date)
                 )
             """
             )
-
-            # Create index for efficient queries
             conn.execute(
                 """
                 CREATE INDEX IF NOT EXISTS idx_indicator_date
                 ON economic_indicators (indicator, date)
             """
             )
-
-            # Create metadata table
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS indicator_metadata (
@@ -59,75 +50,49 @@ class EconomicStorage:
             """
             )
 
-            logger.info("Initialized economic indicators database at {}", self.db_path)
-
     def store_indicator(self, indicator_name: str, df: pd.DataFrame):
-        """Store or update indicator data.
-
-        Args:
-            indicator_name: Name of the indicator
-            df: DataFrame with columns: date, value, frequency
-        """
+        """Store or update indicator data."""
         if df.empty:
             logger.warning("Empty DataFrame for indicator {}", indicator_name)
             return
 
-        # Ensure required columns
         required_cols = ["date", "value", "frequency"]
         if not all(col in df.columns for col in required_cols):
             raise ValueError(
                 f"DataFrame must have columns: {required_cols}, got {df.columns.tolist()}"
             )
 
-        # Add indicator column if not present
         if "indicator" not in df.columns:
             df = df.copy()
             df["indicator"] = indicator_name
 
-        # Ensure date is datetime
         df["date"] = pd.to_datetime(df["date"])
 
-        with open_db() as conn:
-            # Delete existing data for this indicator
+        with pg_conn() as conn:
             conn.execute(
-                "DELETE FROM economic_indicators WHERE indicator = ?",
+                "DELETE FROM economic_indicators WHERE indicator = %s",
                 [indicator_name],
             )
 
-            # Insert new data
-            conn.execute(
-                """
-                INSERT INTO economic_indicators (indicator, date, value, frequency)
-                SELECT indicator, date, value, frequency
-                FROM df
-            """
+            rows = [
+                (indicator_name, row["date"].date(), float(row["value"]), row["frequency"])
+                for _, row in df.iterrows()
+            ]
+            conn.executemany(
+                "INSERT INTO economic_indicators (indicator, date, value, frequency) VALUES (?, ?, ?, ?)",
+                rows,
             )
-
-            # Update metadata
             self._update_metadata(conn, indicator_name)
 
-            logger.info(
-                "Stored {} records for indicator {}",
-                len(df),
-                indicator_name,
-            )
+        logger.info("Stored {} records for indicator {}", len(df), indicator_name)
 
     def store_all_indicators(self, indicators_data: dict[str, pd.DataFrame]):
-        """Store multiple indicators at once.
-
-        Args:
-            indicators_data: Dict mapping indicator name to DataFrame
-        """
+        """Store multiple indicators at once."""
         for indicator_name, df in indicators_data.items():
             self.store_indicator(indicator_name, df)
 
     def _update_metadata(self, conn: PgConnection, indicator: str):
-        """Update metadata for an indicator.
-
-        Args:
-            conn: Active database connection
-            indicator: Indicator name
-        """
+        """Update metadata for an indicator."""
         result = conn.execute(
             """
             SELECT
@@ -144,12 +109,17 @@ class EconomicStorage:
 
         if result:
             frequency, first_date, last_date, record_count = result
-
             conn.execute(
                 """
-                INSERT OR REPLACE INTO indicator_metadata
-                (indicator, frequency, first_date, last_date, record_count, last_updated)
+                INSERT INTO indicator_metadata
+                    (indicator, frequency, first_date, last_date, record_count, last_updated)
                 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT (indicator) DO UPDATE SET
+                    frequency = EXCLUDED.frequency,
+                    first_date = EXCLUDED.first_date,
+                    last_date = EXCLUDED.last_date,
+                    record_count = EXCLUDED.record_count,
+                    last_updated = EXCLUDED.last_updated
             """,
                 [indicator, frequency, first_date, last_date, record_count],
             )
@@ -160,17 +130,8 @@ class EconomicStorage:
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> pd.DataFrame:
-        """Retrieve indicator data.
-
-        Args:
-            indicator: Indicator name
-            start_date: Optional start date filter
-            end_date: Optional end date filter
-
-        Returns:
-            DataFrame with date and value columns
-        """
-        with open_db() as conn:
+        """Retrieve indicator data."""
+        with pg_conn() as conn:
             query = "SELECT date, value FROM economic_indicators WHERE indicator = ?"
             params = [indicator]
 
@@ -183,31 +144,15 @@ class EconomicStorage:
                 params.append(end_date)
 
             query += " ORDER BY date"
-
-            df = conn.execute(query, params).df()
-
-            if df.empty:
-                logger.warning(
-                    "No data found for indicator {} in date range", indicator
-                )
-
-            return df
+            return conn.execute(query, params).fetchdf()
 
     def get_all_indicators(
         self,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
     ) -> pd.DataFrame:
-        """Retrieve all indicators as wide-format DataFrame.
-
-        Args:
-            start_date: Optional start date filter
-            end_date: Optional end date filter
-
-        Returns:
-            DataFrame with date index and indicator columns
-        """
-        with open_db() as conn:
+        """Retrieve all indicators as wide-format DataFrame."""
+        with pg_conn() as conn:
             query = "SELECT indicator, date, value FROM economic_indicators WHERE 1=1"
             params = []
 
@@ -220,24 +165,17 @@ class EconomicStorage:
                 params.append(end_date)
 
             query += " ORDER BY date"
-
-            df = conn.execute(query, params).df()
+            df = conn.execute(query, params).fetchdf()
 
             if df.empty:
                 return pd.DataFrame()
 
-            # Pivot to wide format
-            wide_df = df.pivot(index="date", columns="indicator", values="value")
-            return wide_df
+            return df.pivot(index="date", columns="indicator", values="value")
 
     def list_indicators(self) -> pd.DataFrame:
-        """List all available indicators with metadata.
-
-        Returns:
-            DataFrame with indicator metadata
-        """
-        with open_db() as conn:
-            df = conn.execute(
+        """List all available indicators with metadata."""
+        with pg_conn() as conn:
+            return conn.execute(
                 """
                 SELECT
                     indicator,
@@ -249,30 +187,22 @@ class EconomicStorage:
                 FROM indicator_metadata
                 ORDER BY indicator
             """
-            ).df()
-
-            return df
+            ).fetchdf()
 
     def get_latest_values(self) -> pd.Series:
-        """Get latest value for each indicator.
-
-        Returns:
-            Series mapping indicator name to latest value
-        """
-        with open_db() as conn:
+        """Get latest value for each indicator."""
+        with pg_conn() as conn:
             df = conn.execute(
                 """
-                SELECT
-                    indicator,
-                    value
-                FROM economic_indicators
-                WHERE (indicator, date) IN (
-                    SELECT indicator, MAX(date)
-                    FROM economic_indicators
-                    GROUP BY indicator
+                SELECT indicator, value
+                FROM economic_indicators ei
+                WHERE date = (
+                    SELECT MAX(date)
+                    FROM economic_indicators ei2
+                    WHERE ei2.indicator = ei.indicator
                 )
             """
-            ).df()
+            ).fetchdf()
 
             if df.empty:
                 return pd.Series(dtype=float)
@@ -280,23 +210,11 @@ class EconomicStorage:
             return df.set_index("indicator")["value"]
 
     def delete_indicator(self, indicator: str):
-        """Delete all data for an indicator.
-
-        Args:
-            indicator: Indicator name
-        """
-        with open_db() as conn:
+        """Delete all data for an indicator."""
+        with pg_conn() as conn:
             conn.execute(
                 "DELETE FROM economic_indicators WHERE indicator = ?", [indicator]
             )
             conn.execute(
                 "DELETE FROM indicator_metadata WHERE indicator = ?", [indicator]
             )
-
-            logger.info("Deleted indicator {}", indicator)
-
-    def vacuum(self):
-        """Optimize database by reclaiming space."""
-        with open_db() as conn:
-            conn.execute("VACUUM")
-            logger.info("Vacuumed economic indicators database")

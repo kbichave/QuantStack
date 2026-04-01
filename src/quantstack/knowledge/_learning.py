@@ -971,13 +971,13 @@ class LearningMixin:
             CREATE TABLE IF NOT EXISTS portfolio_snapshots (
                 id          BIGINT,
                 captured_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                cash        DOUBLE,
-                positions_value DOUBLE,
-                total_equity    DOUBLE,
-                daily_pnl       DOUBLE,
-                total_realized_pnl DOUBLE,
+                cash        DOUBLE PRECISION,
+                positions_value DOUBLE PRECISION,
+                total_equity    DOUBLE PRECISION,
+                daily_pnl       DOUBLE PRECISION,
+                total_realized_pnl DOUBLE PRECISION,
                 position_count  INTEGER,
-                largest_position_pct DOUBLE
+                largest_position_pct DOUBLE PRECISION
             )
             """
         )

@@ -57,9 +57,10 @@ cp .env.example .env   # set ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPHA_VANTAGE_AP
 # Preflight
 source .env && python -m quantstack.coordination.preflight SPY
 
-# Run
-FORCE_LOOPS=1 ./scripts/start_research_loop.sh   # research loop still gated
-./scripts/start_trading_loop.sh                   # trading loop runs autonomously
+# Start autonomous loops (use Ralph Wiggum skill in Claude Code)
+# Research: /ralph-loop prompts/research_loop.md
+# Trading: /ralph-loop prompts/trading_loop.md
+# Stop: /cancel-ralph
 ```
 
 Supports Alpaca, IBKR, eTrade, and a zero-config PaperBroker. MCP tools expose the full stack to Claude Code (`quantstack-mcp`). REST API at `quantstack-api`.

@@ -32,12 +32,14 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import time
 from datetime import datetime, timedelta
 
 import pandas as pd
 from loguru import logger
 from quantstack.knowledge.store import KnowledgeStore
+from quantstack.rl.types import TradingSignal
 
 
 class KnowledgeStoreRLBridge:
@@ -49,9 +51,9 @@ class KnowledgeStoreRLBridge:
     warning — callers can choose to disable the agent when data is insufficient.
     """
 
-    # AlphaVantage free tier: 5 requests per minute
-    _ALPHAVANTAGE_RATE_LIMIT_CALLS = 5
-    _ALPHAVANTAGE_RATE_LIMIT_WINDOW_S = 60.0
+    # AlphaVantage rate limits — free tier is 5/min; premium accounts can raise these.
+    _ALPHAVANTAGE_RATE_LIMIT_CALLS = int(os.getenv("AV_RATE_LIMIT_CALLS", "5"))
+    _ALPHAVANTAGE_RATE_LIMIT_WINDOW_S = float(os.getenv("AV_RATE_LIMIT_WINDOW_S", "60.0"))
 
     def __init__(self, store: KnowledgeStore):
         self.store = store
@@ -138,18 +140,16 @@ class KnowledgeStoreRLBridge:
     def get_signal_history(
         self,
         lookback_days: int = 90,
-    ) -> list[_TradingSignalLike]:  # noqa: F821
+    ) -> list[TradingSignal]:
         """
         Fetch TradingSignal records for SizingEnvironment initialization.
 
-        Returns a list of _TradingSignalLike objects with the same interface
-        as quantcore.rl.sizing.environment.TradingSignal.
+        Returns a list of TradingSignal objects (from quantstack.rl.types) with
+        the same interface expected by SizingEnvironment.
 
         These replace the synthetic signal generation fallback in SizingEnvironment.
         Returns [] if no signals exist (caller should fall back to synthetic or disable).
         """
-        from quantstack.rl.sizing.environment import TradingSignal
-
         cutoff = datetime.utcnow() - timedelta(days=lookback_days)
 
         try:

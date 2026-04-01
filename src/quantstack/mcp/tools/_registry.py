@@ -11,16 +11,17 @@ at startup to register only the tools for its target domain.
 Usage::
 
     from quantstack.mcp.tools._registry import domain
+    from quantstack.mcp.tools._tool_def import tool_def
     from quantstack.mcp.domains import Domain
 
     @domain(Domain.ML)
-    @mcp.tool()
+    @tool_def()
     async def train_ml_model(symbol: str, ...) -> dict:
         ...
 
     # Cross-cutting tool — registered in multiple servers:
     @domain(Domain.SIGNALS, Domain.INTEL, Domain.RESEARCH)
-    @mcp.tool()
+    @tool_def()
     async def get_regime(symbol: str) -> dict:
         ...
 """
@@ -41,7 +42,7 @@ TOOL_DOMAINS: dict[str, Domain] = {}
 def domain(*domains: Domain) -> Callable[[F], F]:
     """Tag a tool function with its domain affinity.
 
-    Can be stacked with ``@mcp.tool()`` in any order — this decorator is
+    Can be stacked with ``@tool_def()`` in any order — this decorator is
     purely a metadata annotation that does not modify the function.
 
     Args:

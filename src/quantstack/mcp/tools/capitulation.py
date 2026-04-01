@@ -21,18 +21,19 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.core.features.momentum import PercentRExhaustion
 from quantstack.core.features.volatility import WilliamsVIXFix
 from quantstack.mcp._helpers import _get_reader
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.INTEL)
-@mcp.tool()
+@tool_def()
 async def get_capitulation_score(
     symbol: str,
     lookback_days: int = 20,
@@ -117,8 +118,8 @@ async def get_capitulation_score(
                 vol_exhaustion_score = 0.3
             result["volume_exhaustion_ratio"] = round(float(ratio), 3)
             result["volume_exhaustion_trend"] = "declining" if ratio < 0.9 else "elevated"
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[capitulation] volume exhaustion computation failed: {exc}")
     result["volume_exhaustion_score"] = round(vol_exhaustion_score, 3)
 
     # ------------------------------------------------------------------
@@ -153,8 +154,8 @@ async def get_capitulation_score(
             support_integrity_score = 0.5
         elif tests >= 1:
             support_integrity_score = 0.25
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[capitulation] support integrity computation failed: {exc}")
     result["support_integrity_score"] = round(support_integrity_score, 3)
     result["support_level"] = round(support_level, 2) if support_level else None
     result["support_test_count"] = support_test_count
@@ -187,8 +188,8 @@ async def get_capitulation_score(
                 wvf_score = 0.5
             elif pct_rank > 0.60:
                 wvf_score = 0.25
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[capitulation] Williams VIX Fix computation failed: {exc}")
     result["wvf_score"] = round(wvf_score, 3)
 
     # ------------------------------------------------------------------
@@ -210,8 +211,8 @@ async def get_capitulation_score(
             pct_r_score = 0.6
         elif pct_r_short < -80:
             pct_r_score = 0.3
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[capitulation] PercentR exhaustion computation failed: {exc}")
     result["exhaustion_score"] = round(pct_r_score, 3)
 
     # ------------------------------------------------------------------
@@ -247,8 +248,8 @@ async def get_capitulation_score(
             elif consec >= 3:
                 consec_down_score = 0.25
         result["consecutive_down_bars"] = consec
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[capitulation] consecutive down bars computation failed: {exc}")
     result["consecutive_down_score"] = round(consec_down_score, 3)
 
     # ------------------------------------------------------------------
@@ -300,3 +301,9 @@ def _weakest_component(result: dict) -> str:
         "consec_down": result.get("consecutive_down_score", 0),
     }
     return min(components, key=components.get)
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

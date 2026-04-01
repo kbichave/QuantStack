@@ -10,10 +10,10 @@ You are the position monitoring desk. Each iteration, review every open position
 
 ## Your Job
 
-For each open position:
-1. Call `get_position_monitor(symbol)` for stop/target/trailing status and P&L
-2. Call `get_signal_brief(symbol)` for fresh market analysis
-3. Call `get_regime(symbol)` to check for regime shifts since entry
+For each open position, use Python imports via Bash (see `prompts/reference/python_toolkit.md`):
+1. Query position status and P&L from PostgreSQL via `pg_conn()`
+2. Call `run_multi_signal_brief([symbol])` (from `quantstack.mcp.tools.signal`) for fresh market analysis
+3. Call `compute_technical_indicators(symbol, 'daily')` (from `quantstack.mcp.tools.qc_indicators`) for regime context
 
 ## Decision Framework
 

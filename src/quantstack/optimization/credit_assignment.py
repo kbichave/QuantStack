@@ -25,6 +25,8 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.db import pg_conn
+
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -63,8 +65,10 @@ class CreditAssigner:
         worst = assigner.get_worst_step(credits)
     """
 
-    def __init__(self, conn: Any) -> None:
-        self._conn = conn
+    def __init__(self, conn: Any = None) -> None:
+        # conn is accepted but ignored — each write uses pg_conn() to ensure
+        # the transaction is committed immediately and never left open.
+        pass
 
     # ------------------------------------------------------------------
     # Heuristic credit (per-trade, immediate, deterministic)
@@ -245,20 +249,25 @@ class CreditAssigner:
     # ------------------------------------------------------------------
 
     def _persist_credits(self, credits: list[StepCredit], trade_context: dict) -> None:
-        """Write step credits to the database."""
+        """Write step credits to the database.
+
+        Uses pg_conn() so the batch INSERT is committed immediately — a long-lived
+        open transaction here would hold row locks and block CREATE INDEX migrations.
+        """
         trade_id = trade_context.get("trade_id", 0)
-        for credit in credits:
-            try:
-                self._conn.execute(
-                    f"INSERT INTO {STEP_CREDITS_TABLE} "
-                    f"(id, trade_id, step_type, step_output, credit_score, "
-                    f"attribution_method, evidence) "
-                    f"VALUES (nextval('step_credits_seq'), ?, ?, ?, ?, ?, ?)",
-                    [
-                        trade_id, credit.step_type, credit.step_output,
-                        credit.credit_score, credit.attribution_method,
-                        credit.evidence,
-                    ],
-                )
-            except Exception as exc:
-                logger.debug(f"[CreditAssigner] Persist failed for {credit.step_type}: {exc}")
+        try:
+            with pg_conn() as conn:
+                for credit in credits:
+                    conn.execute(
+                        f"INSERT INTO {STEP_CREDITS_TABLE} "
+                        f"(id, trade_id, step_type, step_output, credit_score, "
+                        f"attribution_method, evidence) "
+                        f"VALUES (nextval('step_credits_seq'), ?, ?, ?, ?, ?, ?)",
+                        [
+                            trade_id, credit.step_type, credit.step_output,
+                            credit.credit_score, credit.attribution_method,
+                            credit.evidence,
+                        ],
+                    )
+        except Exception as exc:
+            logger.debug(f"[CreditAssigner] Persist failed: {exc}")

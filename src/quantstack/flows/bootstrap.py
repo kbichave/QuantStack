@@ -40,7 +40,7 @@ from quantstack.performance.trading_sheet import TradingSheetGenerator
 from alpaca.trading.client import TradingClient as _AlpacaTradingClient
 from dotenv import load_dotenv as _load_dotenv
 
-from quantstack.data.universe import BOOTSTRAP_DEFAULT
+from quantstack.universe import BOOTSTRAP_DEFAULT
 
 DEFAULT_SYMBOLS = list(BOOTSTRAP_DEFAULT)
 

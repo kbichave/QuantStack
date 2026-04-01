@@ -16,15 +16,15 @@ from quantstack.data.acquisition_pipeline import ALL_PHASES, AcquisitionPipeline
 from quantstack.data.adapters.alpaca import AlpacaAdapter
 from quantstack.data.fetcher import AlphaVantageClient
 from quantstack.data.pg_storage import PgDataStore
-from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
-from quantstack.mcp.server import mcp
+from quantstack.universe import INITIAL_LIQUID_UNIVERSE
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def acquire_historical_data(
     phases: list[str] | None = None,
     symbols: list[str] | None = None,
@@ -93,8 +93,8 @@ async def acquire_historical_data(
         alpaca = None
         try:
             alpaca = AlpacaAdapter()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"[qc_acquisition] AlpacaAdapter init failed, proceeding without Alpaca: {exc}")
 
         pipeline = AcquisitionPipeline(av_client=av_client, store=store, alpaca=alpaca)
 
@@ -137,7 +137,7 @@ async def acquire_historical_data(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def register_ticker(
     symbol: str,
     description: str = "",
@@ -297,3 +297,9 @@ def _estimate_calls(
         else:
             estimates[phase] = n * _CALLS_PER_SYMBOL.get(phase, 1)
     return estimates
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

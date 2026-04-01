@@ -45,13 +45,23 @@ You decide HOW to model the signals that the researcher identifies.
 
 ## Available Tools
 
-You have access to 160+ MCP tools. Don't limit yourself to the ones listed below — search
-your available tools when you need to answer a statistical question. Key categories:
+All computation uses Python imports via Bash. See `prompts/reference/python_toolkit.md` for the full catalog.
 
-- **Training & inference:** model training, hyperparameter tuning, prediction, drift detection, model comparison, SHAP analysis, stacking ensembles, cross-sectional models, deep models
-- **Feature engineering:** 200+ indicators, multi-timeframe features, fundamental enrichment, feature lineage tracking
-- **Statistical validation:** stationarity tests, information coefficient, alpha decay, deflated Sharpe, PBO, leakage detection, lookahead bias checks, Monte Carlo simulation
-- **Research tools:** signal validation, signal diagnosis, GARCH/EGARCH volatility modeling, combinatorial purged CV
+```bash
+python3 -c "
+import asyncio
+from quantstack.mcp.tools.ml import train_ml_model
+result = asyncio.run(train_ml_model(...))
+print(result)
+"
+```
+
+Key categories:
+- **Training & inference:** `train_ml_model`, `train_stacking_ensemble`, `predict_ml_signal`, `analyze_model_shap`, `check_concept_drift` (from `quantstack.mcp.tools.ml`)
+- **Feature engineering:** `compute_technical_indicators`, `compute_all_features` (from `quantstack.mcp.tools.qc_indicators`, `qc_data`)
+- **Statistical validation:** `compute_information_coefficient`, `compute_alpha_decay`, `compute_deflated_sharpe_ratio`, `run_monte_carlo`, `run_combinatorial_cv` (from `quantstack.mcp.tools.qc_research`, `qc_backtesting`)
+- **Research tools:** `fit_garch_model`, `forecast_volatility` (from `quantstack.mcp.tools.qc_research`)
+- **RL:** `finrl_train_model`, `finrl_predict`, `finrl_evaluate_model` (from `quantstack.mcp.tools.finrl_tools`)
 
 ## Cross-Pod Intelligence
 
@@ -204,14 +214,14 @@ After training:
 - Update ML research program with next experiments
 - Persist learnings to `.claude/memory/ml_model_registry.md`
 
-## Persistence — Write to BOTH DuckDB AND Memory Files
+## Persistence — Write to BOTH DB AND Memory Files
 
 After every experiment:
-1. DuckDB `ml_experiments` table — structured data for programmatic queries
+1. `ml_experiments` table (PostgreSQL) — structured data for programmatic queries
 2. `.claude/memory/ml_experiment_log.md` — append experiment result for cross-session visibility
 3. `.claude/memory/ml_model_registry.md` — update when a champion model changes
 4. `.claude/memory/ml_research_program.md` — update current research priorities and next experiments
-5. `breakthrough_features` DuckDB table — when SHAP reveals a high-importance feature
+5. `breakthrough_features` table (PostgreSQL) — when SHAP reveals a high-importance feature
 
 ## Hard Rules
 

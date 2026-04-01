@@ -19,7 +19,7 @@ from quantstack.core.features.factory import MultiTimeframeFeatureFactory
 from quantstack.core.research.walkforward import WalkForwardValidator
 from quantstack.core.validation.purged_cv import PurgedKFoldCV
 from quantstack.mcp._helpers import _get_reader, _parse_timeframe
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -30,7 +30,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_backtest_template(
     symbol: str,
     strategy_type: str = "mean_reversion",
@@ -182,7 +182,7 @@ def _generate_strategy_signals(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def get_backtest_metrics(
     total_return: float,
     sharpe_ratio: float,
@@ -278,7 +278,7 @@ async def get_backtest_metrics(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_walkforward_template(
     symbol: str,
     timeframe: str = "daily",
@@ -386,7 +386,7 @@ async def run_walkforward_template(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_purged_cv(
     symbol: str,
     timeframe: str = "daily",
@@ -489,3 +489,9 @@ async def run_purged_cv(
         return {"error": str(e)}
     finally:
         store.close()
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

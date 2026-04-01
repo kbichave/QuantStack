@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from quantstack.db import pg_conn
+from quantstack.db import open_db, pg_conn
 from quantstack.monitoring.degradation_detector import (
     DegradationDetector,
     DegradationReport,
@@ -23,8 +23,22 @@ from quantstack.monitoring.degradation_detector import (
 
 @pytest.fixture
 def conn():
-    with pg_conn() as c:
-        yield c
+    """Transaction-scoped connection that rolls back all changes after each test.
+
+    Using open_db() (not pg_conn()) so we control commit/rollback.  The
+    _seed_trades helper calls COMMIT explicitly — that's intentional in the
+    test to make inserted rows visible to the same connection.  We still
+    rollback in teardown to undo all writes made during the test.
+    """
+    c = open_db()
+    # Wipe any state left by prior runs so each test starts clean.
+    # Use committed deletes (pg_conn) so the detector's pg_conn reads see empty.
+    with pg_conn() as cleanup:
+        cleanup.execute("DELETE FROM is_benchmarks")
+        cleanup.execute("DELETE FROM closed_trades")
+    yield c
+    c.execute("ROLLBACK")
+    c.close()
 
 
 @pytest.fixture

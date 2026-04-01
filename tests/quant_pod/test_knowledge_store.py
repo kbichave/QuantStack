@@ -18,15 +18,32 @@ from quantstack.knowledge.models import (
     WavePosition,
     WaveScenario,
 )
+from quantstack.db import pg_conn
 from quantstack.knowledge.store import KnowledgeStore
+
+_KNOWLEDGE_TABLES = [
+    "trade_journal",
+    "market_observations",
+    "wave_scenarios",
+    "regime_states",
+    "trading_signals",
+]
+
+
+def _clean_knowledge_tables() -> None:
+    with pg_conn() as conn:
+        for t in _KNOWLEDGE_TABLES:
+            conn.execute(f"DELETE FROM {t}")
 
 
 @pytest.fixture
 def store():
-    """Knowledge store backed by PostgreSQL."""
+    """Knowledge store backed by PostgreSQL, isolated per test."""
+    _clean_knowledge_tables()
     store = KnowledgeStore()
     yield store
     store.close()
+    _clean_knowledge_tables()
 
 
 class TestTradeOperations:

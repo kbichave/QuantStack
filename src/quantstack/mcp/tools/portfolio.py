@@ -21,7 +21,7 @@ from quantstack.data.base import AssetClass
 from quantstack.data.registry import DataProviderRegistry
 from quantstack.data.storage import DataStore  # noqa: F401
 from quantstack.mcp._helpers import _get_reader
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -290,7 +290,7 @@ _VALID_METHODS = {"hrp", "min_variance", "risk_parity", "max_sharpe", "equal_wei
 
 
 @domain(Domain.PORTFOLIO)
-@mcp.tool()
+@tool_def()
 async def optimize_portfolio(
     symbols: list[str],
     method: str = "hrp",
@@ -357,7 +357,7 @@ async def optimize_portfolio(
 
 
 @domain(Domain.PORTFOLIO)
-@mcp.tool()
+@tool_def()
 async def compute_hrp_weights(
     symbols: list[str],
     lookback_days: int = 252,
@@ -457,3 +457,9 @@ async def compute_hrp_weights(
     except Exception as exc:
         logger.error(f"compute_hrp_weights failed: {exc}")
         return {"success": False, "error": str(exc)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

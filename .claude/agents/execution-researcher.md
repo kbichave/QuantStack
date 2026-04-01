@@ -44,14 +44,23 @@ signals. You decide HOW to execute and HOW to size positions.
 
 ## Available Tools
 
-You have access to 160+ MCP tools. Don't limit yourself to a fixed list — search your available tools
-when you need to answer a question. Key categories for execution research:
+All computation uses Python imports via Bash. See `prompts/reference/python_toolkit.md` for the full catalog.
 
-- **Portfolio:** state, risk metrics, optimization (HRP, MVO, risk parity), HRP weights
-- **Execution quality:** fill data, per-fill TCA, intraday status, algo recommendations
-- **Risk analysis:** VaR, stress testing, drawdown, position sizing
-- **Statistical:** IC, alpha decay, factor decomposition, correlation analysis, Monte Carlo
-- **Market microstructure:** liquidity analysis, volume profile, trading calendar
+```bash
+python3 -c "
+import asyncio
+from quantstack.mcp.tools.portfolio import compute_hrp_weights
+result = asyncio.run(compute_hrp_weights(...))
+print(result)
+"
+```
+
+Key categories:
+- **Portfolio:** `compute_hrp_weights`, `optimize_portfolio`, `get_strategy_pnl` (from `quantstack.mcp.tools.portfolio`, `attribution`)
+- **Execution quality:** `get_fill_quality` (from `quantstack.mcp.tools.feedback`)
+- **Risk analysis:** `compute_var`, `stress_test_portfolio`, `compute_position_size`, `compute_max_drawdown` (from `quantstack.mcp.tools.qc_risk`)
+- **Statistical:** `compute_information_coefficient`, `compute_alpha_decay`, `run_monte_carlo` (from `quantstack.mcp.tools.qc_research`)
+- **Market data:** `fetch_market_data`, `analyze_volume_profile` (from `quantstack.mcp.tools.qc_data`)
 
 ## Your Monthly Cycle
 

@@ -34,7 +34,7 @@ from typing import Any
 from loguru import logger
 
 from quantstack.core.backtesting.walkforward_service import run_walkforward
-from quantstack.data.universe import STRATEGY_BACKTEST_DEFAULT
+from quantstack.universe import STRATEGY_BACKTEST_DEFAULT
 from quantstack.db import PgConnection
 
 

@@ -129,6 +129,7 @@ quantstack-ml        = "quantstack.mcp.servers.ml:main"
 quantstack-finrl     = "quantstack.mcp.servers.finrl:main"
 quantstack-intel     = "quantstack.mcp.servers.intel:main"
 quantstack-risk      = "quantstack.mcp.servers.risk:main"
+quantstack-coord     = "quantstack.mcp.servers.coordination:main"
 # Broker adapters
 alpaca-mcp       = "alpaca_mcp.server:main"
 ibkr-mcp         = "ibkr_mcp.server:main"

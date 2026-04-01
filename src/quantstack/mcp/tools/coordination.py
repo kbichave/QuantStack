@@ -27,12 +27,17 @@ from quantstack.coordination.strategy_lock import StrategyStatusLock
 from quantstack.coordination.supervisor import LoopSupervisor
 from quantstack.db import open_db
 from quantstack.mcp.domains import Domain
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.tools._registry import domain
 
 
 def _get_conn():
-    """Get a PostgreSQL connection for operational tables."""
+    """Get a PostgreSQL connection for operational tables.
+
+    Callers must call conn.commit() after writes — open_db() returns a
+    connection with autocommit=False, so INSERTs are invisible to other
+    connections until committed.
+    """
     return open_db()
 
 
@@ -50,7 +55,7 @@ def _get_strategy_lock():
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 def publish_event(
     event_type: str,
     source: str,
@@ -84,8 +89,10 @@ def publish_event(
             source_loop=source,
             payload=payload or {},
         )
-        bus = _get_event_bus()
+        conn = _get_conn()
+        bus = EventBus(conn)
         eid = bus.publish(event)
+        conn.commit()
         return {"success": True, "event_id": eid}
     except Exception as exc:
         logger.error(f"[MCP:publish_event] {exc}")
@@ -93,7 +100,7 @@ def publish_event(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 def poll_events(
     consumer_id: str,
     event_types: list[str] | None = None,
@@ -125,8 +132,10 @@ def poll_events(
                 except ValueError:
                     types.append(et)  # type: ignore[arg-type]
 
-        bus = _get_event_bus()
+        conn = _get_conn()
+        bus = EventBus(conn)
         events = bus.poll(consumer_id, event_types=types)
+        conn.commit()  # commit cursor updates
 
         return {
             "success": True,
@@ -155,7 +164,7 @@ def poll_events(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 def record_heartbeat(
     loop_name: str,
     iteration: int,
@@ -211,7 +220,7 @@ def record_heartbeat(
             )
 
         # Also publish heartbeat event for the supervisor
-        bus = _get_event_bus()
+        bus = EventBus(conn)
         bus.publish(
             Event(
                 event_type=EventType.LOOP_HEARTBEAT,
@@ -224,6 +233,7 @@ def record_heartbeat(
                 },
             )
         )
+        conn.commit()
 
         return {"success": True}
     except Exception as exc:
@@ -235,7 +245,7 @@ def record_heartbeat(
 
 
 @domain(Domain.EXECUTION, Domain.PORTFOLIO)
-@mcp.tool()
+@tool_def()
 def get_loop_health() -> dict[str, Any]:
     """Get health status of all monitored loops (research, trading, ML).
 
@@ -277,7 +287,7 @@ def get_loop_health() -> dict[str, Any]:
 
 
 @domain(Domain.EXECUTION, Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 def auto_promote_eligible() -> dict[str, Any]:
     """Evaluate all forward_testing strategies for automatic promotion to live.
 
@@ -291,12 +301,16 @@ def auto_promote_eligible() -> dict[str, Any]:
         {"success": True, "decisions": [...], "promoted_count": N}
     """
     try:
+        conn = _get_conn()
+        bus = EventBus(conn)
+        lock = StrategyStatusLock(conn, bus)
         promoter = AutoPromoter(
-            conn=_get_conn(),
-            event_bus=_get_event_bus(),
-            strategy_lock=_get_strategy_lock(),
+            conn=conn,
+            event_bus=bus,
+            strategy_lock=lock,
         )
         decisions = promoter.evaluate_all()
+        conn.commit()
 
         return {
             "success": True,
@@ -322,7 +336,7 @@ def auto_promote_eligible() -> dict[str, Any]:
 
 
 @domain(Domain.EXECUTION, Domain.PORTFOLIO)
-@mcp.tool()
+@tool_def()
 def generate_daily_digest(target_date: str | None = None) -> dict[str, Any]:
     """Generate a daily digest report summarizing positions, trades, loops, and P&L.
 
@@ -373,7 +387,7 @@ def generate_daily_digest(target_date: str | None = None) -> dict[str, Any]:
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 def run_preflight_check(
     target_symbols: list[str] | None = None,
     target_wallet: float = 1000.0,
@@ -429,7 +443,7 @@ def _get_conversation_logger():
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 def log_agent_conversation(
     agent_name: str,
     content: str,
@@ -460,7 +474,8 @@ def log_agent_conversation(
         {"success": True, "conversation_id": "..."}
     """
     try:
-        clogger = _get_conversation_logger()
+        conn = _get_conn()
+        clogger = ConversationLogger(conn=conn)
         cid = clogger.log_agent_report(
             agent_name=agent_name,
             symbol=symbol,
@@ -470,6 +485,7 @@ def log_agent_conversation(
             iteration=iteration,
             metadata=metadata,
         )
+        conn.commit()
         return {"success": True, "conversation_id": cid}
     except Exception as exc:
         logger.error(f"[MCP:log_agent_conversation] {exc}")
@@ -477,7 +493,7 @@ def log_agent_conversation(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 def log_signal_snapshot(
     symbol: str,
     collectors: dict[str, Any],
@@ -503,7 +519,8 @@ def log_signal_snapshot(
         {"success": True, "snapshot_id": "..."}
     """
     try:
-        clogger = _get_conversation_logger()
+        conn = _get_conn()
+        clogger = ConversationLogger(conn=conn)
         sid = clogger.log_signal_snapshot(
             symbol=symbol,
             collectors=collectors,
@@ -511,6 +528,7 @@ def log_signal_snapshot(
             conviction=conviction,
             failures=failures,
         )
+        conn.commit()
         return {"success": True, "snapshot_id": sid}
     except Exception as exc:
         logger.error(f"[MCP:log_signal_snapshot] {exc}")
@@ -518,7 +536,7 @@ def log_signal_snapshot(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 def post_slack_message(
     channel: str,
     text: str,
@@ -546,3 +564,9 @@ def post_slack_message(
     except Exception as exc:
         logger.error(f"[MCP:post_slack_message] {exc}")
         return {"success": False, "error": str(exc)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

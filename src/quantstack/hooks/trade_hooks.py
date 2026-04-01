@@ -22,7 +22,6 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.db import open_db
 from quantstack.execution.hook_registry import register
 from quantstack.learning.outcome_tracker import OutcomeTracker
 from quantstack.learning.reflection import ReflectionManager
@@ -36,41 +35,26 @@ _credit_assigner: CreditAssigner | None = None
 
 
 def _get_reflection_manager() -> ReflectionManager | None:
-    """Lazy-init ReflectionManager with a ManagedConnection."""
+    """Lazy-init ReflectionManager singleton."""
     global _reflection_mgr
     if _reflection_mgr is None:
-        try:
-            conn = open_db()
-            _reflection_mgr = ReflectionManager(conn)
-        except Exception as exc:
-            logger.warning(f"[hooks] Failed to init ReflectionManager: {exc}")
-            return None
+        _reflection_mgr = ReflectionManager()
     return _reflection_mgr
 
 
 def _get_reflexion_memory() -> ReflexionMemory | None:
-    """Lazy-init ReflexionMemory with a ManagedConnection."""
+    """Lazy-init ReflexionMemory singleton."""
     global _reflexion_mem
     if _reflexion_mem is None:
-        try:
-            conn = open_db()
-            _reflexion_mem = ReflexionMemory(conn)
-        except Exception as exc:
-            logger.warning(f"[hooks] Failed to init ReflexionMemory: {exc}")
-            return None
+        _reflexion_mem = ReflexionMemory()
     return _reflexion_mem
 
 
 def _get_credit_assigner() -> CreditAssigner | None:
-    """Lazy-init CreditAssigner with a ManagedConnection."""
+    """Lazy-init CreditAssigner singleton."""
     global _credit_assigner
     if _credit_assigner is None:
-        try:
-            conn = open_db()
-            _credit_assigner = CreditAssigner(conn)
-        except Exception as exc:
-            logger.warning(f"[hooks] Failed to init CreditAssigner: {exc}")
-            return None
+        _credit_assigner = CreditAssigner()
     return _credit_assigner
 
 

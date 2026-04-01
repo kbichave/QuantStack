@@ -2,88 +2,113 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Broker factory — returns the correct broker based on USE_REAL_TRADING flag.
+Broker factory — returns the correct broker based on USE_REAL_TRADING flag
+and available credentials.
 
 USE_REAL_TRADING=false (default):
-    Returns PaperBroker — local simulation with realistic slippage.
-    No eTrade credentials required. Safe for development and backtesting.
+    PaperBroker — local simulation with realistic slippage. No credentials needed.
 
-USE_REAL_TRADING=true:
-    Returns EtradeBroker — live execution via eTrade API.
-    Requires ETRADE_CONSUMER_KEY, ETRADE_CONSUMER_SECRET, and prior OAuth.
-    ETRADE_SANDBOX=true (default): uses apisb.etrade.com (test environment)
-    ETRADE_SANDBOX=false: uses api.etrade.com (real money / paper account)
+USE_REAL_TRADING=true, ALPACA_API_KEY set:
+    AlpacaBroker — Alpaca paper (ALPACA_PAPER=true, default) or live trading.
+    No OAuth needed — API key + secret are enough.
 
-The broker interface is identical in both cases: execute(OrderRequest) -> Fill.
+USE_REAL_TRADING=true, no Alpaca keys, ETRADE_CONSUMER_KEY set:
+    EtradeBroker — eTrade paper sandbox or live account. Requires prior OAuth.
+
+Fallback: PaperBroker if USE_REAL_TRADING=true but no broker credentials are set.
+
+The broker interface is identical in all cases: execute(OrderRequest) -> Fill.
 The flow, risk gate, and audit trail never know which broker is active.
-
-Usage:
-    broker = get_broker()
-    fill = broker.execute(order_request)
-
-    # Inspect which mode is active
-    mode = get_broker_mode()  # "paper" | "etrade_sandbox" | "etrade_live"
 """
 
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from quantstack.execution.etrade_broker import EtradeBroker, get_etrade_broker
-from quantstack.execution.paper_broker import PaperBroker, get_paper_broker
+from quantstack.execution.paper_broker import BrokerProtocol, PaperBroker, get_paper_broker
+
+# TYPE_CHECKING guard: gives static analysers the full type without paying the
+# import cost at runtime. The deferred runtime imports in get_broker() are the
+# *one* legitimate use of deferred imports here — each broker wraps an optional
+# external SDK that may not be installed.
+if TYPE_CHECKING:
+    from quantstack.execution.alpaca_broker import AlpacaBroker  # noqa: F401
+    from quantstack.execution.etrade_broker import EtradeBroker  # noqa: F401
 
 
 def _use_real_trading() -> bool:
-    """Read USE_REAL_TRADING env var. Defaults to False (paper broker)."""
     val = os.getenv("USE_REAL_TRADING", "false").strip().lower()
     return val in ("true", "1", "yes")
 
 
-def get_broker_mode() -> str:
-    """
-    Return a human-readable label for the active broker mode.
+def _alpaca_keys_set() -> bool:
+    return bool(os.getenv("ALPACA_API_KEY")) and bool(os.getenv("ALPACA_SECRET_KEY"))
 
-    Used in /health and /dashboard responses so operators can confirm
-    which mode the system is in without needing to inspect env vars.
-    """
+
+def _etrade_keys_set() -> bool:
+    return bool(os.getenv("ETRADE_CONSUMER_KEY")) and bool(os.getenv("ETRADE_CONSUMER_SECRET"))
+
+
+def get_broker_mode() -> str:
+    """Human-readable label for the active broker mode."""
     if not _use_real_trading():
         return "paper"
-    sandbox = os.getenv("ETRADE_SANDBOX", "true").strip().lower() in (
-        "true",
-        "1",
-        "yes",
-    )
-    return "etrade_sandbox" if sandbox else "etrade_live"
+
+    if _alpaca_keys_set():
+        paper = os.getenv("ALPACA_PAPER", "true").strip().lower() in ("true", "1", "yes")
+        return "alpaca_paper" if paper else "alpaca_live"
+
+    if _etrade_keys_set():
+        sandbox = os.getenv("ETRADE_SANDBOX", "true").strip().lower() in ("true", "1", "yes")
+        return "etrade_sandbox" if sandbox else "etrade_live"
+
+    return "paper"  # fallback
 
 
-def get_broker() -> PaperBroker | EtradeBroker:
+def get_broker() -> BrokerProtocol:
     """
     Return the active broker singleton.
 
-    Lazily imports EtradeBroker only when USE_REAL_TRADING=true, so
-    systems without eTrade credentials installed never pay the import cost.
+    Priority when USE_REAL_TRADING=true:
+      1. AlpacaBroker  (ALPACA_API_KEY + ALPACA_SECRET_KEY set)
+      2. EtradeBroker  (ETRADE_CONSUMER_KEY + ETRADE_CONSUMER_SECRET set)
+      3. PaperBroker   (fallback — logs a warning)
     """
     if not _use_real_trading():
         return get_paper_broker()
 
-    # Validate credentials before attempting init
-    if not os.getenv("ETRADE_CONSUMER_KEY") or not os.getenv("ETRADE_CONSUMER_SECRET"):
-        logger.error(
-            "[BROKER] USE_REAL_TRADING=true but ETRADE_CONSUMER_KEY / "
-            "ETRADE_CONSUMER_SECRET not set. Falling back to PaperBroker."
-        )
-        return get_paper_broker()
+    if _alpaca_keys_set():
+        try:
+            from quantstack.execution.alpaca_broker import get_alpaca_broker
+            broker = get_alpaca_broker()
+            logger.info(f"[BROKER] Active broker: AlpacaBroker (mode={get_broker_mode()})")
+            return broker
+        except Exception as e:
+            logger.error(
+                f"[BROKER] AlpacaBroker init failed ({e}). "
+                "Falling back to PaperBroker."
+            )
+            return get_paper_broker()
 
-    try:
-        broker = get_etrade_broker()
-        mode = get_broker_mode()
-        logger.info(f"[BROKER] Active broker: EtradeBroker (mode={mode})")
-        return broker
-    except Exception as e:
-        logger.error(
-            f"[BROKER] EtradeBroker init failed ({e}). "
-            "Falling back to PaperBroker — set USE_REAL_TRADING=false to suppress this warning."
-        )
-        return get_paper_broker()
+    if _etrade_keys_set():
+        try:
+            from quantstack.execution.etrade_broker import get_etrade_broker
+            broker = get_etrade_broker()
+            logger.info(f"[BROKER] Active broker: EtradeBroker (mode={get_broker_mode()})")
+            return broker
+        except Exception as e:
+            logger.error(
+                f"[BROKER] EtradeBroker init failed ({e}). "
+                "Falling back to PaperBroker."
+            )
+            return get_paper_broker()
+
+    logger.warning(
+        "[BROKER] USE_REAL_TRADING=true but no broker credentials found. "
+        "Set ALPACA_API_KEY+ALPACA_SECRET_KEY (preferred) or "
+        "ETRADE_CONSUMER_KEY+ETRADE_CONSUMER_SECRET. Falling back to PaperBroker."
+    )
+    return get_paper_broker()

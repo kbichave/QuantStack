@@ -263,7 +263,7 @@ class MacroCalendarGenerator:
             CREATE TABLE IF NOT EXISTS economic_indicators (
                 indicator VARCHAR NOT NULL,
                 date DATE NOT NULL,
-                value DOUBLE,
+                value DOUBLE PRECISION,
                 PRIMARY KEY (indicator, date)
             )
         """

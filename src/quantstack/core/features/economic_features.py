@@ -249,7 +249,7 @@ class EconomicFeatureEngineer:
 
         # Forward-fill any missing economic data
         economic_cols = economic_df.columns.tolist()
-        result[economic_cols] = result[economic_cols].fillna(method="ffill")
+        result[economic_cols] = result[economic_cols].ffill()
 
         logger.info(
             "Merged {} market rows with {} economic features",

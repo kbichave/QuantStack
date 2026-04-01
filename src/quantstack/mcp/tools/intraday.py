@@ -20,7 +20,7 @@ from quantstack.core.execution.tca_storage import TCAStore
 from quantstack.intraday.loop import LiveIntradayLoop
 from quantstack.mcp._state import _serialize
 from quantstack.mcp.domains import Domain
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.tools._registry import domain
 
 
@@ -30,7 +30,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.SIGNALS)
-@mcp.tool()
+@tool_def()
 async def get_intraday_status() -> dict[str, Any]:
     """
     Return the current intraday loop status.
@@ -81,8 +81,8 @@ async def get_intraday_status() -> dict[str, Any]:
                 realized_pnl = pm.intraday_pnl
                 trades_today = pm.trades_today
                 flattened = pm.is_flattened
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"[intraday] position manager state read failed: {exc}")
 
         return {
             "success": True,
@@ -106,7 +106,7 @@ async def get_intraday_status() -> dict[str, Any]:
 
 
 @domain(Domain.SIGNALS, Domain.PORTFOLIO)
-@mcp.tool()
+@tool_def()
 async def get_tca_report(
     lookback_days: int = 30,
     symbol: str | None = None,
@@ -144,7 +144,7 @@ async def get_tca_report(
 
 
 @domain(Domain.SIGNALS, Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 async def get_algo_recommendation(
     symbol: str,
     side: str,
@@ -259,3 +259,9 @@ def _find_position_manager(loop: Any) -> Any:
     if hasattr(loop, "_position_manager"):
         return loop._position_manager
     return None
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

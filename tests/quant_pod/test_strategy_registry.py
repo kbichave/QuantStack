@@ -13,8 +13,17 @@ import uuid
 
 import pytest
 from quantstack.context import create_trading_context
-from quantstack.mcp.server import get_strategy, list_strategies, register_strategy, update_strategy
+from quantstack.db import pg_conn
+from quantstack.mcp.tools.strategy import get_strategy, list_strategies, register_strategy, update_strategy
 import quantstack.mcp._state as _mcp_state
+
+
+def _clean_strategies() -> None:
+    """Commit a hard DELETE — needed because register_strategy uses pg_conn() (committed writes)."""
+    with pg_conn() as conn:
+        conn.execute("DELETE FROM strategies")
+        conn.execute("DELETE FROM regime_strategy_matrix")
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -23,9 +32,12 @@ import quantstack.mcp._state as _mcp_state
 
 @pytest.fixture
 def ctx():
+    _clean_strategies()
     context = create_trading_context(db_path=":memory:", session_id=str(uuid.uuid4()))
     yield context
+    context.db.execute("ROLLBACK")
     context.db.close()
+    _clean_strategies()
 
 
 @pytest.fixture

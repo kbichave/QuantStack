@@ -8,7 +8,9 @@ from quantstack.finrl.model_registry import ModelRegistry
 
 @pytest.fixture
 def registry():
-    """PostgreSQL-backed model registry."""
+    """PostgreSQL-backed model registry, isolated per test."""
+    with pg_conn() as conn:
+        conn.execute("DELETE FROM finrl_models")
     with pg_conn() as conn:
         reg = ModelRegistry(conn)
         yield reg

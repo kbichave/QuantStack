@@ -14,17 +14,23 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.config.settings import get_settings
 from quantstack.data.base import AssetClass
+from quantstack.data.registry import DataProviderRegistry
 from quantstack.mcp._helpers import (
-    ServerContext,
     _dataframe_to_dict,
     _get_reader,
     _get_writer,
     _parse_timeframe,
 )
-from quantstack.mcp.server import mcp
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
+from quantstack.mcp.tools._tool_def import tool_def
+
+
+def _get_data_registry() -> DataProviderRegistry:
+    """Get a DataProviderRegistry from current settings."""
+    return DataProviderRegistry.from_settings(get_settings())
 
 
 
@@ -34,7 +40,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def fetch_market_data(
     symbol: str,
     timeframe: str = "daily",
@@ -54,8 +60,7 @@ async def fetch_market_data(
     Returns:
         Dictionary with OHLCV data and metadata
     """
-    ctx: ServerContext = mcp.context
-    registry = ctx.data_registry
+    registry = _get_data_registry()
     tf = _parse_timeframe(timeframe)
 
     # Convert outputsize to date range — providers like Alpaca require
@@ -91,7 +96,7 @@ async def fetch_market_data(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def load_market_data(
     symbol: str,
     timeframe: str = "daily",
@@ -141,7 +146,7 @@ async def load_market_data(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def list_stored_symbols() -> dict[str, Any]:
     """
     List all symbols stored in the local database with their metadata.
@@ -182,7 +187,7 @@ async def list_stored_symbols() -> dict[str, Any]:
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_financial_statements(
     symbol: str,
     statement_type: str = "income_statement",
@@ -224,7 +229,7 @@ async def get_financial_statements(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_macro_indicator(
     indicator: str,
     start_date: str | None = None,
@@ -264,7 +269,7 @@ async def get_macro_indicator(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_insider_trades(
     symbol: str,
     limit: int = 50,
@@ -294,7 +299,7 @@ async def get_insider_trades(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_institutional_ownership(
     symbol: str,
 ) -> dict[str, Any]:
@@ -322,7 +327,7 @@ async def get_institutional_ownership(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_corporate_actions(
     symbol: str,
     action_type: str | None = None,
@@ -355,3 +360,9 @@ async def get_corporate_actions(
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

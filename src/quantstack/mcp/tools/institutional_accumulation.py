@@ -23,11 +23,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
+from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.fetcher import AlphaVantageClient
 from quantstack.mcp._helpers import _get_reader
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -55,7 +56,7 @@ _CLUSTER_MIN_INSIDERS = 2  # minimum distinct insiders for "cluster" designation
 
 
 @domain(Domain.INTEL)
-@mcp.tool()
+@tool_def()
 async def get_institutional_accumulation(
     symbol: str,
 ) -> dict[str, Any]:
@@ -186,7 +187,8 @@ async def get_institutional_accumulation(
                         insider_score = 0.3  # no transactions = slightly negative signal
         else:
             insider_score = 0.5  # neutral if no API key
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"[institutional_accumulation] insider cluster score for {symbol} failed: {exc}")
         insider_score = 0.5
 
     result["insider_cluster_score"] = round(insider_score, 3)
@@ -231,8 +233,8 @@ async def get_institutional_accumulation(
                 gamma_flip_distance_pct = round(dist, 1)
                 result["gamma_flip"] = float(gamma_flip)
                 result["gamma_flip_distance_pct"] = gamma_flip_distance_pct
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[institutional_accumulation] GEX signal for {symbol} failed: {exc}")
 
     result["gex_score"] = round(gex_score, 3)
     result["gex_signal"] = gex_signal
@@ -267,8 +269,8 @@ async def get_institutional_accumulation(
                     iv_skew_score = 0.5
                 elif zscore < 0:
                     iv_skew_score = 0.3  # call skew = complacency
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[institutional_accumulation] IV skew score for {symbol} failed: {exc}")
 
     result["iv_skew_score"] = round(iv_skew_score, 3)
     result["iv_skew_extreme"] = iv_skew_extreme
@@ -297,8 +299,8 @@ async def get_institutional_accumulation(
                     inst_score = 0.5
                 elif inst_direction == "distributing":
                     inst_score = 0.15
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[institutional_accumulation] institutional direction for {symbol} failed: {exc}")
 
     result["institutional_direction"] = inst_direction
     result["institutional_score"] = round(inst_score, 3)
@@ -339,3 +341,9 @@ async def get_institutional_accumulation(
     }
 
     return result
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

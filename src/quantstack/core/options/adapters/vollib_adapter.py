@@ -136,7 +136,8 @@ def bs_price_vollib(
         q=dividend_yield,
         return_as="numpy",
     )
-    return float(price)
+    # vec_bsm returns a 1-element array even for scalar inputs
+    return float(np.asarray(price).ravel()[0])
 
 
 def implied_vol_vollib(
@@ -305,12 +306,15 @@ def greeks_vollib(
         "return_as": "numpy",
     }
 
+    def _scalar(arr) -> float:
+        return float(np.asarray(arr).ravel()[0])
+
     return {
-        "delta": float(vec_delta(**common_args)),
-        "gamma": float(vec_gamma(**common_args)),
-        "theta": float(vec_theta(**common_args)) / 365.0,  # Convert to daily
-        "vega": float(vec_vega(**common_args)) / 100.0,  # Per 1% vol change
-        "rho": float(vec_rho(**common_args)) / 100.0,  # Per 1% rate change
+        "delta": _scalar(vec_delta(**common_args)),
+        "gamma": _scalar(vec_gamma(**common_args)),
+        "theta": _scalar(vec_theta(**common_args)) / 365.0,  # Convert to daily
+        "vega": _scalar(vec_vega(**common_args)) / 100.0,  # Per 1% vol change
+        "rho": _scalar(vec_rho(**common_args)) / 100.0,  # Per 1% rate change
     }
 
 

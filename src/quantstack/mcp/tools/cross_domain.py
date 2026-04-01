@@ -23,8 +23,9 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.db import pg_conn
 from quantstack.mcp._state import live_db_or_error
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -207,7 +208,7 @@ def _compute_convergence(symbol: str, items: list[dict]) -> dict:
 # ── Main tool ────────────────────────────────────────────────────────────
 
 @domain(Domain.INTEL)
-@mcp.tool()
+@tool_def()
 async def get_cross_domain_intel(
     symbol: str = "",
     requesting_domain: str = "",
@@ -228,7 +229,7 @@ async def get_cross_domain_intel(
     Returns:
         Dict with intel_items (sorted by relevance), summary, and symbol_convergence.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -242,181 +243,182 @@ async def get_cross_domain_intel(
             sym_clause = " AND ea.symbol = ?"
             sym_params = [symbol.upper()]
 
-        # ── 1. Investment → Swing/Options ────────────────────────────
-        if requesting_domain in ("equity_swing", "options", ""):
-            rows = ctx.db.execute(
-                f"""
-                SELECT ea.id, ea.symbol, ea.action, ea.confidence,
-                       ea.current_price, ea.suggested_entry, ea.stop_price, ea.target_price,
-                       ea.regime, ea.catalyst, ea.thesis, ea.key_risks,
-                       ea.piotroski_f_score, ea.fcf_yield_pct, ea.pe_ratio,
-                       ea.created_at
-                FROM equity_alerts ea
-                WHERE ea.time_horizon = 'investment'
-                  AND ea.status IN ('pending', 'watching', 'acted')
-                  AND ea.created_at >= CURRENT_TIMESTAMP - INTERVAL '{cutoff_days}' DAY
-                  {sym_clause}
-                ORDER BY ea.confidence DESC
-                LIMIT 20
-                """,
-                sym_params,
-            ).fetchall()
-
-            inv_cols = [
-                "id", "symbol", "action", "confidence",
-                "current_price", "suggested_entry", "stop_price", "target_price",
-                "regime", "catalyst", "thesis", "key_risks",
-                "piotroski_f_score", "fcf_yield_pct", "pe_ratio", "created_at",
-            ]
-
-            for row in rows:
-                alert = dict(zip(inv_cols, row))
-
-                # Get latest thesis_status from alert_updates
-                ts_row = ctx.db.execute(
-                    "SELECT thesis_status FROM alert_updates WHERE alert_id = ? ORDER BY created_at DESC LIMIT 1",
-                    [alert["id"]],
-                ).fetchone()
-                thesis_status = ts_row[0] if ts_row else "intact"
-
-                targets = []
-                if requesting_domain == "equity_swing":
-                    targets = ["equity_swing"]
-                elif requesting_domain == "options":
-                    targets = ["options"]
-                else:
-                    targets = ["equity_swing", "options"]
-
-                for tgt in targets:
-                    if alert.get("stop_price") and alert["stop_price"] > 0:
-                        intel_items.append(_build_fundamental_floor(alert, tgt))
-                    intel_items.append(_build_thesis_status(alert, thesis_status, tgt))
-                    if alert.get("catalyst"):
-                        intel_items.append(_build_fundamental_event(alert, tgt))
-
-        # ── 2. Swing → Investment/Options ────────────────────────────
-        if requesting_domain in ("equity_investment", "options", ""):
-            rows = ctx.db.execute(
-                f"""
-                SELECT ea.id, ea.symbol, ea.action, ea.confidence,
-                       ea.current_price, ea.suggested_entry, ea.stop_price, ea.target_price,
-                       ea.regime, ea.created_at
-                FROM equity_alerts ea
-                WHERE ea.time_horizon IN ('swing', 'position')
-                  AND ea.status IN ('pending', 'watching', 'acted')
-                  AND ea.created_at >= CURRENT_TIMESTAMP - INTERVAL '{cutoff_days}' DAY
-                  {sym_clause}
-                ORDER BY ea.confidence DESC
-                LIMIT 20
-                """,
-                sym_params,
-            ).fetchall()
-
-            swing_cols = [
-                "id", "symbol", "action", "confidence",
-                "current_price", "suggested_entry", "stop_price", "target_price",
-                "regime", "created_at",
-            ]
-
-            for row in rows:
-                alert = dict(zip(swing_cols, row))
-                targets = []
-                if requesting_domain == "equity_investment":
-                    targets = ["equity_investment"]
-                elif requesting_domain == "options":
-                    targets = ["options"]
-                else:
-                    targets = ["equity_investment", "options"]
-
-                for tgt in targets:
-                    if alert.get("stop_price") and alert.get("target_price"):
-                        intel_items.append(_build_technical_levels(alert, tgt))
-                    intel_items.append(_build_momentum_signal(alert, tgt))
-
-        # ── 3. Options strategies → Investment/Swing ─────────────────
-        # Options intel comes from strategies table (validated/live options strategies)
-        if requesting_domain in ("equity_investment", "equity_swing", ""):
-            try:
-                strat_rows = ctx.db.execute(
-                    """
-                    SELECT strategy_id, name, status, regime_affinity
-                    FROM strategies
-                    WHERE instrument_type = 'options' AND status IN ('validated', 'live', 'forward_testing')
-                    LIMIT 10
-                    """
+        # Each section uses a fresh pooled connection — avoids stale ctx.db connections.
+        with pg_conn() as conn:
+            # ── 1. Investment → Swing/Options ────────────────────────────
+            if requesting_domain in ("equity_swing", "options", ""):
+                rows = conn.execute(
+                    f"""
+                    SELECT ea.id, ea.symbol, ea.action, ea.confidence,
+                           ea.current_price, ea.suggested_entry, ea.stop_price, ea.target_price,
+                           ea.regime, ea.catalyst, ea.thesis, ea.key_risks,
+                           ea.piotroski_f_score, ea.fcf_yield_pct, ea.pe_ratio,
+                           ea.created_at
+                    FROM equity_alerts ea
+                    WHERE ea.time_horizon = 'investment'
+                      AND ea.status IN ('pending', 'watching', 'acted')
+                      AND ea.created_at >= CURRENT_TIMESTAMP - INTERVAL '{cutoff_days}' DAY
+                      {sym_clause}
+                    ORDER BY ea.confidence DESC
+                    LIMIT 20
+                    """,
+                    sym_params,
                 ).fetchall()
-                if strat_rows:
+
+                inv_cols = [
+                    "id", "symbol", "action", "confidence",
+                    "current_price", "suggested_entry", "stop_price", "target_price",
+                    "regime", "catalyst", "thesis", "key_risks",
+                    "piotroski_f_score", "fcf_yield_pct", "pe_ratio", "created_at",
+                ]
+
+                for row in rows:
+                    alert = dict(zip(inv_cols, row))
+
+                    # Get latest thesis_status from alert_updates
+                    ts_row = conn.execute(
+                        "SELECT thesis_status FROM alert_updates WHERE alert_id = ? ORDER BY created_at DESC LIMIT 1",
+                        [alert["id"]],
+                    ).fetchone()
+                    thesis_status = ts_row[0] if ts_row else "intact"
+
+                    targets = []
+                    if requesting_domain == "equity_swing":
+                        targets = ["equity_swing"]
+                    elif requesting_domain == "options":
+                        targets = ["options"]
+                    else:
+                        targets = ["equity_swing", "options"]
+
+                    for tgt in targets:
+                        if alert.get("stop_price") and alert["stop_price"] > 0:
+                            intel_items.append(_build_fundamental_floor(alert, tgt))
+                        intel_items.append(_build_thesis_status(alert, thesis_status, tgt))
+                        if alert.get("catalyst"):
+                            intel_items.append(_build_fundamental_event(alert, tgt))
+
+            # ── 2. Swing → Investment/Options ────────────────────────────
+            if requesting_domain in ("equity_investment", "options", ""):
+                rows = conn.execute(
+                    f"""
+                    SELECT ea.id, ea.symbol, ea.action, ea.confidence,
+                           ea.current_price, ea.suggested_entry, ea.stop_price, ea.target_price,
+                           ea.regime, ea.created_at
+                    FROM equity_alerts ea
+                    WHERE ea.time_horizon IN ('swing', 'position')
+                      AND ea.status IN ('pending', 'watching', 'acted')
+                      AND ea.created_at >= CURRENT_TIMESTAMP - INTERVAL '{cutoff_days}' DAY
+                      {sym_clause}
+                    ORDER BY ea.confidence DESC
+                    LIMIT 20
+                    """,
+                    sym_params,
+                ).fetchall()
+
+                swing_cols = [
+                    "id", "symbol", "action", "confidence",
+                    "current_price", "suggested_entry", "stop_price", "target_price",
+                    "regime", "created_at",
+                ]
+
+                for row in rows:
+                    alert = dict(zip(swing_cols, row))
                     targets = []
                     if requesting_domain == "equity_investment":
                         targets = ["equity_investment"]
-                    elif requesting_domain == "equity_swing":
-                        targets = ["equity_swing"]
+                    elif requesting_domain == "options":
+                        targets = ["options"]
                     else:
-                        targets = ["equity_investment", "equity_swing"]
+                        targets = ["equity_investment", "options"]
 
                     for tgt in targets:
-                        intel_items.append({
-                            "source_domain": "options",
-                            "target_domain": tgt,
-                            "intel_type": "options_strategies_active",
-                            "symbol": symbol or "portfolio",
-                            "headline": f"{len(strat_rows)} active options strategies — check IV surface before equity entries",
-                            "data": {
-                                "strategy_count": len(strat_rows),
-                                "strategies": [
-                                    {"id": r[0], "name": r[1], "status": r[2]}
-                                    for r in strat_rows[:5]
-                                ],
-                            },
-                            "action_suggestion": (
-                                "Active options strategies indicate vol awareness. "
-                                "Check IV rank via get_iv_surface before sizing equity positions."
-                            ),
-                            "relevance": 0.5,
-                        })
-            except Exception as e:
-                logger.warning(f"[cross_domain] options strategy query failed (schema may be missing instrument_type column): {e}")
+                        if alert.get("stop_price") and alert.get("target_price"):
+                            intel_items.append(_build_technical_levels(alert, tgt))
+                        intel_items.append(_build_momentum_signal(alert, tgt))
 
-        # ── 4. Convergence analysis ──────────────────────────────────
-        symbol_groups: dict[str, list[dict]] = {}
-        for item in intel_items:
-            sym = item.get("symbol", "")
-            if sym and sym != "portfolio":
-                symbol_groups.setdefault(sym, []).append(item)
+            # ── 3. Options strategies → Investment/Swing ─────────────────
+            if requesting_domain in ("equity_investment", "equity_swing", ""):
+                try:
+                    strat_rows = conn.execute(
+                        """
+                        SELECT strategy_id, name, status, regime_affinity
+                        FROM strategies
+                        WHERE instrument_type = 'options' AND status IN ('validated', 'live', 'forward_testing')
+                        LIMIT 10
+                        """
+                    ).fetchall()
+                    if strat_rows:
+                        targets = []
+                        if requesting_domain == "equity_investment":
+                            targets = ["equity_investment"]
+                        elif requesting_domain == "equity_swing":
+                            targets = ["equity_swing"]
+                        else:
+                            targets = ["equity_investment", "equity_swing"]
 
-        convergence = []
-        for sym, items in symbol_groups.items():
-            domains = {i["source_domain"] for i in items}
-            if len(domains) >= 2:
-                convergence.append(_compute_convergence(sym, items))
+                        for tgt in targets:
+                            intel_items.append({
+                                "source_domain": "options",
+                                "target_domain": tgt,
+                                "intel_type": "options_strategies_active",
+                                "symbol": symbol or "portfolio",
+                                "headline": f"{len(strat_rows)} active options strategies — check IV surface before equity entries",
+                                "data": {
+                                    "strategy_count": len(strat_rows),
+                                    "strategies": [
+                                        {"id": r[0], "name": r[1], "status": r[2]}
+                                        for r in strat_rows[:5]
+                                    ],
+                                },
+                                "action_suggestion": (
+                                    "Active options strategies indicate vol awareness. "
+                                    "Check IV rank via get_iv_surface before sizing equity positions."
+                                ),
+                                "relevance": 0.5,
+                            })
+                except Exception as exc:
+                    logger.warning(f"[cross_domain] options strategy query failed (schema may be missing instrument_type column): {exc}")
 
-        # ── 5. Summary ──────────────────────────────────────────────
-        summary: dict[str, dict] = {}
-        for domain_name, horizon_filter in [
-            ("equity_investment", "= 'investment'"),
-            ("equity_swing", "IN ('swing', 'position')"),
-        ]:
+            # ── 4. Convergence analysis ──────────────────────────────────
+            symbol_groups: dict[str, list[dict]] = {}
+            for item in intel_items:
+                sym = item.get("symbol", "")
+                if sym and sym != "portfolio":
+                    symbol_groups.setdefault(sym, []).append(item)
+
+            convergence = []
+            for sym, items in symbol_groups.items():
+                domains = {i["source_domain"] for i in items}
+                if len(domains) >= 2:
+                    convergence.append(_compute_convergence(sym, items))
+
+            # ── 5. Summary ──────────────────────────────────────────────
+            summary: dict[str, dict] = {}
+            for domain_name, horizon_filter in [
+                ("equity_investment", "= 'investment'"),
+                ("equity_swing", "IN ('swing', 'position')"),
+            ]:
+                try:
+                    count_row = conn.execute(
+                        f"""
+                        SELECT COUNT(*) FROM equity_alerts
+                        WHERE time_horizon {horizon_filter}
+                          AND status IN ('pending', 'watching', 'acted')
+                        """
+                    ).fetchone()
+                    summary[domain_name] = {"active_alerts": count_row[0] if count_row else 0}
+                except Exception as exc:
+                    logger.warning(f"[cross_domain] alert count query failed for {domain_name}: {exc}")
+                    summary[domain_name] = {"active_alerts": 0}
+
             try:
-                count_row = ctx.db.execute(
-                    f"""
-                    SELECT COUNT(*) FROM equity_alerts
-                    WHERE time_horizon {horizon_filter}
-                      AND status IN ('pending', 'watching', 'acted')
-                    """
+                opt_count = conn.execute(
+                    "SELECT COUNT(*) FROM strategies WHERE instrument_type = 'options' AND status IN ('validated', 'live')"
                 ).fetchone()
-                summary[domain_name] = {"active_alerts": count_row[0] if count_row else 0}
-            except Exception as e:
-                logger.warning(f"[cross_domain] alert count query failed for {domain_name}: {e}")
-                summary[domain_name] = {"active_alerts": 0}
-
-        try:
-            opt_count = ctx.db.execute(
-                "SELECT COUNT(*) FROM strategies WHERE instrument_type = 'options' AND status IN ('validated', 'live')"
-            ).fetchone()
-            summary["options"] = {"active_strategies": opt_count[0] if opt_count else 0}
-        except Exception as e:
-            logger.warning(f"[cross_domain] options strategy count query failed: {e}")
-            summary["options"] = {"active_strategies": 0}
+                summary["options"] = {"active_strategies": opt_count[0] if opt_count else 0}
+            except Exception as exc:
+                logger.warning(f"[cross_domain] options strategy count query failed: {exc}")
+                summary["options"] = {"active_strategies": 0}
 
         # Sort by relevance
         intel_items.sort(key=lambda x: x.get("relevance", 0), reverse=True)
@@ -434,3 +436,9 @@ async def get_cross_domain_intel(
     except Exception as e:
         logger.error(f"[cross_domain] get_cross_domain_intel failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

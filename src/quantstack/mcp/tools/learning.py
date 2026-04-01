@@ -20,22 +20,23 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
+from quantstack.db import pg_conn
 from quantstack.mcp._state import (
     _serialize,
     live_db_or_error,
     require_ctx,
     require_live_db,
 )
-from quantstack.mcp.server import mcp
-from quantstack.mcp.tools.strategy import _get_strategy_impl
-from quantstack.mcp.tools.backtesting import run_backtest
 from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._impl import get_strategy_impl as _get_strategy_impl
+from quantstack.mcp.tools._impl import run_backtest_impl as run_backtest
 from quantstack.mcp.tools._registry import domain
+from quantstack.mcp.tools._tool_def import tool_def
 
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def promote_strategy(
     strategy_id: str,
     evidence: str,
@@ -57,7 +58,7 @@ async def promote_strategy(
         Success with updated record, or rejection with failed criteria.
     """
 
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -97,10 +98,11 @@ async def promote_strategy(
             }
 
         # Promote
-        ctx.db.execute(
-            "UPDATE strategies SET status = 'live', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
-            [strategy_id],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                "UPDATE strategies SET status = 'live', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                [strategy_id],
+            )
         logger.info(
             f"[quantpod_mcp] Promoted strategy {strategy_id} to LIVE: {evidence}"
         )
@@ -117,7 +119,7 @@ async def promote_strategy(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def retire_strategy(
     strategy_id: str,
     reason: str,
@@ -135,21 +137,22 @@ async def retire_strategy(
     Returns:
         Confirmation with the retirement details.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
-        # Update status
-        ctx.db.execute(
-            "UPDATE strategies SET status = 'retired', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
-            [strategy_id],
-        )
+        with pg_conn() as conn:
+            # Update status
+            conn.execute(
+                "UPDATE strategies SET status = 'retired', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                [strategy_id],
+            )
 
-        # Remove from regime matrix
-        ctx.db.execute(
-            "DELETE FROM regime_strategy_matrix WHERE strategy_id = ?",
-            [strategy_id],
-        )
+            # Remove from regime matrix
+            conn.execute(
+                "DELETE FROM regime_strategy_matrix WHERE strategy_id = ?",
+                [strategy_id],
+            )
 
         logger.info(f"[quantpod_mcp] Retired strategy {strategy_id}: {reason}")
         return {
@@ -165,7 +168,7 @@ async def retire_strategy(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def get_strategy_performance(
     strategy_id: str,
     lookback_days: int = 30,
@@ -185,7 +188,7 @@ async def get_strategy_performance(
         Dict with live metrics, backtest comparison, and degradation flag.
     """
 
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -199,16 +202,17 @@ async def get_strategy_performance(
 
         # Query closed trades in lookback period, filtered by strategy
         cutoff = _dt.now() - _td(days=lookback_days)
-        rows = ctx.db.execute(
-            """
-            SELECT realized_pnl, closed_at, holding_days
-            FROM closed_trades
-            WHERE closed_at >= ?
-              AND strategy_id = ?
-            ORDER BY closed_at
-            """,
-            [cutoff, strategy_id],
-        ).fetchall()
+        with pg_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT realized_pnl, closed_at, holding_days
+                FROM closed_trades
+                WHERE closed_at >= ?
+                  AND strategy_id = ?
+                ORDER BY closed_at
+                """,
+                [cutoff, strategy_id],
+            ).fetchall()
 
         if not rows:
             return {
@@ -261,7 +265,7 @@ async def get_strategy_performance(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def validate_strategy(strategy_id: str) -> dict[str, Any]:
     """
     Re-validate a strategy by comparing current backtest to registered summary.
@@ -334,7 +338,7 @@ async def validate_strategy(strategy_id: str) -> dict[str, Any]:
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def update_regime_matrix_from_performance(
     lookback_days: int = 60,
 ) -> dict[str, Any]:
@@ -351,32 +355,33 @@ async def update_regime_matrix_from_performance(
     Returns:
         Dict with proposed changes per regime + reasoning.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
-        # Get all closed trades in the lookback period
+        # Get all closed trades and current matrix in a single pooled connection
         cutoff = _dt.now() - _td(days=lookback_days)
-        rows = ctx.db.execute(
-            """
-            SELECT symbol, side, realized_pnl, closed_at
-            FROM closed_trades
-            WHERE closed_at >= ?
-            """,
-            [cutoff],
-        ).fetchall()
+        with pg_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT symbol, side, realized_pnl, closed_at
+                FROM closed_trades
+                WHERE closed_at >= ?
+                """,
+                [cutoff],
+            ).fetchall()
 
-        if not rows:
-            return {
-                "success": True,
-                "proposals": [],
-                "note": f"No closed trades in last {lookback_days} days. Cannot propose changes.",
-            }
+            if not rows:
+                return {
+                    "success": True,
+                    "proposals": [],
+                    "note": f"No closed trades in last {lookback_days} days. Cannot propose changes.",
+                }
 
-        # Get current matrix
-        matrix_rows = ctx.db.execute(
-            "SELECT regime, strategy_id, allocation_pct FROM regime_strategy_matrix"
-        ).fetchall()
+            # Get current matrix
+            matrix_rows = conn.execute(
+                "SELECT regime, strategy_id, allocation_pct FROM regime_strategy_matrix"
+            ).fetchall()
 
         current_matrix = {}
         for r in matrix_rows:
@@ -408,3 +413,9 @@ async def update_regime_matrix_from_performance(
             f"[quantpod_mcp] update_regime_matrix_from_performance failed: {e}"
         )
         return {"success": False, "error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

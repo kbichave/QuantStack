@@ -472,7 +472,7 @@ def _build_returns_matrix(
 
     df = pd.DataFrame(series_dict)
     # Forward-fill short gaps, then drop remaining NaNs
-    df = df.fillna(method="ffill", limit=3).dropna()
+    df = df.ffill(limit=3).dropna()
     return df
 
 

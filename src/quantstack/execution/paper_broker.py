@@ -34,6 +34,7 @@ import os
 import uuid
 from datetime import datetime
 from threading import RLock
+from typing import Protocol, runtime_checkable
 
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -44,6 +45,24 @@ from quantstack.execution.portfolio_state import (
     Position,
     get_portfolio_state,
 )
+
+# =============================================================================
+# BROKER PROTOCOL — the shared interface every broker must satisfy
+# =============================================================================
+
+
+@runtime_checkable
+class BrokerProtocol(Protocol):
+    """Structural interface that all broker implementations must satisfy.
+
+    Using Protocol (not ABC) keeps broker implementations decoupled — they
+    don't need to import or subclass anything from this module, which prevents
+    circular imports between optional-dependency adapters (Alpaca, eTrade) and
+    the core execution package.
+    """
+
+    def execute(self, req: "OrderRequest") -> "Fill": ...  # noqa: E704
+
 
 # =============================================================================
 # DATA MODELS

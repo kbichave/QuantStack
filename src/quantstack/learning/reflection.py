@@ -24,6 +24,8 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.db import pg_conn
+
 
 # ---------------------------------------------------------------------------
 # Trade reflection record — canonical location is quantstack.shared.models
@@ -52,40 +54,17 @@ class ReflectionManager:
     """Automatic post-trade analysis with SQL-based memory retrieval.
 
     Usage:
-        rm = ReflectionManager(conn)
+        rm = ReflectionManager()
         # After trade close:
         rm.record_outcome(symbol, strategy_id, ...)
         # At market close:
         rm.daily_reflection(snapshot_date, ...)
     """
 
-    def __init__(self, conn: Any):
-        self._conn = conn
-        self._ensure_table()
-
-    def _ensure_table(self) -> None:
-        """Create the reflections table if it doesn't exist."""
-        self._conn.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS {REFLECTIONS_TABLE} (
-                id              INTEGER PRIMARY KEY,
-                symbol          VARCHAR NOT NULL,
-                strategy_id     VARCHAR,
-                action          VARCHAR,
-                entry_price     DOUBLE,
-                exit_price      DOUBLE,
-                realized_pnl_pct DOUBLE,
-                holding_days    INTEGER,
-                regime_at_entry VARCHAR,
-                regime_at_exit  VARCHAR,
-                conviction      DOUBLE,
-                signals_entry   VARCHAR,
-                signals_exit    VARCHAR,
-                lesson          VARCHAR,
-                created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """
-        )
+    def __init__(self, conn: Any = None) -> None:
+        # conn is accepted but ignored — each write uses pg_conn() to ensure
+        # the transaction is committed immediately and never left open.
+        pass
 
     @staticmethod
     def _row_to_reflection(row: tuple) -> TradeReflection:
@@ -159,30 +138,32 @@ class ReflectionManager:
             timestamp=datetime.now().isoformat(),
         )
 
-        # Persist to DB
+        # Persist to DB — use pg_conn() so the INSERT is committed immediately
+        # and never left idle-in-transaction (which would block CREATE INDEX migrations).
         try:
-            self._conn.execute(
-                f"INSERT INTO {REFLECTIONS_TABLE} "
-                f"(symbol, strategy_id, action, entry_price, exit_price, "
-                f"realized_pnl_pct, holding_days, regime_at_entry, regime_at_exit, "
-                f"conviction, signals_entry, signals_exit, lesson) "
-                f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    symbol,
-                    strategy_id,
-                    action,
-                    entry_price,
-                    exit_price,
-                    realized_pnl_pct,
-                    holding_days,
-                    regime_at_entry,
-                    regime_at_exit,
-                    conviction,
-                    signals_entry,
-                    signals_exit,
-                    lesson,
-                ],
-            )
+            with pg_conn() as conn:
+                conn.execute(
+                    f"INSERT INTO {REFLECTIONS_TABLE} "
+                    f"(symbol, strategy_id, action, entry_price, exit_price, "
+                    f"realized_pnl_pct, holding_days, regime_at_entry, regime_at_exit, "
+                    f"conviction, signals_entry, signals_exit, lesson) "
+                    f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        symbol,
+                        strategy_id,
+                        action,
+                        entry_price,
+                        exit_price,
+                        realized_pnl_pct,
+                        holding_days,
+                        regime_at_entry,
+                        regime_at_exit,
+                        conviction,
+                        signals_entry,
+                        signals_exit,
+                        lesson,
+                    ],
+                )
         except Exception as exc:
             logger.warning(f"[Reflection] Failed to persist: {exc}")
 
@@ -210,16 +191,17 @@ class ReflectionManager:
         Uses SQL filtering on structured columns instead of lexical matching.
         """
         try:
-            rows = self._conn.execute(
-                f"""SELECT {_REFLECTION_COLUMNS}
-                    FROM {REFLECTIONS_TABLE}
-                    WHERE regime_at_entry = ?
-                    ORDER BY
-                        (symbol = ?) DESC,
-                        abs(realized_pnl_pct) DESC
-                    LIMIT ?""",
-                [regime, symbol, top_k],
-            ).fetchall()
+            with pg_conn() as conn:
+                rows = conn.execute(
+                    f"""SELECT {_REFLECTION_COLUMNS}
+                        FROM {REFLECTIONS_TABLE}
+                        WHERE regime_at_entry = ?
+                        ORDER BY
+                            (symbol = ?) DESC,
+                            abs(realized_pnl_pct) DESC
+                        LIMIT ?""",
+                    [regime, symbol, top_k],
+                ).fetchall()
         except Exception as exc:
             logger.debug(f"[Reflection] find_similar query failed: {exc}")
             rows = []
@@ -265,12 +247,13 @@ class ReflectionManager:
 
         # Check for repeat losses via SQL
         try:
-            repeat_count = self._conn.execute(
-                f"""SELECT COUNT(*) FROM {REFLECTIONS_TABLE}
-                    WHERE symbol = ? AND regime_at_entry = ? AND strategy_id = ?
-                      AND realized_pnl_pct < -1.0""",
-                [symbol, regime_entry, strategy_id],
-            ).fetchone()[0]
+            with pg_conn() as conn:
+                repeat_count = conn.execute(
+                    f"""SELECT COUNT(*) FROM {REFLECTIONS_TABLE}
+                        WHERE symbol = ? AND regime_at_entry = ? AND strategy_id = ?
+                          AND realized_pnl_pct < -1.0""",
+                    [symbol, regime_entry, strategy_id],
+                ).fetchone()[0]
         except Exception:
             repeat_count = 0
 

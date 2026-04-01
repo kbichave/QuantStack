@@ -468,9 +468,9 @@ class DegradationDetector:
                 """
                 CREATE TABLE IF NOT EXISTS is_benchmarks (
                     strategy_id             VARCHAR PRIMARY KEY,
-                    predicted_annual_sharpe DOUBLE NOT NULL,
-                    predicted_max_drawdown  DOUBLE NOT NULL,
-                    predicted_win_rate      DOUBLE NOT NULL,
+                    predicted_annual_sharpe DOUBLE PRECISION NOT NULL,
+                    predicted_max_drawdown  DOUBLE PRECISION NOT NULL,
+                    predicted_win_rate      DOUBLE PRECISION NOT NULL,
                     n_backtest_trades       INTEGER DEFAULT 0,
                     registered_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

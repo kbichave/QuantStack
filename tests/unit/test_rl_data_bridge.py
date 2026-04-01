@@ -24,28 +24,35 @@ from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
 # ---------------------------------------------------------------------------
 
 
+def _clean_rl_tables() -> None:
+    """Committed cleanup for RL bridge tables."""
+    with pg_conn() as conn:
+        conn.execute("DELETE FROM trade_journal")
+        conn.execute("DELETE FROM market_observations")
+        conn.execute("DELETE FROM trading_signals")
+
+
 def _make_store_with_trades(n_trades: int = 30) -> Any:
     """Return a mock KnowledgeStore backed by a PostgreSQL connection with trade data."""
     from quantstack.db import open_db
+    _clean_rl_tables()
     conn = open_db()
     np.random.seed(42)
+    alpha_types = ["TREND", "MOMENTUM", "VOL"]
     for i in range(n_trades):
-        alpha_types = ["TREND", "MOMENTUM", "VOL"]
         conn.execute(
             """
             INSERT INTO trade_journal
-                (trade_id, symbol, side, pnl, signal_type, status, entry_time, exit_time)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (symbol, direction, structure_type, pnl, pnl_pct, status)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             [
-                f"t{i}",
                 "SPY",
-                "BUY" if i % 2 == 0 else "SELL",
+                ["LONG", "SHORT"][i % 2],
+                alpha_types[i % len(alpha_types)],
                 float(np.random.randn() * 100),
-                alpha_types[i % 3],
+                float(np.random.randn() * 0.01),
                 "CLOSED",
-                datetime.utcnow() - timedelta(days=n_trades - i),
-                datetime.utcnow() - timedelta(days=n_trades - i - 1),
             ],
         )
     conn.execute("COMMIT")
@@ -57,13 +64,14 @@ def _make_store_with_trades(n_trades: int = 30) -> Any:
 def _make_store_with_ohlcv(n_bars: int = 100) -> Any:
     """Return a mock KnowledgeStore with market_observations data."""
     from quantstack.db import open_db
+    _clean_rl_tables()
     conn = open_db()
     np.random.seed(42)
     prices = 100 + np.cumsum(np.random.randn(n_bars) * 0.5)
     for i, p in enumerate(prices):
         conn.execute(
-            "INSERT INTO market_observations (symbol, timestamp, close, volume) VALUES (?, ?, ?, ?)",
-            ["SPY", datetime.utcnow() - timedelta(days=n_bars - i), float(p), 5000],
+            "INSERT INTO market_observations (symbol, timestamp, observation_type, current_price, volume) VALUES (?, ?, ?, ?, ?)",
+            ["SPY", datetime.utcnow() - timedelta(days=n_bars - i), "PRICE", float(p), 5000],
         )
     conn.execute("COMMIT")
     store = MagicMock()
@@ -74,17 +82,18 @@ def _make_store_with_ohlcv(n_bars: int = 100) -> Any:
 def _make_store_with_signals(n_signals: int = 50) -> Any:
     """Return a mock KnowledgeStore with trading_signals data."""
     from quantstack.db import open_db
+    _clean_rl_tables()
     conn = open_db()
     np.random.seed(42)
     for i in range(n_signals):
         conn.execute(
-            "INSERT INTO trading_signals (signal_id, direction, confidence, expected_return, alpha_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO trading_signals (id, symbol, direction, signal_type, confidence, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
             [
                 f"sig{i}",
+                "SPY",
                 ["LONG", "SHORT", "NEUTRAL"][i % 3],
-                float(np.random.beta(2, 2)),
-                float(np.random.normal(0.001, 0.002)),
                 "TREND",
+                float(np.random.beta(2, 2)),
                 datetime.utcnow() - timedelta(days=n_signals - i),
             ],
         )
@@ -169,6 +178,7 @@ class TestGetOHLCVForExecution:
         assert isinstance(df, pd.DataFrame)
 
     def test_missing_table_returns_empty_df(self):
+        _clean_rl_tables()
         store = MagicMock()
         from quantstack.db import open_db
         store.conn = open_db()

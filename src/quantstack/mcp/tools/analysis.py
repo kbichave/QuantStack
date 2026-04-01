@@ -27,7 +27,7 @@ from quantstack.mcp._state import (
     live_db_or_error,
     require_ctx,
 )
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.tools._registry import domain
 from quantstack.mcp.domains import Domain
 
@@ -38,7 +38,7 @@ from quantstack.mcp.domains import Domain
 
 
 @domain(Domain.PORTFOLIO, Domain.EXECUTION, Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def get_portfolio_state() -> dict[str, Any]:
     """
     Return the current portfolio state: positions, cash, equity, and P&L.
@@ -81,7 +81,7 @@ async def get_portfolio_state() -> dict[str, Any]:
 
 
 @domain(Domain.SIGNALS, Domain.DATA, Domain.RESEARCH, Domain.ML, Domain.FINRL, Domain.INTEL, Domain.RISK)
-@mcp.tool()
+@tool_def()
 async def get_regime(symbol: str) -> dict[str, Any]:
     """
     Detect the current market regime for a symbol using ADX/ATR classification.
@@ -120,7 +120,7 @@ async def get_regime(symbol: str) -> dict[str, Any]:
 
 
 @domain(Domain.PORTFOLIO)
-@mcp.tool()
+@tool_def()
 async def get_recent_decisions(
     symbol: str | None = None,
     limit: int = 20,
@@ -174,7 +174,7 @@ async def get_recent_decisions(
 
 
 @domain(Domain.EXECUTION, Domain.SIGNALS, Domain.PORTFOLIO)
-@mcp.tool()
+@tool_def()
 async def get_system_status() -> dict[str, Any]:
     """
     Return system health: kill switch state, risk halt, broker mode, session ID.
@@ -197,3 +197,9 @@ async def get_system_status() -> dict[str, Any]:
     except Exception as e:
         logger.error(f"[quantpod_mcp] get_system_status failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

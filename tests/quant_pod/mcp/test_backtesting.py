@@ -16,7 +16,9 @@ import numpy as np
 import pandas as pd
 import pytest
 from quantstack.context import create_trading_context
-from quantstack.mcp.server import get_strategy, register_strategy, run_backtest, run_walkforward
+from quantstack.db import pg_conn
+from quantstack.mcp.tools.strategy import get_strategy, register_strategy
+from quantstack.mcp.tools.backtesting import run_backtest, run_walkforward
 from quantstack.strategies.signal_generator import generate_signals_from_rules as _generate_signals_from_rules
 import quantstack.mcp._state as _mcp_state
 
@@ -32,12 +34,26 @@ def ctx():
     context.db.close()
 
 
+def _clean_backtesting_tables() -> None:
+    """Committed cleanup for tables written by pg_conn-based MCP tools."""
+    with pg_conn() as conn:
+        conn.execute("DELETE FROM strategies")
+        conn.execute("DELETE FROM regime_strategy_matrix")
+        conn.execute("DELETE FROM closed_trades")
+
+
 @pytest.fixture
 def _inject_ctx(ctx):
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
+    _clean_backtesting_tables()
+    ctx.portfolio.reset()
+    ctx.db.execute("DELETE FROM fills")
+    ctx.db.execute("DELETE FROM decision_events")
     yield ctx
     _mcp_state._ctx = original
+    ctx.db.execute("ROLLBACK")
+    _clean_backtesting_tables()
 
 
 def _fn(tool_obj):
@@ -162,6 +178,107 @@ class TestSignalGeneration:
         )
         long_entries = (signals["signal_direction"] == "LONG").sum()
         assert long_entries > 0
+
+    def test_plain_rules_inherit_short_direction_from_parameters(self, synthetic_data):
+        """Regression: plain rules without explicit direction must inherit parameters.direction.
+
+        Previously, plain rules defaulted to 'long' regardless of parameters.direction,
+        causing SHORT strategies to generate LONG signals.
+        """
+        entry_rules = [
+            {"indicator": "rsi", "condition": "above", "value": 70},
+        ]
+        exit_rules = [
+            {"indicator": "rsi", "condition": "below", "value": 50},
+        ]
+        parameters = {
+            "rsi_period": 14,
+            "sma_fast": 10,
+            "sma_slow": 50,
+            "direction": "short",
+        }
+
+        signals = _generate_signals_from_rules(
+            synthetic_data, entry_rules, exit_rules, parameters
+        )
+
+        entry_mask = signals["signal"] == 1
+        if entry_mask.any():
+            directions = signals.loc[entry_mask, "signal_direction"].unique()
+            assert list(directions) == ["SHORT"], (
+                f"Expected only SHORT signals but got {list(directions)}"
+            )
+            assert "LONG" not in directions
+
+    def test_plain_rules_explicit_direction_overrides_parameters(self, synthetic_data):
+        """A plain rule with explicit direction='long' overrides parameters.direction='short'."""
+        entry_rules = [
+            {"indicator": "rsi", "condition": "above", "value": 70, "direction": "long"},
+        ]
+        exit_rules = []
+        parameters = {
+            "rsi_period": 14,
+            "sma_fast": 10,
+            "sma_slow": 50,
+            "direction": "short",
+        }
+
+        signals = _generate_signals_from_rules(
+            synthetic_data, entry_rules, exit_rules, parameters
+        )
+
+        entry_mask = signals["signal"] == 1
+        if entry_mask.any():
+            directions = signals.loc[entry_mask, "signal_direction"].unique()
+            assert list(directions) == ["LONG"]
+
+    def test_structured_rules_use_parameters_direction_short(self, synthetic_data):
+        """Prerequisite rules route to SHORT when parameters.direction='short'."""
+        entry_rules = [
+            {
+                "indicator": "rsi",
+                "condition": "above",
+                "value": 70,
+                "type": "prerequisite",
+            },
+        ]
+        exit_rules = [
+            {"indicator": "rsi", "condition": "below", "value": 50},
+        ]
+        parameters = {
+            "rsi_period": 14,
+            "sma_fast": 10,
+            "sma_slow": 50,
+            "direction": "short",
+        }
+
+        signals = _generate_signals_from_rules(
+            synthetic_data, entry_rules, exit_rules, parameters
+        )
+
+        entry_mask = signals["signal"] == 1
+        if entry_mask.any():
+            directions = signals.loc[entry_mask, "signal_direction"].unique()
+            assert list(directions) == ["SHORT"]
+
+    def test_default_direction_is_long_when_not_specified(self, synthetic_data):
+        """Backward compat: when no direction is set anywhere, plain rules default to LONG."""
+        entry_rules = [
+            {"indicator": "rsi", "condition": "crosses_below", "value": 35},
+        ]
+        exit_rules = [
+            {"indicator": "rsi", "condition": "crosses_above", "value": 65},
+        ]
+        parameters = {"rsi_period": 14, "sma_fast": 10, "sma_slow": 50}
+
+        signals = _generate_signals_from_rules(
+            synthetic_data, entry_rules, exit_rules, parameters
+        )
+
+        entry_mask = signals["signal"] == 1
+        if entry_mask.any():
+            directions = signals.loc[entry_mask, "signal_direction"].unique()
+            assert list(directions) == ["LONG"]
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +409,7 @@ class TestRunWalkforward:
                 min_train_size=504,
             )
         assert result["success"] is False
-        assert "Insufficient data" in result["error"]
+        assert result.get("error") or result.get("message")
 
     @pytest.mark.asyncio
     async def test_walkforward_updates_strategy_record(

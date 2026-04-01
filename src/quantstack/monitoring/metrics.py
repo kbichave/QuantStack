@@ -71,12 +71,24 @@ _daily_pnl: Gauge | None = None
 _kill_switch: Gauge | None = None
 _tick_lag: Histogram | None = None
 
+# BLITZ mode metrics
+_blitz_iterations: Counter | None = None
+_blitz_duration: Histogram | None = None
+_blitz_agents_spawned: Histogram | None = None
+_blitz_agents_succeeded: Histogram | None = None
+_blitz_symbols_complete: Gauge | None = None
+_blitz_conflicts: Counter | None = None
+_blitz_strategies: Counter | None = None
+
 
 def _init_metrics() -> None:
     """Create all metrics once.  Safe to call multiple times."""
     global _trades_executed, _risk_rejections, _agent_latency
     global _signal_staleness, _portfolio_nav, _daily_pnl
     global _kill_switch, _tick_lag
+    global _blitz_iterations, _blitz_duration, _blitz_agents_spawned
+    global _blitz_agents_succeeded, _blitz_symbols_complete, _blitz_conflicts
+    global _blitz_strategies
     if _trades_executed is not None:
         return
 
@@ -117,6 +129,41 @@ def _init_metrics() -> None:
         "quantpod_tick_executor_lag_seconds",
         "Elapsed time from tick arrival to order submit in the hot path",
         buckets=[0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
+    )
+
+    # BLITZ mode metrics
+    _blitz_iterations = Counter(
+        "quantpod_blitz_iterations_total",
+        "Total BLITZ mode iterations completed"
+    )
+    _blitz_duration = Histogram(
+        "quantpod_blitz_duration_seconds",
+        "BLITZ iteration duration (seconds)",
+        buckets=[30, 60, 120, 300, 600, 1200]  # 30s to 20min
+    )
+    _blitz_agents_spawned = Histogram(
+        "quantpod_blitz_agents_spawned",
+        "Number of agents spawned per BLITZ iteration",
+        buckets=[3, 6, 9, 15, 21, 30]
+    )
+    _blitz_agents_succeeded = Histogram(
+        "quantpod_blitz_agents_succeeded",
+        "Number of agents that completed successfully",
+        buckets=[0, 1, 3, 6, 9, 15, 21, 30]
+    )
+    _blitz_symbols_complete = Gauge(
+        "quantpod_blitz_symbols_complete",
+        "Symbols with complete 3-domain coverage (cumulative)"
+    )
+    _blitz_conflicts = Counter(
+        "quantpod_blitz_conflicts_detected_total",
+        "Cross-domain thesis conflicts detected",
+        ["symbol"]
+    )
+    _blitz_strategies = Counter(
+        "quantpod_blitz_strategies_registered_total",
+        "Strategies registered by BLITZ agents",
+        ["domain"]  # investment, swing, options
     )
 
 
@@ -171,6 +218,56 @@ def record_tick_latency(latency_seconds: float) -> None:
     """Record a single tick-executor hot-path latency observation."""
     _init_metrics()
     _tick_lag.observe(latency_seconds)
+
+
+# ---------------------------------------------------------------------------
+# BLITZ mode recording functions
+# ---------------------------------------------------------------------------
+
+
+def record_blitz_iteration(duration_seconds: float, agents_spawned: int, agents_succeeded: int) -> None:
+    """Record a completed BLITZ iteration with metrics.
+
+    Args:
+        duration_seconds: Total time from start to completion
+        agents_spawned: Number of agents launched
+        agents_succeeded: Number of agents that completed successfully
+    """
+    _init_metrics()
+    _blitz_iterations.inc()
+    _blitz_duration.observe(duration_seconds)
+    _blitz_agents_spawned.observe(agents_spawned)
+    _blitz_agents_succeeded.observe(agents_succeeded)
+
+
+def record_blitz_coverage(symbols_complete_count: int) -> None:
+    """Update the cumulative count of symbols with complete 3-domain coverage.
+
+    Args:
+        symbols_complete_count: Number of symbols with investment + swing + options strategies
+    """
+    _init_metrics()
+    _blitz_symbols_complete.set(symbols_complete_count)
+
+
+def record_blitz_conflict(symbol: str) -> None:
+    """Increment conflict counter when cross-domain thesis conflicts are detected.
+
+    Args:
+        symbol: Symbol with conflicting theses across domains
+    """
+    _init_metrics()
+    _blitz_conflicts.labels(symbol=symbol.upper()).inc()
+
+
+def record_blitz_strategy(domain: str) -> None:
+    """Increment strategy registration counter by domain.
+
+    Args:
+        domain: Domain where strategy was registered (investment, swing, options)
+    """
+    _init_metrics()
+    _blitz_strategies.labels(domain=domain.lower()).inc()
 
 
 # ---------------------------------------------------------------------------

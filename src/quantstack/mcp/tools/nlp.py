@@ -20,11 +20,11 @@ Design invariants:
 import json
 from typing import Any
 
-# litellm (~1.1s) and transformers (~1.0s) deferred to backend functions.
+import litellm
 from loguru import logger
 
 from quantstack.llm_config import get_llm_for_role
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -40,7 +40,8 @@ def _resolve_sentiment_model() -> str:
     """
     try:
         return get_llm_for_role("ic")
-    except Exception:
+    except Exception as exc:
+        logger.debug(f"[nlp] get_llm_for_role('ic') failed, falling back to default: {exc}")
         return _GROQ_MODEL_DEFAULT
 
 
@@ -65,7 +66,6 @@ def _groq_sentiment(text: str) -> dict[str, Any]:
         "No markdown, no explanation, no text outside the JSON object."
     )
 
-    import litellm  # noqa: PLC0415
     response = litellm.completion(
         model=model,
         messages=[
@@ -160,7 +160,7 @@ def _finbert_sentiment(text: str) -> dict[str, Any]:
 
 
 @domain(Domain.INTEL)
-@mcp.tool()
+@tool_def()
 async def analyze_text_sentiment(
     text: str,
     method: str = "groq",
@@ -220,3 +220,9 @@ async def analyze_text_sentiment(
             "confidence": 0.0,
             "method": method,
         }
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

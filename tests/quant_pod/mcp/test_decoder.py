@@ -8,36 +8,32 @@ End-to-end from raw signals to DecodedStrategy.
 
 from __future__ import annotations
 
-import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from unittest.mock import patch
 
 import pytest
-from quantstack.context import create_trading_context
-from quantstack.mcp.server import decode_from_trades, decode_strategy, get_strategy
-import quantstack.mcp._state as _mcp_state
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+from quantstack.db import pg_conn
+from quantstack.mcp.tools.decoder import decode_from_trades, decode_strategy
+from quantstack.mcp.tools.strategy import get_strategy
 
-
-@pytest.fixture
-def ctx():
-    context = create_trading_context(db_path=":memory:", session_id=str(uuid.uuid4()))
-    yield context
-    context.db.close()
+from .conftest import _fn
 
 
-@pytest.fixture
-def _inject_ctx(ctx):
-    original = _mcp_state._ctx
-    _mcp_state._ctx = ctx
-    yield ctx
-    _mcp_state._ctx = original
-
-
-def _fn(tool_obj):
-    return tool_obj.fn if hasattr(tool_obj, "fn") else tool_obj
+@pytest.fixture(autouse=True)
+def _clean_decoder_state():
+    """Clean up decoder test data in the real PG database before and after each test."""
+    def _cleanup():
+        try:
+            with pg_conn() as conn:
+                conn.execute("DELETE FROM strategies WHERE source = 'decoded'")
+                conn.execute("DELETE FROM closed_trades WHERE symbol = 'SPY' AND quantity = 10")
+        except Exception:
+            pass
+    _cleanup()
+    yield
+    _cleanup()
 
 
 def _make_signals(n: int = 30) -> list:
@@ -69,7 +65,7 @@ def _make_signals(n: int = 30) -> list:
 
 class TestDecodeStrategyTool:
     @pytest.mark.asyncio
-    async def test_decode_returns_decoded_strategy(self, _inject_ctx):
+    async def test_decode_returns_decoded_strategy(self, inject_ctx):
         result = await _fn(decode_strategy)(
             signals=_make_signals(),
             source_name="test_discord",
@@ -82,7 +78,7 @@ class TestDecodeStrategyTool:
         assert "edge_hypothesis" in decoded
 
     @pytest.mark.asyncio
-    async def test_decode_with_auto_register(self, _inject_ctx):
+    async def test_decode_with_auto_register(self, inject_ctx):
         result = await _fn(decode_strategy)(
             signals=_make_signals(),
             source_name="test_auto_reg",
@@ -98,12 +94,12 @@ class TestDecodeStrategyTool:
         assert strat["strategy"]["source"] == "decoded"
 
     @pytest.mark.asyncio
-    async def test_decode_empty_signals_fails(self, _inject_ctx):
+    async def test_decode_empty_signals_fails(self, inject_ctx):
         result = await _fn(decode_strategy)(signals=[])
         assert result["success"] is False
 
     @pytest.mark.asyncio
-    async def test_decode_low_confidence_warning(self, _inject_ctx):
+    async def test_decode_low_confidence_warning(self, inject_ctx):
         result = await _fn(decode_strategy)(
             signals=_make_signals(10),
             source_name="small_sample",
@@ -119,21 +115,20 @@ class TestDecodeStrategyTool:
 
 class TestDecodeFromTrades:
     @pytest.mark.asyncio
-    async def test_no_trades_returns_error(self, _inject_ctx):
+    async def test_no_trades_returns_error(self, inject_ctx):
         result = await _fn(decode_from_trades)(source="closed_trades")
         assert result["success"] is False
         assert "No trades found" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_with_closed_trades(self, _inject_ctx, ctx):
-        # Insert synthetic closed trades
+    async def test_with_closed_trades(self, inject_ctx, ctx):
+        # Insert synthetic closed trades into the in-memory DB
         for i in range(25):
             entry_time = datetime(2024, 1, 2 + i, 10, 30)
             exit_time = entry_time + timedelta(hours=4)
             entry_price = 100 + i * 0.1
             exit_price = entry_price * (1.02 if i % 3 != 0 else 0.99)
             realized = (exit_price - entry_price) * 10
-
             ctx.db.execute(
                 """
                 INSERT INTO closed_trades
@@ -152,16 +147,22 @@ class TestDecodeFromTrades:
                 ],
             )
 
-        result = await _fn(decode_from_trades)(
-            source="closed_trades",
-            symbol="SPY",
-            source_name="self_analysis",
-        )
+        # Patch pg_conn at the decoder's import binding so it reads from ctx.db
+        @contextmanager
+        def _mock_pg():
+            yield ctx.db
+
+        with patch("quantstack.mcp.tools.decoder.pg_conn", return_value=_mock_pg()):
+            result = await _fn(decode_from_trades)(
+                source="closed_trades",
+                symbol="SPY",
+                source_name="self_analysis",
+            )
         assert result["success"] is True
         assert result["decoded_strategy"]["sample_size"] == 25
 
     @pytest.mark.asyncio
-    async def test_invalid_source_fails(self, _inject_ctx):
+    async def test_invalid_source_fails(self, inject_ctx):
         result = await _fn(decode_from_trades)(source="bad_source")
         assert result["success"] is False
         assert "Unknown source" in result["error"]

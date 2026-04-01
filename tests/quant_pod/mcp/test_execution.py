@@ -18,7 +18,7 @@ import uuid
 import pytest
 from quantstack.context import create_trading_context
 from quantstack.execution.portfolio_state import Position
-from quantstack.mcp.server import close_position, execute_trade, get_audit_trail, get_fills, get_risk_metrics
+from quantstack.mcp.tools.execution import close_position, execute_trade, get_audit_trail, get_fills, get_risk_metrics
 import quantstack.mcp._state as _mcp_state
 
 # ---------------------------------------------------------------------------
@@ -37,8 +37,16 @@ def ctx():
 def _inject_ctx(ctx):
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
+    # Clear tables that have pre-existing data from production DB
+    ctx.portfolio.reset()
+    ctx.db.execute("DELETE FROM fills")
+    ctx.db.execute("DELETE FROM decision_events")
+    ctx.db.execute("DELETE FROM strategies")
+    ctx.db.execute("DELETE FROM regime_strategy_matrix")
+    ctx.db.execute("DELETE FROM closed_trades")
     yield ctx
     _mcp_state._ctx = original
+    ctx.db.execute("ROLLBACK")
 
 
 @pytest.fixture

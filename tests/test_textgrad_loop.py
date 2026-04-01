@@ -21,8 +21,15 @@ from quantstack.optimization.credit_assignment import StepCredit
 @pytest.fixture
 def conn():
     with pg_conn() as c:
+        c.execute("DELETE FROM prompt_critiques")
+        c.execute("DELETE FROM prompt_versions")
+        c.execute("DELETE FROM step_credits")
+    with pg_conn() as c:
         run_migrations(c)
         yield c
+        c.execute("DELETE FROM prompt_critiques")
+        c.execute("DELETE FROM prompt_versions")
+        c.execute("DELETE FROM step_credits")
 
 
 @pytest.fixture

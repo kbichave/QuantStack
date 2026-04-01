@@ -17,7 +17,8 @@ Call `list_stored_symbols` to see which symbols have OHLCV data. Note which univ
 symbols are missing or stale (last date > 1 trading day ago).
 
 The universe is defined in `src/quantstack/data/universe.py` — **77 symbols total**:
-- **ETFs (26):** SPY QQQ IWM TLT GLD GDX VXX TQQQ SQQQ XLE XLF XLK XLV XLI XLP + XLY XLB XLRE XLU XLC MDY HYG LQD IEF SHY UUP
+- **ETFs (25):** SPY QQQ IWM TLT GLD GDX VXX TQQQ SQQQ XLE XLF XLK XLV XLI XLP + XLY XLB XLRE XLU XLC MDY HYG LQD IEF SHY UUP
+  (VIX removed — it's an index sourced from FRED, not a tradeable AV symbol)
 - **Large-cap equities (35):** AAPL MSFT NVDA AMD AVGO INTC ORCL CRM PLTR UBER GOOGL META AMZN NFLX TSLA HD MCD COST WMT KO JPM BAC GS V MA C UNH JNJ LLY PFE ABBV XOM CVX BA CAT
 - **Speculative / emerging (16):** ALAB SMCI NBIS IONQ RGTI QBTS RKLB LUNR JOBY ACHR MSTR MARA RIOT HOOD SOFI RDDT
 

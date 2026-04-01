@@ -34,7 +34,7 @@ from quantstack.core.research.stat_tests import (
     lagged_cross_correlation,
 )
 from quantstack.mcp._helpers import _get_reader, _parse_timeframe, _serialize_result
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -45,7 +45,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_adf_test(
     symbol: str,
     timeframe: str = "daily",
@@ -107,7 +107,7 @@ async def run_adf_test(
                 round(result.statistic, 4) if not np.isnan(result.statistic) else None
             ),
             "p_value": round(result.p_value, 4),
-            "is_stationary": result.is_significant,
+            "is_stationary": bool(result.is_significant),
             "critical_values": result.critical_values,
             "interpretation": result.additional_info.get("interpretation", ""),
             "recommendation": (
@@ -123,7 +123,7 @@ async def run_adf_test(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def compute_alpha_decay(
     symbol: str,
     timeframe: str = "daily",
@@ -213,7 +213,7 @@ async def compute_alpha_decay(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def compute_information_coefficient(
     symbol: str,
     timeframe: str = "daily",
@@ -315,7 +315,7 @@ async def compute_information_coefficient(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_monte_carlo(
     symbol: str,
     timeframe: str = "daily",
@@ -403,7 +403,7 @@ async def run_monte_carlo(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def validate_signal(
     signal: list[float],
     returns: list[float],
@@ -507,7 +507,7 @@ async def validate_signal(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def diagnose_signal(
     signal: list[float],
     returns: list[float],
@@ -554,7 +554,7 @@ async def diagnose_signal(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def detect_leakage(
     symbol: str,
     timeframe: str = "daily",
@@ -640,7 +640,7 @@ async def detect_leakage(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def check_lookahead_bias(
     symbol: str,
     timeframe: str = "daily",
@@ -774,7 +774,7 @@ def _fit_garch_sync(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def fit_garch_model(
     symbol: str,
     model_type: str = "garch",
@@ -868,7 +868,7 @@ async def fit_garch_model(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def forecast_volatility(
     symbol: str,
     horizon_days: int = 5,
@@ -923,7 +923,14 @@ async def forecast_volatility(
         result = fit_out["result"]
 
         # Forecast variance
-        forecasts = result.forecast(horizon=horizon_days)
+        # EGARCH/GJR-GARCH don't support analytic forecasts for horizon > 1;
+        # use simulation in that case.
+        needs_simulation = model_type in ("egarch", "gjr-garch") and horizon_days > 1
+        forecasts = result.forecast(
+            horizon=horizon_days,
+            method="simulation" if needs_simulation else "analytic",
+            simulations=1000 if needs_simulation else None,
+        )
         variance_forecasts = forecasts.variance.iloc[
             -1
         ].values  # array of length horizon
@@ -990,7 +997,7 @@ async def forecast_volatility(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def compute_deflated_sharpe_ratio(
     observed_sharpe: float,
     n_trials: int,
@@ -1085,7 +1092,7 @@ async def compute_deflated_sharpe_ratio(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_combinatorial_purged_cv(
     symbol: str,
     strategy_id: str,
@@ -1256,7 +1263,7 @@ async def run_combinatorial_purged_cv(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def compute_probability_of_overfitting(
     is_sharpe_ratios: list[float],
     oos_sharpe_ratios: list[float],
@@ -1352,3 +1359,9 @@ async def compute_probability_of_overfitting(
     except Exception as e:
         logger.error("compute_probability_of_overfitting failed: {}", e)
         return {"success": False, "error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

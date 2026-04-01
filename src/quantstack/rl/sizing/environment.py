@@ -25,16 +25,8 @@ import pandas as pd
 from loguru import logger
 
 from quantstack.rl.base import Action, Reward, RLEnvironment, State
-
-
-@dataclass
-class TradingSignal:
-    """Trading signal from alpha."""
-
-    direction: str  # "LONG", "SHORT", "NEUTRAL"
-    confidence: float  # 0-1
-    expected_return: float
-    alpha_name: str
+from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
+from quantstack.rl.types import TradingSignal
 
 
 @dataclass
@@ -185,8 +177,6 @@ class SizingEnvironment(RLEnvironment):
 
         Falls back gracefully when data is sparse (no ValueError raised).
         """
-        from quantstack.rl.data_bridge import KnowledgeStoreRLBridge
-
         bridge = KnowledgeStoreRLBridge.from_knowledge_store(store)
         signals = bridge.get_signal_history(lookback_days=lookback_days) or None
         data = None

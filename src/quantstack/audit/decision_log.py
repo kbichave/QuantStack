@@ -100,7 +100,7 @@ class DecisionLog:
                     agent_role              VARCHAR NOT NULL,
                     symbol                  VARCHAR,
                     action                  VARCHAR,
-                    confidence              DOUBLE,
+                    confidence              DOUBLE PRECISION,
                     input_context_hash      VARCHAR,
                     market_data_snapshot    JSON,
                     portfolio_snapshot      JSON,

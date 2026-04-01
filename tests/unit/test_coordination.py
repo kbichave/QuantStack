@@ -52,11 +52,33 @@ def db():
     conn.release()
 
 
+@pytest.fixture
+def clean_db(db):
+    """DB fixture with pre-existing coordination state cleared.
+
+    The shared PostgreSQL DB contains real committed rows (universe symbols,
+    screener_results, loop_events from prior runs).  Coordination tests need
+    a clean slate — we DELETE within the open transaction so the rows vanish
+    for the duration of the test and are restored by the outer ROLLBACK.
+    """
+    db.execute("DELETE FROM screener_results")
+    db.execute("DELETE FROM universe")
+    db.execute("DELETE FROM loop_events")
+    db.execute("DELETE FROM loop_cursors")
+    db.execute("DELETE FROM strategies")
+    db.execute("DELETE FROM loop_heartbeats")
+    db.execute("DELETE FROM strategy_outcomes")
+    db.execute("DELETE FROM positions")
+    db.execute("DELETE FROM closed_trades")
+    yield db
+
+
 # ── EventBus Tests ───────────────────────────────────────────────────────────
 
 
 class TestEventBus:
-    def test_publish_and_poll(self, db):
+    def test_publish_and_poll(self, clean_db):
+        db = clean_db
         bus = EventBus(db)
 
         # Publish
@@ -79,7 +101,8 @@ class TestEventBus:
         events2 = bus.poll("trader_loop")
         assert len(events2) == 0
 
-    def test_poll_with_filter(self, db):
+    def test_poll_with_filter(self, clean_db):
+        db = clean_db
         bus = EventBus(db)
         bus.publish(
             Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory")
@@ -91,7 +114,8 @@ class TestEventBus:
         assert len(events) == 1
         assert events[0].event_type == EventType.MODEL_TRAINED
 
-    def test_get_latest(self, db):
+    def test_get_latest(self, clean_db):
+        db = clean_db
         bus = EventBus(db)
         bus.publish(
             Event(
@@ -112,7 +136,8 @@ class TestEventBus:
         assert latest is not None
         assert latest.payload["iter"] == 2
 
-    def test_count_events(self, db):
+    def test_count_events(self, clean_db):
+        db = clean_db
         bus = EventBus(db)
         bus.publish(
             Event(event_type=EventType.STRATEGY_PROMOTED, source_loop="factory")
@@ -125,7 +150,8 @@ class TestEventBus:
         assert bus.count_events(EventType.STRATEGY_PROMOTED) == 2
         assert bus.count_events() == 3
 
-    def test_independent_cursors(self, db):
+    def test_independent_cursors(self, clean_db):
+        db = clean_db
         bus = EventBus(db)
         bus.publish(Event(event_type=EventType.MODEL_TRAINED, source_loop="ml"))
 
@@ -147,7 +173,8 @@ class TestStrategyStatusLock:
             [strategy_id, name, status],
         )
 
-    def test_valid_transition(self, db):
+    def test_valid_transition(self, clean_db):
+        db = clean_db
         self._insert_strategy(db, "s1", "test_strat", "draft")
         lock = StrategyStatusLock(db)
         ok = lock.transition("s1", "draft", "forward_testing", "test promotion")
@@ -156,7 +183,8 @@ class TestStrategyStatusLock:
         status = lock.get_status("s1")
         assert status == "forward_testing"
 
-    def test_cas_failure(self, db):
+    def test_cas_failure(self, clean_db):
+        db = clean_db
         self._insert_strategy(db, "s1", "test_strat", "forward_testing")
         lock = StrategyStatusLock(db)
 
@@ -164,12 +192,14 @@ class TestStrategyStatusLock:
         ok = lock.transition("s1", "draft", "forward_testing", "should fail")
         assert not ok
 
-    def test_invalid_transition_raises(self, db):
+    def test_invalid_transition_raises(self, clean_db):
+        db = clean_db
         lock = StrategyStatusLock(db)
         with pytest.raises(ValueError, match="Invalid transition"):
             lock.transition("s1", "draft", "live", "skip forward_testing")
 
-    def test_publishes_event(self, db):
+    def test_publishes_event(self, clean_db):
+        db = clean_db
         self._insert_strategy(db, "s1", "test_strat", "draft")
         bus = EventBus(db)
         lock = StrategyStatusLock(db, event_bus=bus)
@@ -185,7 +215,8 @@ class TestStrategyStatusLock:
 
 
 class TestUniverseRegistry:
-    def test_refresh_etfs(self, db):
+    def test_refresh_etfs(self, clean_db):
+        db = clean_db
         registry = UniverseRegistry(db, client=None)
         report = registry.refresh_constituents()
 
@@ -198,7 +229,8 @@ class TestUniverseRegistry:
         assert "SPY" in symbols
         assert "QQQ" in symbols
 
-    def test_deactivate_symbol(self, db):
+    def test_deactivate_symbol(self, clean_db):
+        db = clean_db
         registry = UniverseRegistry(db, client=None)
         registry.refresh_constituents()
 
@@ -206,14 +238,16 @@ class TestUniverseRegistry:
         symbols = registry.get_active_symbols()
         assert "SPY" not in symbols
 
-    def test_count(self, db):
+    def test_count(self, clean_db):
+        db = clean_db
         registry = UniverseRegistry(db, client=None)
         registry.refresh_constituents()
 
         count = registry.count()
         assert count > 40
 
-    def test_refresh_age(self, db):
+    def test_refresh_age(self, clean_db):
+        db = clean_db
         registry = UniverseRegistry(db, client=None)
 
         # Before refresh — infinite age
@@ -293,14 +327,16 @@ class TestAutoPromoter:
         assert ramp.get_scale(21) == 1.00
         assert ramp.get_scale(100) == 1.00
 
-    def test_disabled_by_default(self, db):
+    def test_disabled_by_default(self, clean_db):
+        db = clean_db
         promoter = AutoPromoter(db)
         assert not promoter.is_enabled()
         decisions = promoter.evaluate_all()
         assert decisions == []
 
     @patch.dict("os.environ", {"AUTO_PROMOTE_ENABLED": "true"})
-    def test_too_young_strategy(self, db):
+    def test_too_young_strategy(self, clean_db):
+        db = clean_db
         # Insert a fresh forward_testing strategy
         db.execute(
             "INSERT INTO strategies (strategy_id, name, parameters, entry_rules, exit_rules, status, updated_at) "
@@ -378,7 +414,8 @@ class TestDegradationEnforcer:
 
 
 class TestDailyDigest:
-    def test_generate_empty(self, db):
+    def test_generate_empty(self, clean_db):
+        db = clean_db
         digest = DailyDigest(db)
         report = digest.generate()
 
@@ -386,7 +423,8 @@ class TestDailyDigest:
         assert report.trades_today == 0
         assert report.total_live == 0
 
-    def test_format_markdown(self, db):
+    def test_format_markdown(self, clean_db):
+        db = clean_db
         digest = DailyDigest(db)
         report = digest.generate()
         md = digest.format_markdown(report)
@@ -395,7 +433,8 @@ class TestDailyDigest:
         assert "Portfolio" in md
         assert "Strategy Lifecycle" in md
 
-    def test_format_discord(self, db):
+    def test_format_discord(self, clean_db):
+        db = clean_db
         digest = DailyDigest(db)
         report = digest.generate()
         payload = digest.format_discord(report)
@@ -409,7 +448,8 @@ class TestDailyDigest:
 
 
 class TestEventBusTTL:
-    def test_old_events_pruned_on_publish(self, db):
+    def test_old_events_pruned_on_publish(self, clean_db):
+        db = clean_db
         bus = EventBus(db)
 
         # Insert an old event directly (8 days ago — beyond 7-day TTL)
@@ -428,12 +468,14 @@ class TestEventBusTTL:
         assert bus.count_events(EventType.LOOP_HEARTBEAT) == 0
         assert bus.count_events(EventType.STRATEGY_PROMOTED) == 1
 
-    def test_poll_empty_returns_empty(self, db):
+    def test_poll_empty_returns_empty(self, clean_db):
+        db = clean_db
         bus = EventBus(db)
         events = bus.poll("new_consumer")
         assert events == []
 
-    def test_get_latest_missing_returns_none(self, db):
+    def test_get_latest_missing_returns_none(self, clean_db):
+        db = clean_db
         bus = EventBus(db)
         assert bus.get_latest(EventType.MODEL_TRAINED) is None
 
@@ -449,18 +491,21 @@ class TestStrategyStatusLockEdgeCases:
             [strategy_id, name, status],
         )
 
-    def test_nonexistent_strategy(self, db):
+    def test_nonexistent_strategy(self, clean_db):
+        db = clean_db
         lock = StrategyStatusLock(db)
         ok = lock.transition("nonexistent", "draft", "forward_testing", "test")
         assert not ok
 
-    def test_get_status(self, db):
+    def test_get_status(self, clean_db):
+        db = clean_db
         self._insert_strategy(db, "s1", "test_strat", "live")
         lock = StrategyStatusLock(db)
         assert lock.get_status("s1") == "live"
         assert lock.get_status("missing") is None
 
-    def test_demotion_transition(self, db):
+    def test_demotion_transition(self, clean_db):
+        db = clean_db
         """live → forward_testing is valid (degradation demotion)."""
         self._insert_strategy(db, "s1", "test_strat", "live")
         lock = StrategyStatusLock(db)
@@ -468,7 +513,8 @@ class TestStrategyStatusLockEdgeCases:
         assert ok
         assert lock.get_status("s1") == "forward_testing"
 
-    def test_full_lifecycle(self, db):
+    def test_full_lifecycle(self, clean_db):
+        db = clean_db
         """draft → forward_testing → live → retired."""
         self._insert_strategy(db, "s1", "lifecycle_test", "draft")
         lock = StrategyStatusLock(db)
@@ -572,13 +618,14 @@ class TestAutonomousScreener:
                 ],
             )
 
-    def test_screen_empty_universe(self, db):
-        screener = AutonomousScreener(db)
+    def test_screen_empty_universe(self, clean_db):
+        screener = AutonomousScreener(clean_db)
         result = screener._screen_sync("trending_up")
         assert result.universe_size == 0
         assert result.total_watchlist == 0
 
-    def test_screen_produces_tiers(self, db):
+    def test_screen_produces_tiers(self, clean_db):
+        db = clean_db
         # Seed 30 symbols with OHLCV data
         symbols = [f"SYM{i:02d}" for i in range(30)]
         self._seed_universe(db, symbols)
@@ -597,7 +644,8 @@ class TestAutonomousScreener:
         if result.tier_1 and result.tier_2:
             assert result.tier_1[-1].composite >= result.tier_2[0].composite
 
-    def test_hard_filter_excludes_restricted(self, db):
+    def test_hard_filter_excludes_restricted(self, clean_db):
+        db = clean_db
         self._seed_universe(db, ["AAPL", "BANNED"])
         self._seed_ohlcv(db, "AAPL")
         self._seed_ohlcv(db, "BANNED")
@@ -611,7 +659,8 @@ class TestAutonomousScreener:
         assert "BANNED" not in all_symbols
         assert "AAPL" in all_symbols
 
-    def test_hard_filter_excludes_low_adv(self, db):
+    def test_hard_filter_excludes_low_adv(self, clean_db):
+        db = clean_db
         # Insert one with low ADV
         db.execute(
             "INSERT INTO universe (symbol, name, sector, source, avg_daily_volume, is_active) "
@@ -631,7 +680,8 @@ class TestAutonomousScreener:
         all_symbols = [s.symbol for s in result.tier_1 + result.tier_2 + result.tier_3]
         assert "ILLIQUID" not in all_symbols
 
-    def test_results_persisted(self, db):
+    def test_results_persisted(self, clean_db):
+        db = clean_db
         self._seed_universe(db, ["AAPL", "MSFT"])
         self._seed_ohlcv(db, "AAPL")
         self._seed_ohlcv(db, "MSFT")
@@ -660,8 +710,8 @@ class TestWatchlistLoaderV2:
             )
 
     @patch.dict("os.environ", {"USE_TIERED_WATCHLIST": "true"}, clear=False)
-    def test_load_tiered_from_screener(self, db):
-        # Patch open_db_readonly to return our test db
+    def test_load_tiered_from_screener(self, clean_db):
+        db = clean_db
         with patch("quantstack.autonomous.watchlist.open_db", return_value=db):
             symbols = [f"T1_{i}" for i in range(15)] + [f"T2_{i}" for i in range(10)]
             tier_map = {s: 1 for s in symbols[:15]}
@@ -675,7 +725,8 @@ class TestWatchlistLoaderV2:
             assert len(tiered[2]) == 10
 
     @patch.dict("os.environ", {"USE_TIERED_WATCHLIST": "true"}, clear=False)
-    def test_load_returns_t1_plus_t2(self, db):
+    def test_load_returns_t1_plus_t2(self, clean_db):
+        db = clean_db
         with patch("quantstack.autonomous.watchlist.open_db", return_value=db), \
              patch("quantstack.autonomous.watchlist.open_db_readonly", return_value=db):
             symbols = [f"S{i}" for i in range(25)]
@@ -688,12 +739,12 @@ class TestWatchlistLoaderV2:
             assert len(result) == 25  # T1 + T2
 
     @patch.dict("os.environ", {"AUTONOMOUS_WATCHLIST": "XOM,MSFT,SPY"}, clear=False)
-    def test_env_override_takes_precedence(self, db):
+    def test_env_override_takes_precedence(self, clean_db):
         loader = WatchlistLoader()
         result = loader.load()
         assert result == ["XOM", "MSFT", "SPY"]
 
-    def test_fallback_to_defaults(self, db):
+    def test_fallback_to_defaults(self, clean_db):
         """When tiered mode is off and no strategies, fall back to DEFAULT_SYMBOLS."""
         with patch.dict("os.environ", {}, clear=False):
             # Remove any env overrides
@@ -713,7 +764,8 @@ class TestWatchlistLoaderV2:
 
 
 class TestSupervisor:
-    def test_healthy_loop(self, db):
+    def test_healthy_loop(self, clean_db):
+        db = clean_db
         # Insert a recent heartbeat
         db.execute(
             "INSERT INTO loop_heartbeats (loop_name, iteration, started_at, finished_at, status) "
@@ -729,7 +781,8 @@ class TestSupervisor:
         assert results[0].status == "healthy"
         assert results[0].last_iteration == 1
 
-    def test_stale_loop(self, db):
+    def test_stale_loop(self, clean_db):
+        db = clean_db
         # Insert an old heartbeat (5 minutes ago, expected interval 60s → 3x = 180s)
         old_ts = datetime.now() - timedelta(minutes=5)
         db.execute(
@@ -744,7 +797,8 @@ class TestSupervisor:
 
         assert results[0].status == "stale"
 
-    def test_dead_loop(self, db):
+    def test_dead_loop(self, clean_db):
+        db = clean_db
         # Insert a very old heartbeat (15 minutes ago, expected 60s → 10x = 600s)
         old_ts = datetime.now() - timedelta(minutes=15)
         db.execute(
@@ -759,7 +813,8 @@ class TestSupervisor:
 
         assert results[0].status == "dead"
 
-    def test_unknown_if_no_heartbeat(self, db):
+    def test_unknown_if_no_heartbeat(self, clean_db):
+        db = clean_db
         configs = [LoopConfig(name="strategy_factory", expected_interval_seconds=60)]
         supervisor = LoopSupervisor(db, configs)
         results = supervisor.check_health()
@@ -818,7 +873,8 @@ class TestDBMigrations:
 
 class TestAutoPromoterEdgeCases:
     @patch.dict("os.environ", {"AUTO_PROMOTE_ENABLED": "true"})
-    def test_insufficient_trades(self, db):
+    def test_insufficient_trades(self, clean_db):
+        db = clean_db
         # Strategy old enough but not enough trades
         old_date = datetime.now(timezone.utc) - timedelta(days=30)
         db.execute(
@@ -841,7 +897,8 @@ class TestAutoPromoterEdgeCases:
         assert "Insufficient trades" in decisions[0].reason
 
     @patch.dict("os.environ", {"AUTO_PROMOTE_ENABLED": "true"})
-    def test_strategy_cap_blocks_promotion(self, db):
+    def test_strategy_cap_blocks_promotion(self, clean_db):
+        db = clean_db
         # Fill up live strategy slots
         for i in range(8):
             db.execute(

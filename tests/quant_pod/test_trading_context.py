@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from quantstack.context import TradingContext, create_trading_context
 from quantstack.execution.portfolio_state import Position
+from quantstack.execution.risk_state import RiskState
 from quantstack.execution.signal_cache import TradeSignal
 from quantstack.execution.tick_executor import Tick, TickExecutor
 
@@ -36,8 +37,17 @@ from quantstack.execution.tick_executor import Tick, TickExecutor
 def ctx() -> TradingContext:
     """Fresh in-memory TradingContext for each test."""
     context = create_trading_context(initial_cash=100_000.0)
+    context.portfolio.reset()
+    context.db.execute("DELETE FROM closed_trades")
+    context.db.execute("DELETE FROM fills")
+    context.db.execute("DELETE FROM decision_events")
+    context.db.execute("DELETE FROM agent_memory")
+    # Reinitialize risk_state so it reflects the clean portfolio (reset wipes
+    # cash/positions, but risk_state was built before reset was called).
+    context.risk_state = RiskState.from_portfolio(context.portfolio)
     yield context
     try:
+        context.db.execute("ROLLBACK")
         context.db.close()
     except Exception:
         pass

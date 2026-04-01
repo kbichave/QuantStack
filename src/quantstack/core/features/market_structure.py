@@ -245,7 +245,7 @@ class MarketStructureFeatures(FeatureBase):
         swing_prices = price.where(swing_signal == 1, np.nan)
 
         # Forward fill to propagate swing values
-        return swing_prices.fillna(method="ffill", limit=lookback)
+        return swing_prices.ffill(limit=lookback)
 
     def detect_zigzag_swings(
         self,

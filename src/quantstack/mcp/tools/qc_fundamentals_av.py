@@ -11,7 +11,7 @@ Only loaded when ALPHA_VANTAGE_API_KEY is configured.
 from typing import Any
 
 from quantstack.data.fetcher import AlphaVantageClient
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -23,7 +23,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_earnings_call_transcript(
     ticker: str,
     year: int,
@@ -60,7 +60,7 @@ async def get_earnings_call_transcript(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_etf_profile(
     ticker: str,
 ) -> dict[str, Any]:
@@ -91,7 +91,7 @@ async def get_etf_profile(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_top_movers() -> dict[str, Any]:
     """
     Fetch top gainers, losers, and most actively traded US tickers.
@@ -114,7 +114,7 @@ async def get_top_movers() -> dict[str, Any]:
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_market_status() -> dict[str, Any]:
     """
     Check current open/closed status of global trading venues.
@@ -137,7 +137,7 @@ async def get_market_status() -> dict[str, Any]:
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_av_insider_transactions(
     ticker: str,
 ) -> dict[str, Any]:
@@ -170,7 +170,7 @@ async def get_av_insider_transactions(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_av_institutional_holdings(
     ticker: str,
 ) -> dict[str, Any]:
@@ -195,3 +195,9 @@ async def get_av_institutional_holdings(
         }
     except Exception as e:
         return {"error": str(e), "ticker": ticker}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

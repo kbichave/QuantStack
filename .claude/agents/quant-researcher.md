@@ -73,16 +73,25 @@ Need walk-forward OOS validation with purged CV and Harvey-Liu deflation.
 
 ## Available Tools
 
-You have access to 160+ MCP tools. Don't limit yourself to a fixed list — search your available tools
-when you need to answer a question. Key categories for quant research:
+All computation uses Python imports via Bash. See `prompts/reference/python_toolkit.md` for the full catalog.
 
-- **Signals & data:** signal briefs, regime classification, market data, fundamentals, options chains, macro indicators
-- **Strategy:** registration, backtesting (single, multi-timeframe, options), walk-forward, rule checking, gap analysis
-- **ML:** model training, prediction, drift detection, SHAP analysis, hyperparameter tuning, ensembles
-- **Statistical validation:** stationarity, IC, alpha decay, deflated Sharpe, PBO, CSCV, leakage detection, Monte Carlo
-- **Institutional:** capitulation scoring, accumulation detection, credit markets, breadth, cross-domain intel
-- **Portfolio:** optimization, HRP, risk metrics, stress testing
-- **Fundamentals:** financial statements, earnings, insider trades, institutional holdings, analyst estimates
+```bash
+python3 -c "
+import asyncio
+from quantstack.mcp.tools.signal import run_multi_signal_brief
+result = asyncio.run(run_multi_signal_brief(['SPY', 'QQQ']))
+print(result)
+"
+```
+
+Key categories:
+- **Signals & data:** `run_multi_signal_brief`, `fetch_market_data`, `compute_technical_indicators`, `get_company_news` (from `quantstack.mcp.tools.signal`, `qc_data`, `qc_indicators`)
+- **Strategy:** `register_strategy`, `run_backtest`, `list_strategies` (from `quantstack.mcp.tools._impl`); `run_walkforward_mtf`, `run_combinatorial_cv` (from `qc_backtesting`)
+- **ML:** `train_ml_model`, `predict_ml_signal`, `analyze_model_shap`, `check_concept_drift` (from `quantstack.mcp.tools.ml`)
+- **Statistical:** `compute_information_coefficient`, `compute_alpha_decay`, `compute_deflated_sharpe_ratio`, `run_monte_carlo` (from `quantstack.mcp.tools.qc_research`)
+- **Institutional:** `get_capitulation_score`, `get_institutional_accumulation`, `get_cross_domain_intel`, `get_credit_market_signals` (from `quantstack.mcp.tools.capitulation`, `institutional_accumulation`, `cross_domain`, `macro_signals`)
+- **Risk:** `compute_var`, `stress_test_portfolio`, `compute_position_size` (from `quantstack.mcp.tools.qc_risk`)
+- **Fundamentals:** `get_company_facts`, `get_financial_statements`, `get_earnings_data`, `get_insider_trades` (from `quantstack.mcp.tools.qc_fundamentals`, `qc_data`)
 
 ## Your Weekly Cycle
 
@@ -182,7 +191,7 @@ Update:
 ## Output Format
 
 Write your research plan and findings to:
-1. DuckDB tables (via MCP tools and direct SQL)
+1. PostgreSQL tables (via `pg_conn()` context manager and direct SQL)
 2. `.claude/memory/workshop_lessons.md` — accumulated R&D learnings
 3. `.claude/memory/strategy_registry.md` — updated strategy status
 

@@ -45,8 +45,9 @@ from quantstack.core.labeling.wave_event_labeler import WaveEventLabeler
 from quantstack.core.validation.causal_filter import CausalFilter
 from quantstack.data.pg_storage import PgDataStore
 from quantstack.features.enricher import FeatureEnricher, FeatureTiers
+from quantstack.db import pg_conn
 from quantstack.mcp._state import live_db_or_error
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 import catboost as cb
 import lightgbm as lgb
 # shap (~1.4s) and tft_predictor (pulls torch ~0.6s) deferred to functions that use them.
@@ -61,14 +62,14 @@ from quantstack.mcp.tools._registry import domain
 
 _MODELS_DIR = Path(os.getenv("QUANT_POD_MODELS_DIR", "models"))
 _DEFAULT_LOOKBACK_DAYS = 756  # ~3 years
-_STALE_MODEL_DAYS = 30
+_STALE_MODEL_DAYS = int(os.getenv("QUANT_POD_STALE_MODEL_DAYS", "30"))
 
 # ---------------------------------------------------------------------------
 # train_ml_model
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def train_ml_model(
     symbol: str,
     model_type: str = "lightgbm",
@@ -347,7 +348,7 @@ def _generate_labels(df: pd.DataFrame, method: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def get_ml_model_status(
     symbol: str | None = None,
 ) -> dict[str, Any]:
@@ -433,7 +434,7 @@ async def get_ml_model_status(
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def predict_ml_signal(
     symbol: str,
 ) -> dict[str, Any]:
@@ -569,7 +570,7 @@ def _predict_sync(symbol: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def tune_hyperparameters(
     symbol: str,
     model_type: str = "lightgbm",
@@ -796,8 +797,8 @@ def _ensure_registry_table(db: Any) -> None:
             model_version INTEGER NOT NULL,
             model_type VARCHAR NOT NULL,
             status VARCHAR DEFAULT 'candidate',
-            accuracy DOUBLE,
-            auc DOUBLE,
+            accuracy DOUBLE PRECISION,
+            auc DOUBLE PRECISION,
             feature_names JSON,
             hyperparams JSON,
             data_window JSON,
@@ -812,7 +813,7 @@ def _ensure_registry_table(db: Any) -> None:
     _REGISTRY_TABLE_CREATED = True
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def register_model(
     symbol: str,
     model_path: str,
@@ -841,79 +842,79 @@ async def register_model(
         }
     """
 
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
     try:
-        _ensure_registry_table(ctx.db)
         meta = metadata or {}
-
-        # Determine next version
-        row = ctx.db.execute(
-            "SELECT COALESCE(MAX(model_version), 0) FROM model_registry WHERE symbol = ?",
-            [symbol],
-        ).fetchone()
-        next_version = row[0] + 1
-
         registry_id = f"reg_{uuid.uuid4().hex[:12]}"
         new_auc = meta.get("auc", 0.0) or 0.0
-
-        ctx.db.execute(
-            """
-            INSERT INTO model_registry
-                (registry_id, symbol, model_version, model_type, accuracy, auc,
-                 feature_names, hyperparams, data_window, model_path)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                registry_id,
-                symbol,
-                next_version,
-                meta.get("model_type", "lightgbm"),
-                meta.get("accuracy"),
-                new_auc,
-                json.dumps(meta.get("feature_names", [])),
-                json.dumps(meta.get("hyperparams", {})),
-                json.dumps(meta.get("data_window", {})),
-                model_path,
-            ],
-        )
-
-        # Check if this beats the current champion
-        champion = ctx.db.execute(
-            "SELECT registry_id, model_version, auc FROM model_registry "
-            "WHERE symbol = ? AND status = 'champion' ORDER BY model_version DESC LIMIT 1",
-            [symbol],
-        ).fetchone()
-
         promoted = False
         prev_champion_version = None
 
-        if champion is None or new_auc > (champion[2] or 0.0):
-            # Demote old champion
-            if champion:
-                ctx.db.execute(
-                    "UPDATE model_registry SET status = 'retired', retired_at = CURRENT_TIMESTAMP "
-                    "WHERE registry_id = ?",
-                    [champion[0]],
-                )
-                prev_champion_version = champion[1]
+        with pg_conn() as conn:
+            _ensure_registry_table(conn)
 
-            # Promote new model
-            ctx.db.execute(
-                "UPDATE model_registry SET status = 'champion', promoted_at = CURRENT_TIMESTAMP "
-                "WHERE registry_id = ?",
-                [registry_id],
+            # Determine next version
+            row = conn.execute(
+                "SELECT COALESCE(MAX(model_version), 0) FROM model_registry WHERE symbol = ?",
+                [symbol],
+            ).fetchone()
+            next_version = row[0] + 1
+
+            conn.execute(
+                """
+                INSERT INTO model_registry
+                    (registry_id, symbol, model_version, model_type, accuracy, auc,
+                     feature_names, hyperparams, data_window, model_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    registry_id,
+                    symbol,
+                    next_version,
+                    meta.get("model_type", "lightgbm"),
+                    meta.get("accuracy"),
+                    new_auc,
+                    json.dumps(meta.get("feature_names", [])),
+                    json.dumps(meta.get("hyperparams", {})),
+                    json.dumps(meta.get("data_window", {})),
+                    model_path,
+                ],
             )
 
-            # Copy to latest path
-            latest_path = _MODELS_DIR / f"{symbol}_latest.joblib"
-            _MODELS_DIR.mkdir(parents=True, exist_ok=True)
-            src = Path(model_path)
-            if src.exists() and src != latest_path:
-                shutil.copy2(src, latest_path)
-            promoted = True
+            # Check if this beats the current champion
+            champion = conn.execute(
+                "SELECT registry_id, model_version, auc FROM model_registry "
+                "WHERE symbol = ? AND status = 'champion' ORDER BY model_version DESC LIMIT 1",
+                [symbol],
+            ).fetchone()
+
+            if champion is None or new_auc > (champion[2] or 0.0):
+                # Demote old champion
+                if champion:
+                    conn.execute(
+                        "UPDATE model_registry SET status = 'retired', retired_at = CURRENT_TIMESTAMP "
+                        "WHERE registry_id = ?",
+                        [champion[0]],
+                    )
+                    prev_champion_version = champion[1]
+
+                # Promote new model
+                conn.execute(
+                    "UPDATE model_registry SET status = 'champion', promoted_at = CURRENT_TIMESTAMP "
+                    "WHERE registry_id = ?",
+                    [registry_id],
+                )
+
+                # Copy to latest path
+                latest_path = _MODELS_DIR / f"{symbol}_latest.joblib"
+                _MODELS_DIR.mkdir(parents=True, exist_ok=True)
+                src = Path(model_path)
+                if src.exists() and src != latest_path:
+                    shutil.copy2(src, latest_path)
+                promoted = True
 
         return {
             "success": True,
@@ -927,7 +928,7 @@ async def register_model(
         return {"success": False, "error": str(e), "symbol": symbol}
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def get_model_history(
     symbol: str,
 ) -> dict[str, Any]:
@@ -949,23 +950,24 @@ async def get_model_history(
         }
     """
 
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
     try:
-        _ensure_registry_table(ctx.db)
-        rows = ctx.db.execute(
-            """
-            SELECT registry_id, model_version, model_type, status,
-                   accuracy, auc, feature_names, hyperparams, data_window,
-                   model_path, trained_at, promoted_at, retired_at
-            FROM model_registry
-            WHERE symbol = ?
-            ORDER BY model_version DESC
-            """,
-            [symbol],
-        ).fetchall()
+        with pg_conn() as conn:
+            _ensure_registry_table(conn)
+            rows = conn.execute(
+                """
+                SELECT registry_id, model_version, model_type, status,
+                       accuracy, auc, feature_names, hyperparams, data_window,
+                       model_path, trained_at, promoted_at, retired_at
+                FROM model_registry
+                WHERE symbol = ?
+                ORDER BY model_version DESC
+                """,
+                [symbol],
+            ).fetchall()
 
         columns = [
             "registry_id",
@@ -1004,7 +1006,7 @@ async def get_model_history(
         return {"success": False, "error": str(e), "symbol": symbol}
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def rollback_model(
     symbol: str,
     version: int,
@@ -1023,38 +1025,40 @@ async def rollback_model(
         {"success": True, "symbol": "AAPL", "rolled_back_to": 2}
     """
 
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
     try:
-        _ensure_registry_table(ctx.db)
+        target = None
+        with pg_conn() as conn:
+            _ensure_registry_table(conn)
 
-        # Validate the target version exists
-        target = ctx.db.execute(
-            "SELECT registry_id, model_path FROM model_registry "
-            "WHERE symbol = ? AND model_version = ?",
-            [symbol, version],
-        ).fetchone()
-        if not target:
-            return {
-                "success": False,
-                "error": f"Version {version} not found for {symbol}",
-            }
+            # Validate the target version exists
+            target = conn.execute(
+                "SELECT registry_id, model_path FROM model_registry "
+                "WHERE symbol = ? AND model_version = ?",
+                [symbol, version],
+            ).fetchone()
+            if not target:
+                return {
+                    "success": False,
+                    "error": f"Version {version} not found for {symbol}",
+                }
 
-        # Demote current champion
-        ctx.db.execute(
-            "UPDATE model_registry SET status = 'retired', retired_at = CURRENT_TIMESTAMP "
-            "WHERE symbol = ? AND status = 'champion'",
-            [symbol],
-        )
+            # Demote current champion
+            conn.execute(
+                "UPDATE model_registry SET status = 'retired', retired_at = CURRENT_TIMESTAMP "
+                "WHERE symbol = ? AND status = 'champion'",
+                [symbol],
+            )
 
-        # Promote target
-        ctx.db.execute(
-            "UPDATE model_registry SET status = 'champion', promoted_at = CURRENT_TIMESTAMP "
-            "WHERE registry_id = ?",
-            [target[0]],
-        )
+            # Promote target
+            conn.execute(
+                "UPDATE model_registry SET status = 'champion', promoted_at = CURRENT_TIMESTAMP "
+                "WHERE registry_id = ?",
+                [target[0]],
+            )
 
         # Copy model file to latest
         if target[1]:
@@ -1075,7 +1079,7 @@ async def rollback_model(
         return {"success": False, "error": str(e), "symbol": symbol}
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def compare_models(
     symbol: str,
     version_a: int,
@@ -1105,15 +1109,13 @@ async def compare_models(
         }
     """
 
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
     try:
-        _ensure_registry_table(ctx.db)
-
-        def _fetch_version(ver: int) -> dict[str, Any] | None:
-            row = ctx.db.execute(
+        def _fetch_version(conn: Any, ver: int) -> dict[str, Any] | None:
+            row = conn.execute(
                 """
                 SELECT model_version, model_type, status, accuracy, auc,
                        feature_names, hyperparams, trained_at
@@ -1142,8 +1144,10 @@ async def compare_models(
                         pass
             return entry
 
-        a = _fetch_version(version_a)
-        b = _fetch_version(version_b)
+        with pg_conn() as conn:
+            _ensure_registry_table(conn)
+            a = _fetch_version(conn, version_a)
+            b = _fetch_version(conn, version_b)
 
         if not a:
             return {
@@ -1190,7 +1194,7 @@ async def compare_models(
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def check_concept_drift(
     symbol: str,
     window_days: int = 30,
@@ -1308,7 +1312,8 @@ def _check_drift_sync(symbol: str, window_days: int) -> dict[str, Any]:
             }
             if p_val < significance:
                 drifted.append(feat)
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[ml] KS test for feature '{feat}' failed: {exc}")
             continue
 
     drift_ratio = len(drifted) / max(len(available_features), 1)
@@ -1331,7 +1336,7 @@ def _check_drift_sync(symbol: str, window_days: int) -> dict[str, Any]:
     }
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def update_model_incremental(
     symbol: str,
     new_data_days: int = 30,
@@ -1522,51 +1527,51 @@ def _update_incremental_sync(symbol: str, new_data_days: int) -> dict[str, Any]:
 
         # Register in DB if available
         try:
+            _, db_err = live_db_or_error()
+            if not db_err:
+                with pg_conn() as conn:
+                    _ensure_registry_table(conn)
 
-            ctx, db_err = live_db_or_error()
-            if ctx and not db_err:
-                _ensure_registry_table(ctx.db)
+                    row = conn.execute(
+                        "SELECT COALESCE(MAX(model_version), 0) FROM model_registry WHERE symbol = ?",
+                        [symbol],
+                    ).fetchone()
+                    next_ver = row[0] + 1
+                    reg_id = f"reg_{uuid.uuid4().hex[:12]}"
 
-                row = ctx.db.execute(
-                    "SELECT COALESCE(MAX(model_version), 0) FROM model_registry WHERE symbol = ?",
-                    [symbol],
-                ).fetchone()
-                next_ver = row[0] + 1
-                reg_id = f"reg_{uuid.uuid4().hex[:12]}"
-
-                # Demote old champion
-                ctx.db.execute(
-                    "UPDATE model_registry SET status = 'retired', retired_at = CURRENT_TIMESTAMP "
-                    "WHERE symbol = ? AND status = 'champion'",
-                    [symbol],
-                )
-                ctx.db.execute(
-                    """
-                    INSERT INTO model_registry
-                        (registry_id, symbol, model_version, model_type, status,
-                         accuracy, auc, feature_names, hyperparams, data_window, model_path,
-                         promoted_at)
-                    VALUES (?, ?, ?, ?, 'champion', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    """,
-                    [
-                        reg_id,
-                        symbol,
-                        next_ver,
-                        model_type,
-                        new_accuracy,
-                        new_auc,
-                        json.dumps(feature_names),
-                        json.dumps(new_metadata.get("hyperparams", {})),
-                        json.dumps(
-                            {"samples_added": samples_added, "incremental": True}
-                        ),
-                        str(new_model_path),
-                    ],
-                )
-                registered_version = next_ver
-                logger.info(
-                    f"[ml] Incremental model registered as v{next_ver} for {symbol}"
-                )
+                    # Demote old champion
+                    conn.execute(
+                        "UPDATE model_registry SET status = 'retired', retired_at = CURRENT_TIMESTAMP "
+                        "WHERE symbol = ? AND status = 'champion'",
+                        [symbol],
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO model_registry
+                            (registry_id, symbol, model_version, model_type, status,
+                             accuracy, auc, feature_names, hyperparams, data_window, model_path,
+                             promoted_at)
+                        VALUES (?, ?, ?, ?, 'champion', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """,
+                        [
+                            reg_id,
+                            symbol,
+                            next_ver,
+                            model_type,
+                            new_accuracy,
+                            new_auc,
+                            json.dumps(feature_names),
+                            json.dumps(new_metadata.get("hyperparams", {})),
+                            json.dumps(
+                                {"samples_added": samples_added, "incremental": True}
+                            ),
+                            str(new_model_path),
+                        ],
+                    )
+                    registered_version = next_ver
+                    logger.info(
+                        f"[ml] Incremental model registered as v{next_ver} for {symbol}"
+                    )
         except Exception as reg_exc:
             logger.warning(
                 f"[ml] Registry update failed (model still saved): {reg_exc}"
@@ -1600,7 +1605,7 @@ def _update_incremental_sync(symbol: str, new_data_days: int) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def review_model_quality(
     symbol: str,
     model_path: str | None = None,
@@ -1728,6 +1733,7 @@ def _review_model_quality_sync(
     # Re-run predictions on held-out data if available; otherwise use CV scores
     calibration_passed = True
     calibration_error = 0.0
+    holdout_proba: np.ndarray | None = None  # set when calibration predictions succeed
     try:
 
         tiers_list = metadata.get("feature_tiers", ["technical"])
@@ -1763,9 +1769,9 @@ def _review_model_quality_sync(
                 split = int(len(X_holdout) * 0.8)
                 X_cal, y_cal = X_holdout.iloc[split:], y_holdout.iloc[split:]
                 if len(X_cal) >= 20:
-                    proba = model.predict_proba(X_cal)[:, 1]
+                    holdout_proba = model.predict_proba(X_cal)[:, 1]
                     prob_true, prob_pred = calibration_curve(
-                        y_cal, proba, n_bins=5, strategy="uniform"
+                        y_cal, holdout_proba, n_bins=5, strategy="uniform"
                     )
                     calibration_error = float(np.mean(np.abs(prob_true - prob_pred)))
                     calibration_passed = calibration_error < 0.15
@@ -1799,12 +1805,10 @@ def _review_model_quality_sync(
         if len(set(round(v, 3) for v in acc_vals)) == 1:
             class_balance_passed = False
             min_class_ratio = 0.0
-    # Also check via metadata training samples if we have holdout predictions
-    try:
-        if "proba" in dir():
-            pred_classes = (proba > 0.5).astype(
-                int
-            )  # noqa: F821 — only defined if calibration succeeded
+    # Also check via holdout predictions if calibration ran successfully
+    if holdout_proba is not None:
+        try:
+            pred_classes = (holdout_proba > 0.5).astype(int)
             unique_preds = np.unique(pred_classes)
             if len(unique_preds) < 2:
                 class_balance_passed = False
@@ -1813,8 +1817,8 @@ def _review_model_quality_sync(
                 min_class_ratio = float(
                     min(np.mean(pred_classes), 1 - np.mean(pred_classes))
                 )
-    except Exception:
-        pass
+        except Exception as exc:
+            logger.debug(f"[ml] class balance check failed: {exc}")
     checks.append(
         {
             "name": "class_balance",
@@ -1945,7 +1949,7 @@ def _review_model_quality_sync(
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def train_stacking_ensemble(
     symbol: str,
     base_models: list[str] | None = None,
@@ -2227,7 +2231,7 @@ def _train_stacking_sync(
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def compute_and_store_features(
     symbol: str,
     tiers: list[str] | None = None,
@@ -2319,7 +2323,7 @@ def _compute_and_store_features_sync(
     df_features = df[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
 
     # Store in PostgreSQL
-    ctx, db_err = live_db_or_error()
+    _, db_err = live_db_or_error()
     if db_err:
         return {
             "success": False,
@@ -2327,37 +2331,40 @@ def _compute_and_store_features_sync(
             "symbol": symbol,
         }
 
-    ctx.db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS feature_store (
-            symbol VARCHAR NOT NULL,
-            date DATE NOT NULL,
-            feature_version VARCHAR NOT NULL,
-            features JSON NOT NULL,
-            computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (symbol, date, feature_version)
-        )
-    """
-    )
-
-    # Upsert rows
-    rows_stored = 0
+    # Prepare all rows before opening a connection
+    rows_to_store = []
     for idx, row in df_features.iterrows():
         row_date = pd.Timestamp(idx).date() if not isinstance(idx, str) else idx
         features_json = json.dumps(
             {col: round(float(val), 6) for col, val in row.items()}
         )
-        ctx.db.execute(
+        rows_to_store.append((symbol, str(row_date), feature_version, features_json))
+
+    with pg_conn() as conn:
+        conn.execute(
             """
-            INSERT INTO feature_store (symbol, date, feature_version, features, computed_at)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT (symbol, date, feature_version) DO UPDATE SET
-                features = EXCLUDED.features,
-                computed_at = EXCLUDED.computed_at
-            """,
-            [symbol, str(row_date), feature_version, features_json],
+            CREATE TABLE IF NOT EXISTS feature_store (
+                symbol VARCHAR NOT NULL,
+                date DATE NOT NULL,
+                feature_version VARCHAR NOT NULL,
+                features JSON NOT NULL,
+                computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (symbol, date, feature_version)
+            )
+        """
         )
-        rows_stored += 1
+        for sym, row_date, fv, features_json in rows_to_store:
+            conn.execute(
+                """
+                INSERT INTO feature_store (symbol, date, feature_version, features, computed_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT (symbol, date, feature_version) DO UPDATE SET
+                    features = EXCLUDED.features,
+                    computed_at = EXCLUDED.computed_at
+                """,
+                [sym, row_date, fv, features_json],
+            )
+    rows_stored = len(rows_to_store)
 
     logger.info(
         f"[ml] Feature store: {rows_stored} rows stored for {symbol} "
@@ -2378,7 +2385,7 @@ def _compute_and_store_features_sync(
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def get_feature_lineage(
     symbol: str,
     model_version: int | None = None,
@@ -2412,7 +2419,7 @@ async def get_feature_lineage(
 
         # If model_version specified, look up from registry
         if model_version is not None:
-            ctx, db_err = live_db_or_error()
+            _, db_err = live_db_or_error()
             if db_err:
                 return {
                     "success": False,
@@ -2420,15 +2427,16 @@ async def get_feature_lineage(
                     "symbol": symbol,
                 }
 
-            _ensure_registry_table(ctx.db)
-            row = ctx.db.execute(
-                """
-                SELECT feature_names, model_type, data_window, model_path, trained_at
-                FROM model_registry
-                WHERE symbol = ? AND model_version = ?
-                """,
-                [symbol, model_version],
-            ).fetchone()
+            with pg_conn() as conn:
+                _ensure_registry_table(conn)
+                row = conn.execute(
+                    """
+                    SELECT feature_names, model_type, data_window, model_path, trained_at
+                    FROM model_registry
+                    WHERE symbol = ? AND model_version = ?
+                    """,
+                    [symbol, model_version],
+                ).fetchone()
 
             if not row:
                 return {
@@ -2460,7 +2468,7 @@ async def get_feature_lineage(
             }
 
         # No model_version: check feature store
-        ctx, db_err = live_db_or_error()
+        _, db_err = live_db_or_error()
         if db_err:
             # Fall back to metadata file
             meta_path = _MODELS_DIR / f"{symbol}_latest.json"
@@ -2483,16 +2491,17 @@ async def get_feature_lineage(
             }
 
         # Query latest feature store entry
-        row = ctx.db.execute(
-            """
-            SELECT feature_version, features, computed_at
-            FROM feature_store
-            WHERE symbol = ?
-            ORDER BY computed_at DESC
-            LIMIT 1
-            """,
-            [symbol],
-        ).fetchone()
+        with pg_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT feature_version, features, computed_at
+                FROM feature_store
+                WHERE symbol = ?
+                ORDER BY computed_at DESC
+                LIMIT 1
+                """,
+                [symbol],
+            ).fetchone()
 
         if not row:
             # Fall back to metadata file
@@ -2543,7 +2552,7 @@ async def get_feature_lineage(
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def train_cross_sectional_model(
     symbols: list[str],
     target: str = "returns_5d",
@@ -2801,7 +2810,7 @@ def _train_cross_sectional_sync(
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def train_deep_model(
     symbol: str,
     architecture: str = "tft",
@@ -2965,7 +2974,7 @@ def _train_deep_sync(
 # ---------------------------------------------------------------------------
 
 @domain(Domain.ML)
-@mcp.tool()
+@tool_def()
 async def analyze_model_shap(
     symbol: str,
     model_path: str | None = None,
@@ -3237,3 +3246,9 @@ def _run_shap(
             ranked = sorted(zip(X.columns, imp), key=lambda x: x[1], reverse=True)
             return [[name, round(float(val), 6)] for name, val in ranked[:20]]
         return []
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

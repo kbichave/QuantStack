@@ -14,6 +14,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from quantstack.config.settings import get_settings
 from quantstack.config.timeframes import Timeframe
@@ -22,7 +23,7 @@ from quantstack.core.hierarchy.regime_classifier import WeeklyRegimeClassifier
 from quantstack.core.microstructure.liquidity import LiquidityAnalyzer
 # MultiTimeframeFeatureFactory (~0.8s) and quantsbin_adapter (~0.7s) deferred.
 from quantstack.mcp._helpers import _get_reader, _parse_timeframe
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -33,7 +34,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_symbol_snapshot(
     symbol: str,
     timeframe: str = "daily",
@@ -154,7 +155,7 @@ async def get_symbol_snapshot(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_market_regime_snapshot(
     end_date: str | None = None,
 ) -> dict[str, Any]:
@@ -261,7 +262,7 @@ async def get_market_regime_snapshot(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def generate_trade_template(
     symbol: str,
     direction: str,
@@ -510,7 +511,7 @@ async def generate_trade_template(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def validate_trade(
     trade_template: dict[str, Any],
     account_equity: float = 100000.0,
@@ -638,7 +639,7 @@ async def validate_trade(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def run_screener(
     symbols: list[str] | None = None,
     min_price: float = 10.0,
@@ -745,7 +746,8 @@ async def run_screener(
                     }
                 )
 
-            except Exception:
+            except Exception as exc:
+                logger.debug(f"[qc_market] run_screener processing for {symbol} failed: {exc}")
                 continue
 
         # Sort by volume
@@ -776,7 +778,7 @@ async def run_screener(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def analyze_liquidity(
     symbol: str,
     timeframe: str = "daily",
@@ -820,8 +822,8 @@ async def analyze_liquidity(
             return {"error": f"Need at least {window + 10} bars"}
 
         # Analyze liquidity
-        analyzer = LiquidityAnalyzer(spread_threshold_bps=30, min_volume_ratio=0.5)
-        features = analyzer.analyze(df, window=window)
+        analyzer = LiquidityAnalyzer(max_spread_bps=30, min_volume_ratio=0.5)
+        features = analyzer.compute_features(df, window=window)
 
         # Get latest features
         latest = features.iloc[-1] if not features.empty else None
@@ -865,7 +867,7 @@ async def analyze_liquidity(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def analyze_volume_profile(
     symbol: str,
     timeframe: str = "daily",
@@ -975,7 +977,7 @@ async def analyze_volume_profile(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_trading_calendar(
     year: int | None = None,
     month: int | None = None,
@@ -1079,7 +1081,7 @@ async def get_trading_calendar(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_event_calendar(
     symbol: str | None = None,
     days_ahead: int = 14,
@@ -1205,3 +1207,9 @@ async def get_event_calendar(
 
     except Exception as e:
         return {"error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

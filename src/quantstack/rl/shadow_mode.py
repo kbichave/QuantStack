@@ -100,9 +100,9 @@ class ShadowEvaluator:
                     symbol VARCHAR,
                     rl_recommendation JSON,
                     crew_action VARCHAR,
-                    crew_confidence DOUBLE,
-                    pnl DOUBLE,
-                    slippage_bps DOUBLE,
+                    crew_confidence DOUBLE PRECISION,
+                    pnl DOUBLE PRECISION,
+                    slippage_bps DOUBLE PRECISION,
                     outcome_recorded_at TIMESTAMP,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

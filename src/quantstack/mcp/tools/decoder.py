@@ -14,21 +14,22 @@ from typing import Any
 from loguru import logger
 
 from quantstack.crews.decoder_crew import decode_signals
+from quantstack.db import pg_conn
 from quantstack.mcp._state import (
     _serialize,
     live_db_or_error,
     require_ctx,
     require_live_db,
 )
-from quantstack.mcp.server import mcp
-from quantstack.mcp.tools.strategy import register_strategy
 from quantstack.mcp.domains import Domain
+from quantstack.mcp.tools._impl import register_strategy_impl
 from quantstack.mcp.tools._registry import domain
+from quantstack.mcp.tools._tool_def import tool_def
 
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def decode_strategy(
     signals: list[dict[str, Any]],
     source_name: str = "unknown",
@@ -62,7 +63,7 @@ async def decode_strategy(
         # Auto-register if strategy_name provided
         if strategy_name and result.get("decoded_strategy"):
             decoded = result["decoded_strategy"]
-            reg_result = await register_strategy(
+            reg_result = await register_strategy_impl(
                 name=strategy_name,
                 description=decoded.get("edge_hypothesis", ""),
                 parameters={},
@@ -80,7 +81,7 @@ async def decode_strategy(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def decode_from_trades(
     source: str = "closed_trades",
     symbol: str | None = None,
@@ -104,7 +105,7 @@ async def decode_from_trades(
     Returns:
         DecodedStrategy from historical trades.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -140,7 +141,8 @@ async def decode_from_trades(
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY 5"  # Order by entry/fill time
 
-        rows = ctx.db.execute(query, params).fetchall()
+        with pg_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
 
         if not rows:
             return {"success": False, "error": "No trades found matching filters"}
@@ -166,3 +168,9 @@ async def decode_from_trades(
     except Exception as e:
         logger.error(f"[quantpod_mcp] decode_from_trades failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

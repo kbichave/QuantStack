@@ -12,8 +12,17 @@ import uuid
 
 import pytest
 from quantstack.context import create_trading_context
-from quantstack.mcp.server import get_regime_strategies, resolve_portfolio_conflicts, set_regime_allocation
+from quantstack.db import pg_conn
+from quantstack.mcp.tools.meta import get_regime_strategies, resolve_portfolio_conflicts, set_regime_allocation
 import quantstack.mcp._state as _mcp_state
+
+
+def _clean_meta_tables() -> None:
+    """Commit-delete tables written by pg_conn-based MCP tools."""
+    with pg_conn() as conn:
+        conn.execute("DELETE FROM regime_strategy_matrix")
+        conn.execute("DELETE FROM strategies")
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -31,8 +40,16 @@ def ctx():
 def _inject_ctx(ctx):
     original = _mcp_state._ctx
     _mcp_state._ctx = ctx
+    # Committed deletes for tables that MCP tools write via pg_conn()
+    _clean_meta_tables()
+    ctx.portfolio.reset()
+    ctx.db.execute("DELETE FROM fills")
+    ctx.db.execute("DELETE FROM decision_events")
+    ctx.db.execute("DELETE FROM closed_trades")
     yield ctx
     _mcp_state._ctx = original
+    ctx.db.execute("ROLLBACK")
+    _clean_meta_tables()
 
 
 def _fn(tool_obj):

@@ -20,11 +20,12 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
-from quantstack.data.universe import CREDIT_ETFS, SECTOR_ETFS, INITIAL_LIQUID_UNIVERSE
+from quantstack.universe import CREDIT_ETFS, INITIAL_LIQUID_UNIVERSE, SECTOR_ETFS
 from quantstack.mcp._helpers import _get_reader
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -40,7 +41,7 @@ _SECTOR_ETFS = list(SECTOR_ETFS)
 
 
 @domain(Domain.INTEL)
-@mcp.tool()
+@tool_def()
 async def get_credit_market_signals() -> dict[str, Any]:
     """
     Assess credit market stress as a macro context gate for bottom entries.
@@ -74,8 +75,8 @@ async def get_credit_market_signals() -> dict[str, Any]:
                 df = store.load_ohlcv(ticker, Timeframe.D1)
                 if df is not None and len(df) >= 30:
                     etf_data[ticker] = df["close"]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"[macro_signals] load_ohlcv({ticker}) failed: {exc}")
     finally:
         store.close()
 
@@ -121,8 +122,8 @@ async def get_credit_market_signals() -> dict[str, Any]:
                     hy_spread_direction = "stable"
                 result["hy_spread_zscore"] = hy_spread_zscore
                 result["hy_spread_direction"] = hy_spread_direction
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[macro_signals] HY/IG spread computation failed: {exc}")
 
     # ------------------------------------------------------------------
     # 2. Yield curve slope proxy — TLT/SHY ratio
@@ -143,8 +144,8 @@ async def get_credit_market_signals() -> dict[str, Any]:
                     yield_curve_slope = "neutral"
                 result["yield_curve_slope"] = yield_curve_slope
                 result["tlt_shy_ratio_chg_20d"] = round(float(chg_20d * 100), 2)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[macro_signals] yield curve slope computation failed: {exc}")
 
     # ------------------------------------------------------------------
     # 3. Dollar direction (UUP)
@@ -163,8 +164,8 @@ async def get_credit_market_signals() -> dict[str, Any]:
                     dollar_direction = "neutral"
                 result["dollar_direction"] = dollar_direction
                 result["dollar_chg_20d_pct"] = round(chg_20d * 100, 2)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[macro_signals] dollar direction computation failed: {exc}")
 
     # ------------------------------------------------------------------
     # 4. Gold vs TLT — flight to safety vs inflation fear
@@ -182,8 +183,8 @@ async def get_credit_market_signals() -> dict[str, Any]:
                 result["gold_20d_chg_pct"] = round(gld_chg * 100, 2)
                 result["tlt_20d_chg_pct"] = round(tlt_chg * 100, 2)
                 result["flight_to_quality_active"] = flight_to_quality
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[macro_signals] gold/TLT flight-to-quality computation failed: {exc}")
 
     # ------------------------------------------------------------------
     # Composite credit regime classification
@@ -262,7 +263,7 @@ async def get_credit_market_signals() -> dict[str, Any]:
 
 
 @domain(Domain.INTEL)
-@mcp.tool()
+@tool_def()
 async def get_market_breadth() -> dict[str, Any]:
     """
     Compute market breadth using sector ETF proxies.
@@ -300,8 +301,8 @@ async def get_market_breadth() -> dict[str, Any]:
                 df = store.load_ohlcv(ticker, Timeframe.D1)
                 if df is not None and len(df) >= 50:
                     etf_data[ticker] = df[["close"]]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"[macro_signals] load_ohlcv({ticker}) failed: {exc}")
     finally:
         store.close()
 
@@ -357,8 +358,8 @@ async def get_market_breadth() -> dict[str, Any]:
                 "above_200d": a200,
                 "perf_20d_pct": round(perf * 100, 1),
             }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(f"[macro_signals] sector SMA computation for {ticker} failed: {exc}")
 
     n = len(above_50d)
     breadth_score = round(sum(above_50d) / n, 3) if n > 0 else None
@@ -403,8 +404,8 @@ async def get_market_breadth() -> dict[str, Any]:
                 else:
                     breadth_trend = "stable"
                 result["breadth_delta_5d"] = round(delta, 3)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[macro_signals] breadth trend computation failed: {exc}")
     result["breadth_trend"] = breadth_trend
 
     # ------------------------------------------------------------------
@@ -419,8 +420,8 @@ async def get_market_breadth() -> dict[str, Any]:
             if spy_new_low_20d and breadth_trend in ("rising", "stable"):
                 breadth_divergence = True
             result["spy_at_20d_low"] = spy_new_low_20d
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug(f"[macro_signals] breadth divergence computation failed: {exc}")
     result["breadth_divergence"] = breadth_divergence
 
     # ------------------------------------------------------------------
@@ -462,3 +463,9 @@ async def get_market_breadth() -> dict[str, Any]:
     result["bottom_signal"] = bottom_signal
 
     return result
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

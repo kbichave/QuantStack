@@ -19,8 +19,11 @@ import uuid
 @pytest.fixture
 def conn():
     with pg_conn() as c:
+        c.execute("DELETE FROM research_trajectories")
+    with pg_conn() as c:
         run_migrations(c)
         yield c
+        c.execute("DELETE FROM research_trajectories")
 
 
 @pytest.fixture

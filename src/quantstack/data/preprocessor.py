@@ -256,7 +256,7 @@ class DataPreprocessor:
 
         # Forward fill, but only for small gaps
         for col in result.columns:
-            result[col] = result[col].fillna(method="ffill", limit=max_gap_periods)
+            result[col] = result[col].ffill(limit=max_gap_periods)
 
         # Remove rows that couldn't be filled
         result = result.dropna()

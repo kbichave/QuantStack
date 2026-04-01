@@ -22,7 +22,10 @@ from quantstack.execution.order_lifecycle import (
 @pytest.fixture
 def oms() -> OrderLifecycle:
     with pg_conn() as conn:
-        yield OrderLifecycle(conn)
+        conn.execute("DELETE FROM orders")
+        oms_instance = OrderLifecycle(conn)
+        yield oms_instance
+        conn.execute("ROLLBACK")
 
 
 def _submit(

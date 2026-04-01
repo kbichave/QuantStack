@@ -7,8 +7,8 @@ import json
 
 from quantstack.config.settings import get_settings
 from quantstack.config.timeframes import TIMEFRAME_PARAMS, Timeframe
-from quantstack.mcp.server import mcp
-from quantstack.mcp.tools.indicators import list_available_indicators
+from quantstack.mcp._app import mcp
+from quantstack.mcp.tools.qc_indicators import list_available_indicators
 
 
 @mcp.resource("quantcore://symbols")

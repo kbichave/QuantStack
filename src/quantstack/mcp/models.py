@@ -243,6 +243,15 @@ class WalkForwardRequest(BaseModel):
         description="Use purged walk-forward CV with embargo (default True). "
         "Set False for legacy TimeSeriesSplit behavior.",
     )
+    start_date: str | None = Field(
+        default=None,
+        description="Earliest date to include (YYYY-MM-DD). Filters out pre-QE data "
+        "that poisons ETF walk-forward folds (e.g. '2010-01-01' for QQQ).",
+    )
+    end_date: str | None = Field(
+        default=None,
+        description="Latest date to include (YYYY-MM-DD).",
+    )
 
 
 class WalkForwardResult(BaseModel):

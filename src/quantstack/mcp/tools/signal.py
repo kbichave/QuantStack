@@ -26,7 +26,7 @@ from quantstack.mcp._state import (
     ic_cache_set,
     require_ctx,
 )
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.tools._registry import domain
 from quantstack.mcp.domains import Domain
 # SignalEngine deferred — pulls litellm+transformers (~1.5s).
@@ -38,7 +38,7 @@ from quantstack.mcp.domains import Domain
 
 
 @domain(Domain.SIGNALS, Domain.INTEL)
-@mcp.tool()
+@tool_def()
 async def get_signal_brief(
     symbol: str,
     regime: dict[str, Any] | None = None,
@@ -134,7 +134,7 @@ async def get_signal_brief(
 
 
 @domain(Domain.SIGNALS)
-@mcp.tool()
+@tool_def()
 async def run_multi_signal_brief(
     symbols: list[str],
     regime: dict[str, Any] | None = None,
@@ -263,3 +263,9 @@ def _populate_signal_cache(symbol: str, brief: Any) -> None:
         logger.debug(
             f"[quantpod_mcp] signal cache population failed (non-critical): {exc}"
         )
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

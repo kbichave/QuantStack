@@ -26,10 +26,11 @@ from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
 from quantstack.core.features.technical_indicators import TechnicalIndicators
 from quantstack.core.validation.purged_cv import WalkForwardValidator
 from quantstack.data.storage import DataStore  # noqa: F401
+from quantstack.db import pg_conn
 from quantstack.mcp._helpers import _get_reader
 from quantstack.mcp._state import require_ctx, live_db_or_error, _serialize
-from quantstack.mcp.tools.strategy import _get_strategy_impl
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._impl import get_strategy_impl as _get_strategy_impl
+from quantstack.mcp.tools._tool_def import tool_def
 
 
 # =============================================================================
@@ -61,7 +62,7 @@ def _calc_quantity_from_size(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_backtest(
     strategy_id: str,
     symbol: str,
@@ -92,7 +93,7 @@ async def run_backtest(
     Returns:
         BacktestResult dict with metrics.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
@@ -117,6 +118,9 @@ async def run_backtest(
         entry_rules = strat.get("entry_rules", [])
         exit_rules = strat.get("exit_rules", [])
         parameters = strat.get("parameters", {})
+
+        # Inject symbol into parameters for indicator computation and feature enrichment
+        parameters["symbol"] = symbol
 
         if not entry_rules:
             return {"success": False, "error": "Strategy has no entry_rules"}
@@ -169,10 +173,11 @@ async def run_backtest(
         }
 
         # 6. Persist summary on strategy record (includes full trades list for DB storage)
-        ctx.db.execute(
-            "UPDATE strategies SET backtest_summary = ?, status = CASE WHEN status = 'draft' THEN 'backtested' ELSE status END, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
-            [_json.dumps(summary), strategy_id],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                "UPDATE strategies SET backtest_summary = ?, status = CASE WHEN status = 'draft' THEN 'backtested' ELSE status END, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                [_json.dumps(summary), strategy_id],
+            )
 
         # Return metrics only — omit trades list to keep response within token limits.
         # Use get_strategy to inspect individual trades from the stored backtest_summary.
@@ -190,7 +195,7 @@ async def run_backtest(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_backtest_mtf(
     strategy_id: str,
     symbol: str,
@@ -223,7 +228,7 @@ async def run_backtest_mtf(
         Dict with sharpe, win_rate, total_trades, profit_factor,
         avg_return_pct, max_drawdown, and trade list.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
@@ -484,12 +489,13 @@ async def run_backtest_mtf(
 
         # 5. Persist summary on strategy record
         bt_summary = {k: v for k, v in summary.items() if k != "trades"}
-        ctx.db.execute(
-            "UPDATE strategies SET backtest_summary = ?, "
-            "status = CASE WHEN status = 'draft' THEN 'backtested' ELSE status END, "
-            "updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
-            [_json.dumps(bt_summary), strategy_id],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                "UPDATE strategies SET backtest_summary = ?, "
+                "status = CASE WHEN status = 'draft' THEN 'backtested' ELSE status END, "
+                "updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                [_json.dumps(bt_summary), strategy_id],
+            )
 
         return summary
 
@@ -504,7 +510,7 @@ async def run_backtest_mtf(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_walkforward(
     strategy_id: str,
     symbol: str,
@@ -517,6 +523,8 @@ async def run_walkforward(
     position_size_pct: float = 0.10,
     embargo_pct: float = 0.01,
     use_purged_cv: bool = True,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> dict[str, Any]:
     """
     Walk-forward validation of a registered strategy.
@@ -539,11 +547,14 @@ async def run_walkforward(
                      Only used when use_purged_cv=True.
         use_purged_cv: Use purged walk-forward CV (default True). Set False
                        to revert to the legacy TimeSeriesSplit behavior.
+        start_date: Earliest date to include (YYYY-MM-DD). Use to exclude
+                    pre-QE data that poisons QQQ/ETF walk-forward folds.
+        end_date: Latest date to include (YYYY-MM-DD).
 
     Returns:
         WalkForwardResult dict with per-fold and aggregate metrics.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
@@ -561,12 +572,15 @@ async def run_walkforward(
         exit_rules = strat.get("exit_rules", [])
         parameters = strat.get("parameters", {})
 
+        # Inject symbol into parameters for indicator computation and feature enrichment
+        parameters["symbol"] = symbol
+
         if not entry_rules:
             return {"success": False, "error": "Strategy has no entry_rules"}
 
-        # 2. Fetch price data
+        # 2. Fetch price data (optionally filtered by start_date/end_date)
         price_data = await asyncio.get_event_loop().run_in_executor(
-            None, _fetch_price_data, symbol, None, None
+            None, _fetch_price_data, symbol, start_date, end_date
         )
         if price_data is None or price_data.empty:
             return {"success": False, "error": f"No price data for {symbol}"}
@@ -746,10 +760,11 @@ async def run_walkforward(
         }
 
         # 5. Persist
-        ctx.db.execute(
-            "UPDATE strategies SET walkforward_summary = ?, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
-            [_json.dumps(summary), strategy_id],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                "UPDATE strategies SET walkforward_summary = ?, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                [_json.dumps(summary), strategy_id],
+            )
 
         return {"success": True, "strategy_id": strategy_id, **summary}
 
@@ -769,7 +784,7 @@ async def run_walkforward(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_walkforward_mtf(
     strategy_id: str,
     symbol: str,
@@ -805,7 +820,7 @@ async def run_walkforward_mtf(
         Dict with fold_results, is_sharpe_mean, oos_sharpe_mean, overfit_ratio,
         oos_positive_folds, oos_degradation_pct.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
@@ -948,11 +963,12 @@ async def run_walkforward_mtf(
             "sparse_warning": total_oos_trades < n_splits * 2,  # <2 trades/fold avg
         }
 
-        ctx.db.execute(
-            "UPDATE strategies SET walkforward_summary = ?, updated_at = CURRENT_TIMESTAMP "
-            "WHERE strategy_id = ?",
-            [_json.dumps(summary), strategy_id],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                "UPDATE strategies SET walkforward_summary = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE strategy_id = ?",
+                [_json.dumps(summary), strategy_id],
+            )
         return summary
 
     except Exception as e:
@@ -961,7 +977,7 @@ async def run_walkforward_mtf(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def walk_forward_sparse_signal(
     strategy_id: str,
     symbol: str,
@@ -995,7 +1011,7 @@ async def walk_forward_sparse_signal(
         Dict with adjusted_test_size_days, fold_results, oos_sharpe_mean, sparse_warning
         (True if even the maximum window couldn't guarantee min_oos_trades).
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
@@ -1109,7 +1125,7 @@ async def walk_forward_sparse_signal(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def run_backtest_options(
     strategy_id: str,
     symbol: str,
@@ -1161,7 +1177,7 @@ async def run_backtest_options(
         avg_iv_at_entry, iv_crush_pct, equity_comparison (from underlying strategy),
         and per-trade list.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
 
@@ -1186,40 +1202,41 @@ async def run_backtest_options(
             return {"success": False, "error": f"No price data for {symbol}"}
 
         # ── 3. Get entry signals ──────────────────────────────────────────────
-        # Run the underlying equity backtest to harvest entry dates and prices
-        if is_mtf:
-            eq_bt = await run_backtest_mtf(
-                strategy_id=strategy_id,
-                symbol=symbol,
-                start_date=start_date,
-                end_date=end_date,
-                initial_capital=initial_capital,
-                position_size_pct=position_size_pct,
-            )
-        else:
-            eq_bt = await run_backtest(
-                strategy_id=strategy_id,
-                symbol=symbol,
-                start_date=start_date,
-                end_date=end_date,
-                initial_capital=initial_capital,
-                position_size_pct=position_size_pct,
-            )
+        # Generate signals directly from rules (not via equity backtest) so that
+        # options entries are driven by signal dates, not closed equity trades.
+        # This fixes the "0 trades" bug where prerequisite AND-logic produces
+        # signals but the equity backtest engine doesn't convert them to trades.
+        entry_rules = strat.get("entry_rules", [])
+        exit_rules = strat.get("exit_rules", [])
+        if not entry_rules:
+            return {"success": False, "error": "Strategy has no entry_rules"}
 
-        if not eq_bt.get("success", False):
-            return {
-                "success": False,
-                "error": f"Equity backtest failed: {eq_bt.get('error')}",
-            }
+        signals_df = _generate_signals_from_rules(
+            price_df, entry_rules, exit_rules, params
+        )
 
-        raw_trades = eq_bt.get("trades", [])
+        # Extract entry dates where signal fires
+        entry_mask = (signals_df["signal"] == 1) & (
+            signals_df["signal"].shift(1, fill_value=0) == 0
+        )
+        entry_dates = signals_df.index[entry_mask]
+
+        # Build synthetic trades from signal entry dates
+        raw_trades = []
+        for entry_ts in entry_dates:
+            entry_price = float(price_df.loc[entry_ts, "close"])
+            raw_trades.append({
+                "entry_date": str(entry_ts),
+                "entry_price": entry_price,
+                "direction": str(signals_df.loc[entry_ts, "signal_direction"]),
+            })
+
         if not raw_trades:
             return {
                 "success": True,
                 "total_trades": 0,
                 "sharpe": 0.0,
-                "note": "No equity signals in date range — options backtest empty.",
-                "equity_sharpe": eq_bt.get("sharpe", eq_bt.get("sharpe_ratio", 0)),
+                "note": "No entry signals in date range — options backtest empty.",
             }
 
         # ── 4. Black-Scholes pricing helpers ──────────────────────────────────
@@ -1427,10 +1444,11 @@ async def run_backtest_options(
         }
 
         # Persist summary alongside strategy
-        ctx.db.execute(
-            "UPDATE strategies SET updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
-            [strategy_id],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                "UPDATE strategies SET updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                [strategy_id],
+            )
         logger.info(
             f"[quantpod_mcp] run_backtest_options({symbol}): "
             f"{len(opt_trades)} trades, Sharpe={result['sharpe']}, "
@@ -1441,3 +1459,9 @@ async def run_backtest_options(
     except Exception as e:
         logger.error(f"[quantpod_mcp] run_backtest_options failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

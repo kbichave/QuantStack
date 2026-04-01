@@ -21,8 +21,11 @@ from quantstack.optimization.reflexion_memory import (
 def conn():
     """PostgreSQL connection with all migrations applied."""
     with pg_conn() as c:
+        c.execute("DELETE FROM reflexion_episodes")
+    with pg_conn() as c:
         run_migrations(c)
         yield c
+        c.execute("DELETE FROM reflexion_episodes")
 
 
 @pytest.fixture

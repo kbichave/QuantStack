@@ -35,6 +35,13 @@ from typing import TYPE_CHECKING
 from fastmcp import FastMCP
 from loguru import logger
 
+from quantstack.config.settings import get_settings
+from quantstack.context import create_trading_context
+from quantstack.core.features.factory import MultiTimeframeFeatureFactory
+from quantstack.data.pg_storage import PgDataStore
+from quantstack.data.registry import DataProviderRegistry
+from quantstack.mcp._helpers import ServerContext, set_shared_reader
+from quantstack.mcp._state import set_ctx
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import TOOL_DOMAINS
 
@@ -110,6 +117,12 @@ _DOMAIN_MODULES: dict[Domain, list[str]] = {
         "qc_risk",
         "analysis",      # cross-cutting: get_regime
     ],
+    Domain.COORDINATION: [
+        "analysis",      # get_system_status, get_portfolio_state, get_regime
+        "signal",        # get_signal_brief
+        "coordination",  # record_heartbeat, publish_event, poll_events
+        "execution",     # execute_trade
+    ],
 }
 
 # All servers need TradingContext: analysis.py (cross-cutting) uses live_db_or_error
@@ -119,10 +132,26 @@ _TRADING_DOMAINS = (
     Domain.EXECUTION | Domain.PORTFOLIO | Domain.SIGNALS
     | Domain.DATA | Domain.RESEARCH | Domain.OPTIONS
     | Domain.ML | Domain.FINRL | Domain.INTEL | Domain.RISK
+    | Domain.COORDINATION
 )
 
 # Domains that need heavy ML imports (sklearn, lightgbm, torch, etc.)
 _ML_DOMAINS = Domain.ML | Domain.FINRL
+
+# COORDINATION domain allowlist — only these tools are registered.
+# The coordination server loads modules from multiple domains but exposes
+# a curated subset for hot-path orchestration.  All other computation
+# happens via Python imports in Bash (see prompts/reference/python_toolkit.md).
+_COORDINATION_TOOLS: frozenset[str] = frozenset({
+    "get_system_status",
+    "get_portfolio_state",
+    "get_regime",
+    "get_signal_brief",
+    "record_heartbeat",
+    "publish_event",
+    "poll_events",
+    "execute_trade",
+})
 
 
 # ── Domain-aware lifespan ──────────────────────────────────────────────────
@@ -133,24 +162,16 @@ def _make_lifespan(target: Domain):
 
     @asynccontextmanager
     async def _lifespan(server: FastMCP) -> AsyncGenerator[None, None]:
-        from quantstack.config.settings import get_settings  # noqa: PLC0415
-
         settings = get_settings()
         logger.info(f"[{server.name}] starting (domain={target})")
 
         # Trading context — only for domains that need broker/portfolio/risk
         if target & _TRADING_DOMAINS:
-            from quantstack.context import create_trading_context  # noqa: PLC0415
-            from quantstack.mcp._state import set_ctx  # noqa: PLC0415
-
             ctx = create_trading_context()
             set_ctx(ctx)
             logger.info(f"[{server.name}] TradingContext initialized")
 
         # Research infrastructure — needed by most domains for data access
-        from quantstack.data.pg_storage import PgDataStore  # noqa: PLC0415
-        from quantstack.mcp._helpers import ServerContext, set_shared_reader  # noqa: PLC0415
-
         research_ctx = ServerContext(settings=settings)
         research_ctx.data_store = PgDataStore()
         set_shared_reader(research_ctx.data_store)
@@ -160,10 +181,6 @@ def _make_lifespan(target: Domain):
             Domain.DATA | Domain.RESEARCH | Domain.OPTIONS | Domain.RISK | Domain.SIGNALS
         )
         if needs_features:
-            from quantstack.core.features.factory import (  # noqa: PLC0415
-                MultiTimeframeFeatureFactory,
-            )
-
             research_ctx.feature_factory = MultiTimeframeFeatureFactory(
                 include_rrg=False,
                 include_waves=True,
@@ -172,8 +189,6 @@ def _make_lifespan(target: Domain):
 
         # Data registry — needed for data fetching
         if target & (Domain.DATA | Domain.RESEARCH | Domain.SIGNALS):
-            from quantstack.data.registry import DataProviderRegistry  # noqa: PLC0415
-
             research_ctx.data_registry = DataProviderRegistry.from_settings(settings)
 
         server.context = research_ctx
@@ -181,6 +196,10 @@ def _make_lifespan(target: Domain):
 
         yield
 
+        # Clean up DB pool so connections are returned to PostgreSQL
+        from quantstack.db import reset_pg_pool
+
+        reset_pg_pool()
         logger.info(f"[{server.name}] stopped")
 
     return _lifespan
@@ -205,11 +224,12 @@ def create_server(
     """Create a domain-scoped FastMCP server.
 
     1. Creates a FastMCP instance with a domain-aware lifespan.
-    2. Imports only the tool modules mapped to ``target``.
-    3. After import, all ``@mcp.tool()`` decorators in those modules fire,
-       but only tools whose ``@domain()`` tag overlaps with ``target``
-       are effectively useful (the rest still register but the server
-       factory filters by domain at the module level).
+    2. Imports tool modules mapped to ``target``.
+    3. Collects ``TOOLS`` from each module and registers only those
+       whose ``@domain()`` tag overlaps with ``target``.
+
+    No monkey-patching, no global state mutation. Import failures
+    are isolated — a broken module doesn't corrupt the server.
 
     Args:
         name: Server name (e.g. "quantstack-ml"). Becomes the MCP namespace prefix.
@@ -225,34 +245,51 @@ def create_server(
         lifespan=_make_lifespan(target),
     )
 
-    # Import tool modules for this domain — triggers @mcp.tool() registration
-    # on the GLOBAL mcp singleton from server.py.  For the split architecture,
-    # we need tools to register on THIS server instead.
-    #
-    # Strategy: we temporarily monkey-patch quantstack.mcp.server.mcp to point
-    # to our new server, import the modules, then restore.  This is safe because
-    # server creation is single-threaded at startup.
-    import quantstack.mcp.server as _srv_mod
-
-    original_mcp = _srv_mod.mcp
-    _srv_mod.mcp = server
-
+    # Collect tool modules for this domain and register explicitly.
+    # No monkey-patching, no global state mutation, no import-time side effects.
     modules_to_import: set[str] = set()
     for domain_flag, module_names in _DOMAIN_MODULES.items():
         if target & domain_flag:
             modules_to_import.update(module_names)
 
+    failed_modules: list[str] = []
+    registered_count = 0
+
     for mod_name in sorted(modules_to_import):
         fqn = f"quantstack.mcp.tools.{mod_name}"
         try:
-            # Force reimport so @mcp.tool() decorators fire against our server
             mod = importlib.import_module(fqn)
-            importlib.reload(mod)
+            for tool in getattr(mod, "TOOLS", []):
+                # COORDINATION uses an explicit allowlist (tools from multiple domains)
+                if target & Domain.COORDINATION:
+                    if tool.name not in _COORDINATION_TOOLS:
+                        continue
+                else:
+                    # Standard domain filter: only register tools tagged for this server
+                    tool_domain = TOOL_DOMAINS.get(tool.name)
+                    if tool_domain is not None and not (tool_domain & target):
+                        continue
+                server.tool(tool.fn, name=tool.name, description=tool.description)
+                registered_count += 1
         except Exception as exc:
-            logger.warning(f"[{name}] failed to import {fqn}: {exc}")
+            failed_modules.append(mod_name)
+            logger.error(
+                f"[{name}] tool module {fqn!r} failed to load — "
+                f"its tools will NOT be available: {exc}"
+            )
 
-    # Restore original singleton
-    _srv_mod.mcp = original_mcp
+    if failed_modules:
+        logger.error(
+            f"[{name}] {len(failed_modules)} module(s) failed to load: "
+            f"{failed_modules}. Check imports in those modules."
+        )
+
+    if registered_count == 0:
+        logger.error(
+            f"[{name}] no tools registered after loading "
+            f"{len(modules_to_import)} module(s). "
+            f"Server will start but all tool calls will fail."
+        )
 
     return server
 
@@ -280,9 +317,26 @@ def _kill_stale_and_lock(name: str) -> None:
         try:
             old_pid = int(pid_file.read_text().strip())
             if old_pid != os.getpid():
-                os.kill(old_pid, signal.SIGTERM)
-                # Brief pause so the old process can flush / close its pool
-                time.sleep(0.3)
+                # Verify the PID is actually a quantstack process before killing.
+                # PID reuse on macOS can cause us to kill an unrelated process.
+                try:
+                    import subprocess
+
+                    result = subprocess.run(
+                        ["ps", "-p", str(old_pid), "-o", "command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=2,
+                    )
+                    if "quantstack" in result.stdout:
+                        os.kill(old_pid, signal.SIGTERM)
+                        time.sleep(0.3)
+                    else:
+                        logger.debug(
+                            f"[{name}] PID {old_pid} is not a quantstack process, skipping kill"
+                        )
+                except subprocess.TimeoutExpired:
+                    pass
         except (ProcessLookupError, ValueError, OSError):
             pass  # already gone or bad file — ignore
 

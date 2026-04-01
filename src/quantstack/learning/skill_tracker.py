@@ -127,7 +127,7 @@ class SkillTracker:
                     correct_predictions INTEGER DEFAULT 0,
                     signal_count        INTEGER DEFAULT 0,
                     winning_signals     INTEGER DEFAULT 0,
-                    total_signal_pnl    DOUBLE DEFAULT 0.0,
+                    total_signal_pnl    DOUBLE PRECISION DEFAULT 0.0,
                     updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """
@@ -138,7 +138,7 @@ class SkillTracker:
                 CREATE TABLE IF NOT EXISTS agent_ic_observations (
                     id          INTEGER PRIMARY KEY,
                     agent_id    VARCHAR NOT NULL,
-                    ic_value    DOUBLE NOT NULL,
+                    ic_value    DOUBLE PRECISION NOT NULL,
                     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """

@@ -30,3 +30,4 @@ class Domain(Flag):
     FINRL = auto()       # DRL training, evaluation, promotion, screening
     INTEL = auto()       # capitulation, accumulation, macro, NLP, cross-domain
     RISK = auto()        # VaR, stress testing, drawdown, Sortino/Calmar
+    COORDINATION = auto()  # thin orchestrator: status, portfolio, regime, signals, heartbeat, events, execute

@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
@@ -68,14 +69,16 @@ class RegimeDetectorAgent:
                 success: bool,
                 symbol: str,
                 timeframe: str,
-                trend_regime: str,
-                volatility_regime: str,
+                trend_regime: str (trending_up/trending_down/ranging),
+                volatility_regime: str (low/normal/high/extreme),
                 confidence: float,
                 adx: float,
                 plus_di: float,
                 minus_di: float,
                 atr: float,
                 atr_percentile: float,
+                hmm_regime: str (optional, from HMM classifier),
+                regime_agreement: bool (whether ADX and HMM agree),
             }
         """
         ohlcv = bars
@@ -126,6 +129,34 @@ class RegimeDetectorAgent:
             # Confidence: higher ADX = more confident in trend call
             confidence = min(1.0, adx / 50.0) if trend_regime != "ranging" else 0.5
 
+            # Try to get HMM regime for comparison (optional)
+            hmm_regime = None
+            regime_agreement = True
+            try:
+                from quantstack.core.hierarchy.regime.hmm_model import (
+                    HMMRegimeModel,
+                    HMMRegimeState,
+                )
+
+                # Convert bars to DataFrame for HMM
+                df_hmm = pd.DataFrame(ohlcv)
+                if len(df_hmm) >= 100:  # HMM needs sufficient data
+                    hmm_model = HMMRegimeModel()
+                    hmm_model.fit(df_hmm)
+                    hmm_result = hmm_model.predict(df_hmm)
+                    hmm_regime = hmm_result.state.name  # e.g., "HIGH_VOL_BULL"
+
+                    # Check agreement between ADX and HMM
+                    hmm_trend = self._hmm_to_trend(hmm_result.state)
+                    if trend_regime != "ranging" and hmm_trend != trend_regime:
+                        regime_agreement = False
+                        logger.warning(
+                            f"[REGIME] {symbol}: ADX says {trend_regime}, "
+                            f"HMM says {hmm_regime} ({hmm_trend}). Conflict detected."
+                        )
+            except Exception as e:
+                logger.debug(f"[REGIME] {symbol}: HMM check failed: {e}")
+
             return {
                 "success": True,
                 "symbol": symbol,
@@ -138,11 +169,36 @@ class RegimeDetectorAgent:
                 "minus_di": round(float(minus_di), 2),
                 "atr": round(float(atr), 4),
                 "atr_percentile": round(float(atr_pct), 1),
+                "hmm_regime": hmm_regime,
+                "regime_agreement": regime_agreement,
             }
 
         except Exception as e:
             logger.error(f"[REGIME] {symbol}: computation failed: {e}")
             return self._fallback(symbol, timeframe, str(e))
+
+    # -------------------------------------------------------------------------
+    # Helper methods
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def _hmm_to_trend(hmm_state) -> str:
+        """Map HMM regime state to ADX trend regime format.
+
+        Args:
+            hmm_state: HMMRegimeState enum value
+
+        Returns:
+            "trending_up", "trending_down", or "ranging"
+        """
+        # HMM states: LOW_VOL_BULL=0, HIGH_VOL_BULL=1, LOW_VOL_BEAR=2, HIGH_VOL_BEAR=3
+        name = hmm_state.name if hasattr(hmm_state, "name") else str(hmm_state)
+        if "BULL" in name:
+            return "trending_up"
+        elif "BEAR" in name:
+            return "trending_down"
+        else:
+            return "ranging"
 
     # -------------------------------------------------------------------------
     # Indicator implementations

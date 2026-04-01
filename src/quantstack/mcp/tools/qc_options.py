@@ -16,13 +16,14 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 # financepy (~0.9s), quantsbin, ffn deferred — imported inside tool functions.
 from quantstack.mcp._helpers import (
     _get_reader,
     _parse_timeframe,
 )
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -33,7 +34,7 @@ from quantstack.mcp.tools._registry import domain
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def price_option(
     spot: float,
     strike: float,
@@ -99,7 +100,7 @@ async def price_option(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def compute_greeks(
     spot: float,
     strike: float,
@@ -147,7 +148,7 @@ async def compute_greeks(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def compute_implied_vol(
     spot: float,
     strike: float,
@@ -194,7 +195,7 @@ async def compute_implied_vol(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def analyze_option_structure(
     structure_spec: dict[str, Any],
     price_range_pct: float = 0.30,
@@ -253,7 +254,7 @@ async def analyze_option_structure(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def compute_portfolio_stats(
     equity_curve: list[float],
     risk_free_rate: float = 0.0,
@@ -296,7 +297,7 @@ async def compute_portfolio_stats(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def price_american_option(
     spot: float,
     strike: float,
@@ -473,7 +474,7 @@ async def _compute_option_chain_impl(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def compute_option_chain(
     symbol: str,
     expiry_date: str | None = None,
@@ -604,7 +605,7 @@ def _compute_multi_leg_price_impl(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def compute_multi_leg_price(
     legs: list[dict[str, Any]],
     underlying_price: float,
@@ -644,7 +645,7 @@ async def compute_multi_leg_price(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def score_trade_structure(
     structure_spec: dict[str, Any],
     vol_surface: dict[str, Any] | None = None,
@@ -787,7 +788,7 @@ async def score_trade_structure(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def simulate_trade_outcome(
     trade_template: dict[str, Any],
     num_scenarios: int = 1000,
@@ -926,7 +927,8 @@ async def _get_options_chain_impl(
             )
             if contracts:
                 data_source = "alpaca"
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[qc_options] Alpaca options chain fetch for {symbol} failed: {exc}")
             contracts = None
 
     if not contracts:
@@ -940,7 +942,8 @@ async def _get_options_chain_impl(
                 )
                 if contracts:
                     data_source = "polygon"
-            except Exception:
+            except Exception as exc:
+                logger.debug(f"[qc_options] Polygon options chain fetch for {symbol} failed: {exc}")
                 contracts = None
 
     # Fallback: synthetic chain from compute_option_chain
@@ -987,7 +990,8 @@ async def _get_options_chain_impl(
             df = store.load_ohlcv(symbol, _parse_timeframe("daily"))
             underlying_price = float(df["close"].iloc[-1]) if not df.empty else None
             as_of = str(df.index[-1]) if not df.empty else "unknown"
-        except Exception:
+        except Exception as exc:
+            logger.debug(f"[qc_options] underlying price load for {symbol} failed: {exc}")
             underlying_price = None
             as_of = "unknown"
         finally:
@@ -995,59 +999,59 @@ async def _get_options_chain_impl(
 
         # Write to options_chains table for get_iv_surface to read later
         try:
-            from quantstack.data.storage import DataStore  # noqa: PLC0415
-            ds = DataStore()
+            from quantstack.db import pg_conn  # noqa: PLC0415
+
             today_str = str(date.today())
-            for c in contracts:
-                ds.conn.execute(
-                    """
-                    INSERT INTO options_chains
-                        (contract_id, underlying, data_date, expiry, strike, option_type,
-                         bid, ask, mid, last, volume, open_interest, iv,
-                         delta, gamma, theta, vega, rho)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (contract_id, data_date) DO UPDATE SET
-                        underlying = EXCLUDED.underlying,
-                        expiry = EXCLUDED.expiry,
-                        strike = EXCLUDED.strike,
-                        option_type = EXCLUDED.option_type,
-                        bid = EXCLUDED.bid,
-                        ask = EXCLUDED.ask,
-                        mid = EXCLUDED.mid,
-                        last = EXCLUDED.last,
-                        volume = EXCLUDED.volume,
-                        open_interest = EXCLUDED.open_interest,
-                        iv = EXCLUDED.iv,
-                        delta = EXCLUDED.delta,
-                        gamma = EXCLUDED.gamma,
-                        theta = EXCLUDED.theta,
-                        vega = EXCLUDED.vega,
-                        rho = EXCLUDED.rho
-                """,
-                    [
-                        c.get("contract_id"),
-                        c.get("underlying"),
-                        today_str,
-                        c.get("expiry"),
-                        c.get("strike"),
-                        c.get("option_type"),
-                        c.get("bid"),
-                        c.get("ask"),
-                        c.get("mid"),
-                        c.get("last"),
-                        c.get("volume"),
-                        c.get("open_interest"),
-                        c.get("iv"),
-                        c.get("delta"),
-                        c.get("gamma"),
-                        c.get("theta"),
-                        c.get("vega"),
-                        None,
-                    ],
-                )
-            ds.close()
-        except Exception:
-            pass  # Storage write is best-effort; chain data is still returned
+            with pg_conn() as db:
+                for c in contracts:
+                    db.execute(
+                        """
+                        INSERT INTO options_chains
+                            (contract_id, underlying, data_date, expiry, strike, option_type,
+                             bid, ask, mid, last, volume, open_interest, iv,
+                             delta, gamma, theta, vega, rho)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (contract_id, data_date) DO UPDATE SET
+                            underlying = EXCLUDED.underlying,
+                            expiry = EXCLUDED.expiry,
+                            strike = EXCLUDED.strike,
+                            option_type = EXCLUDED.option_type,
+                            bid = EXCLUDED.bid,
+                            ask = EXCLUDED.ask,
+                            mid = EXCLUDED.mid,
+                            last = EXCLUDED.last,
+                            volume = EXCLUDED.volume,
+                            open_interest = EXCLUDED.open_interest,
+                            iv = EXCLUDED.iv,
+                            delta = EXCLUDED.delta,
+                            gamma = EXCLUDED.gamma,
+                            theta = EXCLUDED.theta,
+                            vega = EXCLUDED.vega,
+                            rho = EXCLUDED.rho
+                    """,
+                        [
+                            c.get("contract_id"),
+                            c.get("underlying"),
+                            today_str,
+                            c.get("expiry"),
+                            c.get("strike"),
+                            c.get("option_type"),
+                            c.get("bid"),
+                            c.get("ask"),
+                            c.get("mid"),
+                            c.get("last"),
+                            c.get("volume"),
+                            c.get("open_interest"),
+                            c.get("iv"),
+                            c.get("delta"),
+                            c.get("gamma"),
+                            c.get("theta"),
+                            c.get("vega"),
+                            None,
+                        ],
+                    )
+        except Exception as exc:
+            logger.debug(f"[qc_options] options_chains DB write for {symbol} failed: {exc}")
 
     # Filter by option_type if requested
     if option_type:
@@ -1098,7 +1102,7 @@ async def _get_options_chain_impl(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def get_options_chain(
     symbol: str,
     expiry_min_days: int = 7,
@@ -1138,7 +1142,7 @@ async def get_options_chain(
 
 
 @domain(Domain.OPTIONS)
-@mcp.tool()
+@tool_def()
 async def get_iv_surface(
     symbol: str,
 ) -> dict[str, Any]:
@@ -1164,36 +1168,45 @@ async def get_iv_surface(
             - term_structure: list of {expiry, dte, atm_iv} sorted by DTE
             - data_source: where chain data came from
     """
-    today = str(date.today())
-    today_date = date.today()
-
     def _load_rows():
-        ds = DataStore()
-        rows = ds.conn.execute(
-            """
-            SELECT expiry, strike, option_type, iv, delta
-            FROM options_chains
-            WHERE underlying = ? AND data_date = ? AND iv IS NOT NULL
-            ORDER BY expiry, strike
-        """,
-            [symbol, today],
-        ).fetchall()
-        ds.close()
-        return rows
+        from quantstack.db import pg_conn  # noqa: PLC0415
 
+        with pg_conn() as conn:
+            # Use most recent data_date for this symbol, not just today
+            latest_row = conn.execute(
+                "SELECT MAX(data_date) FROM options_chains WHERE underlying = ?",
+                [symbol],
+            ).fetchone()
+            latest_date = latest_row[0] if latest_row and latest_row[0] else None
+            if not latest_date:
+                return [], date.today()
+            rows = conn.execute(
+                """
+                SELECT expiry, strike, option_type, iv, delta
+                FROM options_chains
+                WHERE underlying = ? AND data_date = ? AND iv IS NOT NULL
+                ORDER BY expiry, strike
+            """,
+                [symbol, str(latest_date)],
+            ).fetchall()
+            ref = latest_date if isinstance(latest_date, date) else date.fromisoformat(str(latest_date))
+            return rows, ref
+
+    rows = []
+    ref_date = date.today()
     try:
-        rows = _load_rows()
-    except Exception:
-        rows = []
+        rows, ref_date = _load_rows()
+    except Exception as exc:
+        logger.debug(f"[qc_options] IV surface row load for {symbol} failed: {exc}")
 
     if not rows:
         chain_result = await _get_options_chain_impl(symbol=symbol)
         if "error" in chain_result:
             return chain_result
         try:
-            rows = _load_rows()
-        except Exception:
-            rows = []
+            rows, ref_date = _load_rows()
+        except Exception as exc:
+            logger.debug(f"[qc_options] IV surface row load (retry) for {symbol} failed: {exc}")
 
     if not rows:
         return {
@@ -1205,7 +1218,7 @@ async def get_iv_surface(
             "skew_25d": None,
             "term_structure": [],
             "data_source": "none",
-            "note": "No options chain data available for today",
+            "note": "No options chain data available",
         }
 
     expiry_contracts: dict[str, list] = defaultdict(list)
@@ -1225,7 +1238,7 @@ async def get_iv_surface(
             exp_date = date.fromisoformat(expiry_str)
         except (ValueError, TypeError):
             continue
-        dte = (exp_date - today_date).days
+        dte = (exp_date - ref_date).days
         if dte < 0:
             continue
 
@@ -1249,10 +1262,11 @@ async def get_iv_surface(
     atm_iv_30d = _nearest_iv(30)
     atm_iv_60d = _nearest_iv(60)
 
-    # 25-delta skew for front month
+    # 25-delta skew — use nearest-30d expiry (front month is often too short for skew)
     skew_25d = None
     if term_structure:
-        front_expiry = term_structure[0]["expiry"]
+        skew_expiry_entry = min(term_structure, key=lambda x: abs(x["dte"] - 30))
+        front_expiry = skew_expiry_entry["expiry"]
         front_contracts = expiry_contracts.get(front_expiry, [])
         put_25d = next(
             (
@@ -1288,3 +1302,9 @@ async def get_iv_surface(
         "data_source": "options_chains_table",
         "note": "iv_rank/iv_percentile require 52-week of daily chain data — will populate over time",
     }
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

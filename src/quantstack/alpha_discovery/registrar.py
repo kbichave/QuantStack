@@ -65,8 +65,9 @@ class StrategyRegistrar:
                     """
                     INSERT INTO strategies
                         (strategy_id, name, description, asset_class, regime_affinity,
-                         parameters, entry_rules, exit_rules, risk_params, status, source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+                         parameters, entry_rules, exit_rules, risk_params, status, source,
+                         symbol)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
                     """,
                     [
                         strategy_id,
@@ -79,6 +80,7 @@ class StrategyRegistrar:
                         json.dumps(exit_rules),
                         json.dumps(risk_params),
                         source,
+                        symbol,
                     ],
                 )
             logger.info(

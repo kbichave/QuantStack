@@ -21,8 +21,9 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.db import pg_conn
 from quantstack.mcp._state import live_db_or_error
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -66,7 +67,7 @@ def _serialize_rows(rows: list, columns: list[str]) -> list[dict]:
 # ── Tools ────────────────────────────────────────────────────────────────
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 async def create_equity_alert(
     symbol: str,
     action: str,
@@ -127,7 +128,7 @@ async def create_equity_alert(
     Returns:
         Dict with alert_id and creation status.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -138,26 +139,6 @@ async def create_equity_alert(
         if urgency not in _VALID_URGENCIES:
             urgency = "today"
 
-        # Deduplicate: check for recent active alert on same symbol + horizon
-        cutoff = datetime.now() - timedelta(days=7)
-        existing = ctx.db.execute(
-            """
-            SELECT id, status, created_at FROM equity_alerts
-            WHERE symbol = ? AND time_horizon = ? AND status IN ('pending', 'watching')
-              AND created_at >= ?
-            ORDER BY created_at DESC LIMIT 1
-            """,
-            [symbol, time_horizon, cutoff],
-        ).fetchone()
-        if existing:
-            return {
-                "success": True,
-                "alert_id": existing[0],
-                "deduplicated": True,
-                "existing_status": existing[1],
-                "message": f"Active alert #{existing[0]} already exists for {symbol} ({time_horizon})",
-            }
-
         # Compute risk/reward ratio
         rr = 0.0
         if suggested_entry > 0 and stop_price > 0 and target_price > 0:
@@ -165,59 +146,80 @@ async def create_equity_alert(
             reward = abs(target_price - suggested_entry)
             rr = round(reward / risk, 2) if risk > 0 else 0.0
 
-        ctx.db.execute(
-            """
-            INSERT INTO equity_alerts (
-                symbol, action, time_horizon, instrument_type, strategy_id, strategy_name,
-                confidence, debate_verdict, debate_summary,
-                current_price, suggested_entry, stop_price, target_price,
-                trailing_stop_pct, risk_reward_ratio,
-                regime, sector, catalyst, thesis, key_risks,
-                piotroski_f_score, fcf_yield_pct, pe_ratio, analyst_consensus,
-                status, urgency
-            ) VALUES (
-                ?, ?, ?, 'equity', ?, ?,
-                ?, ?, ?,
-                ?, ?, ?, ?,
-                ?, ?,
-                ?, ?, ?, ?, ?,
-                ?, ?, ?, ?,
-                'pending', ?
+        with pg_conn() as conn:
+            # Deduplicate: check for recent active alert on same symbol + horizon
+            cutoff = datetime.now() - timedelta(days=7)
+            existing = conn.execute(
+                """
+                SELECT id, status, created_at FROM equity_alerts
+                WHERE symbol = ? AND time_horizon = ? AND status IN ('pending', 'watching')
+                  AND created_at >= ?
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                [symbol, time_horizon, cutoff],
+            ).fetchone()
+            if existing:
+                return {
+                    "success": True,
+                    "alert_id": existing[0],
+                    "deduplicated": True,
+                    "existing_status": existing[1],
+                    "message": f"Active alert #{existing[0]} already exists for {symbol} ({time_horizon})",
+                }
+
+            conn.execute(
+                """
+                INSERT INTO equity_alerts (
+                    symbol, action, time_horizon, instrument_type, strategy_id, strategy_name,
+                    confidence, debate_verdict, debate_summary,
+                    current_price, suggested_entry, stop_price, target_price,
+                    trailing_stop_pct, risk_reward_ratio,
+                    regime, sector, catalyst, thesis, key_risks,
+                    piotroski_f_score, fcf_yield_pct, pe_ratio, analyst_consensus,
+                    status, urgency
+                ) VALUES (
+                    ?, ?, ?, 'equity', ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?, ?,
+                    ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?,
+                    'pending', ?
+                )
+                """,
+                [
+                    symbol, action, time_horizon, strategy_id, strategy_name,
+                    confidence, debate_verdict, debate_summary,
+                    current_price, suggested_entry, stop_price, target_price,
+                    trailing_stop_pct, rr,
+                    regime, sector, catalyst, thesis, key_risks,
+                    piotroski_f_score or None, fcf_yield_pct or None, pe_ratio or None, analyst_consensus,
+                    urgency,
+                ],
             )
-            """,
-            [
-                symbol, action, time_horizon, strategy_id, strategy_name,
-                confidence, debate_verdict, debate_summary,
-                current_price, suggested_entry, stop_price, target_price,
-                trailing_stop_pct, rr,
-                regime, sector, catalyst, thesis, key_risks,
-                piotroski_f_score or None, fcf_yield_pct or None, pe_ratio or None, analyst_consensus,
-                urgency,
-            ],
-        )
 
-        # Get the inserted ID
-        row = ctx.db.execute(
-            "SELECT id FROM equity_alerts WHERE symbol = ? ORDER BY created_at DESC LIMIT 1",
-            [symbol],
-        ).fetchone()
-        if not row:
-            raise RuntimeError(f"Insert into equity_alerts silently failed for {symbol} — no row returned after write")
-        alert_id = row[0]
+            # Get the inserted ID
+            row = conn.execute(
+                "SELECT id FROM equity_alerts WHERE symbol = ? ORDER BY created_at DESC LIMIT 1",
+                [symbol],
+            ).fetchone()
+            if not row:
+                raise RuntimeError(f"Insert into equity_alerts silently failed for {symbol} — no row returned after write")
+            alert_id = row[0]
 
-        # Initial thesis check update
-        snapshot = json.dumps({
-            "price": current_price, "regime": regime,
-            "f_score": piotroski_f_score, "fcf_yield": fcf_yield_pct,
-            "pe": pe_ratio,
-        })
-        ctx.db.execute(
-            """
-            INSERT INTO alert_updates (alert_id, update_type, commentary, data_snapshot, thesis_status)
-            VALUES (?, 'thesis_check', ?, ?, 'intact')
-            """,
-            [alert_id, f"Alert created. {thesis[:500]}", snapshot],
-        )
+            # Initial thesis check update
+            snapshot = json.dumps({
+                "price": current_price, "regime": regime,
+                "f_score": piotroski_f_score, "fcf_yield": fcf_yield_pct,
+                "pe": pe_ratio,
+            })
+            conn.execute(
+                """
+                INSERT INTO alert_updates (alert_id, update_type, commentary, data_snapshot, thesis_status)
+                VALUES (?, 'thesis_check', ?, ?, 'intact')
+                """,
+                [alert_id, f"Alert created. {thesis[:500]}", snapshot],
+            )
 
         logger.info(f"[alerts] Created alert #{alert_id}: {action} {symbol} ({time_horizon})")
         return {
@@ -234,7 +236,7 @@ async def create_equity_alert(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 async def get_equity_alerts(
     symbol: str = "",
     status: str = "",
@@ -259,7 +261,7 @@ async def get_equity_alerts(
     Returns:
         Dict with alerts list and count.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -288,59 +290,60 @@ async def get_equity_alerts(
         if limit > 0:
             query += f" LIMIT {limit}"
 
-        rows = ctx.db.execute(query, params).fetchall()
-        columns = [
-            "id", "symbol", "action", "time_horizon", "instrument_type",
-            "strategy_id", "strategy_name",
-            "confidence", "debate_verdict", "debate_summary",
-            "current_price", "suggested_entry", "stop_price", "target_price",
-            "trailing_stop_pct", "risk_reward_ratio",
-            "regime", "sector", "catalyst", "thesis", "key_risks",
-            "piotroski_f_score", "fcf_yield_pct", "pe_ratio", "analyst_consensus",
-            "status", "status_reason", "urgency",
-            "created_at", "acted_at", "expired_at",
-        ]
-        alerts = _serialize_rows(rows, columns)
-
-        # Optionally join updates and exit signals
-        if include_updates and alerts:
-            alert_ids = [a["id"] for a in alerts]
-            placeholders = ",".join(["?"] * len(alert_ids))
-            update_rows = ctx.db.execute(
-                f"SELECT * FROM alert_updates WHERE alert_id IN ({placeholders}) ORDER BY created_at DESC",
-                alert_ids,
-            ).fetchall()
-            update_cols = [
-                "id", "alert_id", "update_type", "commentary",
-                "data_snapshot", "thesis_status", "created_at",
+        with pg_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+            columns = [
+                "id", "symbol", "action", "time_horizon", "instrument_type",
+                "strategy_id", "strategy_name",
+                "confidence", "debate_verdict", "debate_summary",
+                "current_price", "suggested_entry", "stop_price", "target_price",
+                "trailing_stop_pct", "risk_reward_ratio",
+                "regime", "sector", "catalyst", "thesis", "key_risks",
+                "piotroski_f_score", "fcf_yield_pct", "pe_ratio", "analyst_consensus",
+                "status", "status_reason", "urgency",
+                "created_at", "acted_at", "expired_at",
             ]
-            updates = _serialize_rows(update_rows, update_cols)
-            # Group by alert_id
-            updates_by_alert: dict[int, list] = {}
-            for u in updates:
-                updates_by_alert.setdefault(u["alert_id"], []).append(u)
-            for a in alerts:
-                a["updates"] = updates_by_alert.get(a["id"], [])
+            alerts = _serialize_rows(rows, columns)
 
-        if include_exit_signals and alerts:
-            alert_ids = [a["id"] for a in alerts]
-            placeholders = ",".join(["?"] * len(alert_ids))
-            sig_rows = ctx.db.execute(
-                f"SELECT * FROM alert_exit_signals WHERE alert_id IN ({placeholders}) ORDER BY created_at DESC",
-                alert_ids,
-            ).fetchall()
-            sig_cols = [
-                "id", "alert_id", "signal_type", "severity", "exit_price", "pnl_pct",
-                "headline", "commentary", "what_changed", "lesson",
-                "recommended_action", "recommended_reason",
-                "acknowledged", "action_taken", "created_at",
-            ]
-            signals = _serialize_rows(sig_rows, sig_cols)
-            signals_by_alert: dict[int, list] = {}
-            for s in signals:
-                signals_by_alert.setdefault(s["alert_id"], []).append(s)
-            for a in alerts:
-                a["exit_signals"] = signals_by_alert.get(a["id"], [])
+            # Optionally join updates and exit signals
+            if include_updates and alerts:
+                alert_ids = [a["id"] for a in alerts]
+                placeholders = ",".join(["?"] * len(alert_ids))
+                update_rows = conn.execute(
+                    f"SELECT * FROM alert_updates WHERE alert_id IN ({placeholders}) ORDER BY created_at DESC",
+                    alert_ids,
+                ).fetchall()
+                update_cols = [
+                    "id", "alert_id", "update_type", "commentary",
+                    "data_snapshot", "thesis_status", "created_at",
+                ]
+                updates = _serialize_rows(update_rows, update_cols)
+                # Group by alert_id
+                updates_by_alert: dict[int, list] = {}
+                for u in updates:
+                    updates_by_alert.setdefault(u["alert_id"], []).append(u)
+                for a in alerts:
+                    a["updates"] = updates_by_alert.get(a["id"], [])
+
+            if include_exit_signals and alerts:
+                alert_ids = [a["id"] for a in alerts]
+                placeholders = ",".join(["?"] * len(alert_ids))
+                sig_rows = conn.execute(
+                    f"SELECT * FROM alert_exit_signals WHERE alert_id IN ({placeholders}) ORDER BY created_at DESC",
+                    alert_ids,
+                ).fetchall()
+                sig_cols = [
+                    "id", "alert_id", "signal_type", "severity", "exit_price", "pnl_pct",
+                    "headline", "commentary", "what_changed", "lesson",
+                    "recommended_action", "recommended_reason",
+                    "acknowledged", "action_taken", "created_at",
+                ]
+                signals = _serialize_rows(sig_rows, sig_cols)
+                signals_by_alert: dict[int, list] = {}
+                for s in signals:
+                    signals_by_alert.setdefault(s["alert_id"], []).append(s)
+                for a in alerts:
+                    a["exit_signals"] = signals_by_alert.get(a["id"], [])
 
         return {"success": True, "alerts": alerts, "count": len(alerts)}
     except Exception as e:
@@ -349,7 +352,7 @@ async def get_equity_alerts(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 async def update_alert_status(
     alert_id: int,
     status: str,
@@ -368,7 +371,7 @@ async def update_alert_status(
     Returns:
         Confirmation with new status.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -382,10 +385,11 @@ async def update_alert_status(
         elif status in ("expired", "skipped"):
             extra_set = ", expired_at = CURRENT_TIMESTAMP"
 
-        ctx.db.execute(
-            f"UPDATE equity_alerts SET status = ?, status_reason = ?{extra_set} WHERE id = ?",
-            [status, status_reason, alert_id],
-        )
+        with pg_conn() as conn:
+            conn.execute(
+                f"UPDATE equity_alerts SET status = ?, status_reason = ?{extra_set} WHERE id = ?",
+                [status, status_reason, alert_id],
+            )
 
         logger.info(f"[alerts] Alert #{alert_id} → {status}: {status_reason}")
         return {"success": True, "alert_id": alert_id, "new_status": status, "reason": status_reason}
@@ -395,7 +399,7 @@ async def update_alert_status(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 async def create_exit_signal(
     alert_id: int,
     signal_type: str,
@@ -433,7 +437,7 @@ async def create_exit_signal(
     Returns:
         Confirmation with exit signal ID.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -442,37 +446,38 @@ async def create_exit_signal(
         if severity not in _VALID_SEVERITIES:
             return {"success": False, "error": f"Invalid severity '{severity}'. Must be: {_VALID_SEVERITIES}"}
 
-        ctx.db.execute(
-            """
-            INSERT INTO alert_exit_signals (
-                alert_id, signal_type, severity, exit_price, pnl_pct,
-                headline, commentary, what_changed, lesson,
-                recommended_action, recommended_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                alert_id, signal_type, severity, exit_price or None, pnl_pct or None,
-                headline, commentary, what_changed, lesson,
-                recommended_action, recommended_reason,
-            ],
-        )
-
-        # Get inserted ID
-        row = ctx.db.execute(
-            "SELECT id FROM alert_exit_signals WHERE alert_id = ? ORDER BY created_at DESC LIMIT 1",
-            [alert_id],
-        ).fetchone()
-        if not row:
-            logger.warning(f"[alerts] Could not retrieve exit signal ID for alert #{alert_id} after insert")
-        signal_id = row[0] if row else 0
-
-        # Auto-expire parent alert on auto_close severity
-        if severity == "auto_close":
-            ctx.db.execute(
-                "UPDATE equity_alerts SET status = 'expired', status_reason = ?, expired_at = CURRENT_TIMESTAMP WHERE id = ?",
-                [f"Auto-closed: {headline}", alert_id],
+        with pg_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO alert_exit_signals (
+                    alert_id, signal_type, severity, exit_price, pnl_pct,
+                    headline, commentary, what_changed, lesson,
+                    recommended_action, recommended_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    alert_id, signal_type, severity, exit_price or None, pnl_pct or None,
+                    headline, commentary, what_changed, lesson,
+                    recommended_action, recommended_reason,
+                ],
             )
-            logger.info(f"[alerts] Alert #{alert_id} auto-closed: {headline}")
+
+            # Get inserted ID
+            row = conn.execute(
+                "SELECT id FROM alert_exit_signals WHERE alert_id = ? ORDER BY created_at DESC LIMIT 1",
+                [alert_id],
+            ).fetchone()
+            if not row:
+                logger.warning(f"[alerts] Could not retrieve exit signal ID for alert #{alert_id} after insert")
+            signal_id = row[0] if row else 0
+
+            # Auto-expire parent alert on auto_close severity
+            if severity == "auto_close":
+                conn.execute(
+                    "UPDATE equity_alerts SET status = 'expired', status_reason = ?, expired_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    [f"Auto-closed: {headline}", alert_id],
+                )
+                logger.info(f"[alerts] Alert #{alert_id} auto-closed: {headline}")
 
         logger.info(f"[alerts] Exit signal #{signal_id} on alert #{alert_id}: {signal_type} ({severity})")
         return {"success": True, "exit_signal_id": signal_id, "alert_id": alert_id, "auto_closed": severity == "auto_close"}
@@ -482,7 +487,7 @@ async def create_exit_signal(
 
 
 @domain(Domain.EXECUTION)
-@mcp.tool()
+@tool_def()
 async def add_alert_update(
     alert_id: int,
     update_type: str,
@@ -510,7 +515,7 @@ async def add_alert_update(
     Returns:
         Confirmation with update ID.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -519,42 +524,49 @@ async def add_alert_update(
         if thesis_status not in _VALID_THESIS_STATUSES:
             thesis_status = "intact"
 
-        ctx.db.execute(
-            """
-            INSERT INTO alert_updates (alert_id, update_type, commentary, data_snapshot, thesis_status)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            [alert_id, update_type, commentary, data_snapshot, thesis_status],
-        )
-
-        row = ctx.db.execute(
-            "SELECT id FROM alert_updates WHERE alert_id = ? ORDER BY created_at DESC LIMIT 1",
-            [alert_id],
-        ).fetchone()
-        if not row:
-            logger.warning(f"[alerts] Could not retrieve update ID for alert #{alert_id} after insert")
-        update_id = row[0] if row else 0
-
-        # Auto-create exit signal if thesis is broken
-        if thesis_status == "broken":
-            ctx.db.execute(
+        with pg_conn() as conn:
+            conn.execute(
                 """
-                INSERT INTO alert_exit_signals (
-                    alert_id, signal_type, severity, headline, commentary,
-                    recommended_action, recommended_reason
-                ) VALUES (?, 'thesis_invalidated', 'critical', ?, ?, 'close', ?)
+                INSERT INTO alert_updates (alert_id, update_type, commentary, data_snapshot, thesis_status)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                [
-                    alert_id,
-                    f"Thesis broken: {commentary[:100]}",
-                    commentary,
-                    "Thesis invalidated — close position",
-                ],
+                [alert_id, update_type, commentary, data_snapshot, thesis_status],
             )
-            logger.info(f"[alerts] Thesis broken on alert #{alert_id} — auto-created exit signal")
+
+            row = conn.execute(
+                "SELECT id FROM alert_updates WHERE alert_id = ? ORDER BY created_at DESC LIMIT 1",
+                [alert_id],
+            ).fetchone()
+            if not row:
+                logger.warning(f"[alerts] Could not retrieve update ID for alert #{alert_id} after insert")
+            update_id = row[0] if row else 0
+
+            # Auto-create exit signal if thesis is broken
+            if thesis_status == "broken":
+                conn.execute(
+                    """
+                    INSERT INTO alert_exit_signals (
+                        alert_id, signal_type, severity, headline, commentary,
+                        recommended_action, recommended_reason
+                    ) VALUES (?, 'thesis_invalidated', 'critical', ?, ?, 'close', ?)
+                    """,
+                    [
+                        alert_id,
+                        f"Thesis broken: {commentary[:100]}",
+                        commentary,
+                        "Thesis invalidated — close position",
+                    ],
+                )
+                logger.info(f"[alerts] Thesis broken on alert #{alert_id} — auto-created exit signal")
 
         logger.info(f"[alerts] Update #{update_id} on alert #{alert_id}: {update_type} ({thesis_status})")
         return {"success": True, "update_id": update_id, "alert_id": alert_id, "thesis_status": thesis_status}
     except Exception as e:
         logger.error(f"[alerts] add_alert_update failed: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

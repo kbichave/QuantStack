@@ -19,7 +19,9 @@ from quantstack.memory.blackboard import Blackboard
 @pytest.fixture
 def ctx():
     context = create_trading_context(db_path=":memory:")
+    context.db.execute("DELETE FROM agent_memory")
     yield context
+    context.db.execute("ROLLBACK")
     context.db.close()
 
 

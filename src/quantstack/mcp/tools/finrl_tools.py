@@ -30,7 +30,7 @@ import numpy as np
 from loguru import logger
 
 from quantstack.mcp._state import _serialize, live_db_or_error, require_ctx
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -40,7 +40,7 @@ _env_configs: dict[str, dict[str, Any]] = {}
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_create_environment(
     env_type: str,
     symbols: list[str] | None = None,
@@ -131,7 +131,7 @@ async def finrl_create_environment(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_train_model(
     env_id: str,
     algorithm: str = "ppo",
@@ -226,7 +226,7 @@ async def finrl_train_model(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_train_ensemble(
     env_id: str,
     algorithms: list[str] | None = None,
@@ -284,7 +284,7 @@ async def finrl_train_ensemble(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_evaluate_model(
     model_id: str,
     test_start: str | None = None,
@@ -363,7 +363,7 @@ async def finrl_evaluate_model(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_predict(
     model_id: str,
     symbol: str | None = None,
@@ -433,7 +433,7 @@ async def finrl_predict(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_list_models(
     env_type: str | None = None,
     status: str | None = None,
@@ -469,7 +469,7 @@ async def finrl_list_models(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_compare_models(
     model_ids: list[str],
     test_start: str | None = None,
@@ -507,7 +507,7 @@ async def finrl_compare_models(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_get_model_status(model_id: str) -> dict[str, Any]:
     """
     Get detailed status for a model including promotion readiness.
@@ -538,8 +538,8 @@ async def finrl_get_model_status(model_id: str) -> dict[str, Any]:
             try:
                 start = datetime.fromisoformat(str(model["shadow_start"]))
                 shadow_days = (datetime.utcnow() - start).days
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"[finrl_tools] shadow_start parse for {model_id} failed: {exc}")
 
         eval_metrics = model.get("eval_metrics") or {}
 
@@ -565,7 +565,7 @@ async def finrl_get_model_status(model_id: str) -> dict[str, Any]:
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_promote_model(
     model_id: str,
     evidence: str,
@@ -612,8 +612,8 @@ async def finrl_promote_model(
             try:
                 start = datetime.fromisoformat(str(model["shadow_start"]))
                 shadow_days = (datetime.utcnow() - start).days
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(f"[finrl_tools] shadow_start parse in promote for {model_id} failed: {exc}")
 
         gate = PromotionGate()
         result = gate.evaluate(
@@ -641,7 +641,7 @@ async def finrl_promote_model(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_screen_stocks(
     symbols: list[str],
     start_date: str,
@@ -702,7 +702,7 @@ async def finrl_screen_stocks(
 
 
 @domain(Domain.FINRL)
-@mcp.tool()
+@tool_def()
 async def finrl_screen_options(
     symbols: list[str],
     start_date: str,
@@ -879,3 +879,9 @@ def _pick_best(results: dict[str, dict]) -> dict[str, Any]:
         "best_model_id": best_id,
         "best_sharpe": round(best_sharpe, 4) if best_id else None,
     }
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

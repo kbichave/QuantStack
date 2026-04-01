@@ -16,14 +16,15 @@ from quantstack.data import DataStore
 from quantstack.db import pg_conn
 from quantstack.learning.drift_detector import TRACKED_FEATURES, DriftDetector
 from quantstack.mcp._state import _serialize, live_db_or_error, require_ctx
-from quantstack.mcp.server import mcp
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
+from quantstack.mcp.tools._impl import get_strategy_impl as _get_strategy_impl
+from quantstack.mcp.tools._tool_def import tool_def
 
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def register_strategy(
     name: str,
     parameters: dict[str, Any],
@@ -37,6 +38,7 @@ async def register_strategy(
     instrument_type: str = "equity",
     time_horizon: str = "swing",
     holding_period_days: int = 5,
+    symbol: str | None = None,
 ) -> dict[str, Any]:
     """
     Register a new strategy in the persistent catalog.
@@ -54,6 +56,7 @@ async def register_strategy(
         instrument_type: "equity", "options", "multi_leg" — what this strategy trades.
         time_horizon: "intraday", "swing", "position", "investment" — holding cadence.
         holding_period_days: Expected holding period in days (default 5 for swing).
+        symbol: Ticker symbol this strategy targets (e.g., "SPY", "META").
 
     Returns:
         Dict with strategy_id and status.
@@ -65,13 +68,21 @@ async def register_strategy(
 
     try:
         with pg_conn() as conn:
+            row = conn.execute(
+                "SELECT strategy_id FROM strategies WHERE name = ?", [name]
+            ).fetchone()
+            if row:
+                return {
+                    "success": False,
+                    "error": f"A strategy named '{name}' already exists (id={row[0]})",
+                }
             conn.execute(
                 """
                 INSERT INTO strategies
                     (strategy_id, name, description, asset_class, regime_affinity,
                      parameters, entry_rules, exit_rules, risk_params, status, source,
-                     instrument_type, time_horizon, holding_period_days)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+                     instrument_type, time_horizon, holding_period_days, symbol)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
                 """,
                 [
                     strategy_id,
@@ -87,6 +98,7 @@ async def register_strategy(
                     instrument_type,
                     time_horizon,
                     holding_period_days,
+                    symbol,
                 ],
             )
         logger.info(f"[quantpod_mcp] Registered strategy {strategy_id}: {name}")
@@ -97,10 +109,11 @@ async def register_strategy(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def list_strategies(
     status: str | None = None,
     asset_class: str | None = None,
+    symbol: str | None = None,
 ) -> dict[str, Any]:
     """
     List strategies from the registry, optionally filtered.
@@ -108,11 +121,12 @@ async def list_strategies(
     Args:
         status: Filter by status (draft, backtested, forward_testing, live, failed, retired).
         asset_class: Filter by asset class.
+        symbol: Filter by ticker symbol (e.g., "SPY", "META").
 
     Returns:
         Dict with list of strategy summaries.
     """
-    ctx, err = live_db_or_error()
+    _, err = live_db_or_error()
     if err:
         return err
     try:
@@ -124,13 +138,17 @@ async def list_strategies(
         if asset_class:
             conditions.append("asset_class = ?")
             params.append(asset_class)
+        if symbol:
+            conditions.append("symbol = ?")
+            params.append(symbol.upper())
 
         where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
-        rows = ctx.db.execute(
-            f"SELECT strategy_id, name, description, asset_class, status, source, "
-            f"created_at, updated_at FROM strategies{where} ORDER BY updated_at DESC",
-            params,
-        ).fetchall()
+        with pg_conn() as conn:
+            rows = conn.execute(
+                f"SELECT strategy_id, name, description, asset_class, status, source, "
+                f"created_at, updated_at, symbol FROM strategies{where} ORDER BY updated_at DESC",
+                params,
+            ).fetchall()
 
         strategies = [
             {
@@ -142,6 +160,7 @@ async def list_strategies(
                 "source": r[5],
                 "created_at": str(r[6]) if r[6] else None,
                 "updated_at": str(r[7]) if r[7] else None,
+                "symbol": r[8],
             }
             for r in rows
         ]
@@ -151,78 +170,8 @@ async def list_strategies(
         return {"success": False, "error": str(e), "strategies": [], "total": 0}
 
 
-async def _get_strategy_impl(
-    strategy_id: str | None = None,
-    name: str | None = None,
-) -> dict[str, Any]:
-    """Core logic for get_strategy — callable from other tool modules."""
-    ctx, err = live_db_or_error()
-    if err:
-        return err
-    try:
-        if strategy_id:
-            row = ctx.db.execute(
-                "SELECT * FROM strategies WHERE strategy_id = ?", [strategy_id]
-            ).fetchone()
-        elif name:
-            row = ctx.db.execute(
-                "SELECT * FROM strategies WHERE name = ?", [name]
-            ).fetchone()
-        else:
-            return {"success": False, "error": "Provide strategy_id or name"}
-
-        if row is None:
-            return {"success": False, "error": "Strategy not found"}
-
-        cols = [
-            "strategy_id",
-            "name",
-            "description",
-            "asset_class",
-            "regime_affinity",
-            "parameters",
-            "entry_rules",
-            "exit_rules",
-            "risk_params",
-            "backtest_summary",
-            "walkforward_summary",
-            "status",
-            "source",
-            "created_at",
-            "updated_at",
-            "created_by",
-            "instrument_type",
-            "time_horizon",
-            "holding_period_days",
-        ]
-        record = {}
-        for i, col in enumerate(cols):
-            val = row[i]
-            if isinstance(val, str) and col in (
-                "regime_affinity",
-                "parameters",
-                "entry_rules",
-                "exit_rules",
-                "risk_params",
-                "backtest_summary",
-                "walkforward_summary",
-            ):
-                try:
-                    val = json.loads(val)
-                except (ValueError, TypeError):
-                    pass
-            if col in ("created_at", "updated_at") and val is not None:
-                val = str(val)
-            record[col] = val
-
-        return {"success": True, "strategy": record}
-    except Exception as e:
-        logger.error(f"[quantpod_mcp] get_strategy failed: {e}")
-        return {"success": False, "error": str(e)}
-
-
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def get_strategy(
     strategy_id: str | None = None,
     name: str | None = None,
@@ -241,7 +190,7 @@ async def get_strategy(
 
 
 @domain(Domain.RESEARCH)
-@mcp.tool()
+@tool_def()
 async def update_strategy(
     strategy_id: str,
     status: str | None = None,
@@ -256,6 +205,7 @@ async def update_strategy(
     instrument_type: str | None = None,
     time_horizon: str | None = None,
     holding_period_days: int | None = None,
+    symbol: str | None = None,
 ) -> dict[str, Any]:
     """
     Update fields of an existing strategy.
@@ -276,6 +226,7 @@ async def update_strategy(
         instrument_type: "equity", "options", "multi_leg".
         time_horizon: "intraday", "swing", "position", "investment".
         holding_period_days: Expected holding period in days.
+        symbol: Ticker symbol this strategy targets.
 
     Returns:
         Updated strategy record.
@@ -292,6 +243,7 @@ async def update_strategy(
             "instrument_type": instrument_type,
             "time_horizon": time_horizon,
             "holding_period_days": holding_period_days,
+            "symbol": symbol,
         }
         json_fields = {
             "parameters": parameters,
@@ -376,7 +328,8 @@ def _create_drift_baseline(strategy_id: str) -> None:
                     arr = arr[np.isfinite(arr)]
                     if len(arr) > 20:
                         features[name] = arr
-            except Exception:
+            except Exception as exc:
+                logger.debug(f"[strategy] drift baseline feature '{name}' computation failed: {exc}")
                 continue
 
         if features:
@@ -390,3 +343,9 @@ def _create_drift_baseline(strategy_id: str) -> None:
 
     except Exception as exc:
         logger.debug(f"[drift_baseline] Failed for {strategy_id} (non-critical): {exc}")
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

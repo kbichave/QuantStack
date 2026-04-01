@@ -23,14 +23,14 @@ from quantstack.mcp._helpers import (
     _get_reader,
     _parse_timeframe,
 )
-from quantstack.mcp.server import mcp
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def compute_technical_indicators(
     symbol: str,
     timeframe: str = "daily",
@@ -124,7 +124,7 @@ async def compute_technical_indicators(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def compute_all_features(
     symbol: str,
     timeframe: str = "daily",
@@ -198,7 +198,7 @@ async def compute_all_features(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def list_available_indicators() -> dict[str, Any]:
     """
     List all available technical indicators with signal tier classification.
@@ -406,7 +406,7 @@ async def list_available_indicators() -> dict[str, Any]:
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def compute_feature_matrix(
     symbol: str,
     timeframe: str = "daily",
@@ -461,8 +461,18 @@ async def compute_feature_matrix(
         # Get latest row as dict
         latest = features.iloc[-1].to_dict()
 
-        # Clean up NaN values
-        latest = {k: (float(v) if pd.notna(v) else None) for k, v in latest.items()}
+        # Clean up NaN values and coerce numerics to float.
+        # Some feature columns (e.g. wave_role) produce string values —
+        # keep those as-is rather than attempting float conversion.
+        def _clean_value(v):
+            if isinstance(v, str):
+                return v
+            try:
+                return float(v) if pd.notna(v) else None
+            except (TypeError, ValueError):
+                return None
+
+        latest = {k: _clean_value(v) for k, v in latest.items()}
 
         return {
             "symbol": symbol,
@@ -481,7 +491,7 @@ async def compute_feature_matrix(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def compute_quantagent_features(
     symbol: str,
     timeframe: str = "daily",
@@ -617,3 +627,9 @@ async def compute_quantagent_features(
         return {"error": str(e), "symbol": symbol}
     finally:
         store.close()
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

@@ -19,7 +19,7 @@ from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
-from quantstack.data.universe import CROSS_ASSET_ETFS
+from quantstack.universe import CROSS_ASSET_ETFS
 from quantstack.core.features.carry import FuturesBasis
 from quantstack.core.features.rrg import RRGFeatures
 from quantstack.core.features.smart_money import SMTDivergence

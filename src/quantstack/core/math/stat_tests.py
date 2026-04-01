@@ -68,7 +68,7 @@ def adf_test(
         test_name="ADF",
         statistic=adf_stat,
         p_value=p_value,
-        is_significant=p_value < significance_level,
+        is_significant=bool(p_value < significance_level),
         critical_values=critical_values,
         additional_info={
             "used_lag": used_lag,

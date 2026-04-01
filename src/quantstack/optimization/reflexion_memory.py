@@ -33,6 +33,7 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.db import pg_conn
 from quantstack.shared.models import TradeReflection
 
 
@@ -102,8 +103,10 @@ class ReflexionMemory:
         prompt = mem.inject_into_prompt(base_prompt, lessons)
     """
 
-    def __init__(self, conn: Any) -> None:
-        self._conn = conn
+    def __init__(self, conn: Any = None) -> None:
+        # conn is accepted but ignored — each DB operation uses pg_conn() to
+        # ensure transactions are committed immediately and never left open.
+        pass
 
     @staticmethod
     def _row_to_episode(row: tuple) -> ReflexionEpisode:
@@ -200,21 +203,22 @@ class ReflexionMemory:
             created_at=datetime.now().isoformat(),
         )
 
-        # Persist to DB
+        # Persist to DB — pg_conn() commits immediately, preventing idle-in-transaction
         try:
-            self._conn.execute(
-                f"INSERT INTO {EPISODES_TABLE} "
-                f"(episode_id, trade_id, regime, strategy_id, symbol, pnl_pct, "
-                f"root_cause, verbal_reinforcement, counterfactual, tags, created_at) "
-                f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    episode.episode_id, trade_id, episode.regime,
-                    episode.strategy_id, episode.symbol, episode.pnl_pct,
-                    episode.root_cause.value, episode.verbal_reinforcement,
-                    episode.counterfactual, json.dumps(episode.tags),
-                    episode.created_at,
-                ],
-            )
+            with pg_conn() as conn:
+                conn.execute(
+                    f"INSERT INTO {EPISODES_TABLE} "
+                    f"(episode_id, trade_id, regime, strategy_id, symbol, pnl_pct, "
+                    f"root_cause, verbal_reinforcement, counterfactual, tags, created_at) "
+                    f"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        episode.episode_id, trade_id, episode.regime,
+                        episode.strategy_id, episode.symbol, episode.pnl_pct,
+                        episode.root_cause.value, episode.verbal_reinforcement,
+                        episode.counterfactual, json.dumps(episode.tags),
+                        episode.created_at,
+                    ],
+                )
         except Exception as exc:
             logger.warning(f"[ReflexionMemory] Failed to persist episode: {exc}")
 
@@ -254,14 +258,15 @@ class ReflexionMemory:
             params.append(symbol)
 
         try:
-            rows = self._conn.execute(
-                f"""SELECT {_EPISODE_COLUMNS}
-                    FROM {EPISODES_TABLE}
-                    WHERE {' AND '.join(conditions)}
-                    ORDER BY abs(pnl_pct) DESC
-                    LIMIT ?""",
-                params + [k],
-            ).fetchall()
+            with pg_conn() as conn:
+                rows = conn.execute(
+                    f"""SELECT {_EPISODE_COLUMNS}
+                        FROM {EPISODES_TABLE}
+                        WHERE {' AND '.join(conditions)}
+                        ORDER BY abs(pnl_pct) DESC
+                        LIMIT ?""",
+                    params + [k],
+                ).fetchall()
         except Exception as exc:
             logger.debug(f"[ReflexionMemory] get_relevant query failed: {exc}")
             rows = []
@@ -269,14 +274,15 @@ class ReflexionMemory:
         # Fallback: relax to regime-only if specific filters returned nothing
         if not rows and (strategy_id or symbol):
             try:
-                rows = self._conn.execute(
-                    f"""SELECT {_EPISODE_COLUMNS}
-                        FROM {EPISODES_TABLE}
-                        WHERE regime = ?
-                        ORDER BY abs(pnl_pct) DESC
-                        LIMIT ?""",
-                    [regime, k],
-                ).fetchall()
+                with pg_conn() as conn:
+                    rows = conn.execute(
+                        f"""SELECT {_EPISODE_COLUMNS}
+                            FROM {EPISODES_TABLE}
+                            WHERE regime = ?
+                            ORDER BY abs(pnl_pct) DESC
+                            LIMIT ?""",
+                        [regime, k],
+                    ).fetchall()
             except Exception as exc:
                 logger.debug(f"[ReflexionMemory] get_relevant fallback failed: {exc}")
                 rows = []
@@ -378,9 +384,10 @@ class ReflexionMemory:
         Runs entirely in SQL — no in-memory index to rebuild.
         """
         try:
-            count = self._conn.execute(
-                f"SELECT COUNT(*) FROM {EPISODES_TABLE}"
-            ).fetchone()[0]
+            with pg_conn() as conn:
+                count = conn.execute(
+                    f"SELECT COUNT(*) FROM {EPISODES_TABLE}"
+                ).fetchone()[0]
         except Exception:
             return
 
@@ -389,15 +396,16 @@ class ReflexionMemory:
 
         excess = count - MAX_EPISODES
         try:
-            self._conn.execute(
-                f"""DELETE FROM {EPISODES_TABLE}
-                    WHERE episode_id IN (
-                        SELECT episode_id FROM {EPISODES_TABLE}
-                        ORDER BY abs(pnl_pct) ASC
-                        LIMIT ?
-                    )""",
-                [excess],
-            )
+            with pg_conn() as conn:
+                conn.execute(
+                    f"""DELETE FROM {EPISODES_TABLE}
+                        WHERE episode_id IN (
+                            SELECT episode_id FROM {EPISODES_TABLE}
+                            ORDER BY abs(pnl_pct) ASC
+                            LIMIT ?
+                        )""",
+                    [excess],
+                )
             logger.info(
                 f"[ReflexionMemory] Pruned {excess} episodes, "
                 f"{MAX_EPISODES} remaining"

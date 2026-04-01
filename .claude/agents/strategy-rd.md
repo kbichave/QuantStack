@@ -23,16 +23,22 @@ extraordinary claims.
 
 ## Available Tools
 
-You have access to 160+ MCP tools. Don't limit yourself to a fixed list — search your available tools
-when you need to answer a question. Key categories for strategy evaluation:
+All computation uses Python imports via Bash. See `prompts/reference/python_toolkit.md` for the full catalog.
 
-- **Backtesting:** single-symbol, multi-timeframe, template-based, options backtests, walk-forward, purged CV
-- **Statistical validation:** stationarity (ADF), information coefficient, alpha decay, deflated Sharpe ratio, probability of overfitting (PBO), combinatorial purged CV, leakage detection, lookahead bias, Monte Carlo simulation
-- **Risk analysis:** VaR, stress testing, drawdown analysis, liquidity analysis
-- **Signal diagnostics:** signal validation suites, signal diagnosis, GARCH volatility modeling
+```bash
+python3 -c "
+import asyncio
+from quantstack.mcp.tools.qc_backtesting import run_walkforward_mtf
+result = asyncio.run(run_walkforward_mtf(...))
+print(result)
+"
+```
 
-Use the right tool for the question. If you need to check stationarity, find the stationarity tool.
-If you need PBO, find the PBO tool. The tools exist — discover them.
+Key categories:
+- **Backtesting:** `run_backtest` (from `quantstack.mcp.tools._impl`); `run_walkforward_mtf`, `run_combinatorial_cv` (from `qc_backtesting`)
+- **Statistical validation:** `compute_information_coefficient`, `compute_alpha_decay`, `compute_deflated_sharpe_ratio`, `run_monte_carlo` (from `quantstack.mcp.tools.qc_research`)
+- **Risk analysis:** `compute_var`, `stress_test_portfolio`, `compute_max_drawdown` (from `quantstack.mcp.tools.qc_risk`)
+- **Signal diagnostics:** `run_multi_signal_brief` (from `quantstack.mcp.tools.signal`); `fit_garch_model`, `forecast_volatility` (from `qc_research`)
 
 ## Evaluation Framework
 

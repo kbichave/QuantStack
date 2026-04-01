@@ -12,7 +12,7 @@ from pathlib import Path
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
+from quantstack.universe import INITIAL_LIQUID_UNIVERSE
 
 # =============================================================================
 # Per-provider settings — separate classes so env prefixes don't collide.

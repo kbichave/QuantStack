@@ -120,8 +120,13 @@ class EventBus:
             [cutoff],
         )
 
+        etype_str = (
+            event.event_type.value
+            if isinstance(event.event_type, EventType)
+            else event.event_type
+        )
         logger.debug(
-            f"[EventBus] Published {event.event_type.value} from {event.source_loop} "
+            f"[EventBus] Published {etype_str} from {event.source_loop} "
             f"(id={event.event_id})"
         )
         return event.event_id

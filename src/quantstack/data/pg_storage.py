@@ -36,6 +36,23 @@ from quantstack.config.timeframes import Timeframe
 from quantstack.db import pg_conn
 
 
+def _safe_float(value: object) -> float | None:
+    """Convert AV string values (e.g. "None", "N/A", "-") to float or None."""
+    if value is None or value in ("None", "N/A", "-", ""):
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_str(value: object) -> str | None:
+    """Convert AV string values (e.g. "None", "N/A") to str or None."""
+    if value is None or value in ("None", "N/A", "-", ""):
+        return None
+    return str(value)
+
+
 class PgDataStore:
     """PostgreSQL-backed replacement for DataStore.
 
@@ -663,7 +680,12 @@ class PgDataStore:
             "ticker", "action_type", "effective_date", "amount",
             "declaration_date", "record_date", "payment_date",
         ]
-        rows = list(data[cols].itertuples(index=False, name=None))
+        # Replace pandas NaT/NaN with None so psycopg2 receives NULL.
+        # Must convert to object dtype first — datetime64 columns keep NaT even after .where().
+        rows = [
+            tuple(None if pd.isna(v) else v for v in row)
+            for row in data[cols].itertuples(index=False, name=None)
+        ]
         col_list = ", ".join(cols)
         update_list = ", ".join(
             f"{c}=EXCLUDED.{c}"
@@ -1044,16 +1066,16 @@ class PgDataStore:
                     beta=EXCLUDED.beta, updated_at=NOW()
                 """,
                 [
-                    data.get("Symbol"),
-                    data.get("Name"),
-                    data.get("Sector"),
-                    data.get("Industry"),
-                    data.get("MarketCapitalization"),
-                    data.get("DividendYield"),
-                    data.get("ExDividendDate"),
-                    data.get("52WeekHigh"),
-                    data.get("52WeekLow"),
-                    data.get("Beta"),
+                    _safe_str(data.get("Symbol")),
+                    _safe_str(data.get("Name")),
+                    _safe_str(data.get("Sector")),
+                    _safe_str(data.get("Industry")),
+                    _safe_float(data.get("MarketCapitalization")),
+                    _safe_float(data.get("DividendYield")),
+                    _safe_str(data.get("ExDividendDate")),
+                    _safe_float(data.get("52WeekHigh")),
+                    _safe_float(data.get("52WeekLow")),
+                    _safe_float(data.get("Beta")),
                 ],
             )
 

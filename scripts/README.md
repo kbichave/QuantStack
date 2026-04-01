@@ -2,14 +2,17 @@
 
 Operational scripts for QuantStack. No business logic — all trading logic is in `src/quantpod/`.
 
-## Loops
+## Autonomous Loops
 
-| Script | Purpose | Usage |
-|--------|---------|-------|
-| `start_research_loop.sh` | Research loop — strategy discovery, ML training, optimization | `FORCE_LOOPS=1 ./scripts/start_research_loop.sh` |
-| `start_trading_loop.sh` | Trading loop — position monitoring, entry scanning, execution | `FORCE_LOOPS=1 ./scripts/start_trading_loop.sh` |
+**Use the Ralph Wiggum skill in Claude Code to start loops:**
 
-Both are **PAUSED** until P&L attribution is built. Each runs in its own tmux session (`quantstack-research` / `quantstack-trading`).
+```
+/ralph-loop prompts/research_loop.md    # Strategy discovery, ML training, optimization
+/ralph-loop prompts/trading_loop.md     # Position monitoring, entry scanning, execution
+/cancel-ralph                            # Stop active loop
+```
+
+Each runs in its own tmux session managed by the Ralph skill.
 
 ## Scheduler
 

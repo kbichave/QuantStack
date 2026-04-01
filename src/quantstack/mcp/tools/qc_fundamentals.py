@@ -21,7 +21,8 @@ from quantstack.mcp._helpers import (
 )
 from quantstack.data.fetcher import AlphaVantageClient
 from quantstack.data.fundamentals import FundamentalsProvider
-from quantstack.mcp.server import mcp
+from quantstack.config.settings import get_settings
+from quantstack.mcp.tools._tool_def import tool_def
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.tools._registry import domain
 
@@ -29,8 +30,7 @@ from quantstack.mcp.tools._registry import domain
 
 def _get_fundamentals_provider():
     """Lazily construct a FundamentalsProvider from server settings."""
-    ctx: ServerContext = mcp.context
-    settings = ctx.settings
+    settings = get_settings()
     api_key = settings.financial_datasets.api_key
     if not api_key:
         return None
@@ -47,7 +47,7 @@ def _get_fundamentals_provider():
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_financial_statements(
     ticker: str,
     statement_type: str = "income",
@@ -132,7 +132,7 @@ async def get_financial_statements(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_financial_metrics(
     ticker: str,
     period: str = "annual",
@@ -193,7 +193,7 @@ async def get_financial_metrics(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_earnings_data(
     ticker: str,
     limit: int = 20,
@@ -238,7 +238,7 @@ async def get_earnings_data(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_insider_trades(
     ticker: str,
     limit: int = 100,
@@ -297,7 +297,7 @@ async def get_insider_trades(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_institutional_ownership(
     ticker: str,
     limit: int = 50,
@@ -356,7 +356,7 @@ async def get_institutional_ownership(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_analyst_estimates(
     ticker: str,
 ) -> dict[str, Any]:
@@ -413,7 +413,7 @@ async def get_analyst_estimates(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_company_news(
     ticker: str,
     limit: int = 50,
@@ -454,7 +454,7 @@ async def get_company_news(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def screen_stocks(
     filters: dict[str, Any],
 ) -> dict[str, Any]:
@@ -496,7 +496,7 @@ async def screen_stocks(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_segmented_revenues(
     ticker: str,
     period: str = "annual",
@@ -540,7 +540,7 @@ async def get_segmented_revenues(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_earnings_press_releases(
     ticker: str,
     limit: int = 10,
@@ -581,7 +581,7 @@ async def get_earnings_press_releases(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_sec_filing_items(
     ticker: str,
     filing_type: str = "10-K",
@@ -635,7 +635,6 @@ async def get_sec_filing_items(
     try:
         items = fp.fetch_sec_filing_items(str(accession_number), section)
     except Exception as e:
-        fp.close()
         return {
             "error": f"Failed to fetch items for accession {accession_number}: {e}",
             "ticker": ticker,
@@ -666,7 +665,7 @@ async def get_sec_filing_items(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_interest_rates(
     snapshot: bool = False,
     start_date: str | None = None,
@@ -718,7 +717,7 @@ async def get_interest_rates(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_crypto_prices(
     ticker: str,
     interval: str = "day",
@@ -764,7 +763,7 @@ async def get_crypto_prices(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_price_snapshot(
     ticker: str,
 ) -> dict[str, Any]:
@@ -807,7 +806,7 @@ async def get_price_snapshot(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def list_sec_filings(
     ticker: str,
     filing_type: str = "10-K",
@@ -858,7 +857,7 @@ async def list_sec_filings(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def get_company_facts(
     ticker: str,
 ) -> dict[str, Any]:
@@ -900,7 +899,7 @@ async def get_company_facts(
 
 
 @domain(Domain.DATA)
-@mcp.tool()
+@tool_def()
 async def search_financial_statements(
     metric: str,
     condition: str = "above",
@@ -962,3 +961,9 @@ async def search_financial_statements(
         return {"error": str(e), "metric": metric}
     finally:
         fp.close()
+
+
+# ── Tool collection ──────────────────────────────────────────────────────────
+from quantstack.mcp.tools._tool_def import collect_tools  # noqa: E402
+
+TOOLS = collect_tools()

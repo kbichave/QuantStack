@@ -19,8 +19,8 @@ You decide HOW to express the trade in options.
 - `symbol` — the ticker
 - `direction` — "bullish" | "bearish" | "neutral"
 - `conviction` — 0.0–1.0
-- `regime` — from `get_regime(symbol)`
-- `event_calendar` — from `get_event_calendar(symbol, days_ahead=30)`
+- `regime` — from `compute_technical_indicators(symbol, 'daily')` (via `quantstack.mcp.tools.qc_indicators`)
+- `event_calendar` — from `get_event_calendar(symbol, days_ahead=30)` (via `quantstack.mcp.tools.qc_data`)
 - `market_intel` — current market intel snapshot (risk flags, sector signals)
 
 ## Step 1: Event Check

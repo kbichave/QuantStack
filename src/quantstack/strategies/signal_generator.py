@@ -189,9 +189,10 @@ def generate_signals_from_rules(
 
     entry_long = pd.Series(False, index=df.index)
     entry_short = pd.Series(False, index=df.index)
+    default_direction = parameters.get("direction", "LONG").lower()
     for rule in plain_rules:
         cond = evaluate_rule(df, rule, parameters)
-        direction = rule.get("direction", "long").lower()
+        direction = rule.get("direction", default_direction).lower()
         if direction == "long":
             entry_long = entry_long | cond
         elif direction == "short":
@@ -224,6 +225,16 @@ def generate_signals_from_rules(
         if rule.get("type") in structural_exit_types:
             continue
         exit_signal = exit_signal | evaluate_rule(df, rule, parameters)
+
+    # ── Enforce direction constraint ─────────────────────────────────────
+    # When the strategy declares a single direction (e.g. SHORT-only), suppress
+    # the opposite side.  This prevents bidirectional signals from strategies
+    # that intend to trade only one direction.
+    direction_constraint = parameters.get("direction", "").upper()
+    if direction_constraint == "SHORT":
+        entry_long = pd.Series(False, index=df.index)
+    elif direction_constraint == "LONG":
+        entry_short = pd.Series(False, index=df.index)
 
     # ── Build initial signal DataFrame ───────────────────────────────────
     signals = pd.DataFrame(index=df.index)
@@ -322,7 +333,9 @@ def evaluate_rule(
       - Conditions: above, below, crosses_above, crosses_below, between,
         within_pct (absolute value <=), not_in / in (for string columns)
     """
-    indicator = rule.get("indicator", "")
+    from quantstack.strategies.rule_engine import _normalize_indicator
+
+    indicator = _normalize_indicator(rule.get("indicator", ""))
     condition = rule.get("condition", "")
     value = rule.get("value")
 
@@ -372,7 +385,8 @@ def evaluate_rule(
     # Support column references (e.g. value="sma_50" means compare against df["sma_50"])
     def _resolve(v: Any) -> "pd.Series | float":
         if isinstance(v, str) and not v.replace(".", "", 1).replace("-", "", 1).isdigit():
-            return df[v] if v in df.columns else pd.Series(float("nan"), index=df.index)
+            col = _normalize_indicator(v)
+            return df[col] if col in df.columns else pd.Series(float("nan"), index=df.index)
         return float(v)
 
     rhs = _resolve(value)

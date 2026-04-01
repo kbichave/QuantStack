@@ -198,13 +198,11 @@ def generate_signals_from_rules(
         try:
             credit_regime_val = "unknown"
             with db_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT value FROM system_state WHERE key = 'credit_regime'"
-                    )
-                    row = cur.fetchone()
-                    if row:
-                        credit_regime_val = str(row[0])
+                row = conn.execute(
+                    "SELECT value FROM system_state WHERE key = 'credit_regime'"
+                ).fetchone()
+                if row:
+                    credit_regime_val = str(row[0])
             df["credit_regime"] = credit_regime_val
         except Exception as exc:
             logger.warning(
@@ -430,15 +428,27 @@ def evaluate_rule(
     if value is None:
         return pd.Series(False, index=df.index)
 
-    if condition == "within_pct":
-        return series.abs() <= float(value)
-
     # Support column references (e.g. value="sma_50" means compare against df["sma_50"])
     def _resolve(v: Any) -> "pd.Series | float":
         if isinstance(v, str) and not v.replace(".", "", 1).replace("-", "", 1).isdigit():
             col = _normalize_indicator(v)
             return df[col] if col in df.columns else pd.Series(float("nan"), index=df.index)
         return float(v)
+
+    # List membership — handle before _resolve since value is a list, not a scalar/column
+    if condition in ("in", "not_in") and isinstance(value, list):
+        result = series.isin(value)
+        return ~result if condition == "not_in" else result
+
+    if condition == "within_pct":
+        # value is the reference (column name or float), pct_range/tolerance is the threshold
+        pct = rule.get("pct_range", rule.get("tolerance", None))
+        rhs = _resolve(value)
+        if pct is not None and isinstance(rhs, pd.Series):
+            # e.g. close within 3% of sma_200: |close - sma_200| / sma_200 <= 0.03
+            return ((series - rhs).abs() / (rhs.abs() + 1e-10)) * 100 <= float(pct)
+        # Fallback: value is a numeric pct threshold, series is already pct-like
+        return series.abs() <= _resolve(value)
 
     rhs = _resolve(value)
     if condition in ("above", "greater_than"):

@@ -35,6 +35,7 @@ from loguru import logger
 
 from quantstack.coordination.auto_promoter import AutoPromoter
 from quantstack.core.backtesting.walkforward_service import run_walkforward
+from quantstack.mcp.tools._impl import run_backtest_impl
 from quantstack.universe import STRATEGY_BACKTEST_DEFAULT
 from quantstack.db import PgConnection
 
@@ -106,6 +107,15 @@ _MAX_OVERFIT_RATIO = 2.0
 _FORWARD_TEST_DAYS = 30
 _MIN_LIVE_SHARPE = 0.3
 _RETIREMENT_DEGRADATION_PCT = 50.0
+
+
+@dataclass
+class PipelineReport:
+    """Result of a pipeline pass (Phase 1: draft → backtested)."""
+
+    skipped: bool = False
+    backtested: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -387,3 +397,111 @@ class StrategyLifecycle:
             logger.warning(f"[Lifecycle] Validation failed: {exc}")
 
         return retirements
+
+    # ── Continuous pipeline (Phase 1 only) ────────────────────────────────
+
+    async def run_pipeline_pass(self) -> PipelineReport:
+        """
+        Run backtests for all draft strategies with a known symbol.
+
+        Phase 1 of the promotion pipeline: draft → backtested.
+        Phase 2 (backtested → forward_testing) is intentionally handled by the
+        research loop, which spawns the strategy-rd agent to reason about each
+        candidate rather than applying mechanical thresholds.
+
+        Guarded by a heartbeat check so overlapping scheduler runs skip safely.
+        """
+        report = PipelineReport()
+
+        # Concurrency guard: skip if a recent run is still in-progress.
+        try:
+            recent = self._conn.execute(
+                """
+                SELECT started_at FROM loop_heartbeats
+                WHERE loop_name = 'strategy_pipeline' AND status = 'running'
+                  AND started_at > NOW() - INTERVAL '9 minutes'
+                ORDER BY started_at DESC LIMIT 1
+                """
+            ).fetchone()
+            if recent:
+                logger.info("[Pipeline] Prior run still active — skipping")
+                report.skipped = True
+                return report
+        except Exception as exc:
+            logger.debug(f"[Pipeline] Heartbeat check failed (non-fatal): {exc}")
+
+        # Derive next iteration number for the heartbeat PK.
+        iteration = 1
+        try:
+            row = self._conn.execute(
+                "SELECT COALESCE(MAX(iteration), 0) + 1 FROM loop_heartbeats WHERE loop_name = 'strategy_pipeline'"
+            ).fetchone()
+            if row:
+                iteration = int(row[0])
+        except Exception:
+            pass
+
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO loop_heartbeats (loop_name, iteration, started_at, status)
+                VALUES ('strategy_pipeline', %s, NOW(), 'running')
+                ON CONFLICT (loop_name, iteration)
+                DO UPDATE SET started_at = NOW(), status = 'running'
+                """,
+                [iteration],
+            )
+            self._conn.commit()
+        except Exception as exc:
+            logger.debug(f"[Pipeline] Failed to record start heartbeat: {exc}")
+
+        # Phase 1: run backtests for every draft strategy that has a symbol.
+        try:
+            rows = self._conn.execute(
+                "SELECT strategy_id, symbol FROM strategies WHERE status = 'draft' AND symbol IS NOT NULL"
+            ).fetchall()
+        except Exception as exc:
+            report.errors.append(f"Query failed: {exc}")
+            rows = []
+
+        for strategy_id, symbol in rows:
+            try:
+                result = await run_backtest_impl(strategy_id, symbol)
+                if result.get("success"):
+                    report.backtested.append(strategy_id)
+                    logger.info(
+                        f"[Pipeline] Backtested {strategy_id}/{symbol} "
+                        f"Sharpe={result.get('sharpe_ratio', 0):.2f} "
+                        f"trades={result.get('total_trades', 0)}"
+                    )
+                else:
+                    err = result.get("error", "unknown error")
+                    report.errors.append(f"{strategy_id}: {err}")
+                    logger.warning(f"[Pipeline] Backtest failed for {strategy_id}: {err}")
+            except Exception as exc:
+                report.errors.append(f"{strategy_id}: {exc}")
+                logger.warning(f"[Pipeline] Backtest exception for {strategy_id}: {exc}")
+
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO loop_heartbeats
+                    (loop_name, iteration, started_at, finished_at, symbols_processed, errors, status)
+                VALUES ('strategy_pipeline', %s, NOW(), NOW(), %s, %s, 'completed')
+                ON CONFLICT (loop_name, iteration)
+                DO UPDATE SET finished_at = NOW(),
+                              symbols_processed = EXCLUDED.symbols_processed,
+                              errors = EXCLUDED.errors,
+                              status = 'completed'
+                """,
+                [iteration, len(report.backtested), len(report.errors)],
+            )
+            self._conn.commit()
+        except Exception as exc:
+            logger.debug(f"[Pipeline] Failed to record completion heartbeat: {exc}")
+
+        logger.info(
+            f"[Pipeline] Pass complete: backtested={len(report.backtested)} "
+            f"errors={len(report.errors)}"
+        )
+        return report

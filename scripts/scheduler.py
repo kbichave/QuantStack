@@ -21,6 +21,7 @@ Usage:
     python scripts/scheduler.py --run-now data_refresh
     python scripts/scheduler.py --run-now strategy_lifecycle_weekly
     python scripts/scheduler.py --run-now strategy_lifecycle_monthly
+    python scripts/scheduler.py --run-now strategy_pipeline
     python scripts/scheduler.py --cron       # Print equivalent cron entries
 
 Requirements:
@@ -254,6 +255,38 @@ def run_strategy_lifecycle_weekly(dry_run: bool = False) -> None:
         )
         for err in report.errors:
             logger.warning(f"[{label}] candidate error: {err}")
+        conn.close()
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_strategy_pipeline(dry_run: bool = False) -> None:
+    """Continuous strategy pipeline: run backtests for all draft strategies (every 10 min).
+
+    Phase 1 of the promotion pipeline: draft → backtested.
+    Phase 2 (backtested → forward_testing) is handled by the research loop via
+    the strategy-rd agent, which reasons about each candidate rather than
+    applying mechanical thresholds.
+    """
+    label = "strategy_pipeline"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would run at {timestamp}: {label}")
+        return
+
+    try:
+        conn = open_db()
+        lifecycle = StrategyLifecycle(conn)
+        report = asyncio.run(lifecycle.run_pipeline_pass())
+        if report.skipped:
+            logger.info(f"[{label}] Skipped — prior run still active")
+        else:
+            logger.info(
+                f"[{label}] backtested={len(report.backtested)} "
+                f"errors={len(report.errors)}"
+            )
         conn.close()
     except Exception as exc:
         logger.error(f"'{label}' failed: {exc}")
@@ -725,6 +758,11 @@ JOBS = [
     # AV daily counter reset — ensures quota guard starts at 0 each trading day.
     {"trigger": {"hour": 0, "minute": 1}, "func": reset_av_daily_counter, "label": "av_counter_reset_midnight"},
 
+    # Continuous strategy pipeline — backtest all draft strategies every 10 min.
+    # Phase 2 promotion (backtested → forward_testing) handled by research loop via strategy-rd agent.
+    # Heartbeat guard in run_pipeline_pass() prevents overlapping runs.
+    {"trigger": {"minute": "*/10"}, "func": run_strategy_pipeline, "label": "strategy_pipeline_10m"},
+
     # ── Weekly ───────────────────────────────────────────────────────────
     # Memory compaction — Sunday + Wednesday to prevent mid-week bloat from 720 research sessions/day.
     {"trigger": {"hour": 17, "minute": 0, "day_of_week": "sun"}, "func": run_memory_compaction, "label": "memory_compaction_sun17:00"},
@@ -797,6 +835,7 @@ def start_scheduler(dry_run: bool = False) -> None:
         f"  16:30 Mon-Fri      — EOD data refresh (close bar, options, news, macro)\n"
         f"  16:45 Mon-Fri      — Credit regime EOD re-validation\n"
         f"  17:00 Sun+Wed      — Memory compaction (trim oversized files)\n"
+        f"  */10  always       — Strategy pipeline (backtest draft→backtested)\n"
         f"  18:00 Sun          — Strategy lifecycle weekly (gap analysis, promote)\n"
         f"  19:00 Sun          — Community intel weekly (Reddit/GitHub/arXiv)\n"
         f"  20:00 Sun          — AutoResearchClaw deep research (research_queue)\n"
@@ -854,6 +893,7 @@ def main() -> None:
             "strategy_lifecycle_monthly": run_strategy_lifecycle_monthly,
             "autoresclaw_weekly": run_autoresclaw_weekly,
             "community_intel_weekly": run_community_intel_weekly,
+            "strategy_pipeline": run_strategy_pipeline,
         }
         func = func_map.get(args.run_now)
         if func is None:

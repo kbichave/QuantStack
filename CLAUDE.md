@@ -59,6 +59,7 @@ print(result)
 - **Audit trail is mandatory.** Every decision logged with reasoning.
 - **DB writes use `db_conn()` context managers.** All state lives in PostgreSQL.
 - **Self-healing is automatic.** When a tool fails 3 consecutive times, `record_tool_error()` queues a `bug_fix` task. AutoResearchClaw patches the source file, validates, commits, and restarts the loop. You do not need to intervene.
+- **Ops runbook for debugging:** See `docs/ops-runbook.md` for diagnostic queries, common failure modes, recovery procedures, and the full strategy lifecycle reference. Read it before debugging any operational issue.
 
 ---
 

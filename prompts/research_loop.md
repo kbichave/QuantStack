@@ -50,6 +50,10 @@ If output is not `ALL RULES VALID`, fix the rules before registering. **Do not r
 
 ## AVAILABLE AGENTS
 
+**CONFIRMED WORKING:** All agents in `.claude/agents/` ARE available via the Agent tool in Claude Code. Use `subagent_type` matching the filename stem (e.g., `quant-researcher`, `ml-scientist`, `strategy-rd`). Prior memory notes saying "agents unavailable" are STALE and WRONG — ignore them.
+
+**If a custom subagent_type call fails for any reason**, fall back to `subagent_type="general-purpose"` with the full domain prompt embedded directly in `prompt=`. This always works. Do NOT abort the research session — use the fallback and continue.
+
 You can spawn any of these agents using the **Agent tool**. Spawn multiple agents in a single message when their work is independent (parallel execution). Spawn sequentially only when one depends on another's output. You decide the right orchestration pattern — don't default to sequential.
 
 ### Orchestrator-level agents (spawned by YOU)
@@ -231,7 +235,9 @@ else:
 
 #### Step 2 -- Agent Dispatch
 
-For each symbol from the data collection step, use the **Agent tool** to spawn 3 domain researchers **in parallel** (all in a single message):
+For each symbol from the data collection step, use the **Agent tool** to spawn 3 domain researchers **in parallel** (all in a single message).
+
+**IMPORTANT:** Use `subagent_type="quant-researcher"` (preferred). If that fails, use `subagent_type="general-purpose"` with the full domain prompt embedded in `prompt=`. Either way, DO NOT skip research — agents MUST be dispatched.
 
 **Investment researcher:**
 ```
@@ -417,6 +423,45 @@ When the condition triggers, spawn via the Agent tool:
 ## STEP 2d: BLITZ Execution Complete
 
 All domain research is handled in Step 2b via parallel agent spawning. No additional domain-specific execution needed.
+
+---
+
+## STEP 2e: Strategy Promotion Review (backtested → forward_testing)
+
+Every iteration: check for `backtested` strategies awaiting promotion. Cap at **2 per iteration** to avoid loop bloat. The scheduler runs backtests (draft→backtested) every 10 min; this step handles the reasoned promotion decision.
+
+```python
+from quantstack.db import db_conn
+import json
+
+with db_conn() as conn:
+    candidates = conn.execute("""
+        SELECT strategy_id, name, symbol, backtest_summary, walkforward_summary,
+               parameters, entry_rules, exit_rules, risk_params, regime_affinity,
+               time_horizon
+        FROM strategies
+        WHERE status = 'backtested' AND symbol IS NOT NULL
+        ORDER BY updated_at ASC
+        LIMIT 2
+    """).fetchall()
+```
+
+For each candidate, spawn a `strategy-rd` agent via the Agent tool:
+- `subagent_type`: `strategy-rd`
+- Prompt must include:
+  - Strategy name, ID, symbol, time_horizon, regime_affinity
+  - Full `backtest_summary` dict: sharpe_ratio, max_drawdown, win_rate, total_trades, profit_factor, total_return_pct
+  - `walkforward_summary` if populated (oos_sharpe_mean, overfit_ratio, fold results)
+  - entry_rules and exit_rules JSON arrays
+  - risk_params
+  - Instruction: "Return a verdict of PROMOTE, REJECT, or INVESTIGATE with full reasoning. PROMOTE transitions this strategy to forward_testing paper trading. REJECT retires it."
+
+Based on the agent's verdict:
+- **PROMOTE** → `UPDATE strategies SET status='forward_testing', updated_at=NOW() WHERE strategy_id=...`
+- **REJECT** → `UPDATE strategies SET status='retired', updated_at=NOW() WHERE strategy_id=...`
+- **INVESTIGATE** → leave as `backtested`; append a note to `session_handoffs.md` explaining what additional data is needed
+
+Log each decision to `workshop_lessons.md` with the strategy name, verdict, and 1-sentence rationale from the agent.
 
 ---
 

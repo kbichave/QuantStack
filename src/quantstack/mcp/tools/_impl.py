@@ -97,6 +97,9 @@ async def get_strategy_impl(
             ):
                 try:
                     val = json.loads(val)
+                    # Guard against double-encoded JSON (stored as JSON string wrapping JSON)
+                    if isinstance(val, str):
+                        val = json.loads(val)
                 except (ValueError, TypeError):
                     pass
             if col in ("created_at", "updated_at") and val is not None:
@@ -205,9 +208,9 @@ async def run_backtest_impl(
             return {"success": False, "error": f"No price data available for {symbol}"}
 
         # 3. Generate signals from rules
-        entry_rules = strat.get("entry_rules", [])
-        exit_rules = strat.get("exit_rules", [])
-        parameters = strat.get("parameters", {})
+        entry_rules = strat.get("entry_rules") or []
+        exit_rules = strat.get("exit_rules") or []
+        parameters = strat.get("parameters") or {}
 
         # Inject symbol into parameters for indicator computation and feature enrichment
         parameters["symbol"] = symbol

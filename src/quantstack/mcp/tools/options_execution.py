@@ -226,7 +226,7 @@ async def execute_options_trade(
             os.getenv("RISK_DAILY_LOSS_LIMIT_PCT", "0.02").split("#")[0].strip()
         )
         # Check if daily halt is active
-        halt_sentinel = Path("~/.quant_pod/DAILY_HALT_ACTIVE").expanduser()
+        halt_sentinel = Path("~/.quantstack/DAILY_HALT_ACTIVE").expanduser()
         if halt_sentinel.exists():
             violations.append("Daily loss halt is active")
 

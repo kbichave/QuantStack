@@ -145,7 +145,7 @@ Read `agent_performance.md`. For each signal collector:
 For each flagged collector, write a specific recommendation:
 ```
 COLLECTOR FIX NEEDED: {collector_name}
-File: packages/quant_pod/signal_engine/collectors/{file.py}
+File: packages/quantstack/signal_engine/collectors/{file.py}
 Evidence: {specific trades/patterns that show the failure}
 Suggested fix: {specific change — not "improve it", but "the RSI threshold of 30 fires in all regimes; add a trending_up guard"}
 ```

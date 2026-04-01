@@ -1,6 +1,6 @@
 ---
 name: lit_review
-description: Research-to-product gap analysis — find techniques that improve alpha discovery, learning loops, or risk management for QuantPod's autonomous trading system.
+description: Research-to-product gap analysis — find techniques that improve alpha discovery, learning loops, or risk management for QuantStack's autonomous trading system.
 user_invocable: true
 ---
 
@@ -8,14 +8,14 @@ user_invocable: true
 
 ## Purpose
 
-Find research that directly improves QuantPod's ability to:
+Find research that directly improves QuantStack's ability to:
 1. **Discover profitable strategies faster** (alpha discovery)
 2. **Adapt before strategies degrade** (learning & drift)
 3. **Execute with less slippage** (execution quality)
 4. **Size positions dynamically** (risk-aware RL)
 
 This is NOT an academic survey. Every finding must map to a specific
-QuantPod module, with a concrete implementation path and expected impact.
+QuantStack module, with a concrete implementation path and expected impact.
 
 Run when: quarterly audit, after a strategy fails unexpectedly, when
 exploring a new capability, or when the user asks a targeted question.
@@ -24,7 +24,7 @@ exploring a new capability, or when the user asks a targeted question.
 
 ## What Matters to This Repo
 
-QuantPod is a **swing-trade system** (1–15 day holds) on **US equities + ATM options**,
+QuantStack is a **swing-trade system** (1–15 day holds) on **US equities + ATM options**,
 running **deterministic signal generation** (SignalEngine, no LLM in hot path),
 with **LightGBM/XGBoost** models, **3 SAC RL agents in shadow mode**, and a
 **Bayesian regime_affinity learning loop**. The universe is small (XOM, MSFT, IBM)
@@ -42,7 +42,7 @@ and expanding. Strategies are rule-based with RSI mean-reversion as the core edg
 - **Edge is narrow:** All active strategies are RSI<35 mean-reversion variants.
   No momentum, no breakout, no cross-asset, no macro strategies proven yet.
 
-### Where QuantPod Is Already Strong (don't waste time here)
+### Where QuantStack Is Already Strong (don't waste time here)
 - **Regime detection:** 3 methods (HMM, TFT, BayesianChangepoint) + rule-based. Near frontier.
 - **Safety architecture:** risk_gate + kill_switch + MCPResponseValidator + AgentHardening.
   Research is behind us on guardrails for autonomous trading.
@@ -57,7 +57,7 @@ and expanding. Strategies are rule-based with RSI mean-reversion as the core edg
 **Why it's #1:** All 4 active strategies share the same RSI<35 edge. One regime
 shift that breaks mean-reversion wipes the portfolio. We need diverse alpha sources.
 
-**QuantPod today:** `packages/quant_pod/alpha_discovery/engine.py` — grid search
+**QuantStack today:** `packages/quantstack/alpha_discovery/engine.py` — grid search
 over 4 templates + LLM HypothesisAgent. `src/quantstack/core/features/` — 200+ indicators.
 
 **Search for:**
@@ -76,7 +76,7 @@ misses? If yes, how much IC/IR improvement and at what compute cost?
 **Why it's #2:** Our learning loop has a multi-day lag. Research shows proactive
 drift detection prevents 30-50% of degradation periods.
 
-**QuantPod today:** `packages/quant_pod/learning/outcome_tracker.py` — Bayesian
+**QuantStack today:** `packages/quantstack/learning/outcome_tracker.py` — Bayesian
 momentum (step=0.05, ~20 trades to move significantly).
 `learning/skill_tracker.py` — IC decay detection (reactive).
 
@@ -94,7 +94,7 @@ it shows up as IC degradation? What's the false positive rate?
 **Why it's #3:** Our 3 SAC agents need 63+ trading days in shadow mode.
 Decision Transformers train offline on historical data with no exploration risk.
 
-**QuantPod today:** `src/quantstack/rl/` — 3 independent SAC agents
+**QuantStack today:** `src/quantstack/rl/` — 3 independent SAC agents
 (execution, sizing, meta). Shadow mode with promotion gating.
 
 **Search for:**
@@ -111,7 +111,7 @@ outperform SAC in shadow mode? What's the minimum history needed?
 **Why it's #4:** Our sentiment collector produces a single number from news
 headlines. Earnings call analysis alone produced Sharpe 0.13–1.28 in research.
 
-**QuantPod today:** `signal_engine/collectors/sentiment.py` — basic news score.
+**QuantStack today:** `signal_engine/collectors/sentiment.py` — basic news score.
 `collectors/fundamentals.py` — P/E, FCF, ROE.
 
 **Search for:**
@@ -128,7 +128,7 @@ for our swing-trade universe? What data sources are freely available?
 prediction. BUT research shows TSFMs underperform domain-specific models on
 financial data. Needs empirical validation, not blind adoption.
 
-**QuantPod today:** LightGBM/XGBoost on hand-crafted features. `HierarchicalEnsemble`
+**QuantStack today:** LightGBM/XGBoost on hand-crafted features. `HierarchicalEnsemble`
 for multi-timeframe fusion.
 
 **Search for:**
@@ -143,9 +143,9 @@ beat our LightGBM? This is an empirical question, not a literature question.
 ### 6. Options & Derivatives ML — DEFER UNLESS SCALING
 **Why it's lower:** Our BS pricing is adequate for ATM equity options. Neural
 pricing matters for exotic options, vol surface arb, or high-frequency flow.
-None of those are current QuantPod use cases.
+None of those are current QuantStack use cases.
 
-**QuantPod today:** `quantpod/core/options/` — BS pricing, Greeks, IV calc.
+**QuantStack today:** `quantstack/core/options/` — BS pricing, Greeks, IV calc.
 `backtesting/options_engine.py` — synthetic IV backtesting.
 
 **Search for (only if options volume is scaling):**
@@ -205,7 +205,7 @@ For each domain, produce:
 ```markdown
 ### {Domain Name}
 
-**Current:** {QuantPod module + what it does}
+**Current:** {QuantStack module + what it does}
 **Frontier:** {Best paper result}
 **Gap:** CRITICAL / SIGNIFICANT / MINOR / NONE
 **Delta:** {What's missing, quantified}
@@ -270,7 +270,7 @@ Report structure:
 - Tested on >5 instruments or >3 years of data
 - 2023+ publication (older only if foundational and nothing newer exists)
 
-### QuantPod Compatibility Check
+### QuantStack Compatibility Check
 Before recommending BUILD on any technique, verify:
 - [ ] Works at swing-trade frequency (1-15 day holds)?
 - [ ] Works with daily/hourly OHLCV + fundamentals data?
@@ -303,6 +303,6 @@ After the first full survey, subsequent sessions:
 ## Notes
 - This skill produces RESEARCH, not code. Implementation goes to /workshop.
 - P0 findings → immediate handoff note in `session_handoffs.md` for /workshop.
-- If a finding contradicts a QuantPod design choice, check CLAUDE.md invariants
+- If a finding contradicts a QuantStack design choice, check CLAUDE.md invariants
   before recommending changes. The current design may exist for safety reasons.
 - Report goes in `reports/literature_review/` alongside prior reviews.

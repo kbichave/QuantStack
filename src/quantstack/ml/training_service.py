@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -37,7 +37,7 @@ from quantstack.ml.trainer import ModelTrainer, TrainingConfig
 # Constants
 # ---------------------------------------------------------------------------
 
-_MODELS_DIR = Path(os.getenv("QUANT_POD_MODELS_DIR", "models"))
+_MODELS_DIR = Path(os.getenv("QUANTSTACK_MODELS_DIR", "models"))
 _DEFAULT_LOOKBACK_DAYS = 756  # ~3 years
 
 

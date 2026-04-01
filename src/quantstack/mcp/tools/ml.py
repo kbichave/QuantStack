@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -60,9 +60,9 @@ from quantstack.mcp.tools._registry import domain
 # Constants
 # ---------------------------------------------------------------------------
 
-_MODELS_DIR = Path(os.getenv("QUANT_POD_MODELS_DIR", "models"))
+_MODELS_DIR = Path(os.getenv("QUANTSTACK_MODELS_DIR", "models"))
 _DEFAULT_LOOKBACK_DAYS = 756  # ~3 years
-_STALE_MODEL_DAYS = int(os.getenv("QUANT_POD_STALE_MODEL_DAYS", "30"))
+_STALE_MODEL_DAYS = int(os.getenv("QUANTSTACK_STALE_MODEL_DAYS", "30"))
 
 # ---------------------------------------------------------------------------
 # train_ml_model

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -18,7 +18,7 @@ from quantstack.mcp.tools.coordination import (
     get_loop_health,
     run_preflight_check,
 )
-from tests.quant_pod.mcp.conftest import _fn, assert_standard_response
+from tests.quantstack.mcp.conftest import _fn, assert_standard_response
 
 
 class TestPublishEvent:

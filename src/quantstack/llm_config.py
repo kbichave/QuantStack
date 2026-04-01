@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -101,6 +101,15 @@ _TIER_ENV_OVERRIDE = {
     # Defaults to groq/llama-3.3-70b-versatile (fast, free tier, good reasoning).
     # Override with LLM_MODEL_AUTONOMOUS_PM env var.
     "autonomous_pm": "LLM_MODEL_AUTONOMOUS_PM",
+    # Multi-LLM routing tiers (Phase 4 / LITELLM_ROUTER_CONFIG)
+    # "research": high-stakes reasoning (hypothesis generation, research planning)
+    #   → resolves to best available cloud model (same as workshop tier)
+    #   → override: LLM_MODEL_RESEARCH=groq/llama-3.3-70b-versatile
+    "research": "LLM_MODEL_RESEARCH",
+    # "bulk": high-volume structured work (JSON extraction, feature analysis, sentiment)
+    #   → prefers Groq (fast, cheap) if GROQ_API_KEY set, else falls back to IC tier
+    #   → override: LLM_MODEL_BULK=anthropic/claude-haiku-4-5-20251001
+    "bulk": "LLM_MODEL_BULK",
 }
 
 
@@ -453,11 +462,13 @@ def get_llm_for_role(role: str) -> Any:
     """
     Resolve the LLM for a named role without requiring an agent name.
 
-    Used by skills (e.g., /workshop) that need explicit model routing
+    Used by skills (e.g., /workshop) and direct litellm call sites (alpha_researcher,
+    ml_scientist, sentiment collectors, etc.) that need explicit model routing
     outside of a CrewAI agent context.
 
     Args:
-        role: One of "ic", "pod", "assistant", "decoder", "workshop"
+        role: One of "ic", "pod", "assistant", "decoder", "workshop",
+              "autonomous_pm", "research", "bulk"
 
     Returns:
         LiteLLM model string or crewai.LLM object.
@@ -465,6 +476,12 @@ def get_llm_for_role(role: str) -> Any:
     Raises:
         ProviderConfigError: If no provider in the chain has valid credentials.
         ValueError: If role is not a known tier.
+
+    Routing policy:
+        "bulk"     — Groq preferred (fast + cheap for high-volume structured work);
+                     falls back to IC tier if GROQ_API_KEY is not set.
+        "research" — Best available cloud reasoning model (same pool as workshop tier);
+                     falls back to "bulk" if no cloud provider is configured.
     """
     if role not in _TIER_ENV_OVERRIDE:
         raise ValueError(
@@ -477,6 +494,25 @@ def get_llm_for_role(role: str) -> Any:
         if _is_ollama_model(override):
             return _build_ollama_llm(override)
         return override
+
+    # Special routing for the multi-LLM tiers.
+    if role == "bulk":
+        # Groq is the preferred provider for bulk work: fast, cheap, deterministic.
+        # Fall back to IC tier (smallest/cheapest configured cloud model) if unavailable.
+        if _check_groq():
+            return _model_groq("bulk")
+        logger.debug("[llm_config] bulk: Groq unavailable, falling back to IC tier")
+        return _resolve_provider("ic")
+
+    if role == "research":
+        # Research hypothesis generation needs a capable reasoning model.
+        # Re-uses the workshop-tier resolution (best available cloud model).
+        # Falls back to bulk if no cloud provider has credentials.
+        try:
+            return _resolve_provider("workshop")
+        except ProviderConfigError:
+            logger.debug("[llm_config] research: no cloud provider, falling back to bulk")
+            return get_llm_for_role("bulk")
 
     model = _resolve_provider(role)
     if _is_ollama_model(model):

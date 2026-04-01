@@ -1,25 +1,14 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-AutonomousRunner — fully deterministic unattended trading loop.
+Autonomous trading components — debate, routing, screening, strategy lifecycle.
 
-Runs the full analysis + execution pipeline without an active Claude Code session.
-Uses SignalEngine for analysis and DecisionRouter for fully deterministic routing.
-No LLM calls in the execution path (v1.1).
-
-Usage (CLI):
-    python -m quant_pod.autonomous.runner --symbols XOM MSFT SPY
-    python -m quant_pod.autonomous.runner --dry-run           # no order submission
-    python -m quant_pod.autonomous.runner --paper-only        # force paper mode
-
-Usage (code):
-    from quantstack.autonomous.runner import AutonomousRunner
-
-    report = await AutonomousRunner().run(symbols=["XOM", "MSFT"])
+The Python runner (runner.py) and research orchestrator (research_orchestrator.py)
+have been removed. All trading and research execution is handled by the Ralph loops
+in prompts/trading_loop.md and prompts/research_loop.md.
 """
 
 from quantstack.autonomous.decision import DecisionPath, DecisionRouter, RouteContext
-from quantstack.autonomous.runner import AutonomousRunner
 
-__all__ = ["AutonomousRunner", "DecisionRouter", "DecisionPath", "RouteContext"]
+__all__ = ["DecisionRouter", "DecisionPath", "RouteContext"]

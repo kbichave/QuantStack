@@ -1,4 +1,4 @@
-"""Phase 6 — Learning Loop tools for the QuantPod MCP server.
+"""Phase 6 — Learning Loop tools for the QuantStack MCP server.
 
 Strategy lifecycle management (promote/retire), live performance tracking,
 strategy re-validation, and regime matrix updates from trade performance.
@@ -104,7 +104,7 @@ async def promote_strategy(
                 [strategy_id],
             )
         logger.info(
-            f"[quantpod_mcp] Promoted strategy {strategy_id} to LIVE: {evidence}"
+            f"[quantstack_mcp] Promoted strategy {strategy_id} to LIVE: {evidence}"
         )
 
         return {
@@ -114,7 +114,7 @@ async def promote_strategy(
             "evidence": evidence,
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] promote_strategy failed: {e}")
+        logger.error(f"[quantstack_mcp] promote_strategy failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -154,7 +154,7 @@ async def retire_strategy(
                 [strategy_id],
             )
 
-        logger.info(f"[quantpod_mcp] Retired strategy {strategy_id}: {reason}")
+        logger.info(f"[quantstack_mcp] Retired strategy {strategy_id}: {reason}")
         return {
             "success": True,
             "strategy_id": strategy_id,
@@ -163,7 +163,7 @@ async def retire_strategy(
             "removed_from_matrix": True,
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] retire_strategy failed: {e}")
+        logger.error(f"[quantstack_mcp] retire_strategy failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -260,7 +260,7 @@ async def get_strategy_performance(
             "degraded": degradation_pct > 30,
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_strategy_performance failed: {e}")
+        logger.error(f"[quantstack_mcp] get_strategy_performance failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -333,7 +333,7 @@ async def validate_strategy(strategy_id: str) -> dict[str, Any]:
             "fresh_max_dd": round(fresh_dd, 2),
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] validate_strategy failed: {e}")
+        logger.error(f"[quantstack_mcp] validate_strategy failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -410,7 +410,7 @@ async def update_regime_matrix_from_performance(
         }
     except Exception as e:
         logger.error(
-            f"[quantpod_mcp] update_regime_matrix_from_performance failed: {e}"
+            f"[quantstack_mcp] update_regime_matrix_from_performance failed: {e}"
         )
         return {"success": False, "error": str(e)}
 

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
 Unit tests for quantcore.execution.tca_engine — Sprint 1.

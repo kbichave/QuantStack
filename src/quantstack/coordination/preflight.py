@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -9,7 +9,7 @@ executing trades (paper or live).  It validates that every dependency
 is healthy and every precondition is met.
 
 Usage (CLI):
-    python -m quant_pod.coordination.preflight
+    python -m quantstack.coordination.preflight
 
 Usage (MCP tool):
     run_preflight_check()
@@ -130,6 +130,7 @@ class PreflightCheck:
         report.checks.append(self._check_screener())
         report.checks.append(self._check_strategies())
         report.checks.append(self._check_risk_limits())
+        report.checks.append(self._check_data_freshness())
         report.checks.append(self._check_data_provider())
         report.checks.append(self._check_broker())
         report.checks.append(self._check_paper_mode())
@@ -140,7 +141,9 @@ class PreflightCheck:
     def _check_database(self) -> PreflightResult:
         """Verify all expected tables exist."""
         try:
-            tables = {r[0] for r in self._conn.execute("SHOW TABLES").fetchall()}
+            tables = {r[0] for r in self._conn.execute(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            ).fetchall()}
             required = {
                 "strategies",
                 "positions",
@@ -179,7 +182,7 @@ class PreflightCheck:
                     "Kill switch is ACTIVE. Reset it before trading.",
                 )
             # Also check sentinel file
-            sentinel = Path("~/.quant_pod/KILL_SWITCH_ACTIVE").expanduser()
+            sentinel = Path("~/.quantstack/KILL_SWITCH_ACTIVE").expanduser()
             if sentinel.exists():
                 return PreflightResult(
                     "Kill switch",
@@ -236,7 +239,7 @@ class PreflightCheck:
             # Check that target symbols are in the universe
             for sym in self._symbols:
                 r = self._conn.execute(
-                    "SELECT 1 FROM universe WHERE symbol = ? AND is_active = TRUE",
+                    "SELECT 1 FROM universe WHERE symbol = %s AND is_active = TRUE",
                     [sym],
                 ).fetchone()
                 if not r:
@@ -280,7 +283,8 @@ class PreflightCheck:
                     "Strategies",
                     False,
                     "No live or forward_testing strategies. "
-                    "Use /workshop to create and validate a strategy first.",
+                    "Research loop will bootstrap within 24-48h.",
+                    severity="warning",
                 )
             # Count by status
             live = self._conn.execute(
@@ -318,7 +322,7 @@ class PreflightCheck:
             # Rough price check — use cached OHLCV if available
             try:
                 row = self._conn.execute(
-                    "SELECT close FROM ohlcv WHERE symbol = ? AND timeframe = 'D1' "
+                    "SELECT close FROM ohlcv WHERE symbol = %s AND timeframe IN ('1D', '1d', 'daily') "
                     "ORDER BY timestamp DESC LIMIT 1",
                     [sym],
                 ).fetchone()
@@ -355,16 +359,71 @@ class PreflightCheck:
             "Risk limits", True, detail, severity="warning" if warnings else "blocker"
         )
 
+    def _check_data_freshness(self) -> PreflightResult:
+        """OHLCV data must be reasonably current for trading decisions."""
+        try:
+            row = self._conn.execute(
+                "SELECT MAX(timestamp) FROM ohlcv WHERE symbol = 'SPY' AND timeframe IN ('1D', '1d', 'daily', 'D1')"
+            ).fetchone()
+            if not row or not row[0]:
+                return PreflightResult(
+                    "Data freshness",
+                    False,
+                    "No OHLCV data found. Run: python scripts/acquire_historical_data.py",
+                    severity="warning",
+                )
+            latest = row[0]
+            if hasattr(latest, 'replace'):
+                latest = latest.replace(tzinfo=None)
+            age_days = (datetime.now() - latest).days
+            if age_days > 5:
+                return PreflightResult(
+                    "Data freshness",
+                    False,
+                    f"OHLCV data is {age_days} days stale (latest: {latest.date()}). "
+                    f"Run: python scripts/acquire_historical_data.py --phases ohlcv_daily",
+                    severity="warning",
+                )
+            if age_days > 1:
+                return PreflightResult(
+                    "Data freshness",
+                    True,
+                    f"OHLCV data is {age_days} day(s) old (latest: {latest.date()}). "
+                    f"Background sync recommended.",
+                )
+            return PreflightResult(
+                "Data freshness",
+                True,
+                f"OHLCV data is current (latest: {latest.date()})",
+            )
+        except Exception as exc:
+            return PreflightResult(
+                "Data freshness", True, f"Could not check: {exc}", severity="warning"
+            )
+
     def _check_data_provider(self) -> PreflightResult:
         """FD.ai API key must be set for data fetching."""
-        key = os.getenv("FINANCIAL_DATASETS_API_KEY", "")
-        if not key:
+        fd_key = os.getenv("FINANCIAL_DATASETS_API_KEY", "")
+        av_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+        alpaca_key = os.getenv("ALPACA_API_KEY", "")
+
+        sources = []
+        if av_key and av_key != "demo":
+            sources.append("Alpha Vantage")
+        if alpaca_key:
+            sources.append("Alpaca")
+        if fd_key:
+            sources.append("FinancialDatasets")
+
+        if not sources:
             return PreflightResult(
                 "Data provider",
                 False,
-                "FINANCIAL_DATASETS_API_KEY not set. Required for OHLCV and fundamentals.",
+                "No data provider configured. Set ALPHA_VANTAGE_API_KEY or ALPACA_API_KEY.",
             )
-        return PreflightResult("Data provider", True, f"FD.ai key set ({key[:8]}...)")
+        return PreflightResult(
+            "Data provider", True, f"Active: {', '.join(sources)}"
+        )
 
     def _check_broker(self) -> PreflightResult:
         """Check broker credentials are configured."""

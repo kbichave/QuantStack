@@ -101,10 +101,10 @@ async def register_strategy(
                     symbol,
                 ],
             )
-        logger.info(f"[quantpod_mcp] Registered strategy {strategy_id}: {name}")
+        logger.info(f"[quantstack_mcp] Registered strategy {strategy_id}: {name}")
         return {"success": True, "strategy_id": strategy_id, "status": "draft"}
     except Exception as e:
-        logger.error(f"[quantpod_mcp] register_strategy failed: {e}")
+        logger.error(f"[quantstack_mcp] register_strategy failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -166,7 +166,7 @@ async def list_strategies(
         ]
         return {"success": True, "strategies": strategies, "total": len(strategies)}
     except Exception as e:
-        logger.error(f"[quantpod_mcp] list_strategies failed: {e}")
+        logger.error(f"[quantstack_mcp] list_strategies failed: {e}")
         return {"success": False, "error": str(e), "strategies": [], "total": 0}
 
 
@@ -276,7 +276,7 @@ async def update_strategy(
                 f"UPDATE strategies SET {', '.join(sets)} WHERE strategy_id = ?",
                 params,
             )
-        logger.info(f"[quantpod_mcp] Updated strategy {strategy_id}")
+        logger.info(f"[quantstack_mcp] Updated strategy {strategy_id}")
 
         # Auto-create drift baseline when promoted to forward_testing
         if status == "forward_testing":
@@ -285,7 +285,7 @@ async def update_strategy(
         updated_fields = [k for k, v in {**field_map, **json_fields}.items() if v is not None]
         return {"success": True, "strategy_id": strategy_id, "updated_fields": updated_fields}
     except Exception as e:
-        logger.error(f"[quantpod_mcp] update_strategy failed: {e}")
+        logger.error(f"[quantstack_mcp] update_strategy failed: {e}")
         return {"success": False, "error": str(e)}
 
 

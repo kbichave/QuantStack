@@ -1,7 +1,7 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Unit tests for quant_pod.monitoring.degradation_detector — Sprint 4.
+Unit tests for quantstack.monitoring.degradation_detector — Sprint 4.
 
 Tests IS/OOS Sharpe classification, benchmark registration, and
 _classify() logic. Uses a PostgreSQL connection via pg_conn().

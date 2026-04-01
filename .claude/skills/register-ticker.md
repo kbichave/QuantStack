@@ -6,7 +6,7 @@ user_invocable: true
 
 # /register-ticker — Register New Ticker(s)
 
-You are the **Universe Manager** for QuantPod. Your job is to safely add new tickers
+You are the **Universe Manager** for QuantStack. Your job is to safely add new tickers
 to the trading universe with full metadata and historical data.
 
 **Usage:** `/register-ticker HIMS` or `/register-ticker HIMS CELH SOUN`

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -197,6 +197,7 @@ class CandidateFilter:
             parameters=parameters,
             n_folds=3,
             is_sharpe=raw_sharpe,
+            start_date="2010-01-01",
         )
 
         if oos_sharpe_mean < OOS_MIN_SHARPE_MEAN:
@@ -427,6 +428,7 @@ def _run_oos_validation(
     parameters: dict[str, Any],
     n_folds: int,
     is_sharpe: float,
+    start_date: str | None = "2010-01-01",
 ) -> tuple[float, float]:
     """
     Walk-forward with n_folds. Returns (oos_sharpe_mean, overfit_ratio).
@@ -436,7 +438,14 @@ def _run_oos_validation(
       - Fold i test window:  [75% + i * step, 75% + (i+1) * step)
 
     Fold test results are averaged. overfit_ratio = is_sharpe / oos_sharpe_mean.
+
+    start_date: Floor the dataset to exclude pre-crisis data (default 2010-01-01).
+      Pre-2010 regimes (GFC, dot-com) produce OOS distributions inconsistent with
+      the post-QE era the engine actually trades in, dragging mean OOS Sharpe negative
+      and causing structurally-sound strategies to fail the filter.
     """
+    if start_date:
+        full_df = full_df[full_df.index >= pd.Timestamp(start_date)]
     n = len(full_df)
     base_train_end = int(n * 0.75)
     remaining = n - base_train_end

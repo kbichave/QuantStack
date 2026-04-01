@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -117,6 +117,15 @@ class SignalBrief(BaseModel):
     opt_charm: float | None = None  # Aggregate delta decay
     opt_vanna: float | None = None  # Aggregate dDelta/dVol
     opt_ehd: float | None = None  # Expected Hedging Demand
+
+    # Feature drift warning — set True when DriftDetector reports CRITICAL severity.
+    # Step 3b quality gate should skip entries for this symbol when drift_warning=True.
+    drift_warning: bool = False
+
+    # Community sentiment (social_sentiment collector — 16th collector)
+    # Populated from Reddit public JSON + Stocktwits public stream.
+    # Defaults to empty dict when collector is unavailable or returns no data.
+    social: dict = Field(default_factory=dict)
 
     def to_daily_brief(self) -> DailyBrief:
         """Return a DailyBrief-compatible view of this brief (drops extra fields)."""

@@ -1,4 +1,4 @@
-# CLAUDE.md — QuantPod
+# CLAUDE.md — QuantStack
 
 ## Mission
 
@@ -17,26 +17,20 @@ You do three things, continuously:
 
 **Trading** (`prompts/trading_loop.md`) — position monitoring, entry scanning, execution. Python imports provide data. Claude provides ALL reasoning.
 
-Start loops using Ralph Wiggum skill with `--file`:
+**Start everything with one command:**
 
-**Research loop:**
 ```bash
-# Autonomous mode (picks top 3 symbols)
-/ralph-loop --file prompts/research_loop.md --name research
-
-# OR target specific ticker:
-export RESEARCH_SYMBOL_OVERRIDE=QQQ
-/ralph-loop --file prompts/research_loop.md --name research
+./start.sh
 ```
 
-**Trading loop:**
+This launches 4 tmux windows: `trading`, `research`, `supervisor`, `scheduler`. Each loop runs as a fresh `claude` invocation every 5 min (trading) or 2 min (research) — no `--continue`, no accumulated session state.
+
 ```bash
-/ralph-loop --file prompts/trading_loop.md --name trading
+tmux attach -t quantstack-loops     # watch
+tmux kill-session -t quantstack-loops   # stop
 ```
 
-**Stop:** `/cancel-ralph --name research` or `/cancel-ralph --name trading`
-
-**Why --file?** Ralph now supports loading complex orchestrator prompts from files (with embedded Python/SQL code blocks) using the `--file` flag, eliminating the need for bash wrapper scripts.
+**Parallelism** is handled by Claude's native `Agent` tool inside each session. No external orchestrator.
 
 ---
 
@@ -59,11 +53,12 @@ print(result)
 
 ## Hard Rules
 
-- **Risk gate is LAW.** Every trade passes through `src/quantstack/execution/risk_gate.py`. Never bypass. Never modify.
+- **Risk gate is LAW.** Every trade passes through `src/quantstack/execution/risk_gate.py`. Never bypass. Never modify. Never auto-patch.
 - **Kill switch halts everything.** Check system status via `from quantstack.mcp.tools._impl import get_system_status` before any session. If halted, STOP.
 - **Paper mode is default.** Live requires `USE_REAL_TRADING=true`.
 - **Audit trail is mandatory.** Every decision logged with reasoning.
 - **DB writes use `db_conn()` context managers.** All state lives in PostgreSQL.
+- **Self-healing is automatic.** When a tool fails 3 consecutive times, `record_tool_error()` queues a `bug_fix` task. AutoResearchClaw patches the source file, validates, commits, and restarts the loop. You do not need to intervene.
 
 ---
 
@@ -95,12 +90,15 @@ After every session: update memory files, log changes in `session_handoffs.md`, 
 ## Env Vars
 
 ```bash
-ALPHA_VANTAGE_API_KEY       # primary data source
-ALPACA_API_KEY              # execution
+TRADER_PG_URL               # PostgreSQL DSN (required)
+ALPHA_VANTAGE_API_KEY       # primary data source (required)
+ALPACA_API_KEY              # execution (required)
 ALPACA_SECRET_KEY
 ALPACA_PAPER=true
-GROQ_API_KEY                # sentiment collector
-USE_REAL_TRADING=true       # required for live execution
-TRADER_PG_URL               # PostgreSQL DSN
+AV_DAILY_CALL_LIMIT=25000   # safety cap (premium $49.99: 75/min, no hard daily limit)
+USE_REAL_TRADING=false      # set true for live orders
+FORWARD_TESTING_SIZE_SCALAR=0.5   # position size scalar for unproven strategies
+USE_FORWARD_TESTING_FOR_ENTRIES=true   # allow forward_testing strategies to trade
+GROQ_API_KEY                # sentiment collector (optional)
 RESEARCH_SYMBOL_OVERRIDE    # optional: force research on specific ticker
 ```

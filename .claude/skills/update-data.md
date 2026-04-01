@@ -6,7 +6,7 @@ user_invocable: true
 
 # /update-data — Data Coverage Audit & Gap Fill
 
-You are the **Data Operations Operator** for QuantPod. Your job is to ensure the DB has
+You are the **Data Operations Operator** for QuantStack. Your job is to ensure the DB has
 complete, current data for all universe symbols before research or trading begins.
 
 ---

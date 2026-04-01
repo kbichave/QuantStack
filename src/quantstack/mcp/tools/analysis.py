@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -71,7 +71,7 @@ async def get_portfolio_state() -> dict[str, Any]:
             "context_string": context_str,
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_portfolio_state failed: {e}")
+        logger.error(f"[quantstack_mcp] get_portfolio_state failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -110,7 +110,7 @@ async def get_regime(symbol: str) -> dict[str, Any]:
         )
         return result
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_regime({symbol}) failed: {e}")
+        logger.error(f"[quantstack_mcp] get_regime({symbol}) failed: {e}")
         return {"success": False, "symbol": symbol, "error": str(e)}
 
 
@@ -164,7 +164,7 @@ async def get_recent_decisions(
         ]
         return {"success": True, "decisions": summaries, "total": len(summaries)}
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_recent_decisions failed: {e}")
+        logger.error(f"[quantstack_mcp] get_recent_decisions failed: {e}")
         return {"success": False, "error": str(e), "decisions": [], "total": 0}
 
 
@@ -195,7 +195,7 @@ async def get_system_status() -> dict[str, Any]:
             "session_id": ctx.session_id,
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_system_status failed: {e}")
+        logger.error(f"[quantstack_mcp] get_system_status failed: {e}")
         return {"success": False, "error": str(e)}
 
 

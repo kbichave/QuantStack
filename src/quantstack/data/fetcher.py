@@ -4,9 +4,10 @@ Alpha Vantage API client for fetching market data.
 Handles rate limiting, retries, and data validation.
 """
 
+import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 from typing import Any
 
@@ -67,6 +68,10 @@ class AlphaVantageClient:
         self._last_call_time: float = 0
         self._call_count: int = 0
         self._minute_start: float = time.time()
+        # Daily quota guard — prevents runaway loops from exhausting AV credits.
+        # Premium plan ($49.99): 75 req/min, no hard daily cap. Default 25,000
+        # is ~5.5h of continuous 75/min usage — effectively unlimited for normal ops.
+        self._daily_limit: int = int(os.getenv("AV_DAILY_CALL_LIMIT", "25000"))
 
     def _wait_for_rate_limit(self) -> None:
         """Wait if necessary to respect rate limits."""
@@ -86,7 +91,42 @@ class AlphaVantageClient:
                 self._call_count = 0
                 self._minute_start = time.time()
 
-    def _make_request(self, function: str, symbol: str, **kwargs) -> dict:
+    def _get_daily_count(self) -> int:
+        """Read today's AV call count from system_state. Returns 0 if not set."""
+        try:
+            from quantstack.db import pg_conn
+
+            today_key = f"av_daily_calls_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            with pg_conn() as conn:
+                row = conn.execute(
+                    "SELECT value FROM system_state WHERE key = %s", [today_key]
+                ).fetchone()
+                return int(row[0]) if row else 0
+        except Exception as exc:
+            logger.debug(f"[AV quota] Could not read daily count: {exc}")
+            return 0
+
+    def _increment_daily_count(self) -> None:
+        """Atomically increment today's AV call counter in system_state."""
+        try:
+            from quantstack.db import pg_conn
+
+            today_key = f"av_daily_calls_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            with pg_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO system_state (key, value, updated_at)
+                    VALUES (%s, '1', NOW())
+                    ON CONFLICT (key) DO UPDATE
+                      SET value = (CAST(system_state.value AS INTEGER) + 1)::TEXT,
+                          updated_at = NOW()
+                    """,
+                    [today_key],
+                )
+        except Exception as exc:
+            logger.debug(f"[AV quota] Could not increment daily count: {exc}")
+
+    def _make_request(self, function: str, symbol: str, priority: str = "normal", **kwargs) -> dict:
         """
         Make an API request with retry logic.
 
@@ -99,6 +139,27 @@ class AlphaVantageClient:
             API response as dictionary
         """
         self._wait_for_rate_limit()
+
+        # Daily quota gate.  Critical requests always proceed; others are shed when quota is near.
+        daily_used = self._get_daily_count()
+        if priority == "low" and daily_used >= self._daily_limit // 2:
+            logger.info(
+                f"[AV quota] Skipping low-priority {function}/{symbol} "
+                f"(daily used {daily_used}/{self._daily_limit})"
+            )
+            return {}
+        if priority == "normal" and daily_used >= int(self._daily_limit * 0.8):
+            logger.warning(
+                f"[AV quota] Skipping normal-priority {function}/{symbol} "
+                f"(daily used {daily_used}/{self._daily_limit}, >80% budget consumed)"
+            )
+            return {}
+        if priority != "critical" and daily_used >= self._daily_limit:
+            logger.error(
+                f"[AV quota] Daily quota reached ({daily_used}/{self._daily_limit}). "
+                f"Skipping {function}/{symbol}. Only critical requests continue."
+            )
+            return {}
 
         params = {
             "function": function,
@@ -115,6 +176,7 @@ class AlphaVantageClient:
                 )
                 response.raise_for_status()
                 self._call_count += 1
+                self._increment_daily_count()
 
                 data = response.json()
 

@@ -78,7 +78,7 @@ class TestSettings:
             os.environ,
             {
                 "ALPHA_VANTAGE_API_KEY": "test_key_123",
-                "DATABASE_PATH": "postgresql://localhost/quantpod_test",
+                "DATABASE_PATH": "postgresql://localhost/quantstack_test",
                 "MAX_CONCURRENT_TRADES": "10",
             },
         ):
@@ -87,7 +87,7 @@ class TestSettings:
             settings = Settings()
 
             assert settings.alpha_vantage_api_key == "test_key_123"
-            assert settings.database_path == "postgresql://localhost/quantpod_test"
+            assert settings.database_path == "postgresql://localhost/quantstack_test"
             assert settings.max_concurrent_trades == 10
 
     def test_date_fields(self):

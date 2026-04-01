@@ -16,8 +16,12 @@ if the package is not installed.  Install the matching extra:
 from quantstack.data.adapters.alpaca import AlpacaAdapter
 from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
 from quantstack.data.adapters.financial_datasets import FinancialDatasetsAdapter
-from quantstack.data.adapters.ibkr import IBKRDataAdapter
 from quantstack.data.adapters.polygon_adapter import PolygonAdapter
+
+try:
+    from quantstack.data.adapters.ibkr import IBKRDataAdapter
+except ImportError:
+    IBKRDataAdapter = None  # type: ignore[assignment,misc]
 
 __all__ = [
     "AlphaVantageAdapter",

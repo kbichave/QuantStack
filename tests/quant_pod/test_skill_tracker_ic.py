@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
 Unit tests for AgentSkill IC/ICIR metrics and SkillTracker.record_ic() — Sprint 2.

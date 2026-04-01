@@ -7,18 +7,18 @@ QuantStack exposes trading functionality through five MCP servers. Each server i
 | Server | CLI command | Package | Purpose |
 |--------|-------------|---------|---------|
 | `quantcore-mcp` | `quantcore-mcp` | `packages/quantcore/mcp/` | 40+ quant tools: indicators, backtesting, options, RL |
-| `quantpod-mcp` | `quantpod-mcp` | `packages/quant_pod/mcp/` | Portfolio management, strategy registry, execution, learning loop |
+| `quantstack-mcp` | `quantstack-mcp` | `packages/quantstack/mcp/` | Portfolio management, strategy registry, execution, learning loop |
 | `alpaca-mcp` | `alpaca-mcp` | `packages/alpaca_mcp/` | Alpaca data + order execution |
 | `ibkr-mcp` | `ibkr-mcp` | `packages/ibkr_mcp/` | Interactive Brokers data + order execution |
 | `etrade-mcp` | `etrade-mcp` | `packages/etrade_mcp/` | eTrade data + order execution |
 
-All broker MCP servers are optional — QuantPod falls back to its internal `PaperBroker` when none are available.
+All broker MCP servers are optional — QuantStack falls back to its internal `PaperBroker` when none are available.
 
 ---
 
 ## quantcore-mcp
 
-Exposes the full QuantCore library as MCP tools. Used by QuantPod agents internally and directly by Claude Code for research.
+Exposes the full QuantCore library as MCP tools. Used by QuantStack agents internally and directly by Claude Code for research.
 
 ### Start
 
@@ -44,15 +44,15 @@ python -m quantcore.mcp.server
 
 ---
 
-## quantpod-mcp
+## quantstack-mcp
 
 The primary interface for Claude Code. Manages the full trade lifecycle: analysis → strategy → backtest → execution → learning.
 
 ### Start
 
 ```bash
-quantpod-mcp
-python -m quant_pod.mcp.server
+quantstack-mcp
+python -m quantstack.mcp.server
 ```
 
 ### Tool Phases
@@ -236,8 +236,8 @@ The repo ships with `.mcp.json`. Claude Code reads this file to discover availab
     "quantcore": {
       "command": "quantcore-mcp"
     },
-    "quantpod": {
-      "command": "quantpod-mcp"
+    "quantstack": {
+      "command": "quantstack-mcp"
     },
     "alpaca": {
       "command": "alpaca-mcp",

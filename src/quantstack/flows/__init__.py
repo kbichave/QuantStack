@@ -1,20 +1,13 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-QuantPod Flows — orchestration pipelines.
+QuantStack Flows — bootstrap and preflight only.
 
-TradingDayFlow uses SignalEngine (pure-Python, no LLM) for analysis.
+Trading orchestration is handled by prompts/trading_loop.md (Claude-based loop).
 """
 
-from quantstack.flows.trading_day_flow import (
-    TradingDayFlow,
-    TradingDayFlowAdapter,
-    TradingDayState,
-)
+from quantstack.coordination.preflight import PreflightCheck
+from quantstack.flows.bootstrap import BootstrapFlow
 
-__all__ = [
-    "TradingDayFlow",
-    "TradingDayState",
-    "TradingDayFlowAdapter",
-]
+__all__ = ["BootstrapFlow", "PreflightCheck"]

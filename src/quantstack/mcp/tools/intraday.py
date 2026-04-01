@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -96,7 +96,7 @@ async def get_intraday_status() -> dict[str, Any]:
         }
 
     except Exception as exc:
-        logger.error(f"[quantpod_mcp] get_intraday_status failed: {exc}")
+        logger.error(f"[quantstack_mcp] get_intraday_status failed: {exc}")
         return {"success": False, "error": str(exc)}
 
 
@@ -134,7 +134,7 @@ async def get_tca_report(
             )
         return {"success": True, **stats}
     except Exception as exc:
-        logger.error(f"[quantpod_mcp] get_tca_report failed: {exc}")
+        logger.error(f"[quantstack_mcp] get_tca_report failed: {exc}")
         return {"success": False, "error": str(exc)}
 
 
@@ -231,7 +231,7 @@ async def get_algo_recommendation(
         }
 
     except Exception as exc:
-        logger.error(f"[quantpod_mcp] get_algo_recommendation({symbol}) failed: {exc}")
+        logger.error(f"[quantstack_mcp] get_algo_recommendation({symbol}) failed: {exc}")
         return {"success": False, "symbol": symbol, "error": str(exc)}
 
 
@@ -243,7 +243,7 @@ async def get_algo_recommendation(
 def _get_active_loop() -> Any:
     """Retrieve the active LiveIntradayLoop singleton, if any.
 
-    The run_intraday.py script sets ``quant_pod.intraday.loop._active_loop``
+    The run_intraday.py script sets ``quantstack.intraday.loop._active_loop``
     when a loop is started. Returns None if no loop is running.
     """
     return getattr(_loop_mod, "_active_loop", None)

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -22,7 +22,6 @@ from quantstack.coordination.conversation_logger import ConversationLogger
 from quantstack.coordination.daily_digest import DailyDigest
 from quantstack.coordination.event_bus import Event, EventBus, EventType
 from quantstack.coordination.preflight import PreflightCheck
-from quantstack.coordination.slack_client import SlackClient
 from quantstack.coordination.strategy_lock import StrategyStatusLock
 from quantstack.coordination.supervisor import LoopSupervisor
 from quantstack.db import open_db
@@ -241,6 +240,335 @@ def record_heartbeat(
         return {"success": False, "error": str(exc)}
 
 
+# ── Loop Context Tools (stateless iteration state) ───────────────────────────
+
+
+@domain(Domain.EXECUTION, Domain.PORTFOLIO)
+@tool_def()
+def get_loop_context(loop_name: str, key: str, default: Any = None) -> Any:
+    """Read a per-loop context value from PostgreSQL.
+
+    WHEN TO USE: At the START of every loop iteration to restore state that
+    was written in the previous iteration. Replaces in-session state[] dict
+    so that each `claude` invocation (no --continue) starts fresh but still
+    has access to prior iteration context.
+
+    WORKFLOW: [iteration start] → get_loop_context(key) → use value → [work]
+              → set_loop_context(key, new_value) → [iteration end]
+
+    Common keys for trading_loop:
+        "market_intel"         — market-intel agent output (JSON, TTL 25min)
+        "stale_symbols"        — list of symbols with stale OHLCV data
+        "closes_since_review"  — int counter for weekly reflector trigger
+        "last_weekly_review_at"— ISO timestamp of last weekly review
+
+    Common keys for research_loop:
+        "last_domain"          — last domain researched (swing/investment/options)
+        "domain_history"       — list of recent domain choices for rotation
+        "last_execution_audit_at" — ISO timestamp of last TCA audit
+        "cross_domain_transfers"  — list of cross-domain signal findings
+
+    Args:
+        loop_name: "trading_loop" or "research_loop"
+        key: Context key to retrieve.
+        default: Value to return if key not found (default: None).
+
+    Returns:
+        The stored value (parsed from JSONB), or default if not found.
+    """
+    try:
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT context_json FROM loop_iteration_context "
+            "WHERE loop_name = %s AND context_key = %s",
+            [loop_name, key],
+        ).fetchone()
+        if row is None:
+            return default
+        value = row[0]
+        # JSONB columns come back as dicts/lists; unwrap scalar wrapper if present
+        if isinstance(value, dict) and list(value.keys()) == ["v"]:
+            return value["v"]
+        return value
+    except Exception as exc:
+        logger.warning(f"[MCP:get_loop_context] {loop_name}/{key}: {exc}")
+        return default
+
+
+@domain(Domain.EXECUTION, Domain.PORTFOLIO)
+@tool_def()
+def set_loop_context(loop_name: str, key: str, value: Any) -> dict[str, Any]:
+    """Write a per-loop context value to PostgreSQL (UPSERT).
+
+    WHEN TO USE: At the END of relevant loop steps to persist state that the
+    next iteration will need. Any scalar, list, or dict can be stored.
+
+    WORKFLOW: [compute new value] → set_loop_context(key, value)
+              → [next iteration] → get_loop_context(key)
+
+    Args:
+        loop_name: "trading_loop" or "research_loop"
+        key: Context key to store.
+        value: Any JSON-serialisable value (str, int, float, list, dict).
+
+    Returns:
+        {"success": True, "loop_name": loop_name, "key": key}
+    """
+    try:
+        conn = _get_conn()
+        now = datetime.now(timezone.utc)
+        # Wrap scalars so JSONB storage is consistent with retrieval
+        if not isinstance(value, (dict, list)):
+            stored = {"v": value}
+        else:
+            stored = value
+        conn.execute(
+            """
+            INSERT INTO loop_iteration_context (loop_name, context_key, context_json, updated_at)
+            VALUES (%s, %s, %s::jsonb, %s)
+            ON CONFLICT (loop_name, context_key)
+            DO UPDATE SET context_json = EXCLUDED.context_json,
+                          updated_at   = EXCLUDED.updated_at
+            """,
+            [loop_name, key, json.dumps(stored), now],
+        )
+        conn.commit()
+        return {"success": True, "loop_name": loop_name, "key": key}
+    except Exception as exc:
+        logger.error(f"[MCP:set_loop_context] {loop_name}/{key}: {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+# ── Tool Error Tracking ──────────────────────────────────────────────────────
+
+# Number of consecutive errors for the same tool before queuing a bug-fix task.
+_BUG_FIX_THRESHOLD = 3
+
+# Files the auto-patcher must never touch, regardless of what ARC suggests.
+_PROTECTED_FILES = frozenset([
+    "risk_gate.py",
+    "kill_switch.py",
+    "db.py",
+])
+
+
+@domain(Domain.EXECUTION, Domain.PORTFOLIO)
+@tool_def()
+def record_tool_error(
+    tool_name: str,
+    error_message: str,
+    stack_trace: str = "",
+    loop_name: str = "trading_loop",
+    priority: int = 5,
+) -> dict[str, Any]:
+    """Record a tool call failure in the bugs table and auto-dispatch a fix after 3 hits.
+
+    WHEN TO USE: Whenever a Python tool call raises an exception or returns an
+    error dict. Call this instead of silently logging so the supervisor can detect
+    systematic failures and dispatch AutoResearchClaw to fix them immediately.
+
+    WORKFLOW: tool raises exception → record_tool_error() → bugs table upsert
+              After 3 consecutive hits → research_queue entry inserted (priority=9)
+              → supervisor bug-fix watcher fires ARC within 60s → ARC edits source
+              → auto_patch validates + commits → loop restarts with fixed code
+
+    Args:
+        tool_name:     Function/tool that failed (e.g. "run_multi_signal_brief").
+        error_message: Short description of the failure.
+        stack_trace:   Full traceback (pass traceback.format_exc()).
+        loop_name:     "trading_loop" or "research_loop".
+        priority:      1-10. Higher = fixed sooner. Defaults to 5.
+                       Use 8-9 for failures that block core paths (signal briefs,
+                       execution), 3-4 for non-critical enrichment failures.
+
+    Returns:
+        {"success": True, "bug_id": str, "consecutive_errors": int, "bug_fix_queued": bool}
+    """
+    try:
+        conn = _get_conn()
+        now = datetime.now(timezone.utc)
+
+        # Stable fingerprint: first 120 chars of the error message.
+        # Groups repeated identical failures; different errors get separate rows.
+        fingerprint = error_message[:120].strip()
+        bug_id = f"bug_{tool_name}_{fingerprint[:40].replace(' ', '_')}"
+
+        # Upsert into bugs table — increment counter on each new occurrence.
+        conn.execute(
+            """
+            INSERT INTO bugs
+                (bug_id, tool_name, loop_name, error_message, error_fingerprint,
+                 stack_trace, status, priority, consecutive_errors, created_at, last_seen_at)
+            VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, 1, %s, %s)
+            ON CONFLICT (tool_name, loop_name, error_fingerprint)
+            WHERE status IN ('open', 'in_progress')
+            DO UPDATE SET
+                consecutive_errors = bugs.consecutive_errors + 1,
+                last_seen_at       = EXCLUDED.last_seen_at,
+                stack_trace        = EXCLUDED.stack_trace,
+                priority           = GREATEST(bugs.priority, EXCLUDED.priority)
+            """,
+            [bug_id, tool_name, loop_name, error_message, fingerprint,
+             stack_trace[:4000], priority, now, now],
+        )
+
+        # Read back the current consecutive count for this bug.
+        row = conn.execute(
+            "SELECT consecutive_errors, bug_id FROM bugs "
+            "WHERE tool_name = %s AND loop_name = %s AND error_fingerprint = %s "
+            "AND status IN ('open', 'in_progress')",
+            [tool_name, loop_name, fingerprint],
+        ).fetchone()
+        consecutive = row[0] if row else 1
+        actual_bug_id = row[1] if row else bug_id
+
+        bug_fix_queued = False
+        if consecutive >= _BUG_FIX_THRESHOLD:
+            # Only queue if no active dispatch already exists for this bug.
+            existing_task = conn.execute(
+                """
+                SELECT 1 FROM research_queue
+                WHERE task_type = 'bug_fix'
+                  AND status IN ('pending', 'running')
+                  AND context_json->>'bug_id' = %s
+                """,
+                [actual_bug_id],
+            ).fetchone()
+
+            if not existing_task:
+                task_id = f"bugfix_{actual_bug_id}_{now.strftime('%Y%m%d_%H%M%S')}"
+                conn.execute(
+                    """
+                    INSERT INTO research_queue
+                        (task_id, task_type, priority, topic, context_json, source, status, created_at)
+                    VALUES (%s, 'bug_fix', 9, %s, %s::jsonb, 'auto_error_tracker', 'pending', %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    [
+                        task_id,
+                        f"Auto bug-fix: {tool_name} — {error_message[:80]}",
+                        json.dumps({
+                            "bug_id": actual_bug_id,
+                            "tool_name": tool_name,
+                            "loop_name": loop_name,
+                            "consecutive_errors": consecutive,
+                            "last_error": error_message,
+                            "stack_trace": stack_trace[:3000],
+                            "triggered_at": now.isoformat(),
+                        }),
+                        now,
+                    ],
+                )
+                # Link the dispatch task back to the bug row.
+                conn.execute(
+                    "UPDATE bugs SET arc_task_id = %s WHERE bug_id = %s",
+                    [task_id, actual_bug_id],
+                )
+                bug_fix_queued = True
+                logger.warning(
+                    f"[MCP:record_tool_error] {tool_name} failed {consecutive}x "
+                    f"(bug {actual_bug_id}) — queued {task_id}"
+                )
+
+        conn.commit()
+        return {
+            "success": True,
+            "bug_id": actual_bug_id,
+            "consecutive_errors": consecutive,
+            "bug_fix_queued": bug_fix_queued,
+        }
+
+    except Exception as exc:
+        logger.error(f"[MCP:record_tool_error] {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+@domain(Domain.EXECUTION, Domain.PORTFOLIO)
+@tool_def()
+def clear_tool_errors(tool_name: str, loop_name: str = "trading_loop") -> dict[str, Any]:
+    """Reset open bug entries for a tool after a successful call.
+
+    WHEN TO USE: After a tool that was previously failing succeeds again.
+    Marks all open/in_progress bugs for that tool as 'wont_fix' with a note,
+    preventing duplicate dispatch tasks from being queued.
+    """
+    try:
+        conn = _get_conn()
+        now = datetime.now(timezone.utc)
+        conn.execute(
+            """
+            UPDATE bugs SET status = 'wont_fix',
+                            fix_summary = 'Tool started succeeding — auto-cleared',
+                            fixed_at    = %s
+            WHERE tool_name = %s AND loop_name = %s
+              AND status IN ('open', 'in_progress')
+            """,
+            [now, tool_name, loop_name],
+        )
+        conn.commit()
+        return {"success": True}
+    except Exception as exc:
+        logger.error(f"[MCP:clear_tool_errors] {exc}")
+        return {"success": False, "error": str(exc)}
+
+
+@domain(Domain.EXECUTION, Domain.PORTFOLIO)
+@tool_def()
+def get_open_bugs(limit: int = 20) -> dict[str, Any]:
+    """Return open and in-progress bugs ordered by priority then age.
+
+    WHEN TO USE: At iteration start to check for known broken tools before
+    attempting to use them. If a tool has an open bug, consider skipping it
+    rather than generating another error record.
+
+    Returns:
+        {"bugs": [...], "total_open": int}
+        Each bug: {bug_id, tool_name, loop_name, error_message, status,
+                   priority, consecutive_errors, created_at, last_seen_at}
+    """
+    try:
+        conn = _get_conn()
+        rows = conn.execute(
+            """
+            SELECT bug_id, tool_name, loop_name, error_message, status,
+                   priority, consecutive_errors,
+                   created_at, last_seen_at, arc_task_id
+            FROM bugs
+            WHERE status IN ('open', 'in_progress')
+            ORDER BY priority DESC, consecutive_errors DESC, created_at ASC
+            LIMIT %s
+            """,
+            [limit],
+        ).fetchall()
+
+        count_row = conn.execute(
+            "SELECT COUNT(*) FROM bugs WHERE status IN ('open', 'in_progress')"
+        ).fetchone()
+
+        return {
+            "success": True,
+            "total_open": count_row[0] if count_row else 0,
+            "bugs": [
+                {
+                    "bug_id": r[0],
+                    "tool_name": r[1],
+                    "loop_name": r[2],
+                    "error_message": r[3][:120],
+                    "status": r[4],
+                    "priority": r[5],
+                    "consecutive_errors": r[6],
+                    "created_at": r[7].isoformat() if r[7] else None,
+                    "last_seen_at": r[8].isoformat() if r[8] else None,
+                    "arc_task_id": r[9],
+                }
+                for r in rows
+            ],
+        }
+    except Exception as exc:
+        logger.error(f"[MCP:get_open_bugs] {exc}")
+        return {"success": False, "bugs": [], "total_open": 0, "error": str(exc)}
+
+
 # ── Health Tools ─────────────────────────────────────────────────────────────
 
 
@@ -453,18 +781,18 @@ def log_agent_conversation(
     iteration: int | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Log a desk agent's report for audit trail and Slack notification.
+    """Log a desk agent's report for audit trail.
 
     WHEN TO USE: After every desk agent interaction (trade-debater, position-monitor,
-    risk, fund-manager). Creates an audit trail and posts summary to Slack.
+    risk, fund-manager). Creates an audit trail.
     WORKFLOW: [spawn agent] → [get result] → log_agent_conversation → [continue]
-    RELATED: log_signal_snapshot, post_slack_message
+    RELATED: log_signal_snapshot
 
     Args:
         agent_name: Agent identifier (market_intel, alpha_research, risk,
                     execution, strategy_rd, data_scientist, watchlist, pm).
         content: Full report text from the agent.
-        summary: 1-line summary for Slack. Auto-generated if empty.
+        summary: 1-line summary. Auto-generated if empty.
         symbol: Ticker symbol the report is about.
         strategy_id: Strategy this report relates to.
         iteration: Loop iteration number.
@@ -501,7 +829,7 @@ def log_signal_snapshot(
     conviction: float = 0.0,
     failures: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Log raw SignalEngine collector outputs for audit trail and Slack.
+    """Log raw SignalEngine collector outputs for audit trail.
 
     WHEN TO USE: After every get_signal_brief() call in the trading loop.
     Creates an audit trail of what the signal engine saw at decision time.
@@ -532,37 +860,6 @@ def log_signal_snapshot(
         return {"success": True, "snapshot_id": sid}
     except Exception as exc:
         logger.error(f"[MCP:log_signal_snapshot] {exc}")
-        return {"success": False, "error": str(exc)}
-
-
-@domain(Domain.EXECUTION)
-@tool_def()
-def post_slack_message(
-    channel: str,
-    text: str,
-) -> dict[str, Any]:
-    """Post a message to a Slack channel for notifications.
-
-    WHEN TO USE: For manual notifications — trade alerts, system warnings,
-    daily summaries. Most tools post to Slack automatically; use this for
-    custom messages only.
-    WHEN NOT TO USE: Don't spam — one message per significant event.
-    RELATED: log_agent_conversation, generate_daily_digest
-
-    Args:
-        channel: Channel key ("agents", "trades", "alerts", "system", etc.)
-                 or a channel name ("#my-channel").
-        text: Message text (supports Slack mrkdwn formatting).
-
-    Returns:
-        {"success": True, "ts": "..."} or {"success": False, "error": "..."}
-    """
-    try:
-        client = SlackClient()
-        ts = client.post(channel, text)
-        return {"success": ts is not None, "ts": ts}
-    except Exception as exc:
-        logger.error(f"[MCP:post_slack_message] {exc}")
         return {"success": False, "error": str(exc)}
 
 

@@ -61,7 +61,7 @@ Execute Steps 0, 1, 1b from `context_loading.md` BUT load ONLY swing-relevant co
 ### Load:
 - Heartbeat (Step 0)
 - DB state: strategies WHERE time_horizon IN ('swing','position'), ml_experiments, breakthrough_features
-- Prompt parameters: `~/.quant_pod/prompt_params.json`
+- Prompt parameters: `~/.quantstack/prompt_params.json`
 - Memory files: `workshop_lessons.md`, `strategy_registry.md`
 - Per-symbol ticker file: `~/.claude/memory/tickers/{symbol}.md`
 

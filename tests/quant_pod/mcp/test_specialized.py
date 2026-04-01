@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.quant_pod.mcp.conftest import _fn, synthetic_ohlcv
+from tests.quantstack.mcp.conftest import _fn, synthetic_ohlcv
 
 
 # ===========================================================================

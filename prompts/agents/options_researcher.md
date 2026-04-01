@@ -61,7 +61,7 @@ Execute Steps 0, 1, 1b from `context_loading.md` BUT load ONLY options-relevant 
 ### Load:
 - Heartbeat (Step 0)
 - DB state: strategies WHERE instrument_type='options', ml_experiments (vol forecasting), breakthrough_features
-- Prompt parameters: `~/.quant_pod/prompt_params.json`
+- Prompt parameters: `~/.quantstack/prompt_params.json`
 - Memory files: `workshop_lessons.md`, `strategy_registry.md`
 - Per-symbol ticker file: `~/.claude/memory/tickers/{symbol}.md`
 

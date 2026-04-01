@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -12,7 +12,7 @@ Provides:
 Usage (at process startup):
     from quantstack.observability import configure_logging, TraceContext
 
-    configure_logging(json_path="~/.quant_pod/logs/quantpod.jsonl")
+    configure_logging(json_path="~/.quantstack/logs/quantstack.jsonl")
 
     # At the start of a trading pass:
     with TraceContext.new_trace(symbol="SPY") as trace_id:

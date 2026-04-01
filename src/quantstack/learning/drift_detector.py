@@ -12,7 +12,7 @@ PSI thresholds (credit risk literature, well-validated):
 
 Design invariants:
   - Pure numpy computation — < 1ms per check, safe for hot path.
-  - Baselines stored as JSON in ~/.quant_pod/drift_baselines/.
+  - Baselines stored as JSON in ~/.quantstack/drift_baselines/.
   - All I/O is best-effort: missing baselines return NONE (not an error).
   - No DB writes in the hot path; only reads + numpy math.
 
@@ -39,7 +39,7 @@ from loguru import logger
 
 PSI_WARNING = 0.10
 PSI_CRITICAL = 0.25
-BASELINE_DIR = Path.home() / ".quant_pod" / "drift_baselines"
+BASELINE_DIR = Path.home() / ".quantstack" / "drift_baselines"
 
 # Features to track — all computed by SignalEngine collectors every run
 TRACKED_FEATURES = [
@@ -155,7 +155,7 @@ class DriftDetector:
     """
     Compares current signal features against per-strategy baselines.
 
-    Baselines are JSON files at ~/.quant_pod/drift_baselines/{strategy_id}.json
+    Baselines are JSON files at ~/.quantstack/drift_baselines/{strategy_id}.json
     containing raw sample arrays per feature from the training/backtest period.
 
     Usage:

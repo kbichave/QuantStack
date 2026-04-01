@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Phase 2 backtesting tools for the QuantPod MCP server.
+Phase 2 backtesting tools for the QuantStack MCP server.
 
 Extracted from ``server.py`` — contains the backtest engine wrappers,
 walk-forward validation, multi-timeframe backtesting, sparse-signal
@@ -185,7 +185,7 @@ async def run_backtest(
         return {"success": True, **summary_return, "strategy_id": strategy_id}
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] run_backtest failed: {e}")
+        logger.error(f"[quantstack_mcp] run_backtest failed: {e}")
         return {
             "success": False,
             "error": str(e),
@@ -500,7 +500,7 @@ async def run_backtest_mtf(
         return summary
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] run_backtest_mtf failed: {e}")
+        logger.error(f"[quantstack_mcp] run_backtest_mtf failed: {e}")
         return {
             "success": False,
             "error": str(e),
@@ -769,7 +769,7 @@ async def run_walkforward(
         return {"success": True, "strategy_id": strategy_id, **summary}
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] run_walkforward failed: {e}")
+        logger.error(f"[quantstack_mcp] run_walkforward failed: {e}")
         return {
             "success": False,
             "error": str(e),
@@ -972,7 +972,7 @@ async def run_walkforward_mtf(
         return summary
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] run_walkforward_mtf failed: {e}")
+        logger.error(f"[quantstack_mcp] run_walkforward_mtf failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -1120,7 +1120,7 @@ async def walk_forward_sparse_signal(
         }
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] walk_forward_sparse_signal failed: {e}")
+        logger.error(f"[quantstack_mcp] walk_forward_sparse_signal failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -1441,7 +1441,25 @@ async def run_backtest_options(
                 "total_trades": eq_bt.get("total_trades", 0),
             },
             "trades": opt_trades,
+            # IV is sourced from 20-day realised vol, not from a live options chain.
+            # Pricing is Black-Scholes ATM with no smile or term-structure adjustment.
+            # Treat results as directional research signals only — not promotion evidence.
+            "is_simulated": True,
+            "simulation_note": (
+                "IV approximated from 20-day realised vol; no live options chain used. "
+                "Not suitable for strategy promotion. "
+                "Use for directional research only."
+            ),
         }
+
+        # Guard: do not promote strategy status based on simulated options backtest results.
+        # Only touch updated_at; status changes must come from live forward-test data.
+        if result.get("is_simulated"):
+            logger.warning(
+                f"[run_backtest_options] Skipping status promotion for {strategy_id} "
+                "— options backtest result is simulated (IV from realised vol, BS pricing). "
+                "Status kept at current value; promote only after live forward-test validation."
+            )
 
         # Persist summary alongside strategy
         with pg_conn() as conn:
@@ -1450,14 +1468,14 @@ async def run_backtest_options(
                 [strategy_id],
             )
         logger.info(
-            f"[quantpod_mcp] run_backtest_options({symbol}): "
+            f"[quantstack_mcp] run_backtest_options({symbol}): "
             f"{len(opt_trades)} trades, Sharpe={result['sharpe']}, "
             f"avg_premium_return={result['avg_premium_return_pct']}%"
         )
         return result
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] run_backtest_options failed: {e}")
+        logger.error(f"[quantstack_mcp] run_backtest_options failed: {e}")
         return {"success": False, "error": str(e)}
 
 

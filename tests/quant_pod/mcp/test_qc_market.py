@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -25,7 +25,7 @@ from quantstack.mcp.tools.qc_market import (
     run_screener,
     validate_trade,
 )
-from tests.quant_pod.mcp.conftest import _fn, synthetic_ohlcv
+from tests.quantstack.mcp.conftest import _fn, synthetic_ohlcv
 
 
 def _patch_reader(df):

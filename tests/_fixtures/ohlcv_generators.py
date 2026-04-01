@@ -2,7 +2,7 @@
 Consolidated OHLCV generator functions for test fixtures.
 
 This module contains ALL synthetic data generators from both the root conftest
-(flexible API, for quant_pod tests) and the unit conftest (strict API, for
+(flexible API, for quantstack tests) and the unit conftest (strict API, for
 wave/indicator tests). Functions are disambiguated by name to avoid signature
 conflicts.
 

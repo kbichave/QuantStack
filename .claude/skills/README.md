@@ -1,6 +1,6 @@
 # Skills
 
-Claude Code slash commands for QuantPod. These are for **human-invoked workflows only**.
+Claude Code slash commands for QuantStack. These are for **human-invoked workflows only**.
 Autonomous trading and research is handled by the loops in `prompts/`.
 
 ---

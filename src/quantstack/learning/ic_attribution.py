@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -40,7 +40,7 @@ from scipy.stats import spearmanr as _spearmanr
 # ---------------------------------------------------------------------------
 
 _DEFAULT_WINDOW = 30
-_DEFAULT_STATE_PATH = Path.home() / ".quant_pod" / "ic_attribution.json"
+_DEFAULT_STATE_PATH = Path.home() / ".quantstack" / "ic_attribution.json"
 
 
 # ---------------------------------------------------------------------------

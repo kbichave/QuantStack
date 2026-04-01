@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -37,7 +37,7 @@ from quantstack.mcp._state import set_ctx
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Initialize TradingContext + research infrastructure on startup."""
-    logger.info("QuantPod MCP Server starting...")
+    logger.info("QuantStack MCP Server starting...")
 
     ctx = create_trading_context()
     set_ctx(ctx)
@@ -62,7 +62,7 @@ async def lifespan(server: FastMCP):
 
     yield
 
-    logger.info("QuantPod MCP Server stopped")
+    logger.info("QuantStack MCP Server stopped")
 
 
 # =============================================================================
@@ -70,9 +70,9 @@ async def lifespan(server: FastMCP):
 # =============================================================================
 
 mcp = FastMCP(
-    name="QuantPod",
+    name="QuantStack",
     instructions=(
-        "QuantPod MCP server — unified quantitative trading platform. "
+        "QuantStack MCP server — unified quantitative trading platform. "
         "Research tools (200+ indicators, backtesting, options pricing, ML) "
         "and operational tools (signals, execution, portfolio, strategy management). "
         "Use get_signal_brief for analysis, get_portfolio_state for holdings, "

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -25,7 +25,7 @@ Invariants:
 - All failures are logged and counted — never raises to the caller
 
 Usage:
-    python -m quant_pod.alpha_discovery.engine --symbols XOM MSFT --dry-run
+    python -m quantstack.alpha_discovery.engine --symbols XOM MSFT --dry-run
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+import pandas as pd
 from loguru import logger
 
 from quantstack.alpha_discovery.filter import CandidateFilter, IS_MIN_TRADES
@@ -368,6 +369,7 @@ class AlphaDiscoveryEngine:
             with DataStore(read_only=True) as store:
                 df = store.load_ohlcv(symbol, Timeframe.D1)
                 if df is not None and not df.empty:
+                    df = df[df.index >= pd.Timestamp("2010-01-01")]
                     return df
             return None
         except Exception as exc:

@@ -1,4 +1,4 @@
-"""Learning utilities for QuantPod agent metrics and expectancy."""
+"""Learning utilities for QuantStack agent metrics and expectancy."""
 
 from quantstack.learning.drift_detector import DriftDetector, DriftReport
 from quantstack.learning.expectancy_engine import ExpectancyEngine, ExpectancyResult

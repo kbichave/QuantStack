@@ -270,7 +270,7 @@ Configure tools to return their output directly as task results.](https://docs.c
 
 Start with the guides that match your current needs and gradually explore more advanced topics as you become comfortable with the fundamentals.
 
-## Asset-class-aware assembly (QuantPod)
+## Asset-class-aware assembly (QuantStack)
 
 - **Envelope**: Provide `asset_class` (equities/options/futures/fx_crypto), `instrument_type` (equity/option/future/fx_or_crypto), and `task_intent` (analysis/backtest/live_signal/hedge/execution_check). These are merged into a shared `task_envelope` passed to all pods.
 - **Assembler flow**: task envelope → hybrid LLM/profile assembler → pod preflight (asset-compatibility pruning + dependency fill) → crew kickoff with only approved pods/ICs.

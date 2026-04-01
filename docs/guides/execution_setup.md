@@ -6,7 +6,7 @@ This guide covers broker configuration, risk limits, the kill switch, and SmartO
 
 ## Paper vs Live Trading
 
-QuantPod defaults to **paper mode**. No broker credentials are required to run analysis or paper-trade.
+QuantStack defaults to **paper mode**. No broker credentials are required to run analysis or paper-trade.
 
 ```bash
 # Default — uses internal PaperBroker, no external broker needed
@@ -74,7 +74,7 @@ See [packages/etrade_mcp/README.md](../../packages/etrade_mcp/README.md) for the
 
 ## Risk Limits
 
-Hard limits are enforced in `packages/quant_pod/execution/risk_gate.py`. They cannot be bypassed by agents or prompts. All defaults can be overridden via environment variables.
+Hard limits are enforced in `packages/quantstack/execution/risk_gate.py`. They cannot be bypassed by agents or prompts. All defaults can be overridden via environment variables.
 
 | Rule | Default | Env var | Behavior when breached |
 |------|:-------:|---------|------------------------|
@@ -113,14 +113,14 @@ Returns: {kill_switch_active, risk_halted, broker_mode, session_id}
 
 ### Activate / deactivate
 
-The kill switch uses a sentinel file at the path set by `KILL_SWITCH_SENTINEL` (default: `~/.quant_pod/KILL_SWITCH_ACTIVE`):
+The kill switch uses a sentinel file at the path set by `KILL_SWITCH_SENTINEL` (default: `~/.quantstack/KILL_SWITCH_ACTIVE`):
 
 ```bash
 # Activate — halts all trading immediately
-touch ~/.quant_pod/KILL_SWITCH_ACTIVE
+touch ~/.quantstack/KILL_SWITCH_ACTIVE
 
 # Deactivate
-rm ~/.quant_pod/KILL_SWITCH_ACTIVE
+rm ~/.quantstack/KILL_SWITCH_ACTIVE
 ```
 
 The sentinel persists across process restarts. Always call `get_system_status` at the start of every trading session.
@@ -133,7 +133,7 @@ When the portfolio's daily P&L breaches `RISK_DAILY_LOSS_LIMIT_PCT`, trading is 
 
 ```bash
 # Manual reset (only if you've investigated and understand why the halt triggered)
-rm ~/.quant_pod/DAILY_HALT_ACTIVE
+rm ~/.quantstack/DAILY_HALT_ACTIVE
 ```
 
 The halt resets automatically at the start of the next trading day (based on market calendar).
@@ -155,7 +155,7 @@ The router evaluates spread, latency, and commission from each available venue a
 
 ## Data Storage
 
-All state is stored in PostgreSQL (connection string: `TRADER_PG_URL`, default `postgresql://localhost/quantpod`).
+All state is stored in PostgreSQL (connection string: `TRADER_PG_URL`, default `postgresql://localhost/quantstack`).
 
 Tables in the database:
 

@@ -5,65 +5,160 @@
 <h1 align="center">QuantStack</h1>
 
 <p align="center">
-  <strong>Autonomous quantitative trading — Claude agents research strategies, reason about entries and exits via multi-agent debate, execute through an immutable risk gate, and every loss trains the next iteration.</strong>
+  <strong>Autonomous quantitative trading — Claude agents research strategies, debate entries and exits, execute through an immutable risk gate, and self-heal from errors — all unattended.</strong>
 </p>
 
 <p align="center">
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-1.0.0-green.svg" alt="v1.0.0">
+  <img src="https://img.shields.io/badge/version-2.0.0-green.svg" alt="v2.0.0">
 </p>
+
+---
+
+## One command to run everything
+
+```bash
+./start.sh
+```
+
+That's it. `start.sh` is the single entry point. It checks prerequisites, runs DB migrations, compacts memory files, displays the current credit regime, seeds community intelligence in the background, and starts five tmux windows. Leave it running for weeks.
+
+```
+tmux attach -t quantstack-loops    # watch the loops
+./status.sh                        # health dashboard (one-shot)
+./status.sh --watch                # live dashboard (10s refresh, Ctrl+C to quit)
+./stop.sh                          # graceful shutdown (kill switch → wait → kill tmux)
+./report.sh                        # monthly performance report
+```
 
 ---
 
 ## Architecture
 
-Three decoupled loops run concurrently. Research thinks. Trading executes. Losses feed back into research as structured attributions.
+Two stateless Claude loops run concurrently, sharing state through PostgreSQL. Neither loop keeps in-session state — every iteration starts from a fresh Claude invocation, reads what it needs from DB, and writes back.
 
 ```
-Research Loop (Claude Opus agents)        Trading Loop (Claude, LLM-driven)
-  hypothesis → backtest → ML train          SignalEngine (15 collectors, 2-6s)
-  walk-forward validation                     → Claude reasons (bull/bear/risk debate)
-  overfitting gate (deflated Sharpe, PBO)     → instrument selection (equity/options)
-  strategy promotion                          → risk_gate.py (immutable) → Broker
-       │                                           │
-       └──────── Learning Loop ◄───────────────────┘
-                   ReflexionMemory (loss root-cause classification)
-                   CreditAssigner (attribute to signal/regime/sizing)
-                   TextGradOptimizer (critique → prompt updates)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                           start.sh (one entry point)                          │
+│  preflight → migrations → memory compaction → community intel seed (bg)       │
+│  → 5 tmux windows                                                             │
+└─────────────────────────────┬────────────────────────────────────────────────┘
+                              │
+     ┌──────────┬─────────────┼──────────────┬──────────────┐
+     ▼          ▼             ▼              ▼              ▼
+┌─────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌─────────────────┐
+│ trading │ │research│ │supervisor│ │ scheduler  │ │ community-intel │
+│ 5 min   │ │ 2 min  │ │          │ │            │ │ Sun 19:00 ET    │
+│         │ │        │ │heartbeat │ │ cron jobs  │ │                 │
+│ claude  │ │ claude │ │ watch    │ │ lifecycle  │ │ quant community │
+│ per iter│ │per iter│ │ recovery │ │ data refresh│ │ Reddit/GitHub/  │
+└────┬────┘ └───┬────┘ └──────────┘ └────────────┘ │ arXiv scanner  │
+     │          │                                   └─────────────────┘
+     └────┬─────┘
+          ▼
+ ┌─────────────────────┐
+ │     PostgreSQL       │
+ │  positions · fills   │
+ │  strategies · audit  │
+ │  loop_state · bugs   │
+ │  research_queue      │
+ └─────────────────────┘
 ```
 
-MCP tools provide data (signals, portfolio, options chains, news). Claude provides all reasoning: entry, exit, instrument selection, sizing, hold/trim decisions. The immutable risk gate is the last line of defense.
+**Trading loop** — position monitoring, entry scanning, multi-agent debate (trade-debater, risk, fund-manager), execution via Alpaca paper API.
 
-## Design
+**Research loop** — strategy discovery, backtesting, ML training, BLITZ mode (parallel domain agents). Every 10 iterations after-hours: spawns community-intel agent. Results flow into `strategies` and `research_queue`.
 
-Two-loop separation: Research runs Claude Opus sub-agents (quant-researcher, ml-scientist, strategy-rd, risk, execution-researcher). Trading runs a Claude-driven loop with position-monitor and trade-debater agents for multi-agent debate. They share state through DuckDB.
+**Supervisor** — watches loop heartbeats every 60s. Detects stale/dead loops, restarts via tmux. Runs the bug-fix watcher: dispatches AutoResearchClaw to patch failing tools automatically.
 
-15-collector SignalEngine: Trend, momentum, volatility, regime (ADX+ATR+HMM), volume/OFI, risk (VaR, drawdown), events, fundamentals, sentiment, flow, sector rotation, cross-asset, statarb, ML predictions, macro, quality, options flow. Runs concurrently, fault-tolerant per collector, wall-clock 2-6s.
+**Scheduler** — APScheduler cron jobs: credit regime revalidation, strategy lifecycle (promote/retire), memory compaction (Sunday 17:00), community intel scan (Sunday 19:00), AutoResearchClaw deep research (Sunday 20:00), AV quota reset (midnight).
 
-Immutable risk gate: Hard-coded in Python, not configurable by any agent or prompt. Position limits, daily loss halt (persists via sentinel file across restarts), liquidity floors, options premium caps. Kill switch halts everything in one op.
+**Community-intel window** — runs weekly on Sunday 19:00 ET. Scans Reddit r/algotrading, GitHub trending quant repos, arXiv q-fin preprints, X/Twitter quant accounts, and quant newsletters to discover new techniques. Discoveries flow into `research_queue` for AutoResearchClaw to investigate.
 
-Self-improving from losses: Every losing trade > 1% is classified by root cause, attributed to a pipeline step, and fed back into the research loop. HypothesisJudge gates new research against known failures and data snooping. Dormant modules (OPROLoop, TrajectoryEvolution) activate at 500+ trades.
+---
 
-Overfitting-aware backtesting: Walk-forward with purged embargo gaps, deflated Sharpe ratios, probability of backtest overfitting (PBO), IS/OOS ratio checks. Monte Carlo simulation for sparse-signal strategies.
+## Self-healing
+
+Tool failures are tracked in the `bugs` table. After 3 consecutive failures of the same tool, a `bug_fix` task is auto-queued. The supervisor dispatches AutoResearchClaw within 60 seconds: it locates the failing code, edits the source file directly, validates (syntax check, import check, tests), commits the fix, and restarts the affected loop. Protected files (`risk_gate.py`, `kill_switch.py`, `db.py`) are never auto-patched.
+
+---
+
+## Key design invariants
+
+| Invariant | Implementation |
+|-----------|---------------|
+| **Stateless loops** | No `claude --continue`. All state in `loop_iteration_context` (PostgreSQL). |
+| **Risk gate is law** | `risk_gate.py` is hard-coded Python. No prompt or agent can bypass or modify it. |
+| **Paper mode default** | `USE_REAL_TRADING=true` required for live execution. Default is Alpaca paper. |
+| **Audit trail mandatory** | Every trade decision logged to `audit_log` with full reasoning. |
+| **Protected files** | `risk_gate.py`, `kill_switch.py`, `db.py` excluded from auto-patch. |
+| **Kill switch halts everything** | One DB write stops both loops and the supervisor. |
+
+---
 
 ## Quick start
 
 ```bash
 git clone https://github.com/kbichave/QuantStack.git && cd QuantStack
-uv sync --all-extras
-cp .env.example .env   # set ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPHA_VANTAGE_API_KEY
 
-# Preflight
-source .env && python -m quantstack.coordination.preflight SPY
+# Install dependencies
+uv sync --all-extras            # or: pip install -e .
 
-# Start autonomous loops (use Ralph Wiggum skill in Claude Code)
-# Research: /ralph-loop prompts/research_loop.md
-# Trading: /ralph-loop prompts/trading_loop.md
-# Stop: /cancel-ralph
+# Configure credentials
+cp .env.example .env
+# Required: ALPACA_API_KEY, ALPACA_SECRET_KEY, ALPHA_VANTAGE_API_KEY, TRADER_PG_URL
+
+# Start
+./start.sh
 ```
 
-Supports Alpaca, IBKR, eTrade, and a zero-config PaperBroker. MCP tools expose the full stack to Claude Code (`quantstack-mcp`). REST API at `quantstack-api`.
+See [docs/guides/quickstart.md](docs/guides/quickstart.md) for the full walkthrough including verification steps.
+
+---
+
+## Repository structure
+
+```
+QuantStack/
+├── start.sh                      # Single entry point — start everything here
+├── stop.sh                       # Graceful shutdown (kill switch → wait → kill tmux)
+├── status.sh                     # Health dashboard (./status.sh --watch for live)
+├── report.sh                     # Monthly performance report
+├── prompts/
+│   ├── trading_loop.md           # Trading loop prompt (Claude reads this each iteration)
+│   └── research_loop.md          # Research loop prompt
+├── src/quantstack/
+│   ├── coordination/             # Supervisor, auto-promoter, preflight
+│   ├── data/                     # Fetcher (Alpha Vantage + Alpaca fallback), factory
+│   ├── execution/                # risk_gate.py (immutable), kill_switch, broker routers
+│   ├── mcp/tools/                # Python toolkit — all tools imported directly in prompts
+│   ├── signal_engine/            # 16 concurrent signal collectors, no LLM (incl. social sentiment)
+│   └── core/                     # Indicators, backtesting, ML, options pricing
+├── scripts/
+│   ├── scheduler.py              # APScheduler cron jobs
+│   └── autoresclaw_runner.py     # AutoResearchClaw dispatcher + auto-patch pipeline
+├── .claude/
+│   ├── agents/                   # Desk agent definitions (incl. community-intel, market-intel)
+│   └── memory/                   # Persistent memory (gitignored)
+└── docs/                         # Architecture, guides, API reference
+```
+
+---
+
+## Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TRADER_PG_URL` | Yes | PostgreSQL DSN (`postgresql://user:pass@host/db`) |
+| `ALPACA_API_KEY` | Yes | Alpaca data + execution |
+| `ALPACA_SECRET_KEY` | Yes | Alpaca secret |
+| `ALPACA_PAPER` | — | Default `true` — set `false` for live Alpaca |
+| `ALPHA_VANTAGE_API_KEY` | Yes | Market data (primary source) |
+| `USE_REAL_TRADING` | — | Default `false` — set `true` to enable live orders |
+| `AV_DAILY_CALL_LIMIT` | — | Default `25000` (AV premium $49.99: 75/min, no hard daily cap) |
+| `FORWARD_TESTING_SIZE_SCALAR` | — | Default `0.5` — position size for unproven strategies |
+| `GROQ_API_KEY` | — | Sentiment collector |
 
 ---
 

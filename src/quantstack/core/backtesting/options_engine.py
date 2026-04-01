@@ -180,6 +180,11 @@ class OptionsBacktester:
         Returns:
             Backtest results dictionary
         """
+        logger.warning(
+            "Options backtest using simplified Greek estimation — "
+            "results are approximate and not suitable for promotion."
+        )
+
         # Initialize state
         self.state = BacktestState(
             equity=self.config.initial_equity,
@@ -561,6 +566,33 @@ class OptionsBacktester:
         if len(equity_curve) < 2:
             return {"error": "Insufficient data"}
 
+        # Guard: strategy that never fires looks like a valid flat equity curve.
+        # Surface this explicitly so callers can distinguish "zero-signal strategy"
+        # from a real low-Sharpe result and avoid promoting it.
+        trades = self.state.trades
+        if not trades:
+            logger.warning(
+                "[OptionsEngine] Backtest produced 0 trades — "
+                "strategy may have a signal generation bug or no regime match"
+            )
+            return {
+                "error": "zero_trades",
+                "zero_signals": True,
+                "num_trades": 0,
+                "sharpe_ratio": 0.0,
+                "total_return": 0.0,
+                "max_drawdown": 0.0,
+                "win_rate": 0.0,
+                "final_equity": equity_curve[-1],
+                "equity_curve": equity_curve.tolist(),
+                "is_simulated": True,
+                "simulation_note": (
+                    "Greeks estimated (delta=50, price=5% underlying). "
+                    "Not suitable for strategy promotion. "
+                    "Use for directional research only."
+                ),
+            }
+
         # Calculate returns
         returns = np.diff(equity_curve) / equity_curve[:-1]
 
@@ -572,7 +604,6 @@ class OptionsBacktester:
         sharpe = annual_return / volatility if volatility > 0 else 0
 
         # Trade metrics
-        trades = self.state.trades
         winning_trades = [t for t in trades if t.pnl > 0]
         losing_trades = [t for t in trades if t.pnl <= 0]
 
@@ -600,6 +631,15 @@ class OptionsBacktester:
                 self._cumulative_theta / (equity_curve[-1] - equity_curve[0]) * 100
                 if (equity_curve[-1] - equity_curve[0]) != 0
                 else 0
+            ),
+            # Simulation quality flag: Greeks are estimated (delta=50, price=5% underlying).
+            # Callers must not use these results to promote a strategy to validated or
+            # forward_testing status — they are directional research signals only.
+            "is_simulated": True,
+            "simulation_note": (
+                "Greeks estimated (delta=50, price=5% underlying). "
+                "Not suitable for strategy promotion. "
+                "Use for directional research only."
             ),
         }
 

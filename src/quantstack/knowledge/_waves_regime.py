@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """Waves and regime mixin — Wave scenario and regime state CRUD for KnowledgeStore."""

@@ -47,12 +47,12 @@ remains deterministic and LLM-free.
 
 | Module | Location | Paper | Schedule | Status |
 |--------|----------|-------|----------|--------|
-| ReflexionMemory | `quantpod/optimization/reflexion_memory.py` | [Reflexion (NeurIPS 2023)](https://arxiv.org/abs/2303.11366) | Every trade close | **Active** |
-| CreditAssigner | `quantpod/optimization/credit_assignment.py` | [AgentPRM (2025)](https://arxiv.org/abs/2511.08325) | Every trade close | **Active** (heuristic only) |
-| TextGradOptimizer | `quantpod/optimization/textgrad_loop.py` | [TextGrad (Nature 2024)](https://arxiv.org/abs/2406.07496) | Nightly | **Active** (trade chain only) |
-| HypothesisJudge | `quantpod/autonomous/judge.py` | [QuantAgent (2024)](https://arxiv.org/abs/2402.03755) | Nightly (pre-backtest) | **Active** |
-| OPROLoop | `quantpod/optimization/opro_loop.py` | [OPRO (DeepMind 2023)](https://arxiv.org/abs/2309.03409) | — | Dormant (need 500+ trades) |
-| TrajectoryEvolution | `quantpod/optimization/trajectory_evolution.py` | [QuantaAlpha (2026)](https://arxiv.org/abs/2602.07085) | — | Dormant (need 1000+ trades) |
+| ReflexionMemory | `quantstack/optimization/reflexion_memory.py` | [Reflexion (NeurIPS 2023)](https://arxiv.org/abs/2303.11366) | Every trade close | **Active** |
+| CreditAssigner | `quantstack/optimization/credit_assignment.py` | [AgentPRM (2025)](https://arxiv.org/abs/2511.08325) | Every trade close | **Active** (heuristic only) |
+| TextGradOptimizer | `quantstack/optimization/textgrad_loop.py` | [TextGrad (Nature 2024)](https://arxiv.org/abs/2406.07496) | Nightly | **Active** (trade chain only) |
+| HypothesisJudge | `quantstack/autonomous/judge.py` | [QuantAgent (2024)](https://arxiv.org/abs/2402.03755) | Nightly (pre-backtest) | **Active** |
+| OPROLoop | `quantstack/optimization/opro_loop.py` | [OPRO (DeepMind 2023)](https://arxiv.org/abs/2309.03409) | — | Dormant (need 500+ trades) |
+| TrajectoryEvolution | `quantstack/optimization/trajectory_evolution.py` | [QuantaAlpha (2026)](https://arxiv.org/abs/2602.07085) | — | Dormant (need 1000+ trades) |
 
 ## Database Schema
 

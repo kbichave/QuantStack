@@ -1,4 +1,4 @@
-"""Phase 4 — Decoder tools for the QuantPod MCP server.
+"""Phase 4 — Decoder tools for the QuantStack MCP server.
 
 Reverse-engineer trading strategies from historical trade signals or the
 system's own trade history.
@@ -76,7 +76,7 @@ async def decode_strategy(
 
         return result
     except Exception as e:
-        logger.error(f"[quantpod_mcp] decode_strategy failed: {e}")
+        logger.error(f"[quantstack_mcp] decode_strategy failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -166,7 +166,7 @@ async def decode_from_trades(
             source_name=source_name,
         )
     except Exception as e:
-        logger.error(f"[quantpod_mcp] decode_from_trades failed: {e}")
+        logger.error(f"[quantstack_mcp] decode_from_trades failed: {e}")
         return {"success": False, "error": str(e)}
 
 

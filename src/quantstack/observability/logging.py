@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Structured JSON logging for QuantPod.
+Structured JSON logging for QuantStack.
 
 Adds a JSON sink to loguru alongside the default human-readable stderr output.
 Every JSON record includes:
@@ -21,7 +21,7 @@ Usage:
     from quantstack.observability import configure_logging
 
     # At process startup (once):
-    configure_logging(json_path="~/.quant_pod/logs/quantpod.jsonl")
+    configure_logging(json_path="~/.quantstack/logs/quantstack.jsonl")
 
     # Then use loguru normally:
     from loguru import logger
@@ -57,7 +57,7 @@ def configure_logging(
 
     Args:
         json_path: Path to the JSONL log file. Defaults to
-                   ~/.quant_pod/logs/quantpod.jsonl. Set to None to
+                   ~/.quantstack/logs/quantstack.jsonl. Set to None to
                    disable file logging (stderr only).
         json_level: Minimum level for JSON file output.
         stderr_level: Minimum level for stderr (human-readable) output.

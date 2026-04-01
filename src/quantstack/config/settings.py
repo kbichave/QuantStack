@@ -151,7 +151,7 @@ class Settings(BaseSettings):
         description="Alpha Vantage API base URL",
     )
     alpha_vantage_rate_limit: int = Field(
-        default=5, description="API calls per minute (free tier = 5)"
+        default=75, description="API calls per minute (premium = 75, free = 5)"
     )
 
     # Database

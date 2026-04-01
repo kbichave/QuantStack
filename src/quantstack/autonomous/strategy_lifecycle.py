@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -33,6 +33,7 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.coordination.auto_promoter import AutoPromoter
 from quantstack.core.backtesting.walkforward_service import run_walkforward
 from quantstack.universe import STRATEGY_BACKTEST_DEFAULT
 from quantstack.db import PgConnection
@@ -175,8 +176,11 @@ class StrategyLifecycle:
                     report.errors.append(f"{template['name_prefix']}: {exc}")
                     logger.warning(f"[Lifecycle] Candidate evaluation failed: {exc}")
 
-        # 3. Check forward_testing strategies for promotion to live
-        promotions = self._check_forward_testing_promotions()
+        # 3. Check forward_testing strategies for promotion to live via AutoPromoter.
+        # AutoPromoter evaluates Sharpe, win-rate, drawdown, and degradation vs backtest
+        # — a much stricter gate than the legacy win-rate-only check.
+        decisions = AutoPromoter(self._conn).evaluate_all()
+        promotions = [d.strategy_id for d in decisions if d.decision == "promote"]
         report.promotions = promotions
 
         logger.info(
@@ -244,33 +248,28 @@ class StrategyLifecycle:
         """
         strategy_name = f"{template['name_prefix']}_{target_regime}_{date.today().strftime('%Y%m%d')}"
 
-        # Register as draft
-        try:
-            self._conn.execute(
-                """
-                INSERT INTO strategies (
-                    strategy_id, name, description, parameters,
-                    entry_rules, exit_rules, risk_params,
-                    regime_affinity, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                """,
-                [
-                    strategy_name,
-                    strategy_name,
-                    template["description"],
-                    json.dumps(template["parameters"]),
-                    json.dumps(template["entry_rules"]),
-                    json.dumps(template["exit_rules"]),
-                    json.dumps(template["risk_params"]),
-                    json.dumps([target_regime]),
-                ],
-            )
-        except Exception as exc:
-            # Strategy may already exist from previous run
-            logger.debug(
-                f"[Lifecycle] Strategy {strategy_name} may already exist: {exc}"
-            )
-            return False
+        # Register as draft; idempotent — weekly reruns won't blow up on name collision.
+        self._conn.execute(
+            """
+            INSERT INTO strategies (
+                strategy_id, name, description, parameters,
+                entry_rules, exit_rules, risk_params,
+                regime_affinity, status, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'draft', NOW(), NOW())
+            ON CONFLICT (strategy_id) DO NOTHING
+            """,
+            [
+                strategy_name,
+                strategy_name,
+                template["description"],
+                json.dumps(template["parameters"]),
+                json.dumps(template["entry_rules"]),
+                json.dumps(template["exit_rules"]),
+                json.dumps(template["risk_params"]),
+                json.dumps([target_regime]),
+            ],
+        )
+        self._conn.commit()
 
         # Backtest on each test symbol
         best_oos_sharpe = -999.0
@@ -292,9 +291,10 @@ class StrategyLifecycle:
         if best_oos_sharpe >= _MIN_OOS_SHARPE and best_overfit <= _MAX_OVERFIT_RATIO:
             # Promote to forward_testing
             self._conn.execute(
-                "UPDATE strategies SET status = 'forward_testing', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                "UPDATE strategies SET status = 'forward_testing', updated_at = NOW() WHERE strategy_id = %s",
                 [strategy_name],
             )
+            self._conn.commit()
             logger.info(
                 f"[Lifecycle] PROMOTED {strategy_name} to forward_testing "
                 f"(OOS Sharpe={best_oos_sharpe:.2f}, overfit={best_overfit:.2f})"
@@ -303,9 +303,10 @@ class StrategyLifecycle:
 
         # Failed — mark as rejected
         self._conn.execute(
-            "UPDATE strategies SET status = 'retired', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+            "UPDATE strategies SET status = 'retired', updated_at = NOW() WHERE strategy_id = %s",
             [strategy_name],
         )
+        self._conn.commit()
         logger.debug(
             f"[Lifecycle] REJECTED {strategy_name} "
             f"(OOS Sharpe={best_oos_sharpe:.2f}, overfit={best_overfit:.2f})"
@@ -328,66 +329,6 @@ class StrategyLifecycle:
                 f"[Lifecycle] Walk-forward failed for {strategy_id}/{symbol}: {exc}"
             )
             return None
-
-    def _check_forward_testing_promotions(self) -> list[str]:
-        """Check if any forward_testing strategies are ready for live."""
-        promotions = []
-        try:
-            rows = self._conn.execute(
-                """
-                SELECT strategy_id, updated_at FROM strategies
-                WHERE status = 'forward_testing'
-                """
-            ).fetchall()
-
-            for row in rows:
-                strategy_id = row[0]
-                updated_at = row[1]
-
-                # Must be in forward_testing for at least FORWARD_TEST_DAYS
-                if isinstance(updated_at, datetime):
-                    days_testing = (datetime.now() - updated_at).days
-                else:
-                    days_testing = 0
-
-                if days_testing < _FORWARD_TEST_DAYS:
-                    continue
-
-                # Check live performance from strategy_daily_pnl
-                pnl_rows = self._conn.execute(
-                    """
-                    SELECT
-                        SUM(realized_pnl) as total_pnl,
-                        COUNT(*) as trading_days,
-                        SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins
-                    FROM strategy_daily_pnl
-                    WHERE strategy_id = ?
-                    """,
-                    [strategy_id],
-                ).fetchone()
-
-                if pnl_rows and pnl_rows[1] and pnl_rows[1] >= 10:
-                    # Rough live Sharpe approximation
-                    avg_daily = pnl_rows[0] / pnl_rows[1]
-                    # We'd need std for real Sharpe — use win rate as proxy
-                    win_rate = pnl_rows[2] / pnl_rows[1] if pnl_rows[1] > 0 else 0
-
-                    if win_rate > 0.5 and pnl_rows[0] > 0:
-                        self._conn.execute(
-                            "UPDATE strategies SET status = 'live', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
-                            [strategy_id],
-                        )
-                        promotions.append(strategy_id)
-                        logger.info(
-                            f"[Lifecycle] PROMOTED {strategy_id} to LIVE "
-                            f"(P&L=${pnl_rows[0]:.0f}, win_rate={win_rate:.0%}, "
-                            f"days={pnl_rows[1]})"
-                        )
-
-        except Exception as exc:
-            logger.warning(f"[Lifecycle] Promotion check failed: {exc}")
-
-        return promotions
 
     def _validate_and_retire(self) -> list[str]:
         """Validate all live strategies and retire degraded ones."""
@@ -421,7 +362,7 @@ class StrategyLifecycle:
                 pnl_rows = self._conn.execute(
                     """
                     SELECT SUM(realized_pnl), COUNT(*) FROM strategy_daily_pnl
-                    WHERE strategy_id = ? AND date >= ?
+                    WHERE strategy_id = %s AND date >= %s
                     """,
                     [strategy_id, date.today() - timedelta(days=30)],
                 ).fetchone()
@@ -432,9 +373,10 @@ class StrategyLifecycle:
                 # Simple degradation check: is recent P&L negative?
                 if pnl_rows[0] is not None and pnl_rows[0] < 0:
                     self._conn.execute(
-                        "UPDATE strategies SET status = 'retired', updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                        "UPDATE strategies SET status = 'retired', updated_at = NOW() WHERE strategy_id = %s",
                         [strategy_id],
                     )
+                    self._conn.commit()
                     retirements.append(strategy_id)
                     logger.warning(
                         f"[Lifecycle] RETIRED {strategy_id} — "

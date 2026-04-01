@@ -22,7 +22,7 @@ services:
       - "8420:8420"
     volumes:
       # Persist all DuckDB data files across restarts
-      - quantstack_data:/data/quant_pod
+      - quantstack_data:/data/quantstack
       # Mount source for hot-reload in development
       - ./packages:/app/packages
     env_file:
@@ -95,12 +95,12 @@ services:
       - RISK_RESTRICTED_SYMBOLS=${RISK_RESTRICTED_SYMBOLS:-}
 
       # ── Data paths (fixed inside container — backed by named volume) ──────
-      - PORTFOLIO_DB_PATH=/data/quant_pod/portfolio.duckdb
-      - PAPER_BROKER_DB_PATH=/data/quant_pod/paper_broker.duckdb
-      - AUDIT_LOG_DB_PATH=/data/quant_pod/audit_log.duckdb
-      - CALIBRATION_DB_PATH=/data/quant_pod/calibration.duckdb
-      - DUCKDB_PATH=/data/quant_pod/knowledge.duckdb
-      - KILL_SWITCH_SENTINEL=/data/quant_pod/KILL_SWITCH_ACTIVE
+      - PORTFOLIO_DB_PATH=/data/quantstack/portfolio.duckdb
+      - PAPER_BROKER_DB_PATH=/data/quantstack/paper_broker.duckdb
+      - AUDIT_LOG_DB_PATH=/data/quantstack/audit_log.duckdb
+      - CALIBRATION_DB_PATH=/data/quantstack/calibration.duckdb
+      - DUCKDB_PATH=/data/quantstack/knowledge.duckdb
+      - KILL_SWITCH_SENTINEL=/data/quantstack/KILL_SWITCH_ACTIVE
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8420/health"]

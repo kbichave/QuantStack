@@ -42,7 +42,7 @@ Python function call (faster, no serialization overhead, easier to test).
 ## Demote to Python-only (REMOVE from MCP registration)
 
 ### Backtesting extras
-- `run_backtest_mtf` → direct Python: `quant_pod.mcp.tools.backtesting.run_backtest_mtf`
+- `run_backtest_mtf` → direct Python: `quantstack.mcp.tools.backtesting.run_backtest_mtf`
 - `run_walkforward_mtf` → direct Python
 - `walk_forward_sparse_signal` → direct Python
 - `run_backtest_options` → direct Python

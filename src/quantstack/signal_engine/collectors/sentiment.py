@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -31,6 +31,8 @@ from quantstack.data.adapters.financial_datasets_client import (
 )
 
 import litellm
+
+from quantstack.llm_config import get_llm_for_role
 
 
 _SENTIMENT_TIMEOUT = 8.0  # seconds — lower than other collectors (network + LLM)
@@ -71,8 +73,9 @@ def _collect_sentiment_sync(symbol: str) -> dict[str, Any]:
     prompt = _build_prompt(symbol, truncated)
 
     try:
+        _model = get_llm_for_role("bulk")
         response = litellm.completion(
-            model="groq/llama-3.3-70b-versatile",
+            model=_model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=64,
             temperature=0,

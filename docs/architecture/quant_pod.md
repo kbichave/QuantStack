@@ -1,6 +1,6 @@
-# QuantPod Architecture
+# QuantStack Architecture
 
-QuantPod is a CrewAI-based multi-agent trading system. The crew produces a `DailyBrief`; Claude Code (acting as portfolio manager) receives it via MCP and makes the final trade decision.
+QuantStack is a CrewAI-based multi-agent trading system. The crew produces a `DailyBrief`; Claude Code (acting as portfolio manager) receives it via MCP and makes the final trade decision.
 
 ---
 
@@ -13,8 +13,8 @@ QuantPod is a CrewAI-based multi-agent trading system. The crew produces a `Dail
 └──────────────────────┬──────────────────────────────┘
                        │ MCP: run_analysis → DailyBrief
 ┌──────────────────────▼──────────────────────────────┐
-│            QuantPod MCP Server                       │
-│  packages/quant_pod/mcp/server.py                    │
+│            QuantStack MCP Server                       │
+│  packages/quantstack/mcp/server.py                    │
 └──────────────────────┬──────────────────────────────┘
                        │
             ┌──────────┴──────────┐
@@ -31,7 +31,7 @@ QuantPod is a CrewAI-based multi-agent trading system. The crew produces a `Dail
 │              Execution Layer               │
 │  RiskGate → SmartOrderRouter → Broker     │
 │  KillSwitch · SignalCache · TickExecutor  │
-│  packages/quant_pod/execution/            │
+│  packages/quantstack/execution/            │
 └───────────────────────────────────────────┘
 ```
 
@@ -61,7 +61,7 @@ The crew runs with `stop_at_assistant=True`. Layer 3 (Trading Assistant) is the 
 
 ### Layer 2 — Pod Managers (6 agents)
 
-`data_pod_manager`, `market_monitor_pod_manager`, `technicals_pod_manager`, `quant_pod_manager`, `risk_pod_manager`, `alpha_signals_pod_manager`
+`data_pod_manager`, `market_monitor_pod_manager`, `technicals_pod_manager`, `quantstack_manager`, `risk_pod_manager`, `alpha_signals_pod_manager`
 
 ### Layer 3 — Trading Assistant
 
@@ -84,7 +84,7 @@ Output: `{trend_regime, volatility_regime, adx, atr, atr_percentile, confidence}
 
 ### Regime-Adaptive Crew Config
 
-`packages/quant_pod/crews/regime_config.py` maps regimes to crew configuration:
+`packages/quantstack/crews/regime_config.py` maps regimes to crew configuration:
 
 | Regime | Active ICs | Behaviour |
 |--------|------------|-----------|
@@ -95,7 +95,7 @@ Output: `{trend_regime, volatility_regime, adx, atr, atr_percentile, confidence}
 
 ---
 
-## LLM Configuration (`packages/quant_pod/llm_config.py`)
+## LLM Configuration (`packages/quantstack/llm_config.py`)
 
 Agent model selection is handled by `llm_config.py`. CrewAI uses LiteLLM under the hood; model strings follow `provider/model_id` format.
 
@@ -128,7 +128,7 @@ LLM_MODEL_ASSISTANT=openai/gpt-4o   # mix providers freely
 
 ## Execution Layer
 
-`packages/quant_pod/execution/` — 12 modules, all receiving a single `PgConnection` via dependency injection.
+`packages/quantstack/execution/` — 12 modules, all receiving a single `PgConnection` via dependency injection.
 
 ### Execution Path
 
@@ -136,7 +136,7 @@ LLM_MODEL_ASSISTANT=openai/gpt-4o   # mix providers freely
 TradingDayFlow.run()
     │
     ├─ 1. KillSwitch.check()
-    │      sentinel file at ~/.quant_pod/KILL_SWITCH_ACTIVE
+    │      sentinel file at ~/.quantstack/KILL_SWITCH_ACTIVE
     │
     ├─ 2. TradingCrew.kickoff() → DailyBrief
     │
@@ -172,10 +172,10 @@ TradingDayFlow.run()
 
 ## Dependency Injection (TradingContext)
 
-`packages/quant_pod/context.py` is the single wiring point. All services share one `PgConnection` instance.
+`packages/quantstack/context.py` is the single wiring point. All services share one `PgConnection` instance.
 
 ```python
-from quant_pod.context import create_trading_context
+from quantstack.context import create_trading_context
 
 # Production — PostgreSQL (TRADER_PG_URL env var)
 ctx = create_trading_context()
@@ -200,7 +200,7 @@ ctx = create_trading_context()
 
 ## State Management (PostgreSQL)
 
-**All state** lives in PostgreSQL (`TRADER_PG_URL`, default `postgresql://localhost/quantpod`). All four MCP server instances share the same pool — true MVCC, no file-lock contention. All services share one `PgConnection` for ACID cross-service transactions. This includes both operational state (positions, fills, signals) and analytics state (ML experiments, backtests, research programs, reflexion, prompt optimization).
+**All state** lives in PostgreSQL (`TRADER_PG_URL`, default `postgresql://localhost/quantstack`). All four MCP server instances share the same pool — true MVCC, no file-lock contention. All services share one `PgConnection` for ACID cross-service transactions. This includes both operational state (positions, fills, signals) and analytics state (ML experiments, backtests, research programs, reflexion, prompt optimization).
 
 | Table | Owner | Description |
 |-------|-------|-------------|
@@ -223,10 +223,10 @@ ctx = create_trading_context()
 
 ## Blackboard (Agent Memory)
 
-The `Blackboard` class (`packages/quant_pod/memory/blackboard.py`) is a drop-in replacement for the old markdown file. The public API is unchanged; the backing store is `agent_memory` in PostgreSQL.
+The `Blackboard` class (`packages/quantstack/memory/blackboard.py`) is a drop-in replacement for the old markdown file. The public API is unchanged; the backing store is `agent_memory` in PostgreSQL.
 
 ```python
-from quant_pod.memory.blackboard import Blackboard
+from quantstack.memory.blackboard import Blackboard
 
 board = Blackboard(conn=conn, session_id=session_id)
 
@@ -249,7 +249,7 @@ entries = board.read(agent="regime_detector_ic")
 
 ## Audit Trail
 
-`packages/quant_pod/audit/decision_log.py` logs every agent decision and execution event:
+`packages/quantstack/audit/decision_log.py` logs every agent decision and execution event:
 
 ```python
 audit.log(
@@ -300,7 +300,7 @@ New behaviour per run:
 
 ### `IntraDayMonitorFlow` (new)
 
-Intraday monitoring loop. Start with: `quantpod-monitor`
+Intraday monitoring loop. Start with: `quantstack-monitor`
 
 Watches open positions every N minutes, checks risk limits, triggers stop-loss exits or partial reductions when thresholds are breached.
 
@@ -313,12 +313,12 @@ Validates a registered strategy against out-of-sample data before promotion from
 ## Directory Structure
 
 ```
-packages/quant_pod/
+packages/quantstack/
 ├── agents/
 │   ├── regime_detector.py          ADX/ATR regime (real indicators)
 │   ├── portfolio_optimizer_agent.py  MV-optimal weights
 │   └── microstructure_signal_agent.py  Bid-ask, depth features
-├── api/                            FastAPI REST server (quantpod-api)
+├── api/                            FastAPI REST server (quantstack-api)
 ├── audit/
 │   ├── decision_log.py             Structured event logging
 │   └── models.py                   Pydantic event schemas

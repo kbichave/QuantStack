@@ -415,7 +415,7 @@ async def execute_trade(
         # Kill switch or other runtime guard
         return {"success": False, "error": str(e), "broker_mode": get_broker_mode()}
     except Exception as e:
-        logger.error(f"[quantpod_mcp] execute_trade failed: {e}")
+        logger.error(f"[quantstack_mcp] execute_trade failed: {e}")
         return {"success": False, "error": str(e), "broker_mode": get_broker_mode()}
 
 
@@ -473,7 +473,7 @@ async def close_position(
             exit_reason=exit_reason,
         )
     except Exception as e:
-        logger.error(f"[quantpod_mcp] close_position failed: {e}")
+        logger.error(f"[quantstack_mcp] close_position failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -529,7 +529,7 @@ async def get_fills(
             "total": len(fills),
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_fills failed: {e}")
+        logger.error(f"[quantstack_mcp] get_fills failed: {e}")
         return {"success": False, "error": str(e), "fills": [], "total": 0}
 
 
@@ -576,7 +576,7 @@ async def get_risk_metrics() -> dict[str, Any]:
             "risk_halted": ctx.risk_gate.is_halted(),
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_risk_metrics failed: {e}")
+        logger.error(f"[quantstack_mcp] get_risk_metrics failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -629,8 +629,99 @@ async def get_audit_trail(
             "total": len(events),
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_audit_trail failed: {e}")
+        logger.error(f"[quantstack_mcp] get_audit_trail failed: {e}")
         return {"success": False, "error": str(e), "events": [], "total": 0}
+
+
+@domain(Domain.EXECUTION)
+@tool_def()
+async def update_position_stops(
+    symbol: str,
+    stop_price: float | None = None,
+    target_price: float | None = None,
+    trailing_stop: float | None = None,
+    reasoning: str = "",
+) -> dict[str, Any]:
+    """
+    Update stop-loss, target, or trailing stop for an open position.
+
+    Records the change in the decision audit trail. At least one of
+    stop_price, target_price, or trailing_stop must be provided.
+
+    Args:
+        symbol: Ticker symbol of the open position.
+        stop_price: New hard stop-loss price. None = no change.
+        target_price: New take-profit target price. None = no change.
+        trailing_stop: New trailing stop distance as a fraction of price
+                       (e.g., 0.05 = 5% trailing stop). None = no change.
+        reasoning: Why stops are being updated (audit trail).
+
+    Returns:
+        Dict with success status and updated stop values.
+    """
+    if stop_price is None and target_price is None and trailing_stop is None:
+        return {"success": False, "error": "At least one of stop_price, target_price, or trailing_stop must be provided."}
+
+    try:
+        with db_conn() as conn:
+            updates: list[str] = []
+            params: list[Any] = []
+            if stop_price is not None:
+                updates.append("stop_price = ?")
+                params.append(stop_price)
+            if target_price is not None:
+                updates.append("target_price = ?")
+                params.append(target_price)
+            if trailing_stop is not None:
+                updates.append("trailing_stop_pct = ?")
+                params.append(trailing_stop)
+            params.extend([datetime.now(timezone.utc), symbol])
+
+            conn.execute(
+                f"UPDATE positions SET {', '.join(updates)}, updated_at = ? WHERE symbol = ?",
+                params,
+            )
+
+        # Audit trail — best-effort
+        try:
+            ctx, err = live_db_or_error()
+            if not err:
+                ctx.audit.record(
+                    DecisionEvent(
+                        event_id=str(_uuid.uuid4()),
+                        session_id=ctx.session_id,
+                        event_type="stop_update",
+                        agent_name="ClaudeCode",
+                        agent_role="strategic_brain",
+                        symbol=symbol,
+                        action="stop_update",
+                        confidence=1.0,
+                        output_summary=(
+                            f"Stops updated: stop={stop_price}, target={target_price}, "
+                            f"trailing={trailing_stop} | {reasoning[:200]}"
+                        ),
+                        output_structured={
+                            "stop_price": stop_price,
+                            "target_price": target_price,
+                            "trailing_stop": trailing_stop,
+                        },
+                        risk_approved=True,
+                        portfolio_snapshot={},
+                    )
+                )
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "symbol": symbol,
+            "stop_price": stop_price,
+            "target_price": target_price,
+            "trailing_stop": trailing_stop,
+        }
+    except Exception as e:
+        logger.error(f"[quantstack_mcp] update_position_stops failed: {e}")
+        return {"success": False, "error": str(e)}
 
 
 @domain(Domain.EXECUTION)

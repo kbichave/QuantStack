@@ -1,14 +1,14 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-QuantPod MCP Server — monolith entry point.
+QuantStack MCP Server — monolith entry point.
 
 Registers ALL tool modules on a single FastMCP server using explicit
 tool collection (no monkey-patching, no import-time side effects).
 
 Usage:
-    quantpod-mcp   (via pyproject.toml entry point)
+    quantstack-mcp   (via pyproject.toml entry point)
     python -m quantstack.mcp.server
 """
 
@@ -84,7 +84,7 @@ _register_all_tools()
 
 
 def main():
-    """Run the QuantPod MCP server."""
+    """Run the QuantStack MCP server."""
     logger.remove()
     logger.add(
         sys.stderr,

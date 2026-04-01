@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """

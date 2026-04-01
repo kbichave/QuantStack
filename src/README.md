@@ -7,7 +7,7 @@ This directory contains all Python packages that make up the QuantStack unified 
 | Package | Description | Status |
 |---------|-------------|--------|
 | [quantcore](./quantcore/) | Core quantitative trading library | Stable |
-| [quant_pod](./quant_pod/) | Multi-agent trading system (CrewAI) | Beta |
+| [quantstack](./quantstack/) | Multi-agent trading system (CrewAI) | Beta |
 | [etrade_mcp](./etrade_mcp/) | E-Trade MCP server integration | Beta |
 
 ## Architecture
@@ -18,7 +18,7 @@ This directory contains all Python packages that make up the QuantStack unified 
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-│  │  QuantPod    │  │ QuantArena   │  │ E-Trade MCP  │       │
+│  │  QuantStack    │  │ QuantArena   │  │ E-Trade MCP  │       │
 │  │  (Agents)    │  │ (Simulation) │  │ (Execution)  │       │
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       │
 │         │                 │                  │               │
@@ -50,7 +50,7 @@ Historical simulation engine for backtesting:
 - **Data Loading**: DuckDB-backed historical data
 - **Multi-Strategy Support**: Test multiple strategies simultaneously
 
-### QuantPod
+### QuantStack
 CrewAI-based multi-agent trading system:
 - **Hierarchical Agents**: ICs → Pod Managers → Assistant → SuperTrader
 - **Knowledge Store**: Persistent policy and learning storage
@@ -88,19 +88,19 @@ Each package can be developed independently, but they share:
 uv run pytest tests/unit/test_technical_indicators.py
 
 # Run package-specific tests
-uv run pytest tests/quant_pod/
+uv run pytest tests/quantstack/
 ```
 
 ## Dependencies
 
 ```
 quantcore ← (no internal deps)
-quant_pod ← quantcore
+quantstack ← quantcore
 etrade_mcp ← (no internal deps)
 ```
 
 ## Documentation
 
 - [QuantCore Architecture](../docs/architecture/quantcore.md)
-- [QuantPod Architecture](../docs/architecture/quant_pod.md)
+- [QuantStack Architecture](../docs/architecture/quantstack.md)
 - [MCP Servers](../docs/architecture/mcp_servers.md)

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -86,7 +86,7 @@ class Mem0Client:
 
     def __init__(
         self,
-        user_id: str = "quant_pod",
+        user_id: str = "quantstack",
     ):
         """
         Initialize Mem0 client with local Qdrant storage.
@@ -129,8 +129,8 @@ class Mem0Client:
                 "vector_store": {
                     "provider": "qdrant",
                     "config": {
-                        "collection_name": "quant_pod_memory",
-                        "path": os.path.expanduser("~/.quant_pod/qdrant"),
+                        "collection_name": "quantstack_memory",
+                        "path": os.path.expanduser("~/.quantstack/qdrant"),
                     },
                 },
                 # Disable graph store to avoid SQLite threading issues

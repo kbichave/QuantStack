@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -29,7 +29,7 @@ from quantstack.mcp.tools.portfolio import (
     compute_hrp_weights,
     optimize_portfolio,
 )
-from tests.quant_pod.mcp.conftest import _fn, synthetic_ohlcv
+from tests.quantstack.mcp.conftest import _fn, synthetic_ohlcv
 
 
 # ---------------------------------------------------------------------------

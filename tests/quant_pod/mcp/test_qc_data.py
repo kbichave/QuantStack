@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -22,7 +22,7 @@ from quantstack.mcp.tools.qc_data import (
     list_stored_symbols,
     load_market_data,
 )
-from tests.quant_pod.mcp.conftest import _fn, synthetic_ohlcv
+from tests.quantstack.mcp.conftest import _fn, synthetic_ohlcv
 
 
 def _mock_store(df):

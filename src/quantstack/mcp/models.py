@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Pydantic I/O models for QuantPod MCP server tools.
+Pydantic I/O models for QuantStack MCP server tools.
 
 Each MCP tool has typed inputs and outputs defined here.
 """

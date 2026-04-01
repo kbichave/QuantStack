@@ -31,7 +31,8 @@ from quantstack.data.adapters.alpaca import AlpacaAdapter
 from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
 from quantstack.data.adapters.financial_datasets import FinancialDatasetsAdapter
 from quantstack.data.adapters.polygon_adapter import PolygonAdapter
-from quantstack.data.adapters.ibkr import IBKRDataAdapter
+# IBKR import deferred to avoid blocking on missing ibkr_mcp dependency
+# (imported on-demand in from_settings() if env var present)
 
 
 class DataProviderRegistry:
@@ -271,7 +272,11 @@ def _register_provider(
         )
 
     elif provider_name == "ibkr":
-        registry.register(IBKRDataAdapter(settings=settings.ibkr), priority=0)
+        try:
+            from quantstack.data.adapters.ibkr import IBKRDataAdapter
+            registry.register(IBKRDataAdapter(settings=settings.ibkr), priority=0)
+        except ImportError as e:
+            raise ValueError(f"IBKR provider requires ibkr_mcp dependency: {e}")
 
     elif provider_name == "financial_datasets":
         if not settings.financial_datasets.api_key:

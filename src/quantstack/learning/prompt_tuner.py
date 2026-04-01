@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -49,7 +49,7 @@ from loguru import logger
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_STATE_PATH = Path.home() / ".quant_pod" / "prompt_tuner.json"
+_DEFAULT_STATE_PATH = Path.home() / ".quantstack" / "prompt_tuner.json"
 
 _VALID_DESKS = frozenset({"market-intel", "alpha-research", "risk", "execution"})
 

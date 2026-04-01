@@ -1,4 +1,4 @@
-"""Phase 5 — Meta Orchestration tools for the QuantPod MCP server.
+"""Phase 5 — Meta Orchestration tools for the QuantStack MCP server.
 
 Portfolio-level tools for regime-strategy allocation, signal conflict
 resolution, strategy gap analysis, and automated promotion.
@@ -77,7 +77,7 @@ async def get_regime_strategies(regime: str) -> dict[str, Any]:
             "total": len(allocations),
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_regime_strategies failed: {e}")
+        logger.error(f"[quantstack_mcp] get_regime_strategies failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -143,12 +143,12 @@ async def set_regime_allocation(
                     )
 
         logger.info(
-            f"[quantpod_mcp] Updated regime matrix for '{regime}': {len(allocations)} strategies"
+            f"[quantstack_mcp] Updated regime matrix for '{regime}': {len(allocations)} strategies"
         )
         _fn = get_regime_strategies.fn if hasattr(get_regime_strategies, "fn") else get_regime_strategies
         return await _fn(regime)
     except Exception as e:
-        logger.error(f"[quantpod_mcp] set_regime_allocation failed: {e}")
+        logger.error(f"[quantstack_mcp] set_regime_allocation failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -175,7 +175,7 @@ async def resolve_portfolio_conflicts(
         result = resolve_conflicts(proposed_trades)
         return {"success": True, **result}
     except Exception as e:
-        logger.error(f"[quantpod_mcp] resolve_portfolio_conflicts failed: {e}")
+        logger.error(f"[quantstack_mcp] resolve_portfolio_conflicts failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -335,7 +335,7 @@ async def get_strategy_gaps() -> dict[str, Any]:
             },
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_strategy_gaps failed: {e}")
+        logger.error(f"[quantstack_mcp] get_strategy_gaps failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -550,7 +550,7 @@ async def promote_draft_strategies(
                 }
             )
             logger.info(
-                f"[quantpod_mcp] Auto-promoted '{name}' ({strategy_id}) "
+                f"[quantstack_mcp] Auto-promoted '{name}' ({strategy_id}) "
                 f"to forward_testing (OOS Sharpe={oos_sharpe:.2f})"
             )
 
@@ -567,7 +567,7 @@ async def promote_draft_strategies(
             "retired": retired,
         }
     except Exception as e:
-        logger.error(f"[quantpod_mcp] promote_draft_strategies failed: {e}")
+        logger.error(f"[quantstack_mcp] promote_draft_strategies failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -716,7 +716,7 @@ async def check_strategy_rules(
         }
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] check_strategy_rules failed: {e}")
+        logger.error(f"[quantstack_mcp] check_strategy_rules failed: {e}")
         return {"success": False, "error": str(e)}
 
 

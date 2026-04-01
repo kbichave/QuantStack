@@ -1,0 +1,35 @@
+# LiteLLM Router Configuration for QuantStack
+# Routes by task cost/quality: Claude for reasoning, Groq for bulk/cheap, Ollama for offline.
+#
+# Loaded by: src/quantstack/llm_router.py via LITELLM_ROUTER_CONFIG env var.
+# Usage:
+#   from quantstack.llm_router import router_completion
+#   response = router_completion(model="reasoning", messages=[...])
+
+model_list:
+  - model_name: "reasoning"        # complex decisions: trade debate, fund-manager, hypothesis gen
+    litellm_params:
+      model: claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: "fast"             # bulk/cheap tasks: market-intel, screener, data validation
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: "bulk"             # alias for fast — high-volume deterministic tasks
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: "local"            # offline fallback — requires Ollama running locally
+    litellm_params:
+      model: ollama/llama3.2
+      api_base: http://localhost:11434
+
+router_settings:
+  routing_strategy: "usage-based-routing"
+  fallbacks:
+    - {"reasoning": ["fast"]}
+    - {"fast": ["local"]}
+    - {"bulk": ["local"]}

@@ -130,10 +130,7 @@ quantstack-finrl     = "quantstack.mcp.servers.finrl:main"
 quantstack-intel     = "quantstack.mcp.servers.intel:main"
 quantstack-risk      = "quantstack.mcp.servers.risk:main"
 quantstack-coord     = "quantstack.mcp.servers.coordination:main"
-# Broker adapters
-alpaca-mcp       = "alpaca_mcp.server:main"
-ibkr-mcp         = "ibkr_mcp.server:main"
-etrade-mcp       = "etrade_mcp.server:main"
+quantstack-supervisor = "quantstack.coordination.supervisor_main:main"
 quantstack-api     = "quantstack.api.server:app"
 quantstack-monitor = "quantstack.flows.intraday_monitor_flow:main"
 quantstack-bootstrap = "quantstack.flows.bootstrap:main"
@@ -147,7 +144,7 @@ Repository = "https://github.com/kbichave/QuantStack.git"
 Issues = "https://github.com/kbichave/QuantStack/issues"
 
 [tool.setuptools.packages.find]
-where = ["src", "adapters"]
+where = ["src"]
 
 [tool.setuptools.package-data]
 quantstack = ["config/*.yaml"]
@@ -188,8 +185,6 @@ ignore_missing_imports = true
 module = [
     "quantstack.execution.etrade_broker",
     "quantstack.tools.etrade.*",
-    "ibkr_mcp.*",
-    "alpaca_mcp.*",
 ]
 ignore_errors = true
 

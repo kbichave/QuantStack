@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+
+import pandas as pd
 
 from loguru import logger
 
@@ -75,6 +77,11 @@ async def run_walkforward(
 
         store = DataStore(read_only=True)
         df = await asyncio.to_thread(store.load_ohlcv, symbol, "1D")
+        if df is not None and not df.empty:
+            df = df[df.index >= pd.Timestamp("2010-01-01")]
+            logger.info(
+                f"Walk-forward: floored data at 2010-01-01, {len(df)} bars remaining"
+            )
         if df is None or len(df) < min_train_size + test_size:
             return {
                 "success": False,

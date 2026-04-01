@@ -40,7 +40,7 @@ for label, q in [
 # --- State file (per-mode + per-symbol to allow parallel runs) ---
 _mode_suffix = os.environ.get("RESEARCH_MODE", "all").lower()
 _sym_suffix = f"_{os.environ.get('TARGET_SYMBOL', '').upper()}" if os.environ.get("TARGET_SYMBOL") else ""
-STATE_FILE = os.path.expanduser(f"~/.quant_pod/ralph_state_{_mode_suffix}{_sym_suffix}.json")
+STATE_FILE = os.path.expanduser(f"~/.quantstack/ralph_state_{_mode_suffix}{_sym_suffix}.json")
 os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
 state = json.loads(open(STATE_FILE).read()) if os.path.exists(STATE_FILE) else {
     "iteration": 0, "research_programs": [], "errors": [], "cross_pollination": {}
@@ -134,11 +134,11 @@ print(f"Active alerts: {len(active_alerts)} (avoid creating duplicates for these
 
 ### 1. Prompt Parameters
 
-Load `~/.quant_pod/prompt_params.json`. All downstream thresholds, tier assignments, and conviction caps use these values.
+Load `~/.quantstack/prompt_params.json`. All downstream thresholds, tier assignments, and conviction caps use these values.
 
 ```python
 import json, os
-PARAMS_FILE = os.path.expanduser("~/.quant_pod/prompt_params.json")
+PARAMS_FILE = os.path.expanduser("~/.quantstack/prompt_params.json")
 params = json.loads(open(PARAMS_FILE).read()) if os.path.exists(PARAMS_FILE) else {}
 if not params:
     print("WARNING: prompt_params.json missing — using hardcoded defaults from research_shared.md")

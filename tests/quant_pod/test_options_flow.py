@@ -1,7 +1,7 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Unit tests for quant_pod.tools.options_flow_tools — Sprint 4.
+Unit tests for quantstack.tools.options_flow_tools — Sprint 4.
 
 Tests UOA signal computation from a canned options chain (no network calls).
 All tests call _compute_signal() directly to avoid Alpha Vantage API dependency.

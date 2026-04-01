@@ -40,7 +40,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
+
+# Ensure pool is large enough for concurrent fetch+save before any quantstack import
+os.environ.setdefault("PG_POOL_MAX", "20")
 
 from loguru import logger
 

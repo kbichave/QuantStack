@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -123,7 +123,7 @@ async def get_fill_quality(order_id: str) -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_fill_quality({order_id}) failed: {e}")
+        logger.error(f"[quantstack_mcp] get_fill_quality({order_id}) failed: {e}")
         return {"success": False, "error": str(e), "order_id": order_id}
 
 
@@ -248,7 +248,7 @@ async def get_position_monitor(symbol: str) -> dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_position_monitor({symbol}) failed: {e}")
+        logger.error(f"[quantstack_mcp] get_position_monitor({symbol}) failed: {e}")
         return {"success": False, "symbol": symbol, "error": str(e)}
 
 

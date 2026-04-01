@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -26,6 +26,7 @@ from typing import Any
 from loguru import logger
 
 from quantstack.data.storage import DataStore
+from quantstack.learning.drift_detector import DriftDetector
 from quantstack.shared.files import read_memory_file
 from quantstack.shared.schemas import SymbolBrief as SB
 from quantstack.signal_engine.brief import SignalBrief
@@ -46,6 +47,7 @@ from quantstack.signal_engine.collectors.sentiment import collect_sentiment
 from quantstack.signal_engine.collectors.sentiment_alphavantage import (
     collect_sentiment_alphavantage,
 )
+from quantstack.signal_engine.collectors.social_sentiment import collect_social_sentiment
 from quantstack.signal_engine.collectors.statarb import collect_statarb
 from quantstack.signal_engine.collectors.technical import collect_technical
 from quantstack.signal_engine.collectors.volume import collect_volume
@@ -102,6 +104,50 @@ class SignalEngine:
         brief = self._build_brief(symbol, outputs, failures)
         duration_ms = (time.monotonic() - t0) * 1000
         brief.collection_duration_ms = round(duration_ms, 1)
+
+        # Drift detection — best-effort, never blocks brief delivery.
+        # Uses symbol as strategy_id proxy for feature distribution tracking.
+        try:
+            drift_report = DriftDetector().check_drift_from_brief(
+                strategy_id=symbol,
+                brief=brief.model_dump(),
+            )
+            if drift_report.severity == "CRITICAL":
+                brief.drift_warning = True
+                logger.warning(
+                    f"[SignalEngine] {symbol} CRITICAL drift: "
+                    f"PSI={drift_report.overall_psi:.3f} "
+                    f"features={drift_report.drifted_features}"
+                )
+                # Queue an ML architecture search — AutoResearchClaw will investigate
+                # whether the current model needs retraining or feature engineering.
+                try:
+                    import json as _json
+                    from quantstack.db import db_conn
+                    with db_conn() as _conn:
+                        _conn.execute(
+                            """
+                            INSERT INTO research_queue
+                                (task_type, priority, context_json, source)
+                            VALUES ('ml_arch_search', %s, %s, 'drift_detector')
+                            ON CONFLICT DO NOTHING
+                            """,
+                            [
+                                8,
+                                _json.dumps({
+                                    "symbol": symbol,
+                                    "psi": drift_report.overall_psi,
+                                    "drifted_features": drift_report.drifted_features,
+                                    "severity": drift_report.severity,
+                                }),
+                            ],
+                        )
+                except Exception as _rq_exc:
+                    logger.debug(
+                        f"[SignalEngine] research_queue insert failed (non-critical): {_rq_exc}"
+                    )
+        except Exception as _drift_exc:
+            logger.debug(f"[SignalEngine] drift check failed (non-critical): {_drift_exc}")
 
         logger.info(
             f"[SignalEngine] {symbol} done in {duration_ms:.0f}ms "
@@ -163,6 +209,8 @@ class SignalEngine:
             "statarb": collect_statarb(symbol, self._store),
             # Phase 4 collectors (v1.1) — options flow (GEX, gamma flip, DEX, etc.)
             "options_flow": collect_options_flow_async(symbol, self._store),
+            # Phase 5 collectors (v1.2) — community social sentiment (Reddit + Stocktwits)
+            "social": collect_social_sentiment(symbol, self._store),
         }
 
         names = list(collector_map.keys())
@@ -208,6 +256,7 @@ class SignalEngine:
         ml_signal = outputs.get("ml_signal", {})
         statarb = outputs.get("statarb", {})
         options_flow = outputs.get("options_flow", {})
+        social = outputs.get("social", {})
 
         # Inject strategy context from memory (same as run_analysis).
         strategy_context = _read_strategy_context()
@@ -288,6 +337,8 @@ class SignalEngine:
             opt_charm=options_flow.get("opt_charm"),
             opt_vanna=options_flow.get("opt_vanna"),
             opt_ehd=options_flow.get("opt_ehd"),
+            # Community sentiment (16th collector)
+            social=social,
         )
 
 
@@ -320,6 +371,7 @@ _ALL_COLLECTORS = (
     "ml_signal",
     "statarb",
     "options_flow",
+    "social",
 )
 
 

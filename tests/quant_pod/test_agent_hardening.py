@@ -1,7 +1,7 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Unit tests for quant_pod.guardrails.agent_hardening — Sprint 1.
+Unit tests for quantstack.guardrails.agent_hardening — Sprint 1.
 
 Tests validate_agent_output() and reconcile_blackboard_with_portfolio().
 No external I/O — pure in-memory logic.

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -172,9 +172,8 @@ class MLScientist:
     async def _call_llm(self, prompt: str) -> str | None:
         """Call LLM for experiment plan generation."""
         try:
-            model = get_llm_for_role("research")
-            if not model:
-                model = "groq/llama-3.3-70b-versatile"
+            # Structured JSON generation — use "bulk" tier (Groq preferred for speed/cost).
+            model = get_llm_for_role("bulk")
 
             response = await asyncio.wait_for(
                 asyncio.to_thread(

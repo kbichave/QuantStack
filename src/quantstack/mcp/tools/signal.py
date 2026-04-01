@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -119,7 +119,7 @@ async def get_signal_brief(
 
     except Exception as exc:
         elapsed = round(time.monotonic() - start, 2)
-        logger.error(f"[quantpod_mcp] get_signal_brief({symbol}) failed: {exc}")
+        logger.error(f"[quantstack_mcp] get_signal_brief({symbol}) failed: {exc}")
         return {
             "success": False,
             "error": str(exc),
@@ -212,7 +212,7 @@ async def run_multi_signal_brief(
         }
 
     except Exception as exc:
-        logger.error(f"[quantpod_mcp] run_multi_signal_brief failed: {exc}")
+        logger.error(f"[quantstack_mcp] run_multi_signal_brief failed: {exc}")
         return {
             "success": False,
             "error": str(exc),
@@ -261,7 +261,7 @@ def _populate_signal_cache(symbol: str, brief: Any) -> None:
 
     except Exception as exc:
         logger.debug(
-            f"[quantpod_mcp] signal cache population failed (non-critical): {exc}"
+            f"[quantstack_mcp] signal cache population failed (non-critical): {exc}"
         )
 
 

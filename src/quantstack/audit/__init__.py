@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Compliance audit trail for QuantPod.
+Compliance audit trail for QuantStack.
 
 Records every agent decision append-only in PostgreSQL for regulatory review.
 """

@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-QuantPod MCP shared state — module-level variables and guard helpers.
+QuantStack MCP shared state — module-level variables and guard helpers.
 
 All tool modules import from here rather than maintaining their own state.
 The ``mcp`` singleton lives in ``server.py``; this module holds mutable
@@ -71,7 +71,7 @@ def ic_cache_get(symbol: str, ic_name: str) -> str | None:
 def require_ctx() -> TradingContext:
     """Get the trading context, raising if the server hasn't started."""
     if _ctx is None:
-        raise RuntimeError("QuantPod MCP server not initialized — call lifespan first")
+        raise RuntimeError("QuantStack MCP server not initialized — call lifespan first")
     return _ctx
 
 

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -26,6 +26,7 @@ from loguru import logger
 import litellm
 
 from quantstack.data.storage import DataStore
+from quantstack.llm_config import get_llm_for_role
 
 
 _SENTIMENT_TIMEOUT = 10.0  # Slightly longer for context gathering
@@ -81,10 +82,11 @@ def _collect_sentiment_alphavantage_sync(
     # Build rich reasoning prompt
     prompt = _build_reasoning_prompt(symbol, headlines, context, raw_scores)
 
-    # Send to Groq for reasoning
+    # Send to bulk-tier LLM for reasoning (Groq preferred; configurable via LLM_MODEL_BULK).
     try:
+        _model = get_llm_for_role("bulk")
         response = litellm.completion(
-            model="groq/llama-3.3-70b-versatile",
+            model=_model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=256,
             temperature=0.1,  # Low temp for consistency

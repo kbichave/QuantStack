@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -151,7 +151,7 @@ class AutoPromoter:
         Returns 1.0 if the strategy is not in ramp period or not found.
         """
         row = self._conn.execute(
-            "SELECT status, updated_at FROM strategies WHERE strategy_id = ?",
+            "SELECT status, updated_at FROM strategies WHERE strategy_id = %s",
             [strategy_id],
         ).fetchone()
 
@@ -325,7 +325,7 @@ class AutoPromoter:
         else:
             # Direct update (less safe but functional without lock)
             self._conn.execute(
-                "UPDATE strategies SET status = 'live', updated_at = ? WHERE strategy_id = ?",
+                "UPDATE strategies SET status = 'live', updated_at = %s WHERE strategy_id = %s",
                 [datetime.now(timezone.utc), decision.strategy_id],
             )
             logger.info(f"[AutoPromoter] Promoted {decision.name} to live (no lock)")
@@ -349,7 +349,7 @@ class AutoPromoter:
             """
             SELECT realized_pnl_pct, outcome, opened_at, closed_at
             FROM strategy_outcomes
-            WHERE strategy_id = ? AND closed_at IS NOT NULL AND opened_at >= ?
+            WHERE strategy_id = %s AND closed_at IS NOT NULL AND opened_at >= %s
             ORDER BY closed_at ASC
             """,
             [strategy_id, since],

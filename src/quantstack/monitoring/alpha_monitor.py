@@ -292,7 +292,7 @@ class AlphaMonitor:
         # Summary embed
         embeds.append(
             {
-                "title": f"QuantPod Alpha Monitor — {status.upper()}",
+                "title": f"QuantStack Alpha Monitor — {status.upper()}",
                 "color": color_map.get(status, 0x95A5A6),
                 "timestamp": report.checked_at.isoformat(),
                 "fields": [
@@ -331,7 +331,7 @@ class AlphaMonitor:
             )
 
         payload = {
-            "username": "QuantPod Monitor",
+            "username": "QuantStack Monitor",
             "embeds": embeds,
         }
 

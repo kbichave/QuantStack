@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -46,7 +46,7 @@ class KnowledgeStore(
     LearningMixin,
 ):
     """
-    PostgreSQL-backed storage for QuantPod knowledge.
+    PostgreSQL-backed storage for QuantStack knowledge.
 
     Provides CRUD operations for all knowledge types with
     automatic schema management and JSON serialization.

@@ -36,8 +36,8 @@ class FinRLConfig(BaseSettings):
     shadow_mode_enabled: bool = True
 
     # ── Model storage ──
-    checkpoint_base_path: str = "~/.quant_pod/finrl_models"
-    shadow_log_path: str = "~/.quant_pod/finrl_shadow"
+    checkpoint_base_path: str = "~/.quantstack/finrl_models"
+    shadow_log_path: str = "~/.quantstack/finrl_shadow"
 
     # ── Training defaults ──
     default_algorithm: str = "ppo"

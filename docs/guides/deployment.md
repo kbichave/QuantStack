@@ -1,184 +1,219 @@
 # Deployment Guide
 
-Covers Docker, CI/CD, data paths, and utility scripts.
+---
+
+## Starting and stopping
+
+The system has one entry point:
+
+```bash
+./start.sh           # start everything
+./report.sh          # performance summary (can run while system is live)
+tmux kill-session -t quantstack-loops   # stop everything
+```
+
+`start.sh` is idempotent — re-running it kills any existing session and starts fresh. State is preserved in PostgreSQL; re-starting the loops does not lose positions or fills.
 
 ---
 
-## Docker
+## tmux windows
 
-### Quick start
-
-```bash
-# Copy and configure environment
-cp .env.example .env
-# Edit .env — set at minimum OPENAI_API_KEY and one data provider key
-
-# Start all services
-docker compose up
-
-# Detached
-docker compose up -d
-
-# Stop
-docker compose down
-```
-
-### Services
-
-The `docker-compose.yml` defines:
-
-| Service | Description |
-|---------|-------------|
-| `quantpod` | Main QuantPod process (trading flow + MCP server) |
-| `quantcore-mcp` | QuantCore MCP server (indicators, backtesting) |
-| `quantpod-api` | FastAPI REST interface for trading operations (port 8420) |
-| `alpaca-mcp` | Alpaca broker MCP (optional — starts only if `ALPACA_API_KEY` is set) |
-| `ibkr-mcp` | Interactive Brokers MCP (optional — starts only if `IBKR_HOST` is set and IB Gateway is running) |
-
-Environment variables are injected from your `.env` file. No secrets are baked into the image.
-
-### Building the image manually
+| Window | Process | Restart interval |
+|--------|---------|-----------------|
+| `trading` | `prompts/trading_loop.md \| claude` | Every 5 min |
+| `research` | `prompts/research_loop.md \| claude` | Every 2 min |
+| `supervisor` | `quantstack.coordination.supervisor_main` | Continuous |
+| `scheduler` | `scripts/scheduler.py` | Continuous |
 
 ```bash
-docker build -t quantstack:latest .
+# Attach
+tmux attach -t quantstack-loops
+
+# Switch windows
+Ctrl-b 0   # trading
+Ctrl-b 1   # research
+Ctrl-b 2   # supervisor
+Ctrl-b 3   # scheduler
+
+# Detach without stopping
+Ctrl-b d
 ```
+
+Logs go to `data/logs/{window}.log` (appended, never truncated during a run).
 
 ---
 
-## CI/CD
+## Stateless loops
 
-GitHub Actions pipeline is defined in `.github/workflows/ci.yml`.
+Each `claude` invocation is a completely fresh session — no `--continue` flag. All inter-iteration state lives in PostgreSQL:
 
-### What it runs on every push / PR
+| Table | Purpose |
+|-------|---------|
+| `loop_iteration_context` | Key-value store per loop (replaces in-session `state[]` dict) |
+| `loop_heartbeats` | Iteration metadata; supervisor reads these to detect stalls |
+| `positions`, `fills` | Trade state |
+| `strategies` | Strategy registry |
+| `bugs` | Tool error tracking and auto-patch lifecycle |
+| `system_state` | Global key-value (credit regime, AV quota counter, kill switch) |
 
-1. **Lint** — `ruff check packages/`
-2. **Type check** — `mypy packages/` (non-blocking warnings only)
-3. **Unit tests** — `pytest tests/unit/ -v`
-4. **Integration tests** — `pytest tests/ -v --ignore=tests/unit` (skips live broker tests)
-
-### Running locally
-
-```bash
-# Full test suite
-uv run pytest tests/ -v
-
-# Unit tests only (fast, no network)
-uv run pytest tests/unit/ -v
-
-# Specific module
-uv run pytest tests/quant_pod/ -v -k "test_blackboard"
-
-# With coverage
-uv run coverage run -m pytest tests/ && uv run coverage report
-```
+If a loop crashes mid-iteration, the next invocation picks up from DB — no lost state.
 
 ---
 
-## Data Paths
+## Scheduled jobs
 
-All runtime data lives under `~/.quant_pod/` by default. Every path is configurable via environment variables.
+The scheduler (`scripts/scheduler.py`) runs these cron jobs:
+
+| Job | Schedule (ET) | Description |
+|-----|--------------|-------------|
+| Strategy lifecycle | Sunday 18:00 | Promote/retire strategies by performance |
+| Memory compaction | Sunday 17:00 | Trim oversized `.claude/memory/` files |
+| Credit regime check | Daily 16:05 | Revalidate HYG/LQD regime from EOD data |
+| AV quota reset | Daily 00:01 | Reset Alpha Vantage daily call counter |
+
+Memory compaction also runs at `start.sh` launch time, so files are trimmed before the first iteration.
+
+---
+
+## Data paths
+
+All runtime data lives in PostgreSQL (`TRADER_PG_URL`). File-system paths:
 
 ```
-~/.quant_pod/
-├── KILL_SWITCH_ACTIVE     # Sentinel — present = kill switch on
-└── DAILY_HALT_ACTIVE      # Sentinel — present = daily loss halt active
+data/logs/          # loop output logs
+reports/            # AutoResearchClaw output artifacts
+reports/autoresclaw/YYYY-MM-DD/<task_id>/
+  ├── task_prompt.md
+  └── fix_summary.md   # written by ARC for bug_fix tasks
+.claude/memory/     # persistent memory files (gitignored)
+  ├── workshop_lessons.md
+  ├── trade_journal.md
+  ├── session_handoffs.md
+  └── ...
 ```
 
-All state (positions, fills, audit, memory) lives in PostgreSQL: `TRADER_PG_URL`.
+Sentinel files for the kill switch and daily halt:
 
-### Env overrides
-
-```bash
-TRADER_PG_URL=postgresql://localhost/quantpod
-KILL_SWITCH_SENTINEL=~/.quant_pod/KILL_SWITCH_ACTIVE
 ```
-
-Use psql to inspect the database:
-
-```bash
-psql $TRADER_PG_URL
-=> \dt
-=> SELECT * FROM positions;
-=> SELECT symbol, realized_pnl, closed_at FROM closed_trades ORDER BY closed_at DESC LIMIT 20;
+~/.quantstack/KILL_SWITCH_ACTIVE
+~/.quantstack/DAILY_HALT_ACTIVE
 ```
 
 ---
 
-## Utility Scripts
+## Environment variables
+
+Full annotated list in `.env.example`. Summary:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRADER_PG_URL` | — | **Required.** PostgreSQL DSN |
+| `ALPACA_API_KEY` | — | **Required.** Alpaca data + execution |
+| `ALPACA_SECRET_KEY` | — | **Required.** Alpaca secret |
+| `ALPACA_PAPER` | `true` | Paper mode toggle |
+| `ALPHA_VANTAGE_API_KEY` | — | **Required.** Primary market data source |
+| `AV_DAILY_CALL_LIMIT` | `450` | AV premium plan allows 500/day; 450 leaves 10% buffer |
+| `USE_REAL_TRADING` | `false` | Master live trading switch |
+| `FORWARD_TESTING_SIZE_SCALAR` | `0.5` | Position size scalar for `forward_testing` strategies |
+| `USE_FORWARD_TESTING_FOR_ENTRIES` | `true` | Allow `forward_testing` strategies to place trades |
+| `GROQ_API_KEY` | — | Sentiment collector (optional) |
+| `AUTORESCLAW_CMD` | `researchclaw` | AutoResearchClaw CLI path override |
+| `AUTORESCLAW_TIMEOUT` | `3600` | Max seconds per ARC task |
+
+---
+
+## Alpha Vantage quota management
+
+QuantStack tracks AV calls per day in `system_state` (`av_daily_calls_{YYYY-MM-DD}`). Calls have three priority tiers:
+
+| Priority | Shed threshold | Examples |
+|----------|---------------|---------|
+| `critical` | Never shed | Options Greeks for open positions, EOD OHLCV for held symbols |
+| `normal` | Daily usage > 80% | Signal brief for watchlist, news sentiment |
+| `low` | Daily usage > 50% | ML feature refresh for non-watchlist, fundamentals |
+
+When AV is unavailable or quota-exhausted, OHLCV falls back to Alpaca automatically.
+
+---
+
+## Self-healing pipeline
+
+Tool errors flow through a fully automated pipeline:
+
+```
+tool raises exception
+        ↓
+record_tool_error()  →  bugs table (upsert, dedup by fingerprint)
+        ↓ (after 3 consecutive failures)
+research_queue insert (priority=9, bug_fix task)
+        ↓
+supervisor bug-fix watcher (polls every 60s)
+        ↓
+autoresclaw_runner.py --task-id <id>
+        ↓
+ARC edits src/ directly, writes fix_summary.md
+        ↓
+_apply_bug_fix(): syntax check → protected-file check → commit
+        ↓
+_update_bug_status(): bugs → fixed, research_queue → done
+        ↓
+_restart_loops_after_fix(): tmux send-keys C-c + restart
+```
+
+Protected files (`risk_gate.py`, `kill_switch.py`, `db.py`) are never auto-patched. Low-confidence or human-review-flagged fixes are reverted and noted in `session_handoffs.md`.
+
+---
+
+## Utility scripts
 
 Located in `scripts/`.
 
-### `bootstrap_rl_training.py`
+### `scheduler.py`
 
-Initialise the RL agent with historical data before the first trading session.
+The APScheduler process. Run automatically by `start.sh` in the `scheduler` tmux window. Can also be run standalone for testing:
 
 ```bash
-uv run python scripts/bootstrap_rl_training.py --symbol SPY --days 252
+python scripts/scheduler.py --dry-run
 ```
 
-Fetches OHLCV history, runs feature extraction, and writes the initial RL model checkpoint to `~/.quant_pod/rl/`.
+### `autoresclaw_runner.py`
+
+AutoResearchClaw dispatcher. Normally invoked by the supervisor, but can be run manually:
+
+```bash
+# Process top 3 pending tasks
+python scripts/autoresclaw_runner.py
+
+# Dry run (print prompts, no execution)
+python scripts/autoresclaw_runner.py --dry-run
+
+# Run a specific task by ID
+python scripts/autoresclaw_runner.py --task-id <uuid>
+```
 
 ### `log_decision.py`
 
-Append a manual decision event to the audit trail (for human-in-the-loop overrides).
+Append a manual decision to the audit trail:
 
 ```bash
-uv run python scripts/log_decision.py \
+python scripts/log_decision.py \
   --symbol AAPL \
   --action BUY \
   --reasoning "Breaking out of 6-month consolidation" \
   --confidence 0.75
 ```
 
-### `notify_discord.py`
-
-Post a message to the configured Discord webhook.
-
-```bash
-# Requires DISCORD_WEBHOOK_URL in .env
-uv run python scripts/notify_discord.py --message "Daily P&L: +$1,240"
-```
-
-Used by `AlphaMonitor` to post degradation alerts automatically after each session.
-
-### `validate_brief_quality.py`
-
-Run quality checks on a `DailyBrief` JSON file (checks for missing fields, low-confidence signals, empty pod notes).
-
-```bash
-uv run python scripts/validate_brief_quality.py --brief /tmp/brief.json
-```
-
 ---
 
-## MCP Server Config (`.mcp.json`)
+## Running tests
 
-The repo ships with `.mcp.json` for Claude Code integration. All MCP servers are registered there. Edit to add/remove servers or change env vars:
+```bash
+# All tests
+uv run pytest tests/ -v
 
-```json
-{
-  "mcpServers": {
-    "quantcore": { "command": "quantcore-mcp" },
-    "quantpod":  { "command": "quantpod-mcp" },
-    "alpaca":    { "command": "alpaca-mcp", "env": { "ALPACA_PAPER": "true" } },
-    "ibkr":      { "command": "ibkr-mcp" }
-  }
-}
+# Unit tests only (no network, fast)
+uv run pytest tests/unit/ -v
+
+# With coverage
+uv run pytest tests/ --cov=src/quantstack
 ```
-
----
-
-## Environment Variables Reference
-
-See `.env.example` for the full annotated list. Summary of the most important variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OPENAI_API_KEY` | — | Required for CrewAI agents |
-| `ALPACA_API_KEY` | — | Alpaca data + trading |
-| `ALPACA_PAPER` | `true` | Paper mode toggle |
-| `DATA_PROVIDER_PRIORITY` | `alpaca,polygon,alpha_vantage` | Data source order |
-| `USE_REAL_TRADING` | `false` | Master live trading switch |
-| `TRADER_PG_URL` | `postgresql://localhost/quantpod` | PostgreSQL connection string |
-| `RISK_DAILY_LOSS_LIMIT_PCT` | `0.02` | Daily loss halt threshold |
-| `DISCORD_WEBHOOK_URL` | — | Alert notifications |

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -13,7 +13,7 @@ On stall detection, the supervisor checks if the tmux pane is alive and
 restarts the loop with exponential backoff (max 5 attempts).
 
 Run as:
-    python -m quant_pod.coordination.supervisor
+    python -m quantstack.coordination.supervisor
 
 Or in the supervisor tmux pane via start_supervised_loops.sh.
 """
@@ -23,14 +23,20 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
 from quantstack.db import PgConnection
+
+# Path to the autoresclaw_runner script (relative to repo root).
+_RUNNER_SCRIPT = Path(__file__).parents[3] / "scripts" / "autoresclaw_runner.py"
 
 
 @dataclass
@@ -39,7 +45,7 @@ class LoopConfig:
 
     name: str
     expected_interval_seconds: int
-    tmux_target: str = ""  # e.g., "quantpod-loops:loops.0"
+    tmux_target: str = ""  # e.g., "quantstack-loops:loops.0"
     restart_command: str = ""
     max_restart_attempts: int = 5
     backoff_base_seconds: int = 30
@@ -60,19 +66,16 @@ class LoopHealth:
 
 DEFAULT_LOOP_CONFIGS = [
     LoopConfig(
-        name="strategy_factory",
-        expected_interval_seconds=60,
-        tmux_target="quantpod-loops:loops.0",
-    ),
-    LoopConfig(
-        name="live_trader",
+        name="trading_loop",
         expected_interval_seconds=300,
-        tmux_target="quantpod-loops:loops.1",
+        tmux_target="quantstack-loops:trading",
+        restart_command="cat prompts/trading_loop.md | claude",
     ),
     LoopConfig(
-        name="ml_research",
+        name="research_loop",
         expected_interval_seconds=120,
-        tmux_target="quantpod-loops:loops.2",
+        tmux_target="quantstack-loops:research",
+        restart_command="cat prompts/research_loop.md | claude",
     ),
 ]
 
@@ -233,9 +236,23 @@ class LoopSupervisor:
         """
         Main supervisor loop.  Checks health every ``check_interval`` seconds.
 
+        Also starts a background thread that watches research_queue for pending
+        bug_fix tasks and dispatches AutoResearchClaw immediately — no waiting
+        for the Sunday scheduled run.
+
         Blocks forever — run in a dedicated tmux pane or as a background process.
         """
-        logger.info(f"[Supervisor] Starting (interval={check_interval}s)")
+        logger.info(f"[Supervisor] Starting (health_interval={check_interval}s)")
+
+        # Start the bug-fix watcher in a daemon thread so it dies with the supervisor.
+        watcher = threading.Thread(
+            target=self._bug_fix_watcher,
+            kwargs={"poll_interval": 60},
+            daemon=True,
+            name="bug-fix-watcher",
+        )
+        watcher.start()
+        logger.info("[Supervisor] Bug-fix watcher thread started (poll=60s)")
 
         while True:
             try:
@@ -261,3 +278,80 @@ class LoopSupervisor:
                 logger.error(f"[Supervisor] Health check failed: {exc}")
 
             time.sleep(check_interval)
+
+    def _bug_fix_watcher(self, poll_interval: int = 60) -> None:
+        """
+        Background thread: polls the bugs table every poll_interval seconds for
+        open bugs that have a linked research_queue task pending, and dispatches
+        AutoResearchClaw immediately — highest priority first, no weekly wait.
+
+        Uses the bugs table (not research_queue) as the source of truth so we
+        get proper deduplication and lifecycle tracking. The research_queue entry
+        is the dispatch handle; bugs.arc_task_id links them.
+
+        Runs one task at a time to avoid parallel ARC sessions clobbering each other.
+        """
+        logger.info("[BugFixWatcher] Started — polling bugs table every %ds", poll_interval)
+        dispatched: set[str] = set()
+
+        while True:
+            try:
+                # Find the highest-priority open bug that has a pending dispatch task
+                # and that we haven't already started this session.
+                row = self._conn.execute(
+                    """
+                    SELECT b.bug_id, b.arc_task_id, b.tool_name, b.priority
+                    FROM bugs b
+                    JOIN research_queue rq ON rq.task_id = b.arc_task_id
+                    WHERE b.status = 'open'
+                      AND rq.status = 'pending'
+                    ORDER BY b.priority DESC, b.consecutive_errors DESC, b.created_at ASC
+                    LIMIT 1
+                    """,
+                ).fetchone()
+
+                if row:
+                    bug_id, task_id, tool_name, priority = row
+                    if task_id not in dispatched:
+                        dispatched.add(task_id)
+                        logger.warning(
+                            f"[BugFixWatcher] Bug {bug_id} ({tool_name}, priority={priority}) "
+                            f"→ dispatching ARC task {task_id}"
+                        )
+                        # Mark bug in_progress before we fire ARC
+                        try:
+                            self._conn.execute(
+                                "UPDATE bugs SET status='in_progress' WHERE bug_id=%s",
+                                [bug_id],
+                            )
+                            self._conn.commit()
+                        except Exception:
+                            pass
+                        self._run_arc_task(task_id)
+
+            except Exception as exc:
+                logger.error(f"[BugFixWatcher] Poll error: {exc}")
+
+            time.sleep(poll_interval)
+
+    def _run_arc_task(self, task_id: str) -> None:
+        """Fire autoresclaw_runner.py for a specific task_id (blocking)."""
+        if not _RUNNER_SCRIPT.exists():
+            logger.error(f"[BugFixWatcher] Runner script not found: {_RUNNER_SCRIPT}")
+            return
+
+        cmd = [sys.executable, str(_RUNNER_SCRIPT), "--task-id", task_id]
+        logger.info(f"[BugFixWatcher] Running: {' '.join(cmd)}")
+        try:
+            # Timeout: 90 min max per task (generous but bounded).
+            result = subprocess.run(cmd, timeout=5400)
+            if result.returncode == 0:
+                logger.info(f"[BugFixWatcher] Task {task_id} completed")
+            else:
+                logger.error(
+                    f"[BugFixWatcher] Task {task_id} exited with code {result.returncode}"
+                )
+        except subprocess.TimeoutExpired:
+            logger.error(f"[BugFixWatcher] Task {task_id} timed out after 90 min")
+        except Exception as exc:
+            logger.error(f"[BugFixWatcher] Task {task_id} failed to start: {exc}")

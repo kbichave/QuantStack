@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -103,7 +103,7 @@ def _try_hmm_regime(df: "pd.DataFrame") -> dict[str, Any] | None:
 
         result = model.predict(df)
 
-        # Map HMM state to QuantPod trend/vol taxonomy
+        # Map HMM state to QuantStack trend/vol taxonomy
         trend_regime = _hmm_state_to_trend(result.state)
         vol_regime = _hmm_state_to_vol(result.state)
 
@@ -190,7 +190,7 @@ def _merge_hmm_with_rules(hmm: dict[str, Any], rules: dict[str, Any]) -> dict[st
 
 
 def _hmm_state_to_trend(state: "HMMRegimeState") -> str:
-    """Map HMM state to QuantPod trend taxonomy."""
+    """Map HMM state to QuantStack trend taxonomy."""
     name = state.name
     if "BULL" in name:
         return "trending_up"
@@ -200,7 +200,7 @@ def _hmm_state_to_trend(state: "HMMRegimeState") -> str:
 
 
 def _hmm_state_to_vol(state: "HMMRegimeState") -> str:
-    """Map HMM state to QuantPod volatility taxonomy."""
+    """Map HMM state to QuantStack volatility taxonomy."""
     name = state.name
     if "HIGH_VOL" in name:
         return "high"
@@ -213,7 +213,7 @@ def _hmm_state_to_vol(state: "HMMRegimeState") -> str:
 
 
 def _map_trend(regime: RegimeType, ema_alignment: int, momentum_score: float) -> str:
-    """Map WeeklyRegimeClassifier result to QuantPod trend taxonomy."""
+    """Map WeeklyRegimeClassifier result to QuantStack trend taxonomy."""
     if regime == RegimeType.BULL:
         return "trending_up"
     if regime == RegimeType.BEAR:

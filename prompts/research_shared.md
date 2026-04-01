@@ -14,7 +14,7 @@ has actually learned.
 ```python
 import json, os
 
-PARAMS_FILE = os.path.expanduser("~/.quant_pod/prompt_params.json")
+PARAMS_FILE = os.path.expanduser("~/.quantstack/prompt_params.json")
 
 DEFAULT_PARAMS = {
     "kill_thresholds": {

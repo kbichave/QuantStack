@@ -1,16 +1,15 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
 Local FastAPI server — single-user, no auth.
 
-Exposes QuantPod functionality over HTTP for UI tooling and scripting.
+Exposes QuantStack functionality over HTTP for UI tooling and scripting.
 
 Endpoints:
     GET  /health                          Health check + service status
     GET  /portfolio                       Current portfolio snapshot
     GET  /portfolio/positions             Current open positions
-    POST /analyze/{symbol}                Run TradingDayFlow for a symbol
     GET  /trades                          Recent closed trades
     GET  /audit                           Recent audit log entries
     GET  /audit/{event_id}/trace          Full decision trace for an event
@@ -29,7 +28,7 @@ Endpoints:
     POST /reset                           Reset kill switch (ops use)
 
 Run:
-    uvicorn quant_pod.api.server:app --host 127.0.0.1 --port 8420 --reload
+    uvicorn quantstack.api.server:app --host 127.0.0.1 --port 8420 --reload
 """
 
 from __future__ import annotations
@@ -59,8 +58,6 @@ from quantstack.execution.portfolio_state import (
     get_portfolio_state,
     get_portfolio_state_readonly,
 )
-from quantstack.flows.intraday_monitor_flow import IntradayMonitorFlow
-from quantstack.flows.trading_day_flow import TradingDayFlow
 from quantstack.knowledge.store import KnowledgeStore
 from quantstack.learning.calibration import get_calibration_tracker
 from quantstack.learning.skill_tracker import SkillTracker
@@ -85,8 +82,8 @@ from quantstack.tools.options_flow_tools import OptionsFlowClient
 # =============================================================================
 
 app = FastAPI(
-    title="QuantPod Local API",
-    description="Single-user local API for QuantPod trading system",
+    title="QuantStack Local API",
+    description="Single-user local API for QuantStack trading system",
     version="0.1.0",
 )
 
@@ -102,13 +99,6 @@ app.add_middleware(
 # =============================================================================
 # REQUEST / RESPONSE MODELS
 # =============================================================================
-
-
-class AnalyzeRequest(BaseModel):
-    symbol: str
-    date: str | None = None
-    portfolio: dict[str, Any] | None = None
-    regimes: dict[str, Any] | None = None
 
 
 class ETradeAuthRequest(BaseModel):
@@ -159,67 +149,6 @@ def get_positions() -> list[dict[str, Any]]:
     """Current open positions."""
     portfolio = get_portfolio_state_readonly()
     return [p.model_dump() for p in portfolio.get_positions()]
-
-
-@app.post("/analyze/{symbol}")
-def analyze(symbol: str, req: AnalyzeRequest | None = None) -> dict[str, Any]:
-    """
-    Run regime detection + TradingDayFlow for a symbol.
-
-    This kicks off the full pipeline (RegimeDetector → SignalEngine →
-    RiskGate → PaperBroker) and returns the result.
-    """
-    kill = get_kill_switch()
-    if kill.is_active():
-        raise HTTPException(
-            status_code=503,
-            detail=f"Kill switch is active: {kill.status().reason}",
-        )
-
-    symbol = symbol.upper()
-    trade_date = date.fromisoformat(req.date) if req and req.date else date.today()
-    portfolio = (req.portfolio if req else None) or {
-        "equity": get_portfolio_state().get_snapshot().total_equity,
-        "context": get_portfolio_state().as_context_string(),
-    }
-
-    detector = RegimeDetectorAgent()
-    regime_result = detector.detect_regime(symbol)
-
-    if not regime_result.get("success"):
-        logger.warning(
-            f"[API] Regime detection failed for {symbol}: {regime_result.get('error')}"
-        )
-
-    regime = {
-        "trend": regime_result.get("trend_regime", "unknown"),
-        "volatility": regime_result.get("volatility_regime", "unknown"),
-        "confidence": regime_result.get("confidence", 0.0),
-        "adx": regime_result.get("adx", 0.0),
-        "atr_percentile": regime_result.get("atr_percentile", 50.0),
-    }
-
-    try:
-        flow = TradingDayFlow()
-        flow.state.symbols = [symbol]
-        flow.state.current_date = trade_date
-        flow.state.portfolio = portfolio
-        flow.state.regimes = {symbol: regime}
-
-        flow.kickoff()
-        return {
-            "symbol": symbol,
-            "date": str(trade_date),
-            "regime": regime,
-            "trades_executed": len(flow.state.executed_trades),
-            "decisions": flow.state.trade_decisions,
-            "executed": flow.state.executed_trades,
-            "errors": flow.state.errors,
-            "session_id": flow._session_id,
-        }
-    except Exception as e:
-        logger.error(f"[API] Analysis failed for {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/trades")
@@ -806,51 +735,6 @@ def reset_kill_switch(req: ResetRequest) -> dict[str, Any]:
     return {"status": "reset", "reset_by": req.reset_by}
 
 
-@app.get("/monitor/intraday")
-def monitor_intraday() -> dict[str, Any]:
-    """
-    Run an intraday monitoring cycle on demand.
-
-    Equivalent to what runs on the hourly cron schedule. Checks:
-      - Position P&L and proximity to daily loss limit
-      - Regime reversals on all held symbols (vs. regime at entry)
-      - Alpha decay status (IC-based)
-      - IS/OOS degradation status (live Sharpe vs backtested benchmark)
-
-    Returns structured report. Also fires Discord alert if DISCORD_WEBHOOK_URL
-    is configured and action items are present.
-
-    Safe to call at any time — read-only relative to broker state.
-    """
-    flow = IntradayMonitorFlow()
-    report = flow.run()
-
-    return {
-        "status": report.overall_status,
-        "run_at": report.run_at.isoformat(),
-        "duration_seconds": report.duration_seconds,
-        "intraday_pnl": report.intraday_pnl,
-        "intraday_pnl_pct": report.intraday_pnl_pct,
-        "daily_loss_pct": report.daily_loss_pct,
-        "daily_loss_limit_pct": report.daily_loss_limit_pct,
-        "open_positions": len(report.open_positions),
-        "regime_reversals": [
-            {
-                "symbol": r.symbol,
-                "entry_regime": r.entry_regime,
-                "current_regime": r.current_regime,
-                "position_side": r.position_side,
-                "action_hint": r.action_hint,
-            }
-            for r in report.regime_reversals
-        ],
-        "alpha_status": report.alpha_status,
-        "degradation_status": report.degradation_status,
-        "action_items": report.action_items,
-        "discord_alert_sent": report.discord_alert_sent,
-    }
-
-
 @app.get("/monitor/degradation")
 def monitor_degradation(
     strategy_id: str | None = None,
@@ -986,7 +870,7 @@ def prometheus_metrics() -> str:
     Prometheus metrics endpoint.
 
     Returns current metric values in text exposition format.
-    Scrape with: scrape_configs: - job_name: quantpod, static_configs: [{targets: [host:8420]}]
+    Scrape with: scrape_configs: - job_name: quantstack, static_configs: [{targets: [host:8420]}]
 
     Also updates NAV and daily P&L gauges on each scrape so they stay current
     without requiring a dedicated background task.

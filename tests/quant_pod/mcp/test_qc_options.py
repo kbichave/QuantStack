@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -30,7 +30,7 @@ from quantstack.mcp.tools.qc_options import (
     score_trade_structure,
     simulate_trade_outcome,
 )
-from tests.quant_pod.mcp.conftest import _fn, synthetic_ohlcv
+from tests.quantstack.mcp.conftest import _fn, synthetic_ohlcv
 
 
 # ---------------------------------------------------------------------------

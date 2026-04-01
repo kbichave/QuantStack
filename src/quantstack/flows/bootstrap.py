@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -12,9 +12,9 @@ Steps:
   5. Test broker connectivity (Alpaca paper)
 
 Usage:
-    quantpod-bootstrap                          # all steps, default symbols
-    quantpod-bootstrap --symbols SPY QQQ AAPL   # custom symbols
-    quantpod-bootstrap --skip-broker-test       # skip Alpaca connectivity check
+    quantstack-bootstrap                          # all steps, default symbols
+    quantstack-bootstrap --symbols SPY QQQ AAPL   # custom symbols
+    quantstack-bootstrap --skip-broker-test       # skip Alpaca connectivity check
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ class BootstrapFlow:
     async def run(self) -> dict[str, Any]:
         """Run the full bootstrap sequence. Returns step results."""
         logger.info("=" * 60)
-        logger.info("QUANTPOD BOOTSTRAP")
+        logger.info("QUANTSTACK BOOTSTRAP")
         logger.info(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"Symbols: {', '.join(self.symbols)}")
         logger.info("=" * 60)
@@ -232,8 +232,8 @@ class BootstrapFlow:
 
 
 def main() -> None:
-    """CLI entry point for quantpod-bootstrap."""
-    parser = argparse.ArgumentParser(description="QuantPod bootstrap — first-run setup")
+    """CLI entry point for quantstack-bootstrap."""
+    parser = argparse.ArgumentParser(description="QuantStack bootstrap — first-run setup")
     parser.add_argument("--symbols", nargs="+", default=DEFAULT_SYMBOLS, help="Symbols to bootstrap")
     parser.add_argument("--skip-broker-test", action="store_true", help="Skip Alpaca connectivity check")
     args = parser.parse_args()

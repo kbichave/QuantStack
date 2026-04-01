@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -21,7 +21,7 @@ from quantstack.mcp.tools.strategy import (
     update_strategy,
 )
 import quantstack.mcp._state as _mcp_state
-from tests.quant_pod.mcp.conftest import _fn, assert_standard_response, assert_error_response
+from tests.quantstack.mcp.conftest import _fn, assert_standard_response, assert_error_response
 
 
 # ---------------------------------------------------------------------------

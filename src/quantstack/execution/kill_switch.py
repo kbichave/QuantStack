@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -74,7 +74,7 @@ class KillSwitch:
     """
 
     SENTINEL_FILE = Path(
-        os.getenv("KILL_SWITCH_SENTINEL", "~/.quant_pod/KILL_SWITCH_ACTIVE")
+        os.getenv("KILL_SWITCH_SENTINEL", "~/.quantstack/KILL_SWITCH_ACTIVE")
     ).expanduser()
 
     _lock = Lock()

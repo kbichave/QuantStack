@@ -1,4 +1,4 @@
-"""Agent entrypoints for QuantPod."""
+"""Agent entrypoints for QuantStack."""
 
 from __future__ import annotations
 

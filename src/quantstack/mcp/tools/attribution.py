@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """P&L Attribution MCP tools — equity curve and strategy-level P&L.
@@ -94,7 +94,7 @@ async def get_daily_equity(
 
         return result
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_daily_equity failed: {e}")
+        logger.error(f"[quantstack_mcp] get_daily_equity failed: {e}")
         return {"success": False, "error": str(e)}
 
 
@@ -225,7 +225,7 @@ async def get_strategy_pnl(
 
         return result
     except Exception as e:
-        logger.error(f"[quantpod_mcp] get_strategy_pnl failed: {e}")
+        logger.error(f"[quantstack_mcp] get_strategy_pnl failed: {e}")
         return {"success": False, "error": str(e)}
 
 

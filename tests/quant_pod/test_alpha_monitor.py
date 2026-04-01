@@ -1,7 +1,7 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Unit tests for quant_pod.monitoring.alpha_monitor — Sprint 3.
+Unit tests for quantstack.monitoring.alpha_monitor — Sprint 3.
 
 Tests the classification logic of AlphaMonitor._classify_agent()
 without hitting Discord webhooks or the database on disk.

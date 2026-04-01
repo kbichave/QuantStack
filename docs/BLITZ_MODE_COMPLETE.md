@@ -76,13 +76,13 @@ Then parse the results as shown in lines 303-322.
 
 **New Prometheus metrics:**
 
-1. `quantpod_blitz_iterations_total` (Counter) — Total BLITZ iterations completed
-2. `quantpod_blitz_duration_seconds` (Histogram) — Iteration duration (30s to 20min buckets)
-3. `quantpod_blitz_agents_spawned` (Histogram) — Agents launched per iteration
-4. `quantpod_blitz_agents_succeeded` (Histogram) — Agents that completed successfully
-5. `quantpod_blitz_symbols_complete` (Gauge) — Cumulative symbols with 3-domain coverage
-6. `quantpod_blitz_conflicts_detected_total{symbol}` (Counter) — Cross-domain conflicts
-7. `quantpod_blitz_strategies_registered_total{domain}` (Counter) — Strategies by domain
+1. `quantstack_blitz_iterations_total` (Counter) — Total BLITZ iterations completed
+2. `quantstack_blitz_duration_seconds` (Histogram) — Iteration duration (30s to 20min buckets)
+3. `quantstack_blitz_agents_spawned` (Histogram) — Agents launched per iteration
+4. `quantstack_blitz_agents_succeeded` (Histogram) — Agents that completed successfully
+5. `quantstack_blitz_symbols_complete` (Gauge) — Cumulative symbols with 3-domain coverage
+6. `quantstack_blitz_conflicts_detected_total{symbol}` (Counter) — Cross-domain conflicts
+7. `quantstack_blitz_strategies_registered_total{domain}` (Counter) — Strategies by domain
 
 **Recording functions:**
 - `record_blitz_iteration(duration, spawned, succeeded)`
@@ -188,16 +188,16 @@ BLITZ complete in 120.5s: 2 complete, 1 partial
 
 ```bash
 # Query Prometheus metrics
-curl -s http://localhost:8080/metrics | grep quantpod_blitz
+curl -s http://localhost:8080/metrics | grep quantstack_blitz
 
 # Expected output:
-# quantpod_blitz_iterations_total 1.0
-# quantpod_blitz_duration_seconds_bucket{le="120.0"} 1.0
-# quantpod_blitz_agents_spawned_bucket{le="9.0"} 1.0
-# quantpod_blitz_agents_succeeded_bucket{le="6.0"} 1.0
-# quantpod_blitz_symbols_complete 2.0
-# quantpod_blitz_conflicts_detected_total{symbol="TSLA"} 1.0
-# quantpod_blitz_strategies_registered_total{domain="investment"} 3.0
+# quantstack_blitz_iterations_total 1.0
+# quantstack_blitz_duration_seconds_bucket{le="120.0"} 1.0
+# quantstack_blitz_agents_spawned_bucket{le="9.0"} 1.0
+# quantstack_blitz_agents_succeeded_bucket{le="6.0"} 1.0
+# quantstack_blitz_symbols_complete 2.0
+# quantstack_blitz_conflicts_detected_total{symbol="TSLA"} 1.0
+# quantstack_blitz_strategies_registered_total{domain="investment"} 3.0
 ```
 
 ### Step 4: Monitor Database (2 min)
@@ -250,26 +250,26 @@ LIMIT 1;
 
 ```promql
 # BLITZ iteration rate (iterations/hour)
-rate(quantpod_blitz_iterations_total[1h]) * 3600
+rate(quantstack_blitz_iterations_total[1h]) * 3600
 
 # BLITZ success rate (% of agents succeeding)
-sum(rate(quantpod_blitz_agents_succeeded_sum[5m]))
+sum(rate(quantstack_blitz_agents_succeeded_sum[5m]))
 /
-sum(rate(quantpod_blitz_agents_spawned_sum[5m]))
+sum(rate(quantstack_blitz_agents_spawned_sum[5m]))
 
 # Average BLITZ duration
-rate(quantpod_blitz_duration_seconds_sum[1h])
+rate(quantstack_blitz_duration_seconds_sum[1h])
 /
-rate(quantpod_blitz_duration_seconds_count[1h])
+rate(quantstack_blitz_duration_seconds_count[1h])
 
 # Symbols with complete coverage (trend)
-quantpod_blitz_symbols_complete
+quantstack_blitz_symbols_complete
 
 # Conflict detection rate
-rate(quantpod_blitz_conflicts_detected_total[1h])
+rate(quantstack_blitz_conflicts_detected_total[1h])
 
 # Strategy registration rate by domain
-sum by (domain) (rate(quantpod_blitz_strategies_registered_total[1h]))
+sum by (domain) (rate(quantstack_blitz_strategies_registered_total[1h]))
 ```
 
 ---
@@ -351,6 +351,6 @@ git checkout HEAD~1 prompts/research_loop.md
 
 ## Questions?
 
-**Slack:** #quantpod-dev
+**Slack:** #quantstack-dev
 **Docs:** `docs/BLITZ_MODE_IMPLEMENTATION.md` (Phase 1-5 details)
 **Tests:** `tests/integration/test_blitz_mode.py`

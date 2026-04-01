@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -29,7 +29,6 @@ from typing import Any
 from loguru import logger
 
 from quantstack.coordination.event_bus import Event, EventType
-from quantstack.coordination.slack_client import SlackClient
 
 
 @dataclass
@@ -139,7 +138,6 @@ class DegradationEnforcer:
             )
 
         self._publish_event(strategy_id, "critical", multiplier, findings)
-        self._post_slack_alert("critical", f"Strategy {strategy_id} TRIPPED", reason)
         logger.warning(f"[DegradationEnforcer] TRIPPED {strategy_id}: {reason}")
 
     def _apply_warning(
@@ -159,19 +157,9 @@ class DegradationEnforcer:
             )
 
         self._publish_event(strategy_id, "warning", multiplier, findings)
-        self._post_slack_alert(
-            "warning", f"Strategy {strategy_id} SCALED to {multiplier:.0%}", reason
-        )
         logger.info(
             f"[DegradationEnforcer] SCALED {strategy_id} to {multiplier:.0%}: {reason}"
         )
-
-    def _post_slack_alert(self, severity: str, title: str, detail: str) -> None:
-        """Post degradation alert to Slack #alerts."""
-        try:
-            SlackClient().post_alert(severity, title, detail)
-        except Exception as exc:
-            logger.debug(f"[DegradationEnforcer] Slack alert failed: {exc}")
 
     def _publish_event(
         self,

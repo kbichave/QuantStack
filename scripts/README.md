@@ -1,6 +1,6 @@
 # scripts/
 
-Operational scripts for QuantStack. No business logic — all trading logic is in `src/quantpod/`.
+Operational scripts for QuantStack. No business logic — all trading logic is in `src/quantstack/`.
 
 ## Autonomous Loops
 
@@ -24,15 +24,15 @@ Each runs in its own tmux session managed by the Ralph skill.
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `acquire_historical_data.py` | CLI wrapper around `quantpod.data.AcquisitionPipeline` | `python scripts/acquire_historical_data.py [--symbols SPY QQQ]` |
+| `acquire_historical_data.py` | CLI wrapper around `quantstack.data.AcquisitionPipeline` | `python scripts/acquire_historical_data.py [--symbols SPY QQQ]` |
 
-Bootstrap: `quantpod-bootstrap [--symbols SPY QQQ]` (registered entry point, see `src/quantpod/flows/bootstrap.py`).
+Bootstrap: `quantstack-bootstrap [--symbols SPY QQQ]` (registered entry point, see `src/quantstack/flows/bootstrap.py`).
 
-## Hooks (in `src/quantpod/hooks/`)
+## Hooks (in `src/quantstack/hooks/`)
 
 PostToolUse hooks registered as CLI entry points:
-- `quantpod-log-decision` — appends trades to trade_journal.md (after `execute_trade`)
-- `quantpod-validate-brief` — warns on low signal quality (after `run_analysis`)
+- `quantstack-log-decision` — appends trades to trade_journal.md (after `execute_trade`)
+- `quantstack-validate-brief` — warns on low signal quality (after `run_analysis`)
 
 ## Docker
 

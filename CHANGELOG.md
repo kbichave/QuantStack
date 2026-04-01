@@ -10,11 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-03-22
 
 ### Changed — Unified Package Architecture
-- **Breaking:** Consolidated 6 packages (`quantcore`, `quant_pod`, `quant_arena`, `alpaca_mcp`, `ibkr_mcp`, `etrade_mcp`) into single `quantstack` package at `src/quantstack/`
-- All imports changed: `quantcore.*` → `quantstack.core.*`, `quant_pod.*` → `quantstack.*`
+- **Breaking:** Consolidated 6 packages (`quantcore`, `quantstack`, `quant_arena`, `alpaca_mcp`, `ibkr_mcp`, `etrade_mcp`) into single `quantstack` package at `src/quantstack/`
+- All imports changed: `quantcore.*` → `quantstack.core.*`, `quantstack.*` → `quantstack.*`
 - Broker adapters remain at `adapters/` for `alpaca_mcp`, `ibkr_mcp`, `etrade_mcp`
-- Single MCP server (`quantstack-mcp`) replaces separate `quantcore-mcp` + `quantpod-mcp`
-- CLI entry points renamed: `quantpod-api` → `quantstack-api`, `quantpod-mcp` → `quantstack-mcp`, `quantpod-monitor` → `quantstack-monitor`
+- Single MCP server (`quantstack-mcp`) replaces separate `quantcore-mcp` + `quantstack-mcp`
+- CLI entry points renamed: `quantstack-api` → `quantstack-api`, `quantstack-mcp` → `quantstack-mcp`, `quantstack-monitor` → `quantstack-monitor`
 - Python version requirement bumped from 3.10+ to 3.11+
 - CLAUDE.md trimmed from ~50KB to ~32KB for context efficiency
 - All test imports updated to `quantstack.*`
@@ -52,25 +52,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The coordination layer enables the three Ralph loops (Strategy Factory, Live Trader, ML Research) to operate across ~700 symbols without human-in-the-loop intervention.
 
 #### Universe & Screening
-- `UniverseRegistry` (`packages/quant_pod/coordination/universe_registry.py`) — DuckDB-backed universe of SP500 + NASDAQ-100 + 50 liquid ETFs, weekly refresh via FD.ai `stock_screener` endpoint
+- `UniverseRegistry` (`packages/quantstack/coordination/universe_registry.py`) — DuckDB-backed universe of SP500 + NASDAQ-100 + 50 liquid ETFs, weekly refresh via FD.ai `stock_screener` endpoint
 - `CacheWarmer` (`packages/quantcore/data/cache_warmer.py`) — nightly batch OHLCV delta-fetch for the full universe with configurable concurrency (default 10 parallel, within 1000 req/min rate limit)
-- `AutonomousScreener` (`packages/quant_pod/autonomous/screener.py`) — daily scoring of all universe symbols using 5-dimension weighted scoring (momentum 25%, volatility 20%, catalyst 20%, regime fit 20%, volume 15%), outputs tiered watchlist: Tier 1 (15 symbols, full treatment), Tier 2 (20, SignalEngine only), Tier 3 (15, monitored)
+- `AutonomousScreener` (`packages/quantstack/autonomous/screener.py`) — daily scoring of all universe symbols using 5-dimension weighted scoring (momentum 25%, volatility 20%, catalyst 20%, regime fit 20%, volume 15%), outputs tiered watchlist: Tier 1 (15 symbols, full treatment), Tier 2 (20, SignalEngine only), Tier 3 (15, monitored)
 - `WatchlistLoader` v2 — tiered loading from `screener_results` table, gated behind `USE_TIERED_WATCHLIST` env var
 
 #### Inter-Loop Coordination
-- `EventBus` (`packages/quant_pod/coordination/event_bus.py`) — DuckDB append-only event log with per-consumer cursors, 7-day TTL pruning; event types: `strategy_promoted`, `strategy_retired`, `model_trained`, `degradation_detected`, `screener_completed`, `loop_heartbeat`, `loop_error`
-- `StrategyStatusLock` (`packages/quant_pod/coordination/strategy_lock.py`) — atomic compare-and-swap strategy status transitions preventing TOCTOU race conditions between concurrent loops
+- `EventBus` (`packages/quantstack/coordination/event_bus.py`) — DuckDB append-only event log with per-consumer cursors, 7-day TTL pruning; event types: `strategy_promoted`, `strategy_retired`, `model_trained`, `degradation_detected`, `screener_completed`, `loop_heartbeat`, `loop_error`
+- `StrategyStatusLock` (`packages/quantstack/coordination/strategy_lock.py`) — atomic compare-and-swap strategy status transitions preventing TOCTOU race conditions between concurrent loops
 - MCP tools: `publish_event`, `poll_events`, `record_heartbeat`, `get_loop_health`, `auto_promote_eligible`, `generate_daily_digest`
 
 #### Auto-Promotion & Degradation Enforcement
-- `AutoPromoter` (`packages/quant_pod/coordination/auto_promoter.py`) — evidence-based `forward_testing → live` promotion with configurable criteria (21d min age, 15 trades, Sharpe ≥ 0.5, DD ≤ 8%, win rate ≥ 40%), 4-week graduated position ramp (25% → 50% → 75% → 100%), max 8 concurrent live strategies cap; gated behind `AUTO_PROMOTE_ENABLED`
-- `DegradationEnforcer` (`packages/quant_pod/coordination/degradation_enforcer.py`) — bridges DegradationDetector (advisory) to StrategyBreaker (enforced): CRITICAL → `force_trip()`, WARNING → `force_scale()`
+- `AutoPromoter` (`packages/quantstack/coordination/auto_promoter.py`) — evidence-based `forward_testing → live` promotion with configurable criteria (21d min age, 15 trades, Sharpe ≥ 0.5, DD ≤ 8%, win rate ≥ 40%), 4-week graduated position ramp (25% → 50% → 75% → 100%), max 8 concurrent live strategies cap; gated behind `AUTO_PROMOTE_ENABLED`
+- `DegradationEnforcer` (`packages/quantstack/coordination/degradation_enforcer.py`) — bridges DegradationDetector (advisory) to StrategyBreaker (enforced): CRITICAL → `force_trip()`, WARNING → `force_scale()`
 - `StrategyBreaker` extensions: `force_trip(strategy_id, reason)` and `force_scale(strategy_id, scale_factor, reason)` for external degradation enforcement
 
 #### Health Monitoring & Observability
-- `LoopSupervisor` (`packages/quant_pod/coordination/supervisor.py`) — monitors loop heartbeats, detects stale (3× expected interval) and dead (10×) loops, auto-restarts via tmux with exponential backoff (max 5 attempts)
-- `DailyDigest` (`packages/quant_pod/coordination/daily_digest.py`) — aggregated daily report (positions, P&L, strategy lifecycle, loop health, ML models, risk events) → Discord embed + markdown
-- `PortfolioOrchestrator` (`packages/quant_pod/coordination/portfolio_orchestrator.py`) — portfolio-level entry gating: no doubling, confidence ranking, correlation check (> 0.85 rejected), sector concentration cap (30%), position count cap
+- `LoopSupervisor` (`packages/quantstack/coordination/supervisor.py`) — monitors loop heartbeats, detects stale (3× expected interval) and dead (10×) loops, auto-restarts via tmux with exponential backoff (max 5 attempts)
+- `DailyDigest` (`packages/quantstack/coordination/daily_digest.py`) — aggregated daily report (positions, P&L, strategy lifecycle, loop health, ML models, risk events) → Discord embed + markdown
+- `PortfolioOrchestrator` (`packages/quantstack/coordination/portfolio_orchestrator.py`) — portfolio-level entry gating: no doubling, confidence ranking, correlation check (> 0.85 rejected), sector concentration cap (30%), position count cap
 - `scripts/start_supervised_loops.sh` — 5-pane tmux: Factory + Trader + ML + Supervisor + git auto-commit (every 5 min)
 
 #### Database
@@ -169,9 +169,9 @@ The coordination layer enables the three Ralph loops (Strategy Factory, Live Tra
 - **`llm_config.py`** — `_build_ollama_llm` no longer attempts `from crewai import LLM`; returns plain model string.
 - **`crews/__init__.py`** — now exports only Pydantic schemas (no `TradingCrew` re-export).
 - **`flows/__init__.py`** — docstring updated to reflect SignalEngine usage.
-- **`quant_pod/__init__`** — version bumped to `0.6.0`.
+- **`quantstack/__init__`** — version bumped to `0.6.0`.
 - MCP server instructions updated to reference `get_signal_brief` as primary analysis tool.
-- QuantPod MCP tool count reduced from 43 to 34 (9 tools removed).
+- QuantStack MCP tool count reduced from 43 to 34 (9 tools removed).
 - Total MCP tool count reduced from 97 to 88.
 
 ### Added
@@ -185,12 +185,12 @@ The coordination layer enables the three Ralph loops (Strategy Factory, Live Tra
 #### Module Decomposition
 - Split `packages/quantcore/mcp/server.py` (4500+ lines) into `tools/` sub-modules, `_helpers.py`, and `resources.py`
 - Split `packages/quantcore/data/storage.py` (1400+ lines) into `_ohlcv.py`, `_options_news.py`, `_schema.py`, and `_fundamentals_schema.py`
-- Split `packages/quant_pod/mcp/server.py` (3300+ lines) into `tools/` sub-modules and `_state.py`
-- Split `packages/quant_pod/knowledge/store.py` (1900+ lines) into `_learning.py`, `_messages.py`, `_performance.py`, `_schema.py`, `_trades.py`, `_waves_regime.py`
-- Replaced monolithic `packages/quant_pod/tools/mcp_bridge.py` with `mcp_bridge/` package
+- Split `packages/quantstack/mcp/server.py` (3300+ lines) into `tools/` sub-modules and `_state.py`
+- Split `packages/quantstack/knowledge/store.py` (1900+ lines) into `_learning.py`, `_messages.py`, `_performance.py`, `_schema.py`, `_trades.py`, `_waves_regime.py`
+- Replaced monolithic `packages/quantstack/tools/mcp_bridge.py` with `mcp_bridge/` package
 
 #### Test Restructuring
-- Decomposed monolithic MCP test files into per-module test directories: `tests/quant_pod/mcp/`, `tests/quant_pod/tools/`, `tests/unit/quantcore_mcp/`
+- Decomposed monolithic MCP test files into per-module test directories: `tests/quantstack/mcp/`, `tests/quantstack/tools/`, `tests/unit/quantcore_mcp/`
 - Added shared test fixtures in `tests/_fixtures/` and `tests/shared/`
 
 ### Added
@@ -201,7 +201,7 @@ The coordination layer enables the three Ralph loops (Strategy Factory, Live Tra
 - `packages/quantcore/mcp/resources.py` — MCP resource definitions (extracted from server)
 
 ### Fixed
-- DuckDB lock guard improvements in `packages/quant_pod/db.py`
+- DuckDB lock guard improvements in `packages/quantstack/db.py`
 - Updated coverage omit list in `pyproject.toml` for new module paths
 
 ## [0.2.0] - 2026-03-15
@@ -242,11 +242,11 @@ The coordination layer enables the three Ralph loops (Strategy Factory, Live Tra
 - `backtesting/stats.py` — extended backtest performance statistics (Calmar, Sortino, tail ratio)
 - `research/overfitting.py` — overfitting detection and deflated Sharpe ratio utilities
 
-#### QuantPod: Execution Layer (`packages/quant_pod/execution/`)
-- 12-module execution layer: `PaperBroker`, `EtradeBroker`, `OrderLifecycle` (state machine: submitted → open → filled/cancelled), `RiskGate` (QuantPod wrapper), `RiskState` (hot-path in-memory mirror), `BrokerFactory`, `MicrostructurePipeline`, `TickExecutor`, `SignalCache` (DuckDB-backed with configurable TTL)
+#### QuantStack: Execution Layer (`packages/quantstack/execution/`)
+- 12-module execution layer: `PaperBroker`, `EtradeBroker`, `OrderLifecycle` (state machine: submitted → open → filled/cancelled), `RiskGate` (QuantStack wrapper), `RiskState` (hot-path in-memory mirror), `BrokerFactory`, `MicrostructurePipeline`, `TickExecutor`, `SignalCache` (DuckDB-backed with configurable TTL)
 
-#### QuantPod: New Subsystems
-- `api/` — FastAPI REST interface for trading operations (`quantpod-api` CLI entry point, port 8420)
+#### QuantStack: New Subsystems
+- `api/` — FastAPI REST interface for trading operations (`quantstack-api` CLI entry point, port 8420)
 - `audit/` — immutable `DecisionLog` event store logging every agent decision, execution event, and risk check
 - `guardrails/` — runtime sanity checks: signal plausibility validation, market halt detection
 - `monitoring/` — `AlphaMonitor` (signal quality degradation alerts), `DegradationDetector` (IS vs OOS Sharpe divergence), `Metrics` (Sharpe, drawdown, consistency tracking)
@@ -254,21 +254,21 @@ The coordination layer enables the three Ralph loops (Strategy Factory, Live Tra
 - `context.py` — `TradingContext` dependency injection container; all services share one DuckDB connection for ACID cross-service transactions
 - `llm_config.py` — multi-provider LLM routing (Bedrock, Anthropic, OpenAI, Vertex AI, Gemini, plus tier-2/3 providers); per-tier model overrides (`LLM_MODEL_IC`, `LLM_MODEL_POD`, etc.); automatic credential detection with fallback chain
 
-#### QuantPod: New Agents and Flows
+#### QuantStack: New Agents and Flows
 - `portfolio_optimizer_agent.py` — converts pod manager signals into mean-variance optimal capital weights subject to risk gate position limits
 - `microstructure_signal_agent.py` — generates trading signals from OFI, VPIN, and Kyle's Lambda tick-data features
-- `IntraDayMonitorFlow` — real-time position monitoring loop that triggers stop-loss exits and partial reductions when thresholds are breached (`quantpod-monitor` CLI)
+- `IntraDayMonitorFlow` — real-time position monitoring loop that triggers stop-loss exits and partial reductions when thresholds are breached (`quantstack-monitor` CLI)
 - `StrategyValidationFlow` — out-of-sample validation gate before strategy promotion from `forward_testing` to `live`
 - `DecoderCrew` — Phase 4 crew for reverse-engineering strategy rules from trade signal history
 
-#### QuantPod: Alpha Signals IC Group
+#### QuantStack: Alpha Signals IC Group
 - `news_sentiment_ic` — Alpha Vantage news ingestion + sentiment scoring
 - `options_flow_ic` — unusual options activity (UOA) detection
 - `fundamentals_ic` — P/E ratio, debt metrics, earnings quality assessment
 - `alpha_signals_pod_manager` — synthesizes all three alpha signal ICs
 - `OptionsFlowTool`, `PutCallRatioTool` — singleton tools registered in `TOOL_REGISTRY`
 
-#### Multi-LLM Provider Support (`packages/quant_pod/llm_config.py`)
+#### Multi-LLM Provider Support (`packages/quantstack/llm_config.py`)
 - **12 supported providers** across three tiers:
   - Tier 1 (recommended): `bedrock`, `anthropic`, `openai`, `vertex_ai`, `gemini`
   - Tier 2: `azure`, `groq`, `together_ai`, `fireworks_ai`, `mistral`
@@ -316,7 +316,7 @@ The coordination layer enables the three Ralph loops (Strategy Factory, Live Tra
   - Immutable `_order_audit` trail separate from `_orders` (never filtered or modified post-hoc)
   - Intraday daily loss tracking: `_day_open_equity` reset on each new trading day
 
-#### QuantPod: State Management Migration
+#### QuantStack: State Management Migration
 - **`Blackboard`** migrated from markdown file to DuckDB (`agent_memory` table): O(log n) SQL reads replace O(n) full-file scans; JSON content prevents prompt injection; concurrent writes are ACID-safe; public API unchanged — no callers needed to change
 - **`SkillTracker`** migrated to DuckDB; adds IC (Information Coefficient) and ICIR (IC Information Ratio) metrics alongside win-rate — separates signal quality from position sizing and execution noise
 
@@ -343,10 +343,10 @@ The coordination layer enables the three Ralph loops (Strategy Factory, Live Tra
 - `scripts/docker-entrypoint.sh` — container entrypoint with command dispatch (`api`, etc.)
 
 ### Changed
-- Restructured to `packages/` monorepo layout with `quantcore`, `quant_arena`, `quant_pod`, `etrade_mcp`, `alpaca_mcp`, `ibkr_mcp`
+- Restructured to `packages/` monorepo layout with `quantcore`, `quant_arena`, `quantstack`, `etrade_mcp`, `alpaca_mcp`, `ibkr_mcp`
 - Renamed package from `trader` to `quantcore`
 - Consolidated `math_models`, `microstructure`, `research`, `signals` into main `quantcore` package
-- eTrade OAuth layer moved from `packages/etrade_mcp/` into `packages/quant_pod/tools/etrade/`; `etrade_mcp` is now a thin FastMCP wrapper delegating to the quant_pod tools
+- eTrade OAuth layer moved from `packages/etrade_mcp/` into `packages/quantstack/tools/etrade/`; `etrade_mcp` is now a thin FastMCP wrapper delegating to the quantstack tools
 - `TradingDayFlow` updated: regime-adaptive crew config via `regime_config.py`, signal cache handoff to `TickExecutor`, TCA arrival-price recording, RL online adapter shadow feedback loop
 
 ## [0.1.0] - 2024-12-04

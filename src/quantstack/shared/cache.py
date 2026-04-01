@@ -4,7 +4,7 @@
 """
 Generic in-memory TTL cache.
 
-Extracted from quant_pod's IC output cache so it can be reused across
+Extracted from quantstack's IC output cache so it can be reused across
 any MCP server or subsystem that needs short-lived memoization.
 """
 

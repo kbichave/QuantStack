@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -101,7 +101,7 @@ def create_trading_context(
 
     Args:
         db_path:      Ignored — all connections use PostgreSQL
-                      (TRADER_PG_URL env var, default postgresql://localhost/quantpod).
+                      (TRADER_PG_URL env var, default postgresql://localhost/quantstack).
                       Kept for backward compatibility.
         initial_cash: Starting cash balance for new portfolios.
         risk_limits:  Override default risk limits.  None = load from env.

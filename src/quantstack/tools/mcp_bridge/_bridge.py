@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """MCPBridge class and async helper for CrewAI-to-MCP communication."""
@@ -10,9 +10,17 @@ from typing import Any
 
 from loguru import logger
 
-from etrade_mcp.server import mcp as etrade_mcp
+try:
+    from etrade_mcp.server import mcp as etrade_mcp
+except ImportError:
+    etrade_mcp = None
+
 from quantstack.guardrails.mcp_response_validator import get_mcp_validator
-from quantstack.mcp.server import mcp as quantcore_mcp
+
+try:
+    from quantstack.mcp.server import mcp as quantcore_mcp
+except ImportError:
+    quantcore_mcp = None
 
 
 class MCPBridge:

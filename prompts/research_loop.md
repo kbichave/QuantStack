@@ -1,4 +1,4 @@
-# QuantPod Research Loop — Orchestrator
+# QuantStack Research Loop — Orchestrator
 
 ## IDENTITY & MISSION
 
@@ -108,11 +108,18 @@ When a signal proves statistically significant in one domain, test it in others:
 - Investment quality signal works? → Test if swing strategies with quality overlay outperform.
 - Options VRP signal works? → Test if equity sizing benefits from a vol regime filter.
 
-Log transfer attempts and results in `state["cross_domain_transfers"]`. Cross-domain signals that work in 2+ domains are your highest-conviction alpha.
+Log transfer attempts and results via DB (persists across session restarts):
+```python
+from quantstack.mcp.tools.coordination import get_loop_context, set_loop_context
+transfers = await get_loop_context("research_loop", "cross_domain_transfers", default=[])
+transfers.append({"signal": signal_name, "source_domain": src, "target_domain": tgt, "result": result})
+await set_loop_context("research_loop", "cross_domain_transfers", transfers)
+```
+Cross-domain signals that work in 2+ domains are your highest-conviction alpha.
 
 ### 2f: Literature-Driven Hypothesis Queue
 
-Maintain 5-10 literature-backed ideas in `state["literature_queue"]`. Refresh when the queue empties.
+Maintain 5-10 literature-backed ideas in DB via `get/set_loop_context("research_loop", "literature_queue", default=[])`. Refresh when the queue empties.
 Sources to mine:
 - Harvey, Liu, Zhu (2016) — 400+ documented factors in the factor zoo
 - Jegadeesh & Titman momentum, Novy-Marx quality, Asness value/momentum/carry
@@ -254,10 +261,18 @@ summary = aggregator.aggregate(agent_results)
 print(aggregator.format_summary(summary))
 
 # Publish event
+from quantstack.db import db_conn as _db_conn
+# Derive iteration from heartbeats table — no session state needed
+with _db_conn() as _conn:
+    _iter_row = _conn.execute(
+        "SELECT COALESCE(MAX(iteration), 0) FROM loop_heartbeats WHERE loop_name = 'research_loop'"
+    ).fetchone()
+iteration = _iter_row[0] if _iter_row else 0
+
 publish_event(
     event_type="screener_completed",
     source="research_orchestrator_blitz",
-    payload={"iteration": state["iteration"], "symbols_researched": top_symbols, **summary}
+    payload={"iteration": iteration, "symbols_researched": top_symbols, **summary}
 )
 
 # Log to DB
@@ -265,21 +280,107 @@ with db_conn() as conn:
     conn.execute("""
         INSERT INTO alpha_research_program (investigation_id, thesis, status, priority, source, experiments_run, last_result_summary, target_symbols)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    """, (f"blitz_{state['iteration']}", f"BLITZ: {len(top_symbols)} symbols", "completed", 1,
+    """, (f"blitz_{iteration}", f"BLITZ: {len(top_symbols)} symbols", "completed", 1,
           "blitz_orchestrator", len(agent_results), aggregator.format_summary(summary), json.dumps(top_symbols)))
 ```
 
 ### 2d: Mandatory checks
 
 - **Every iteration** (<1 min): `get_system_status()`. Kill switch/halt? STOP.
-- **Every 5 iterations**: full cross-domain review (kill fakes, flag leakage, concept drift, alpha decay, cross-pollinate between domains, update `workshop_lessons.md`).
-- **Monthly** (if `state["last_execution_audit"]` is missing or > 30 days old AND at least 20 fills exist): spawn `execution-researcher` sub-agent. On completion, set `state["last_execution_audit"] = today`. This replaces normal domain work for that iteration — skip to Step 3 after the agent returns.
+- **Every 5 iterations**: full cross-domain review (kill fakes, flag leakage, concept drift, alpha decay, cross-pollinate between domains, update `workshop_lessons.md`). **Also run the coverage-gap → research_queue feeder below.**
+- **Monthly** (if `get_loop_context("research_loop", "last_execution_audit_at")` is missing or > 30 days old AND at least 20 fills exist): spawn `execution-researcher` sub-agent. On completion, call `set_loop_context("research_loop", "last_execution_audit_at", today_isoformat)`. This replaces normal domain work for that iteration — skip to Step 3 after the agent returns.
 
 **Write decision + reasoning to state file BEFORE acting.**
 
+#### Coverage-gap → research_queue feeder (runs every 5 iterations)
+
+When the cross-domain review finds a regime or domain with no validated strategy, queue
+a deep hypothesis search for AutoResearchClaw to investigate on its Sunday run:
+
+```python
+import json
+from quantstack.db import db_conn
+
+# Identify regimes with no live/forward_testing strategy
+with db_conn() as conn:
+    covered_rows = conn.execute("""
+        SELECT DISTINCT regime_affinity FROM strategies
+        WHERE status IN ('live', 'forward_testing')
+    """).fetchall()
+
+covered_regimes = set()
+for row in covered_rows:
+    try:
+        val = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        if isinstance(val, list):
+            covered_regimes.update(val)
+        else:
+            covered_regimes.add(str(val))
+    except Exception:
+        pass
+
+all_regimes = {"trending_up", "trending_down", "ranging"}
+gaps = all_regimes - covered_regimes
+
+if gaps:
+    with db_conn() as conn:
+        for regime in gaps:
+            conn.execute("""
+                INSERT INTO research_queue (task_type, priority, context_json, source)
+                VALUES ('strategy_hypothesis', %s, %s, 'research_loop')
+                ON CONFLICT DO NOTHING
+            """, [
+                6,
+                json.dumps({
+                    "domain": "equity",
+                    "gap": f"No validated strategy for regime: {regime}",
+                    "regime": regime,
+                    "iteration": iteration,  # derived from loop_heartbeats above
+                }),
+            ])
+    print(f"[research_queue] Queued {len(gaps)} strategy_hypothesis tasks for gaps: {gaps}")
+```
+
 ---
 
-## STEP 2c: BLITZ Execution Complete
+## STEP 2c: Community Intelligence Scan (every 10 iterations, after-hours only)
+
+Every 10th iteration AND only after market hours (not between 09:30–16:00 ET),
+spawn the community-intel agent to discover new quant techniques and tools.
+
+```python
+from quantstack.mcp.tools.coordination import get_loop_context
+from datetime import datetime, timezone
+import pytz
+
+ET = pytz.timezone("America/New_York")
+now_et = datetime.now(ET)
+is_market_hours = (
+    now_et.weekday() < 5  # Mon-Fri
+    and now_et.hour == 9 and now_et.minute >= 30
+    or 10 <= now_et.hour <= 15
+    or (now_et.hour == 16 and now_et.minute == 0)
+)
+
+iteration = len(
+    (await get_loop_context("research_loop", "domain_history", default=[]))
+)
+
+if iteration % 10 == 0 and not is_market_hours:
+    print("[research_loop] Running community intelligence scan (every 10 iterations)...")
+    # Spawn community-intel agent — runs in background, does not block loop
+    # Agent inserts to research_queue and writes session_handoffs.md
+    pass  # spawned via Agent tool below
+```
+
+When the condition triggers, spawn via the Agent tool:
+- `subagent_type`: `community-intel`
+- Include in prompt: today's date, summary of what's already in strategy_registry.md
+- Do NOT wait for the agent to complete before continuing to Step 3. Fire and continue.
+
+---
+
+## STEP 2d: BLITZ Execution Complete
 
 All domain research is handled in Step 2b via parallel agent spawning. No additional domain-specific execution needed.
 
@@ -295,18 +396,48 @@ Execute write procedures from `prompts/research_shared.md`:
 **Log BLITZ iteration results:**
 
 ```python
-# BLITZ mode: log aggregated results
-state["last_domain"] = "BLITZ"
-state["domain_history"].append({
-    "iteration": state["iteration"],
+from quantstack.mcp.tools.coordination import get_loop_context, set_loop_context
+
+# Persist loop state to DB — survives session restarts
+await set_loop_context("research_loop", "last_domain", "BLITZ")
+
+domain_history = await get_loop_context("research_loop", "domain_history", default=[])
+domain_history.append({
+    "iteration": iteration,  # derived from loop_heartbeats
     "domain": "BLITZ",
     "symbols_researched": top_symbols,
-    "result": state.get("blitz_summary", {})
+    "result": blitz_summary if "blitz_summary" in dir() else {},
 })
+# Keep last 50 entries to bound memory
+await set_loop_context("research_loop", "domain_history", domain_history[-50:])
 
 # Event already published in Step 2b (after aggregation)
 # No additional event publishing needed here
 ```
+
+---
+
+## ERROR HANDLING & SELF-HEALING
+
+Any time a Python tool call raises an exception, call `record_tool_error()` so the auto-patcher can queue a fix. Do **not** halt the loop — log and continue.
+
+```python
+from quantstack.mcp.tools.coordination import record_tool_error
+import traceback
+
+try:
+    result = some_tool_function(...)
+except Exception as e:
+    record_tool_error(
+        tool_name="some_tool_function",
+        error_message=str(e),
+        stack_trace=traceback.format_exc(),
+        loop_name="research_loop",
+    )
+    # Skip this step and proceed to the next one
+```
+
+After 3 consecutive failures of the same tool, `record_tool_error()` automatically queues a bug-fix task. The supervisor watcher dispatches AutoResearchClaw within 60 seconds to patch the source file directly. **You do not need to take any further action — just call `record_tool_error()` and move on.**
 
 ---
 
@@ -324,3 +455,35 @@ Output `<promise>TRADING_READY</promise>` when cross-domain portfolio is complet
 - >= 20 documented failed hypotheses (proves research breadth)
 
 After 30 iterations, run gap analysis: if < 50% criteria met, output `<promise>RESEARCH_BLOCKED</promise>` with specific bottlenecks.
+
+---
+
+## BEGIN
+
+You are running autonomously in a pipe with no human at the keyboard. Do not ask questions. Do not wait for input. Do not present menus.
+
+**YOUR VERY FIRST ACTION must be to run this Bash command to record a heartbeat. Do this NOW before reading any files or doing any research. The system cannot track you without this. Run it using your Bash tool immediately:**
+
+python3 -c "
+from quantstack.mcp.tools.coordination import record_heartbeat
+from quantstack.db import pg_conn
+with pg_conn() as c:
+    row = c.execute(\"SELECT COALESCE(MAX(iteration),0)+1 FROM loop_heartbeats WHERE loop_name='research_loop'\").fetchone()
+iteration = row[0] if row else 1
+record_heartbeat(loop_name='research_loop', iteration=iteration, status='running')
+print(f'[HEARTBEAT] research_loop iteration {iteration} RUNNING')
+"
+
+**YOUR VERY LAST ACTION before outputting the completion gate must be this Bash command:**
+
+python3 -c "
+from quantstack.mcp.tools.coordination import record_heartbeat
+from quantstack.db import pg_conn
+with pg_conn() as c:
+    row = c.execute(\"SELECT COALESCE(MAX(iteration),0) FROM loop_heartbeats WHERE loop_name='research_loop'\").fetchone()
+iteration = row[0] if row else 1
+record_heartbeat(loop_name='research_loop', iteration=iteration, status='completed')
+print(f'[HEARTBEAT] research_loop iteration {iteration} COMPLETED')
+"
+
+Now execute the full research iteration — Step 0 through the completion gate.

@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for QuantPod MCP risk tools.
+Unit tests for QuantStack MCP risk tools.
 
 All tools under test are pure computation — no DB, no context injection needed.
 They return ``{"error": str(e)}`` on failure.
@@ -20,7 +20,7 @@ from quantstack.mcp.tools.qc_risk import (
     compute_var,
     stress_test_portfolio,
 )
-from tests.quant_pod.mcp.conftest import _fn
+from tests.quantstack.mcp.conftest import _fn
 
 
 # ---------------------------------------------------------------------------

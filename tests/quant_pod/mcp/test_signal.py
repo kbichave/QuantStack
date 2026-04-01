@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -20,7 +20,7 @@ import pytest
 
 from quantstack.mcp.tools.signal import get_signal_brief, run_multi_signal_brief
 import quantstack.mcp._state as _mcp_state
-from tests.quant_pod.mcp.conftest import _fn, assert_standard_response, assert_error_response
+from tests.quantstack.mcp.conftest import _fn, assert_standard_response, assert_error_response
 
 
 # ---------------------------------------------------------------------------

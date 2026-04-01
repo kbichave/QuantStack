@@ -20,7 +20,14 @@ from quantstack.config.timeframes import Timeframe
 from quantstack.data.base import AssetClass
 from quantstack.data.registry import DataProviderRegistry
 from quantstack.data.storage import DataStore
+from quantstack.db import db_conn
 from quantstack.features.enricher import FeatureEnricher
+from quantstack.strategies.rule_engine import _KNOWN_INDICATORS, _normalize_indicator
+
+
+def _rules_reference_signal(rules: list[dict[str, Any]], signal_name: str) -> bool:
+    """Return True if any rule's 'indicator' key matches signal_name."""
+    return any(r.get("indicator") == signal_name for r in rules)
 
 
 def generate_signals_from_rules(
@@ -164,6 +171,46 @@ def generate_signals_from_rules(
                 df = enricher.enrich(df, symbol=symbol, tiers=tiers)
     except Exception as exc:
         logger.debug(f"Feature enrichment skipped: {exc}")
+
+    # ── Enrich macro/institutional signals referenced by rules ────────────
+    # These signals live outside the DataFrame pipeline (capitulation_score
+    # comes from MCP/capitulation tools; credit_regime from the macro
+    # collector). Rather than pulling in those full dependency chains, we
+    # compute lightweight proxies from the OHLCV data already in df and read
+    # the DB-persisted value for credit_regime, then broadcast as scalar
+    # columns so the rule engine can compare them normally.
+    all_rules = entry_rules + exit_rules
+    if _rules_reference_signal(all_rules, "capitulation_score"):
+        try:
+            # Proxy: fraction of bars in the last 20 days that are down AND
+            # volume is above the 20-day average volume.  Normalized to 0-1.
+            lookback_cap = 20
+            down_bar = close.diff() < 0
+            vol_above_avg = df["volume"] > df["volume"].rolling(lookback_cap).mean()
+            cap_proxy = (down_bar & vol_above_avg).rolling(lookback_cap).mean()
+            # Fill NaN (insufficient history) with 0 so the column is always present.
+            df["capitulation_score"] = cap_proxy.fillna(0.0)
+        except Exception as exc:
+            logger.warning(f"capitulation_score proxy failed, defaulting to 0: {exc}")
+            df["capitulation_score"] = 0.0
+
+    if _rules_reference_signal(all_rules, "credit_regime"):
+        try:
+            credit_regime_val = "unknown"
+            with db_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT value FROM system_state WHERE key = 'credit_regime'"
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        credit_regime_val = str(row[0])
+            df["credit_regime"] = credit_regime_val
+        except Exception as exc:
+            logger.warning(
+                f"credit_regime DB read failed, defaulting to 'unknown': {exc}"
+            )
+            df["credit_regime"] = "unknown"
 
     # ── Evaluate entry rules with prerequisite/confirmation hierarchy ────
     prerequisite_rules = [r for r in entry_rules if r.get("type") == "prerequisite"]
@@ -333,8 +380,6 @@ def evaluate_rule(
       - Conditions: above, below, crosses_above, crosses_below, between,
         within_pct (absolute value <=), not_in / in (for string columns)
     """
-    from quantstack.strategies.rule_engine import _normalize_indicator
-
     indicator = _normalize_indicator(rule.get("indicator", ""))
     condition = rule.get("condition", "")
     value = rule.get("value")
@@ -373,6 +418,12 @@ def evaluate_rule(
             return df["close"] < df["low_n"].shift(1)
         return pd.Series(False, index=df.index)
     else:
+        if indicator not in _KNOWN_INDICATORS:
+            logger.warning(
+                f"evaluate_rule: indicator '{indicator}' is not in df.columns and not "
+                "in _KNOWN_INDICATORS — rule will always return False. "
+                "Add enrichment for this signal or check the rule definition."
+            )
         return pd.Series(False, index=df.index)
 
     # ── Evaluate condition ───────────────────────────────────────────────

@@ -1,11 +1,11 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
 Unit tests for KillSwitch.
 
 Tests run with a temporary sentinel file so they never touch the real
-~/.quant_pod/KILL_SWITCH_ACTIVE path.
+~/.quantstack/KILL_SWITCH_ACTIVE path.
 """
 
 from __future__ import annotations

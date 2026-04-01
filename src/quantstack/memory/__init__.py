@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Memory module for QuantPod.
+Memory module for QuantStack.
 
 Provides Mem0 integration for persistent cross-agent memory.
 """

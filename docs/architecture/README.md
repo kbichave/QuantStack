@@ -1,136 +1,265 @@
 # QuantStack Architecture
 
-This document provides an overview of the QuantStack system and how its components interact.
+---
 
-## Repository Structure
+## Single entry point
+
+Everything starts from `./start.sh`. There is no other way to start the system. The script handles prerequisites, migrations, universe bootstrap, preflight checks, seeds community intelligence (background), and launches five tmux windows. See [../guides/quickstart.md](../guides/quickstart.md).
+
+---
+
+## Repository structure
 
 ```
 QuantStack/
-├── src/quantstack/           # Unified package
-│   ├── core/                 # Research library (200+ indicators, backtesting, ML, options, RL)
-│   ├── signal_engine/        # 7 concurrent Python collectors (no LLM)
-│   ├── autonomous/           # Unattended trading loops
-│   ├── coordination/         # Inter-loop coordination (event bus, locks, promoter, supervisor)
-│   ├── alpha_discovery/      # Strategy generation (grid search + Grammar GP)
-│   ├── execution/            # Risk gate, order lifecycle, broker routers
-│   ├── ml/                   # ML pipeline (LightGBM, XGBoost, CatBoost, TFT)
-│   ├── data/                 # Data fetching, storage, streaming
-│   ├── learning/             # IC/ICIR tracking, drift detection
-│   ├── monitoring/           # AlphaMonitor, DegradationDetector
-│   ├── mcp/                  # Unified MCP server (120+ tools)
-│   ├── api/                  # FastAPI REST server
-│   ├── optimization/         # ReflexionMemory, CreditAssigner, TextGrad
-│   └── ...                   # flows, guardrails, risk, crews, features, intraday, knowledge
-├── adapters/                 # Broker MCP servers (alpaca_mcp, ibkr_mcp, etrade_mcp)
-├── .claude/                  # Skills, agents, memory
-├── prompts/                  # Ralph loop prompts
-├── scripts/                  # Scheduler, loop launchers
-├── tests/                    # Test suite
-└── docs/                     # Documentation
-```
-
-## Package Overview
-
-### quantstack.core — Research Library
-
-Foundation for all quantitative analysis:
-
-- **200+ Technical Indicators**: trend, momentum, volatility, volume, market structure
-- **Backtesting Engine**: event-driven with transaction cost modeling, multi-timeframe
-- **ML Integration**: LightGBM, XGBoost, CatBoost, SHAP explainability
-- **RL Agents**: PPO/DQN for execution, sizing, spread trading (experimental)
-- **Options Pricing**: Black-Scholes, Greeks, IV surface
-- **Market Microstructure**: order book simulation, impact models, OFI, VPIN
-- **Execution Models**: SmartOrderRouter, TCA engine, kill switch, risk gate
-
-### quantstack.signal_engine — Signal Generation
-
-Seven concurrent Python collectors produce a `SignalBrief` — structured output with market bias, conviction, risk environment, and regime detail. No LLM calls, 2–6 seconds. Fault-tolerant: individual collector failures don't block the brief.
-
-### quantstack.execution — Trade Execution
-
-- **RiskGate**: hard-coded pre-trade checks (position size, daily loss, liquidity, options DTE)
-- **KillSwitch**: file-sentinel emergency halt, survives restarts
-- **SmartOrderRouter**: auto-routes to best available broker
-- **OrderLifecycle**: state machine for order management
-- **PaperBroker**: zero-config fallback with slippage simulation
-
-### quantstack.coordination — Autonomous Operations
-
-- **UniverseRegistry**: SP500 + NASDAQ-100 + 50 ETFs (~700 symbols)
-- **EventBus**: PostgreSQL pub/sub for inter-loop communication
-- **AutoPromoter**: evidence-based forward_testing → live promotion
-- **LoopSupervisor**: heartbeat monitoring, crash recovery
-- **PortfolioOrchestrator**: correlation, sector cap, position gating
-
-### quantstack.mcp — Unified MCP Server
-
-Single `quantstack-mcp` server exposes 120+ tools across all subsystems. Replaces the previous separate `quantcore-mcp` and `quantpod-mcp` servers.
-
----
-
-## System Architecture Diagram
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                     CLAUDE CODE (Portfolio Brain)                  │
-│        Skills: /trade  /invest  /options  /workshop  /review      │
-│        Memory: .claude/memory/ (strategy registry, trade journal) │
-└─────────────────────────────┬────────────────────────────────────┘
-                              │ MCP calls
-                              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                     quantstack-mcp (120+ tools)                   │
-│  signals · backtesting · ML · options · execution · coordination  │
-└─────────────────────────────┬────────────────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          ▼                   ▼                   ▼
-┌──────────────────┐ ┌─────────────────┐ ┌────────────────────┐
-│ SignalEngine      │ │ Execution Layer │ │ PostgreSQL State   │
-│ 7 collectors      │ │ RiskGate        │ │ positions/fills/   │
-│ No LLM, 2–6s     │ │ KillSwitch      │ │ audit/strategies/  │
-│ → SignalBrief     │ │ SmartOrderRouter│ │ universe/events    │
-└──────────────────┘ │ → Broker        │ └────────────────────┘
-                     └─────────────────┘
-                              │
-                              ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                        Data Sources                               │
-│  Alpha Vantage · FD.ai · Alpaca · Polygon (DATA_PROVIDER_PRIORITY)│
-└──────────────────────────────────────────────────────────────────┘
+├── start.sh                          # Single entry point
+├── report.sh                         # Performance summary
+├── prompts/
+│   ├── trading_loop.md               # Trading loop prompt — Claude reads each iteration
+│   ├── research_loop.md              # Research loop prompt
+│   └── reference/                    # python_toolkit.md, trading_rules.md, etc.
+├── src/quantstack/
+│   ├── coordination/                 # Supervisor, auto-promoter, preflight
+│   │   ├── supervisor.py             # Heartbeat monitor + bug-fix watcher thread
+│   │   ├── supervisor_main.py        # Entry point for supervisor tmux window
+│   │   └── auto_promoter.py         # forward_testing → live promotion
+│   ├── data/
+│   │   ├── fetcher.py                # Alpha Vantage client (daily quota guard, priority tiers)
+│   │   └── factory.py               # Provider routing + Alpaca OHLCV fallback
+│   ├── execution/
+│   │   ├── risk_gate.py              # IMMUTABLE — hard-coded pre-trade checks
+│   │   ├── kill_switch.py            # Emergency halt (DB sentinel)
+│   │   └── broker_routers.py         # Alpaca, PaperBroker
+│   ├── mcp/tools/                    # Python toolkit — imported directly in loop prompts
+│   │   ├── coordination.py           # record_heartbeat, get/set_loop_context, record_tool_error
+│   │   ├── signal.py                 # run_multi_signal_brief
+│   │   ├── execution.py              # execute_trade, get_portfolio_state
+│   │   └── ...
+│   ├── signal_engine/                # 15 concurrent collectors, no LLM, 2–6s
+│   ├── core/                         # Indicators, backtesting, ML, options pricing
+│   ├── api/                          # FastAPI REST (optional, not required for loops)
+│   └── db.py                         # PostgreSQL connection + all migrations
+├── scripts/
+│   ├── scheduler.py                  # APScheduler cron jobs
+│   └── autoresclaw_runner.py         # ARC dispatcher + auto-patch pipeline
+├── .claude/
+│   ├── agents/                       # Desk agent definitions (trade-debater, risk, etc.)
+│   ├── agents/
+│   │   ├── community-intel.md        # Weekly quant community discovery
+│   │   ├── market-intel.md           # Real-time trading intelligence
+│   │   └── ...                       # trade-debater, risk, fund-manager, etc.
+│   └── memory/                       # Persistent memory (gitignored)
+└── docs/
 ```
 
 ---
 
-## Data Flow
+## System diagram
 
-1. **Data Ingestion**: market data fetched via `DATA_PROVIDER_PRIORITY` (FD.ai → Alpaca → Alpha Vantage)
-2. **Feature Engineering**: `quantstack.core` computes 200+ indicators + multi-timeframe features
-3. **Signal Generation**: `SignalEngine` (7 collectors) produces `SignalBrief`
-4. **Decision**: Claude Code reads `SignalBrief` via `get_signal_brief` MCP, makes trade decision
-5. **Risk Check**: `RiskGate` enforces position size, daily loss, and liquidity limits
-6. **Execution**: `SmartOrderRouter` routes to best available broker (or `PaperBroker`)
-7. **Audit**: every decision and fill logged to PostgreSQL audit trail
-8. **Learning**: IC/ICIR tracking, calibration, and optimization modules update from outcomes
+```
+                        ./start.sh
+                            │
+          ┌─────────────────┼─────────────────────┐
+          ▼                 ▼                     ▼
+  ┌──────────────┐  ┌──────────────┐   ┌────────────────────┐
+  │   trading    │  │  research    │   │  supervisor        │
+  │  (tmux win) │  │  (tmux win) │   │  (tmux win)        │
+  │              │  │              │   │                    │
+  │ fresh claude │  │ fresh claude │   │ heartbeat monitor  │
+  │ every 5 min  │  │ every 2 min  │   │ bug-fix watcher    │
+  │              │  │              │   │                    │
+  │  spawns:     │  │  spawns:     │   │  ┌──────────────┐  │
+  │  position-   │  │  quant-      │   │  │  scheduler   │  │
+  │  monitor     │  │  researcher  │   │  │  (tmux win)  │  │
+  │  trade-      │  │  ml-scientist│   │  │  cron jobs   │  │
+  │  debater     │  │  strategy-rd │   │  └──────────────┘  │
+  │  risk        │  │  (BLITZ mode)│   └────────────────────┘
+  │  fund-mgr    │  │  community-  │
+  └──────┬───────┘  │  intel (10th │
+         │          │  iter, AH)   │
+         │          └──────┬───────┘
+         │                 │
+         └────────┬────────┘
+                  ▼
+        ┌──────────────────────────────────┐
+        │          PostgreSQL               │
+        │                                  │
+        │  positions       loop_heartbeats  │
+        │  fills           loop_iteration_  │
+        │  strategies        context        │
+        │  audit_log       bugs             │
+        │  research_queue  system_state     │
+        │  universe        ml_experiments   │
+        └──────────────────────────────────┘
+```
 
 ---
 
-## Key Design Principles
+## Stateless loop design
 
-1. **Hard-coded risk controls**: `RiskGate` and `KillSwitch` are code-enforced, not prompt-enforced. No agent can bypass them.
-2. **ACID state**: PostgreSQL MVCC prevents partial-failure state on crash; multiple concurrent connections without contention.
-3. **Dependency injection**: `TradingContext` wires all services; each test gets its own fresh context.
-4. **Unified MCP**: single server exposes the entire tool surface — no split between research and execution.
-5. **Paper mode default**: `USE_REAL_TRADING=false` by default; live trading requires explicit opt-in.
-6. **No LLM in execution path**: SignalEngine and RiskGate are pure Python. LLMs assist in research and reasoning, not in the hot path.
+Neither loop accumulates in-session state. Each Claude invocation:
+
+1. Reads current context from `loop_iteration_context` (PostgreSQL)
+2. Does its work (signals, debate, trades, or research)
+3. Writes updated context back to `loop_iteration_context`
+4. Exits — the `while :; do ... sleep N; done` wrapper in tmux starts a fresh invocation
+
+**Why no `--continue`:** Claude sessions accumulate context. By day 3–4 of a continuous run, the context window fills and loop steps get silently skipped. Stateless invocations eliminate this completely.
+
+**Context keys per loop:**
+
+| Loop | Key | Purpose |
+|------|-----|---------|
+| `trading_loop` | `market_intel` | Cached market intelligence (25-min TTL) |
+| `trading_loop` | `stale_symbols` | Symbols with stale OHLCV (set each iter) |
+| `trading_loop` | `closes_since_review` | Counter triggering weekly trade-reflector |
+| `research_loop` | `last_domain` | Last research domain processed |
+| `research_loop` | `domain_history` | Rolling 50-entry domain history |
+| `research_loop` | `last_execution_audit_at` | Date of last execution-researcher spawn |
 
 ---
 
-## Further Reading
+## Self-healing pipeline
 
-- [quant_pod.md](./quant_pod.md) — Execution layer and autonomous loop details
-- [quantcore.md](./quantcore.md) — Core library modules
-- [mcp_servers.md](./mcp_servers.md) — MCP server tool listings
-- [../guides/execution_setup.md](../guides/execution_setup.md) — Broker config, risk limits, kill switch
-- [../guides/quickstart.md](../guides/quickstart.md) — Get started in 5 minutes
+```
+loop prompt calls a tool
+        │
+  exception raised?
+        │ yes
+        ▼
+record_tool_error(tool_name, error, stack_trace, loop_name)
+        │
+        ▼
+  bugs table (UPSERT — dedup by tool_name + loop_name + error_fingerprint)
+        │
+  consecutive_errors >= 3?
+        │ yes
+        ▼
+research_queue INSERT (task_type='bug_fix', priority=9)
+bugs.arc_task_id ← new task_id
+        │
+        ▼
+supervisor._bug_fix_watcher (polls every 60s)
+  SELECT bugs JOIN research_queue ORDER BY priority DESC
+        │
+        ▼
+autoresclaw_runner.py --task-id <id>
+  ARC: locate code → edit src/ directly → write fix_summary.md
+        │
+        ▼
+_apply_bug_fix():
+  1. Read fix_summary.md — low confidence or human-review? → revert
+  2. git diff --name-only — protected file touched? → revert
+  3. py_compile each changed .py — syntax error? → revert
+  4. git add + git commit
+  5. _update_bug_status(task_id, "fixed", commit_hash)
+  6. _restart_loops_after_fix(changed_files)
+```
+
+Reverted fixes reset the bug to `open` so it can be retried or reviewed manually. All outcomes are written to `.claude/memory/session_handoffs.md`.
+
+---
+
+## Execution path
+
+```
+Claude decides to trade
+        ↓
+execute_trade(symbol, side, qty, strategy_id, ...)
+        ↓
+RiskGate.check()   ← IMMUTABLE — hard-coded Python, no bypass
+  ├─ Position size limits
+  ├─ Daily loss halt check
+  ├─ Liquidity floor
+  ├─ Options DTE / premium cap
+  └─ forward_testing size scalar (FORWARD_TESTING_SIZE_SCALAR env var)
+        ↓ passes
+SmartOrderRouter → Alpaca paper API (or PaperBroker)
+        ↓
+fills table + audit_log
+```
+
+---
+
+## Signal engine
+
+16 concurrent Python collectors produce a `SignalBrief`. No LLM calls. Wall-clock 2–6 seconds. Fault-tolerant: individual collector failures return an error flag without blocking the brief.
+
+| Category | Collectors |
+|----------|-----------|
+| Price structure | Trend, momentum, volatility |
+| Volume / microstructure | Volume/OFI, order flow |
+| Risk | VaR, drawdown |
+| Events | Earnings calendar, macro events |
+| Fundamentals | Piotroski F-Score, revenue, insider |
+| Sentiment | News NLP, put/call ratio |
+| Flow | Options flow, dark pool |
+| Cross-asset | Macro, sector rotation, statarb |
+| ML | Model predictions (XGBoost/LightGBM ensemble) |
+| Regime | ADX + ATR + HMM hidden-state |
+| Social | Reddit + Stocktwits community sentiment (no auth needed) |
+
+---
+
+## Agent architecture
+
+Claude's native `Agent` tool handles all parallelism. No external orchestrator. Example patterns from the trading loop:
+
+```
+Reviewing 3 open positions:
+  Agent(position-monitor, AAPL) ──┐
+  Agent(position-monitor, TSLA) ──┤── parallel, same message
+  Agent(position-monitor, SPY)  ──┘
+
+Evaluating entry candidates:
+  Agent(trade-debater, NVDA)    ──┐
+  Agent(trade-debater, MSFT)    ──┤── parallel
+  Agent(risk, batch)            ──┘
+        ↓ all return
+  Agent(fund-manager, batch)    ── sequential (needs debater results)
+```
+
+Desk agent definitions live in `.claude/agents/*.md`.
+
+Key agents:
+- **trade-debater** — bull/bear/risk debate before entries and exits
+- **position-monitor** — HOLD/TRIM/CLOSE/TIGHTEN for open positions
+- **market-intel** — real-time web search for news, analyst changes, M&A deals, social buzz
+- **fund-manager** — portfolio-level correlation/concentration review before batch entries
+- **community-intel** — weekly quant community scanner (Reddit/GitHub/arXiv/X/newsletters → `research_queue`)
+
+---
+
+## PostgreSQL schema (key tables)
+
+```sql
+-- All state for active and closed positions
+positions (position_id, symbol, qty, avg_entry_price, status, ...)
+fills (fill_id, symbol, side, qty, fill_price, realized_pnl, ...)
+
+-- Strategy lifecycle
+strategies (strategy_id, name, status, regime_affinity, params, ...)
+-- status: draft → forward_testing → live → retired
+
+-- Autonomous research pipeline
+research_queue (task_id, task_type, priority, context_json, status, ...)
+bugs (bug_id, tool_name, error_fingerprint, consecutive_errors, arc_task_id, status, ...)
+
+-- Loop coordination
+loop_heartbeats (loop_name, iteration, started_at, finished_at, status, ...)
+loop_iteration_context (loop_name, context_key, context_json, updated_at)
+
+-- Global state
+system_state (key, value, updated_at)
+-- keys: credit_regime, kill_switch, av_daily_calls_{date}, ...
+```
+
+---
+
+## Further reading
+
+- [quantcore.md](./quantcore.md) — Core library modules (indicators, backtesting, ML)
+- [mcp_servers.md](./mcp_servers.md) — Tool catalog
+- [../guides/quickstart.md](../guides/quickstart.md) — Get running in 10 minutes
+- [../guides/deployment.md](../guides/deployment.md) — Environment variables, data paths, cron jobs
+- [../guides/execution_setup.md](../guides/execution_setup.md) — Broker config, risk limits

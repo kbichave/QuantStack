@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -24,6 +24,7 @@ from loguru import logger
 
 from quantstack.execution.hook_registry import register
 from quantstack.learning.outcome_tracker import OutcomeTracker
+from quantstack.learning.prompt_tuner import PromptTuner
 from quantstack.learning.reflection import ReflectionManager
 from quantstack.optimization.credit_assignment import CreditAssigner
 from quantstack.optimization.reflexion_memory import ReflexionMemory
@@ -32,6 +33,15 @@ from quantstack.optimization.reflexion_memory import ReflexionMemory
 _reflection_mgr: ReflectionManager | None = None
 _reflexion_mem: ReflexionMemory | None = None
 _credit_assigner: CreditAssigner | None = None
+_prompt_tuner: PromptTuner | None = None
+
+
+def _get_prompt_tuner() -> PromptTuner | None:
+    """Lazy-init PromptTuner singleton."""
+    global _prompt_tuner
+    if _prompt_tuner is None:
+        _prompt_tuner = PromptTuner()
+    return _prompt_tuner
 
 
 def _get_reflection_manager() -> ReflectionManager | None:
@@ -105,7 +115,54 @@ def on_trade_close(
         logger.debug(f"[hooks] on_trade_close reflection failed (non-critical): {exc}")
         return
 
-    # 2. Structured reflexion episode (losses only)
+    # 2. research_queue INSERT for losses > 1% — feeds AutoResearchClaw bug_fix pipeline
+    if realized_pnl_pct < -1.0:
+        try:
+            from quantstack.db import db_conn
+            import json as _json
+            with db_conn() as _conn:
+                _conn.execute(
+                    """
+                    INSERT INTO research_queue (task_type, priority, context_json, source)
+                    VALUES ('bug_fix', %s, %s, 'trade_reflector')
+                    """,
+                    [
+                        7 if realized_pnl_pct < -3.0 else 5,
+                        _json.dumps({
+                            "symbol": symbol,
+                            "strategy_id": strategy_id,
+                            "realized_pnl_pct": realized_pnl_pct,
+                            "regime_at_entry": regime_at_entry,
+                            "regime_at_exit": regime_at_exit,
+                            "holding_days": holding_days,
+                            "conviction": conviction,
+                            "debate_verdict": debate_verdict,
+                        }),
+                    ],
+                )
+        except Exception as exc:
+            logger.debug(f"[hooks] research_queue insert failed (non-critical): {exc}")
+
+    # 3. PromptTuner outcome — losses only (≥ 5 same-pattern samples before surfacing)
+    if realized_pnl_pct < -1.0:
+        try:
+            tuner = _get_prompt_tuner()
+            if tuner is not None:
+                direction = "bullish" if action == "buy" else "bearish"
+                tuner.record_outcome(
+                    desk="alpha-research",
+                    prediction={"direction": direction, "conviction": conviction},
+                    outcome={
+                        "realized_return": realized_pnl_pct / 100.0,
+                        "direction_correct": False,
+                        "regime_at_exit": regime_at_exit,
+                    },
+                    symbol=symbol,
+                )
+        except Exception as exc:
+            logger.debug(f"[hooks] on_trade_close prompt tuner failed (non-critical): {exc}")
+
+    # 3. Structured reflexion episode (losses only)
     if realized_pnl_pct < -1.0:
         try:
             mem = _get_reflexion_memory()

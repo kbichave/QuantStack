@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -194,7 +194,7 @@ class RiskGate:
     """
 
     DAILY_HALT_SENTINEL = Path(
-        os.getenv("DAILY_HALT_SENTINEL", "~/.quant_pod/DAILY_HALT_ACTIVE")
+        os.getenv("DAILY_HALT_SENTINEL", "~/.quantstack/DAILY_HALT_ACTIVE")
     ).expanduser()
 
     _lock = Lock()
@@ -269,6 +269,7 @@ class RiskGate:
         instrument_type: str = "equity",
         premium_at_risk: float = 0.0,
         dte: int = 0,
+        strategy_status: str = "live",
     ) -> RiskVerdict:
         """
         Run all risk checks. Returns RiskVerdict (approved / rejected / scaled).
@@ -445,6 +446,19 @@ class RiskGate:
         if not violations:
             # -- 7. Per-symbol position size (equity path)
             equity = snapshot.total_equity or 100_000.0
+
+            # Scale down position size for unproven (forward_testing) strategies.
+            # All hard limits are still enforced on the scaled quantity.
+            if strategy_status == "forward_testing":
+                scalar = float(os.getenv("FORWARD_TESTING_SIZE_SCALAR", "0.5"))
+                original_qty = quantity
+                quantity = max(1, int(quantity * scalar))
+                if quantity != original_qty:
+                    logger.info(
+                        f"[RISK] {symbol} forward_testing scalar {scalar:.0%}: "
+                        f"{original_qty} → {quantity} shares"
+                    )
+
             order_notional = quantity * current_price
 
             existing_pos = self._portfolio.get_position(symbol)

@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -14,7 +14,7 @@ Breaker states:
   TRIPPED  — strategy halted (paper mode only) after trip threshold
   RESET    — manually reset via /review session
 
-Persistence: breaker state saved to ~/.quant_pod/strategy_breakers.json
+Persistence: breaker state saved to ~/.quantstack/strategy_breakers.json
 
 Usage:
     from quantstack.execution.strategy_breaker import StrategyBreaker
@@ -105,7 +105,7 @@ class StrategyBreaker:
     A threading Lock guards all state mutations and file I/O.
     """
 
-    _DEFAULT_STATE_PATH = "~/.quant_pod/strategy_breakers.json"
+    _DEFAULT_STATE_PATH = "~/.quantstack/strategy_breakers.json"
 
     def __init__(
         self,

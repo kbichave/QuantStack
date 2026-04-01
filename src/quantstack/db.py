@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Single consolidated database for all QuantPod state — PostgreSQL only.
+Single consolidated database for all QuantStack state — PostgreSQL only.
 
 ## Architecture
 
@@ -68,7 +68,7 @@ psycopg2.extras.register_default_jsonb(loads=lambda x: x)
 
 
 def _resolve_pg_url() -> str:
-    return os.getenv("TRADER_PG_URL", "postgresql://localhost/quantpod")
+    return os.getenv("TRADER_PG_URL", "postgresql://localhost/quantstack")
 
 
 # ---------------------------------------------------------------------------
@@ -84,11 +84,10 @@ def _get_pg_pool() -> psycopg2.pool.ThreadedConnectionPool:
     with _pg_pool_lock:
         if _pg_pool is None or _pg_pool.closed:
             url = _resolve_pg_url()
-            # With 10 domain-scoped MCP servers, each running its own pool,
-            # keep per-process limits low to stay under PostgreSQL's
-            # max_connections (default 100).  10 servers × 8 = 80, leaving
-            # headroom for psql, monitoring, and the TradingContext connection.
-            maxconn = int(os.getenv("PG_POOL_MAX", "8"))
+            # Pool size: 20 default handles concurrent data acquisition,
+            # trading loop, research loop, and scheduler.  Override with
+            # PG_POOL_MAX env var if running multiple processes.
+            maxconn = int(os.getenv("PG_POOL_MAX", "20"))
             _pg_pool = psycopg2.pool.ThreadedConnectionPool(minconn=1, maxconn=maxconn, dsn=url)
             logger.debug(f"[DB] PostgreSQL pool created → {url}")
     return _pg_pool
@@ -518,6 +517,9 @@ def run_migrations_pg(conn: PgConnection) -> None:
             _migrate_equity_alerts_pg(conn)
             _migrate_market_data_pg(conn)
             _migrate_analytics_pg(conn)
+            _migrate_research_queue_pg(conn)
+            _migrate_loop_context_pg(conn)
+            _migrate_bugs_pg(conn)
 
             logger.info("[DB] PostgreSQL migrations complete")
             _migrations_done = True
@@ -903,10 +905,9 @@ def _migrate_coordination_pg(conn: PgConnection) -> None:
             last_polled_at  TIMESTAMPTZ DEFAULT NOW()
         )
     """)
-    # Drop and recreate to ensure constraint exists (idempotent migrations)
-    conn.execute("DROP TABLE IF EXISTS loop_heartbeats CASCADE")
+    # Create loop_heartbeats if it doesn't exist (preserves data across restarts)
     conn.execute(_to_pg("""
-        CREATE TABLE loop_heartbeats (
+        CREATE TABLE IF NOT EXISTS loop_heartbeats (
             loop_name           TEXT NOT NULL,
             iteration           INTEGER NOT NULL,
             started_at          TIMESTAMPTZ NOT NULL,
@@ -921,27 +922,6 @@ def _migrate_coordination_pg(conn: PgConnection) -> None:
         CREATE INDEX IF NOT EXISTS heartbeats_loop_idx
         ON loop_heartbeats (loop_name, started_at DESC)
     """)
-
-    # Fix migration drift: ensure composite PK exists on loop_heartbeats.
-    # If the table was created before the PRIMARY KEY was added, ON CONFLICT
-    # (loop_name, iteration) in record_heartbeat will fail.
-    try:
-        conn.execute("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conrelid = 'loop_heartbeats'::regclass
-                      AND contype = 'p'
-                ) THEN
-                    ALTER TABLE loop_heartbeats
-                        ADD CONSTRAINT loop_heartbeats_pkey
-                        PRIMARY KEY (loop_name, iteration);
-                END IF;
-            END $$;
-        """)
-    except Exception:
-        pass  # PK already exists or table doesn't exist yet
 
 
 def _migrate_conversations_pg(conn: PgConnection) -> None:
@@ -1689,6 +1669,121 @@ def _migrate_analytics_pg(conn: PgConnection) -> None:
         "ON research_trajectories (generation, overall_fitness DESC)"
     )
     logger.debug("[DB] Analytics tables migrated")
+
+
+# ---------------------------------------------------------------------------
+# Research queue — AutoResearchClaw task inbox
+# ---------------------------------------------------------------------------
+
+
+def _migrate_research_queue_pg(conn: PgConnection) -> None:
+    """research_queue — AutoResearchClaw task inbox.
+
+    Populated by: trade-reflector (bug_fix), DriftDetector (ml_arch_search),
+    research loop (strategy_hypothesis), and manual inserts.
+    Consumed by: scripts/autoresclaw_runner.py (Sunday 20:00 scheduler job).
+    """
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS research_queue (
+            task_id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+            task_type        TEXT NOT NULL
+                             CHECK (task_type IN (
+                                 'ml_arch_search', 'rl_env_design',
+                                 'bug_fix', 'strategy_hypothesis'
+                             )),
+            priority         INTEGER NOT NULL DEFAULT 5,
+            topic            TEXT,
+            context_json     JSONB NOT NULL DEFAULT '{}',
+            status           TEXT NOT NULL DEFAULT 'pending'
+                             CHECK (status IN ('pending', 'running', 'done', 'failed')),
+            source           TEXT,
+            result_path      TEXT,
+            error_message    TEXT,
+            created_at       TIMESTAMPTZ DEFAULT NOW(),
+            started_at       TIMESTAMPTZ,
+            completed_at     TIMESTAMPTZ
+        )
+    """))
+    # Idempotent column addition for tables created before topic was added.
+    conn.execute(
+        "ALTER TABLE research_queue ADD COLUMN IF NOT EXISTS topic TEXT"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS rq_status_priority_idx "
+        "ON research_queue (status, priority DESC, created_at)"
+    )
+    logger.debug("[DB] research_queue table migrated")
+
+
+def _migrate_loop_context_pg(conn: PgConnection) -> None:
+    """loop_iteration_context — stateless loop iteration state.
+
+    Replaces in-session state[] dict in trading/research loop prompts.
+    Each loop writes its per-iteration context here so that `claude` (no
+    --continue) can start fresh each iteration and read prior state from DB.
+
+    Keys used by trading_loop: market_intel, stale_symbols,
+        closes_since_review, last_weekly_review_at
+    Keys used by research_loop: last_domain, domain_history,
+        last_execution_audit_at, cross_domain_transfers
+    """
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS loop_iteration_context (
+            loop_name    TEXT        NOT NULL,
+            context_key  TEXT        NOT NULL,
+            context_json JSONB       NOT NULL DEFAULT '{}',
+            updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (loop_name, context_key)
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS lic_loop_name_idx "
+        "ON loop_iteration_context (loop_name)"
+    )
+    logger.debug("[DB] loop_iteration_context table migrated")
+
+
+def _migrate_bugs_pg(conn: PgConnection) -> None:
+    """bugs — persistent bug tracker with full lifecycle.
+
+    Every tool failure recorded by record_tool_error() lands here.
+    Status lifecycle: open → in_progress → fixed | reverted | wont_fix
+
+    Deduplication key: (tool_name, loop_name, error_fingerprint).
+    error_fingerprint is the first 120 chars of the error message, which
+    is stable enough to group repeated identical failures without being so
+    broad that different bugs collapse into one row.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bugs (
+            bug_id              TEXT        NOT NULL PRIMARY KEY,
+            tool_name           TEXT        NOT NULL,
+            loop_name           TEXT        NOT NULL DEFAULT 'trading_loop',
+            error_message       TEXT        NOT NULL,
+            error_fingerprint   TEXT        NOT NULL,
+            stack_trace         TEXT,
+            status              TEXT        NOT NULL DEFAULT 'open'
+                                    CHECK (status IN ('open','in_progress','fixed','reverted','wont_fix')),
+            priority            INTEGER     NOT NULL DEFAULT 5,
+            consecutive_errors  INTEGER     NOT NULL DEFAULT 1,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_seen_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            fixed_at            TIMESTAMPTZ,
+            fix_commit          TEXT,
+            fix_summary         TEXT,
+            arc_task_id         TEXT
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS bugs_status_priority_idx "
+        "ON bugs (status, priority DESC, created_at ASC)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS bugs_dedup_idx "
+        "ON bugs (tool_name, loop_name, error_fingerprint) "
+        "WHERE status IN ('open', 'in_progress')"
+    )
+    logger.debug("[DB] bugs table migrated")
 
 
 # ---------------------------------------------------------------------------

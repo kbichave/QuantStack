@@ -1,16 +1,12 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Conversation logger — persists agent interactions to PostgreSQL and posts to Slack.
+Conversation logger — persists agent interactions to PostgreSQL.
 
 Every desk agent report, PM decision, signal scan, trade, and alert flows
-through this module. It handles both sides:
-  1. PostgreSQL INSERT for history, debugging, and optimization analysis
-  2. Slack post for real-time monitoring
-
-The /reflect skill and Slack MCP server can later read these conversations
-back to identify prompt flaws, agent biases, and optimization opportunities.
+through this module for PostgreSQL INSERT for history, debugging, and
+optimization analysis.
 """
 
 from __future__ import annotations
@@ -24,8 +20,6 @@ from loguru import logger
 
 from quantstack.db import PgConnection
 
-from quantstack.coordination.slack_client import SlackClient
-
 
 class ConversationLogger:
     """
@@ -33,18 +27,15 @@ class ConversationLogger:
 
     Args:
         conn: PostgreSQL connection.
-        slack: SlackClient instance. Pass None to disable Slack posting.
         session_id: Current session ID for grouping conversations.
     """
 
     def __init__(
         self,
         conn: PgConnection,
-        slack: SlackClient | None = None,
         session_id: str = "",
     ) -> None:
         self._conn = conn
-        self._slack = slack or SlackClient()
         self._session_id = session_id or uuid.uuid4().hex[:12]
 
     def log_agent_report(
@@ -58,13 +49,13 @@ class ConversationLogger:
         metadata: dict[str, Any] | None = None,
     ) -> str:
         """
-        Log a desk agent report to the database and post to Slack #agent-activity.
+        Log a desk agent report to the database.
 
         Args:
             agent_name: Agent identifier (market_intel, risk, etc.).
             symbol: Ticker symbol the report is about.
             content: Full report text from the agent.
-            summary: 1-line summary for Slack compact view.
+            summary: 1-line summary.
             strategy_id: Strategy this report relates to.
             iteration: Loop iteration number.
             metadata: Extra context (model, tokens, duration_ms).
@@ -100,8 +91,6 @@ class ConversationLogger:
             )
         except Exception as exc:
             logger.debug(f"[ConvLogger] DB insert failed: {exc}")
-
-        self._slack.post_agent_report(agent_name, symbol, summary, content)
 
         return cid
 
@@ -139,7 +128,6 @@ class ConversationLogger:
         except Exception as exc:
             logger.debug(f"[ConvLogger] DB insert failed: {exc}")
 
-        self._slack.post_agent_report("pm", symbol, summary, content)
         return cid
 
     def log_signal_snapshot(
@@ -151,7 +139,7 @@ class ConversationLogger:
         failures: list[str] | None = None,
     ) -> str:
         """
-        Log raw SignalEngine collector outputs to the database and post summary to Slack.
+        Log raw SignalEngine collector outputs to the database.
 
         Args:
             symbol: Ticker symbol.
@@ -194,15 +182,10 @@ class ConversationLogger:
         except Exception as exc:
             logger.debug(f"[ConvLogger] Signal snapshot insert failed: {exc}")
 
-        self._slack.post_signal_brief(symbol, bias, conviction, collectors)
         return sid
 
-    def log_trade(self, trade_result: dict[str, Any]) -> None:
-        """Post a trade fill to Slack #trades."""
-        self._slack.post_trade(trade_result)
-
     def log_alert(self, severity: str, title: str, detail: str) -> None:
-        """Post an alert to Slack #alerts and log as agent conversation."""
+        """Log an alert as an agent conversation."""
         cid = uuid.uuid4().hex[:12]
         try:
             self._conn.execute(
@@ -223,19 +206,3 @@ class ConversationLogger:
             )
         except Exception as exc:
             logger.debug(f"[ConvLogger] Alert insert failed: {exc}")
-
-        self._slack.post_alert(severity, title, detail)
-
-    def log_portfolio_summary(self, snapshot: dict[str, Any]) -> None:
-        """Post portfolio summary to Slack #portfolio."""
-        self._slack.post_portfolio_summary(snapshot)
-
-    def log_strategy_event(
-        self, event_type: str, strategy_name: str, detail: str
-    ) -> None:
-        """Post strategy lifecycle event to Slack #strategies."""
-        self._slack.post_strategy_event(event_type, strategy_name, detail)
-
-    def log_system(self, text: str) -> None:
-        """Post to Slack #system channel."""
-        self._slack.post_system(text)

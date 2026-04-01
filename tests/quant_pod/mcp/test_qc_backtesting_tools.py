@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -23,7 +23,7 @@ from quantstack.mcp.tools.qc_backtesting import (
     run_purged_cv,
     run_walkforward_template,
 )
-from tests.quant_pod.mcp.conftest import _fn, synthetic_ohlcv
+from tests.quantstack.mcp.conftest import _fn, synthetic_ohlcv
 
 
 # ---------------------------------------------------------------------------

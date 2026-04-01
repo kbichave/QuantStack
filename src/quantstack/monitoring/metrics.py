@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Prometheus metrics for the QuantPod trading system.
+Prometheus metrics for the QuantStack trading system.
 
 Instruments:
   - trades_executed_total        counter  symbol, side, speed (tick|minute)
@@ -93,75 +93,75 @@ def _init_metrics() -> None:
         return
 
     _trades_executed = Counter(
-        "quantpod_trades_executed_total",
+        "quantstack_trades_executed_total",
         "Number of fills (rejected excluded) by symbol, side, and execution speed",
         ["symbol", "side", "speed"],
     )
     _risk_rejections = Counter(
-        "quantpod_risk_rejections_total",
+        "quantstack_risk_rejections_total",
         "Number of orders rejected by the risk gate, by violation type",
         ["violation_type"],
     )
     _agent_latency = Histogram(
-        "quantpod_agent_latency_seconds",
+        "quantstack_agent_latency_seconds",
         "LLM agent decision latency in seconds",
         ["agent_name"],
         buckets=[0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
     )
     _signal_staleness = Gauge(
-        "quantpod_signal_staleness_seconds",
+        "quantstack_signal_staleness_seconds",
         "Seconds since the most recent valid signal for this symbol",
         ["symbol"],
     )
     _portfolio_nav = Gauge(
-        "quantpod_portfolio_nav_dollars",
+        "quantstack_portfolio_nav_dollars",
         "Current total portfolio equity (cash + open positions at market)",
     )
     _daily_pnl = Gauge(
-        "quantpod_daily_pnl_dollars",
+        "quantstack_daily_pnl_dollars",
         "Realized P&L for the current trading day",
     )
     _kill_switch = Gauge(
-        "quantpod_kill_switch_active",
+        "quantstack_kill_switch_active",
         "1 if the emergency kill switch is active, 0 otherwise",
     )
     _tick_lag = Histogram(
-        "quantpod_tick_executor_lag_seconds",
+        "quantstack_tick_executor_lag_seconds",
         "Elapsed time from tick arrival to order submit in the hot path",
         buckets=[0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
     )
 
     # BLITZ mode metrics
     _blitz_iterations = Counter(
-        "quantpod_blitz_iterations_total",
+        "quantstack_blitz_iterations_total",
         "Total BLITZ mode iterations completed"
     )
     _blitz_duration = Histogram(
-        "quantpod_blitz_duration_seconds",
+        "quantstack_blitz_duration_seconds",
         "BLITZ iteration duration (seconds)",
         buckets=[30, 60, 120, 300, 600, 1200]  # 30s to 20min
     )
     _blitz_agents_spawned = Histogram(
-        "quantpod_blitz_agents_spawned",
+        "quantstack_blitz_agents_spawned",
         "Number of agents spawned per BLITZ iteration",
         buckets=[3, 6, 9, 15, 21, 30]
     )
     _blitz_agents_succeeded = Histogram(
-        "quantpod_blitz_agents_succeeded",
+        "quantstack_blitz_agents_succeeded",
         "Number of agents that completed successfully",
         buckets=[0, 1, 3, 6, 9, 15, 21, 30]
     )
     _blitz_symbols_complete = Gauge(
-        "quantpod_blitz_symbols_complete",
+        "quantstack_blitz_symbols_complete",
         "Symbols with complete 3-domain coverage (cumulative)"
     )
     _blitz_conflicts = Counter(
-        "quantpod_blitz_conflicts_detected_total",
+        "quantstack_blitz_conflicts_detected_total",
         "Cross-domain thesis conflicts detected",
         ["symbol"]
     )
     _blitz_strategies = Counter(
-        "quantpod_blitz_strategies_registered_total",
+        "quantstack_blitz_strategies_registered_total",
         "Strategies registered by BLITZ agents",
         ["domain"]  # investment, swing, options
     )

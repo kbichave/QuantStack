@@ -5,7 +5,7 @@
 Unified serialization for MCP tool responses.
 
 Combines the previously duplicated ``_dc_to_dict`` (broker MCPs),
-``_serialize`` (quant_pod), and ``_serialize_result`` (quantcore) into
+``_serialize`` (quantstack), and ``_serialize_result`` (quantcore) into
 a single recursive converter.
 """
 

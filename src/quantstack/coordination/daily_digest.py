@@ -1,4 +1,4 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -23,8 +23,6 @@ from typing import Any
 from loguru import logger
 
 from quantstack.db import PgConnection
-
-from quantstack.coordination.slack_client import SlackClient
 
 
 @dataclass
@@ -211,7 +209,7 @@ class DailyDigest:
         return {
             "embeds": [
                 {
-                    "title": f"QuantPod Daily Digest — {report.report_date.isoformat()}",
+                    "title": f"QuantStack Daily Digest — {report.report_date.isoformat()}",
                     "color": color,
                     "fields": fields,
                     "footer": {
@@ -220,24 +218,6 @@ class DailyDigest:
                 }
             ]
         }
-
-    def send_slack(self, report: DigestReport) -> bool:
-        """Send the digest to Slack #system channel. Returns True on success."""
-        try:
-            client = SlackClient()
-            if not client.is_configured:
-                return False
-
-            md = self.format_markdown(report)
-            # Convert markdown to Slack mrkdwn (close enough)
-            ts = client.post_system(md)
-            if ts:
-                logger.info("[DailyDigest] Sent to Slack #system")
-                return True
-            return False
-        except Exception as exc:
-            logger.debug(f"[DailyDigest] Slack send failed: {exc}")
-            return False
 
     def send_discord(self, report: DigestReport) -> bool:
         """Send the digest to Discord via webhook. Returns True on success."""

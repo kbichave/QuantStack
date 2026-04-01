@@ -1,7 +1,7 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Unit tests for quant_pod.guardrails.mcp_response_validator — Sprint 1.
+Unit tests for quantstack.guardrails.mcp_response_validator — Sprint 1.
 
 Tests bounds checking, injection detection, and consistency validation.
 No external I/O — pure in-memory validation logic.

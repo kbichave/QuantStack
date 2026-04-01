@@ -1,7 +1,7 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 """
-Unit tests for quant_pod.execution.order_lifecycle — Sprint 3.
+Unit tests for quantstack.execution.order_lifecycle — Sprint 3.
 
 Tests the OMS state machine: submit, acknowledge, partial fill, fill,
 reject, cancel, exec algo selection, and compliance checks.

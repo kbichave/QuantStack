@@ -1,8 +1,8 @@
-# Copyright 2024 QuantPod Contributors
+# Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for the QuantPod MCP server tools.
+Unit tests for the QuantStack MCP server tools.
 
 Tests use an in-memory TradingContext — no file I/O, no LLM calls.
 The run_analysis tool is tested with mocked crew execution.
@@ -238,7 +238,7 @@ class TestRequireCtx:
 class TestServerDefinition:
     def test_mcp_server_has_tools(self):
         assert mcp is not None
-        assert mcp.name == "QuantPod"
+        assert mcp.name == "QuantStack"
 
     def test_main_is_callable(self):
         assert callable(main)

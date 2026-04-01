@@ -72,14 +72,17 @@ QuantStack/
   │  position-   │  │  quant-      │   │  │  scheduler   │  │
   │  monitor     │  │  researcher  │   │  │  (tmux win)  │  │
   │  trade-      │  │  ml-scientist│   │  │  cron jobs   │  │
-  │  debater     │  │  strategy-rd │   │  └──────────────┘  │
-  │  risk        │  │  (BLITZ mode)│   └────────────────────┘
-  │  fund-mgr    │  │  community-  │
-  └──────┬───────┘  │  intel (10th │
-         │          │  iter, AH)   │
-         │          └──────┬───────┘
-         │                 │
-         └────────┬────────┘
+  │  debater     │  │  strategy-rd │   │  │              │  │
+  │  risk        │  │  (BLITZ mode)│   │  │  strategy_   │  │
+  │  fund-mgr    │  │  Step 2e:    │   │  │  pipeline    │  │
+  └──────┬───────┘  │  promotion   │   │  │  (*/10 min)  │  │
+         │          │  review      │   │  └──────┬───────┘  │
+         │          │  community-  │   └─────────┼──────────┘
+         │          │  intel (10th │             │
+         │          │  iter, AH)   │             │
+         │          └──────┬───────┘             │
+         │                 │                     │
+         └────────┬────────┴─────────────────────┘
                   ▼
         ┌──────────────────────────────────┐
         │          PostgreSQL               │
@@ -157,6 +160,42 @@ _apply_bug_fix():
 ```
 
 Reverted fixes reset the bug to `open` so it can be retried or reviewed manually. All outcomes are written to `.claude/memory/session_handoffs.md`.
+
+---
+
+## Strategy promotion pipeline
+
+Strategies progress through a state machine where the DB is the handshake medium between independent processes. No direct inter-process communication.
+
+```
+Research loop                  Scheduler                     Research loop
+(creates strategies)           (strategy_pipeline_10m)       (Step 2e)
+
+registers as ──────►  draft ──── run_backtest ────►  backtested ──── strategy-rd ────►  forward_testing
+  status='draft'       │        (pure Python,         │            agent (LLM           │
+                       │         every 10 min)        │             reasoning)          │
+                       │                              │                                │
+                       │                              └───► retired (REJECT verdict)   │
+                       │                                                               │
+                       │         AutoPromoter (21+ days paper trading)                  │
+                       │         min 15 trades, Sharpe > 0.5, DD < 8%                  │
+                       │                                        ┌──────────────────────┘
+                       │                                        ▼
+                       │                                       live
+                       │                                        │
+                       │         Monthly lifecycle: degradation  │
+                       │         check (30d P&L < 0 → retire)   │
+                       │                                        ▼
+                       └───────────────────────────────────►  retired
+```
+
+**Phase 1 — draft to backtested** runs in the scheduler (`strategy_pipeline_10m`). Pure Python, no LLM. Calls `run_backtest_impl()` which populates `backtest_summary` and transitions status. Heartbeat-guarded to prevent overlap.
+
+**Phase 2 — backtested to forward_testing** runs in the research loop (`Step 2e`). Each iteration checks for up to 2 backtested strategies and spawns a `strategy-rd` agent to reason about whether to PROMOTE, REJECT, or INVESTIGATE. This is intentionally LLM-based: mechanical thresholds miss context about regime fit, overfitting risk, and strategy quality that the strategy-rd agent evaluates.
+
+**Phase 3 — forward_testing to live** is handled by `AutoPromoter` (called during the weekly lifecycle job). Requires 21+ days of paper trading, 15+ trades, Sharpe > 0.5, and drawdown < 8%.
+
+See `docs/ops-runbook.md` for diagnostic queries and common failure modes.
 
 ---
 
@@ -239,7 +278,7 @@ fills (fill_id, symbol, side, qty, fill_price, realized_pnl, ...)
 
 -- Strategy lifecycle
 strategies (strategy_id, name, status, regime_affinity, params, ...)
--- status: draft → forward_testing → live → retired
+-- status: draft → backtested → forward_testing → live → retired
 
 -- Autonomous research pipeline
 research_queue (task_id, task_type, priority, context_json, status, ...)
@@ -260,6 +299,7 @@ system_state (key, value, updated_at)
 
 - [quantcore.md](./quantcore.md) — Core library modules (indicators, backtesting, ML)
 - [mcp_servers.md](./mcp_servers.md) — Tool catalog
+- [../ops-runbook.md](../ops-runbook.md) — Diagnostic queries, failure modes, recovery procedures
 - [../guides/quickstart.md](../guides/quickstart.md) — Get running in 10 minutes
 - [../guides/deployment.md](../guides/deployment.md) — Environment variables, data paths, cron jobs
 - [../guides/execution_setup.md](../guides/execution_setup.md) — Broker config, risk limits

@@ -257,27 +257,21 @@ tmux new-session -d -s quantstack-loops -n trading \
        if [[ \"\$HOUR\" -ge 9 && \"\$HOUR\" -lt 16 ]]; then sleep 60; else sleep 1800; fi
      done"
 
-# Research window — market-aware model routing + adaptive interval.
-# Market hours (09:30–16:00 ET): haiku — task is short (data refresh, signal check, watchlist).
-#   Context is lightweight; no deep work needed while market is open.
-# After hours: sonnet — full research cycles (evidence gathering, strategy design, backtest).
-#   Subagents spawned by research loop inherit this model via .claude/agents/ frontmatter.
-# Sleep: 5 min during market hours, 30 min outside.
-tmux new-window -t quantstack-loops -n research \
-    "$ENV_PREFIX while :; do
-       export HEARTBEAT_ITERATION=\$(bash scripts/heartbeat.sh research_loop running 2>/dev/null | grep '^HEARTBEAT_ITERATION=' | cut -d= -f2)
-       HOUR=\$(TZ='America/New_York' date +%H)
-       if [[ \"\$HOUR\" -ge 9 && \"\$HOUR\" -lt 16 ]]; then
-         MODEL='haiku'
-         SLEEP=300
-       else
-         MODEL='sonnet'
-         SLEEP=1800
-       fi
-       cat prompts/research_loop.md | claude --model \"\$MODEL\" 2>&1 | tee -a data/logs/research_loop.log
-       bash scripts/heartbeat.sh research_loop completed
-       sleep \$SLEEP
-     done"
+# Research windows — two parallel explorers (research-a, research-b).
+#
+# Both run scripts/research_worker.sh which handles:
+#   - Market-aware model routing (haiku market hours, sonnet after hours)
+#   - Adaptive sleep: 5 min bootstrap (< 5 forward_testing), 30 min steady-state
+#   - research_wip DB lock prevents duplicate symbol work across parallel workers
+#   - Each logs to data/logs/research_loop_{a,b}.log
+#
+# research-b starts 90s after research-a to stagger DB access at launch.
+
+tmux new-window -t quantstack-loops -n research-a \
+    "$ENV_PREFIX bash scripts/research_worker.sh a 0"
+
+tmux new-window -t quantstack-loops -n research-b \
+    "$ENV_PREFIX bash scripts/research_worker.sh b 90"
 
 # Add supervisor window
 tmux new-window -t quantstack-loops -n supervisor \

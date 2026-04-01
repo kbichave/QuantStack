@@ -69,13 +69,15 @@ DEFAULT_LOOP_CONFIGS = [
         name="trading_loop",
         expected_interval_seconds=300,
         tmux_target="quantstack-loops:trading",
-        restart_command="cat prompts/trading_loop.md | claude",
+        restart_command="cat prompts/trading_loop.md | claude --model sonnet",
     ),
     LoopConfig(
         name="research_loop",
-        expected_interval_seconds=120,
-        tmux_target="quantstack-loops:research",
-        restart_command="cat prompts/research_loop.md | claude",
+        # Bootstrap: 5 min; steady-state: 30 min. Use 35 min (2100s) as the
+        # stale threshold so supervisor doesn't false-alarm during steady-state.
+        expected_interval_seconds=2100,
+        tmux_target="quantstack-loops:research-a",
+        restart_command="bash scripts/research_worker.sh a 0",
     ),
 ]
 

@@ -91,6 +91,7 @@ def create_trading_context(
     initial_cash: float = 100_000.0,
     risk_limits: RiskLimits | None = None,
     session_id: str | None = None,
+    run_migrations_on_init: bool = True,
 ) -> TradingContext:
     """
     Build and return a fully-wired TradingContext.
@@ -116,7 +117,10 @@ def create_trading_context(
     conn = open_db(db_path)
 
     # 2. Run migrations — idempotent, all CREATE TABLE/INDEX IF NOT EXISTS.
-    run_migrations(conn)
+    # Skip when auto-initializing inside a running system (migrations already
+    # ran at startup) to avoid lock contention with the active loop processes.
+    if run_migrations_on_init:
+        run_migrations(conn)
 
     # 3. Build services in dependency order.
     portfolio = PortfolioState(conn=conn, initial_cash=initial_cash)

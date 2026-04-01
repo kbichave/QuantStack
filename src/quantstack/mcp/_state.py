@@ -69,9 +69,20 @@ def ic_cache_get(symbol: str, ic_name: str) -> str | None:
 
 
 def require_ctx() -> TradingContext:
-    """Get the trading context, raising if the server hasn't started."""
+    """Get the trading context, auto-initializing if called outside the MCP server.
+
+    When tools are invoked as direct Python imports (e.g. ``python3 -c "from
+    quantstack.mcp.tools.backtesting import run_backtest; ..."``), the MCP
+    server lifespan never runs and ``_ctx`` is None.  Rather than crashing,
+    we create a minimal context on demand so all tools work in both modes:
+    (a) inside the MCP server (lifespan set ``_ctx`` already), and
+    (b) as bare Python imports from the trading/research loop prompts.
+    """
+    global _ctx
     if _ctx is None:
-        raise RuntimeError("QuantStack MCP server not initialized — call lifespan first")
+        logger.debug("[state] Auto-initializing TradingContext for direct-import mode")
+        from quantstack.context import create_trading_context
+        _ctx = create_trading_context(run_migrations_on_init=False)
     return _ctx
 
 

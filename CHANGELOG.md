@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-04-02
+
+### Changed — CrewAI to LangGraph Migration
+
+Complete architectural migration from CrewAI crews to LangGraph StateGraphs. This is a breaking change — the entire orchestration layer has been replaced.
+
+**Three LangGraph StateGraphs** replace the old prompt-based Claude loops:
+- **Trading Graph** (12 nodes) — safety check, daily planning, parallel position review + entry scanning, mandatory risk gate (SafetyGate), portfolio review, options analysis, execution, reflection
+- **Research Graph** (8 nodes) — context loading, domain selection, hypothesis generation, signal validation, backtesting, ML experiments, strategy registration, knowledge update
+- **Supervisor Graph** (5 nodes) — health checks, issue diagnosis, recovery execution, strategy lifecycle, scheduled tasks
+
+**Docker-first deployment** — all services (PostgreSQL + pgvector, LangFuse, Ollama, 3 graph runners) orchestrated via `docker-compose.yml`. Replaces tmux-based loop management.
+
+**New tool layer architecture:**
+- LLM-facing tools in `tools/langchain/` (19 `@tool` decorated functions)
+- Deterministic functions in `tools/functions/` (called directly by graph nodes)
+- Central `TOOL_REGISTRY` in `tools/registry.py` with YAML-driven agent binding
+- Agent configs in `graphs/*/config/agents.yaml` with hot-reload support
+
+**New LLM provider abstraction** (`src/quantstack/llm/`):
+- Tier system (heavy/medium/light/embedding) with per-agent assignment
+- Provider fallback chain: bedrock → anthropic → openai → ollama
+- Supports Bedrock, Anthropic, OpenAI, Gemini, Ollama
+
+**New subsystems:**
+- `src/quantstack/runners/` — Docker entrypoints for each graph service
+- `src/quantstack/health/` — heartbeat, retry with backoff, graceful shutdown, watchdog
+- `src/quantstack/rag/` — pgvector-based knowledge retrieval (replaces ChromaDB)
+- `src/quantstack/graphs/` — state schemas, config loader, config watcher
+
+### Removed — Dead Code Cleanup
+
+- **MCP bridge dead subtree** — `_factories.py`, `_schemas.py`, `tools_data.py`, `tools_analysis.py`, `tools_risk.py`, `tools_etrade.py`, `tools_market.py` (7 files, never imported)
+- **Research agent classes** — `ml_scientist.py`, `execution_researcher.py`, `alpha_researcher.py` (replaced by inline LangGraph nodes)
+- **Dead core modules** — `feature_scaler.py`, `cross_asset.py`, `cost_model.py`, `tuning.py`, `ic_output_validator.py`, `param_optimizer.py` (zero imports)
+- **CrewAI framework** — `crews/`, `crewai_compat.py`, all CrewAI docs (100+ files)
+- **Old agent definitions** — `.claude/agents/*.md` (14 files), `prompts/` directory
+- **Dead enum** — `GROQ_SYNTHESIS` in `DecisionPath` (never routed to since v1.1)
+- **Completed migration script** — `scripts/migrate_chromadb_to_pgvector.py`
+- **Archived one-off scripts** — 6 research scripts moved to `scripts/archive/`
+
+### Added — LLM-Ready Documentation
+
+Five new architecture docs so any LLM session can understand the repo:
+- `docs/architecture/graphs.md` — StateGraph structure, state schemas, agent config system
+- `docs/architecture/tools.md` — two-tier tool architecture, TOOL_REGISTRY catalog
+- `docs/architecture/signal_engine.md` — 18 concurrent collectors, SignalBrief, synthesis
+- `docs/architecture/llm_routing.md` — tier system, provider fallback, model instantiation
+- `docs/architecture/database_schema.md` — 60+ PostgreSQL tables by subsystem
+
+Updated:
+- `CLAUDE.md` — added Module Reference table pointing to all subsystem docs
+- `docs/architecture/README.md` — updated for LangGraph, new system diagram
+- `README.md` — replaced ASCII architecture diagram with high-res Mermaid PNG
+- Deleted stale `docs/architecture/quant_pod.md` (CrewAI architecture)
+
+### Added — Test Suites
+
+New test coverage for the LangGraph architecture:
+- Unit tests: agent config, agent definitions, state schemas, tool contracts, graph structure, health, observability, runners, risk safety, scripts, watchdog
+- Integration tests: e2e smoke, graceful shutdown, provider fallback, RAG degradation
+
+### Fixed
+
+- `planning/` removed from git tracking, added to `.gitignore`
+- `.dockerignore` added for cleaner Docker builds
+- Observability instrumentation refactored
+
 ## [2.1.0] - 2026-04-01
 
 ### Changed — Market-Aware Model Routing & Loop Restructure

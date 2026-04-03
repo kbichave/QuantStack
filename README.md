@@ -22,63 +22,37 @@
 ./start.sh
 ```
 
-That's it. `start.sh` is the single entry point. It checks prerequisites, runs DB migrations, compacts memory files, displays the current credit regime, seeds community intelligence in the background, and starts five tmux windows. Leave it running for weeks.
+That's it. `start.sh` is the single entry point. It runs Docker Compose (PostgreSQL, LangFuse, Ollama, 3 graph services), runs DB migrations, and starts the trading, research, and supervisor pipelines. Leave it running for weeks.
 
 ```
-tmux attach -t quantstack-loops    # watch the loops
 ./status.sh                        # health dashboard (one-shot)
 ./status.sh --watch                # live dashboard (10s refresh, Ctrl+C to quit)
-./stop.sh                          # graceful shutdown (kill switch → wait → kill tmux)
+./stop.sh                          # graceful shutdown
 ./report.sh                        # monthly performance report
+docker compose logs -f trading     # follow a specific service
 ```
 
 ---
 
 ## Architecture
 
-Two stateless Claude loops run concurrently, sharing state through PostgreSQL. Neither loop keeps in-session state — every iteration starts from a fresh Claude invocation, reads what it needs from DB, and writes back.
+Three LangGraph StateGraphs run as Docker services, sharing state through PostgreSQL. No in-process state accumulates across cycles — each iteration reads from DB, does its work, and writes back.
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                           start.sh (one entry point)                          │
-│  preflight → migrations → memory compaction → community intel seed (bg)       │
-│  → 5 tmux windows                                                             │
-└─────────────────────────────┬────────────────────────────────────────────────┘
-                              │
-     ┌──────────┬─────────────┼──────────────┬──────────────┐
-     ▼          ▼             ▼              ▼              ▼
-┌─────────┐ ┌────────┐ ┌──────────┐ ┌────────────┐ ┌─────────────────┐
-│ trading │ │research│ │supervisor│ │ scheduler  │ │ community-intel │
-│ sonnet  │ │market  │ │          │ │            │ │ Sun 19:00 ET    │
-│ 1min mkt│ │hours:  │ │heartbeat │ │ cron jobs  │ │                 │
-│ 30min   │ │haiku   │ │ watch    │ │ lifecycle  │ │ quant community │
-│ off-hrs │ │5min    │ │ recovery │ │ data refresh│ │ Reddit/GitHub/  │
-│         │ │after-  │ │          │ │            │ │ arXiv scanner  │
-│         │ │hours:  │ │          │ │            │ │                 │
-│         │ │sonnet  │ │          │ │            │ │                 │
-│         │ │30min   │ │          │ │            │ └─────────────────┘
-└────┬────┘ └───┬────┘ └──────────┘ └────────────┘
-     │          │
-     └────┬─────┘
-          ▼
- ┌─────────────────────┐
- │     PostgreSQL       │
- │  positions · fills   │
- │  strategies · audit  │
- │  loop_state · bugs   │
- │  research_queue      │
- └─────────────────────┘
-```
+<p align="center">
+  <img src="docs/images/architecture.png" alt="QuantStack Architecture" width="900"/>
+</p>
 
-**Trading loop** — position monitoring, entry scanning, multi-agent debate (trade-debater, risk, fund-manager), execution via Alpaca paper API. Polls every 60s during market hours (09:30–16:00 ET), 30 min outside.
+**Trading Graph** (12 nodes) — safety check, daily planning, parallel position review + entry scanning, mandatory risk gate (SafetyGate — any rejection kills the batch), portfolio review, options analysis, execution, reflection. 5-minute cycles during market hours.
 
-**Research loop** — strategy discovery, backtesting, ML training, BLITZ mode (parallel domain agents). **Market-aware model routing:** haiku during market hours (quick data refresh + signal check, 5 min interval); sonnet after hours (full research cycles, 30 min interval). Subagents (`quant-researcher`, `strategy-rd`, `ml-scientist`) run sonnet. Results flow into `strategies` and `research_queue`.
+**Research Graph** (8 nodes) — context loading, domain selection, hypothesis generation, signal validation (conditional gate), backtesting, ML experiments, strategy registration, knowledge update. 2-minute cycles market hours, 5-minute after hours.
 
-**Supervisor** — watches loop heartbeats every 60s. Detects stale/dead loops, restarts via tmux. Runs the bug-fix watcher: dispatches AutoResearchClaw to patch failing tools automatically.
+**Supervisor Graph** (5 nodes) — health checks, issue diagnosis, recovery execution, strategy lifecycle management (promote/retire), scheduled tasks. Runs continuously.
 
-**Scheduler** — APScheduler cron jobs: credit regime revalidation, strategy lifecycle (promote/retire), memory compaction (Sunday 17:00), community intel scan (Sunday 19:00), AutoResearchClaw deep research (Sunday 20:00), AV quota reset (midnight).
+**Infrastructure** — PostgreSQL + pgvector (60+ tables), LangFuse (observability), Ollama (local embeddings). All orchestrated via `docker-compose.yml`.
 
-**Community-intel window** — runs weekly on Sunday 19:00 ET. Scans Reddit r/algotrading, GitHub trending quant repos, arXiv q-fin preprints, X/Twitter quant accounts, and quant newsletters to discover new techniques. Discoveries flow into `research_queue` for AutoResearchClaw to investigate.
+**Signal Engine** — 18 concurrent Python collectors produce a SignalBrief in 2-6 seconds. No LLM calls. Fault-tolerant: individual collector failures don't block the brief.
+
+**Tool Layer** — LLM-facing tools (`tools/langchain/`, 19 `@tool` functions) bound to agents via YAML config + TOOL_REGISTRY. Deterministic functions (`tools/functions/`) called directly by graph nodes.
 
 ---
 
@@ -92,7 +66,7 @@ Tool failures are tracked in the `bugs` table. After 3 consecutive failures of t
 
 | Invariant | Implementation |
 |-----------|---------------|
-| **Stateless loops** | No `claude --continue`. All state in `loop_iteration_context` (PostgreSQL). |
+| **Stateless graphs** | No in-process state between cycles. All state in `loop_iteration_context` (PostgreSQL). |
 | **Risk gate is law** | `risk_gate.py` is hard-coded Python. No prompt or agent can bypass or modify it. |
 | **Paper mode default** | `USE_REAL_TRADING=true` required for live execution. Default is Alpaca paper. |
 | **Audit trail mandatory** | Every trade decision logged to `audit_log` with full reasoning. |
@@ -125,27 +99,30 @@ See [docs/guides/quickstart.md](docs/guides/quickstart.md) for the full walkthro
 
 ```
 QuantStack/
-├── start.sh                      # Single entry point — start everything here
-├── stop.sh                       # Graceful shutdown (kill switch → wait → kill tmux)
-├── status.sh                     # Health dashboard (./status.sh --watch for live)
-├── report.sh                     # Monthly performance report
-├── prompts/
-│   ├── trading_loop.md           # Trading loop prompt (Claude reads this each iteration)
-│   └── research_loop.md          # Research loop prompt
+├── start.sh / stop.sh / status.sh  # Lifecycle scripts (Docker Compose)
+├── docker-compose.yml              # All services: postgres, langfuse, ollama, 3 graphs
 ├── src/quantstack/
-│   ├── coordination/             # Supervisor, auto-promoter, preflight
-│   ├── data/                     # Fetcher (Alpha Vantage + Alpaca fallback), factory
-│   ├── execution/                # risk_gate.py (immutable), kill_switch, broker routers
-│   ├── mcp/tools/                # Python toolkit — all tools imported directly in prompts
-│   ├── signal_engine/            # 16 concurrent signal collectors, no LLM (incl. social sentiment)
-│   └── core/                     # Indicators, backtesting, ML, options pricing
+│   ├── graphs/                     # LangGraph StateGraphs
+│   │   ├── trading/                # 12-node pipeline + config/agents.yaml
+│   │   ├── research/               # 8-node pipeline + config/agents.yaml
+│   │   └── supervisor/             # 5-node pipeline + config/agents.yaml
+│   ├── runners/                    # Docker entrypoints for each graph service
+│   ├── tools/
+│   │   ├── langchain/              # 19 LLM-facing @tool functions
+│   │   ├── functions/              # Deterministic node-callable functions
+│   │   └── registry.py             # TOOL_REGISTRY (YAML-driven tool binding)
+│   ├── signal_engine/              # 18 concurrent collectors, no LLM, 2-6s
+│   ├── execution/                  # risk_gate.py (immutable), kill_switch, brokers
+│   ├── llm/                        # Provider config, tier routing, fallback chain
+│   ├── health/                     # Heartbeat, retry, shutdown, watchdog
+│   ├── rag/                        # pgvector knowledge retrieval
+│   ├── core/                       # Indicators, backtesting, ML, options pricing
+│   └── db.py                       # PostgreSQL (60+ tables, idempotent migrations)
 ├── scripts/
-│   ├── scheduler.py              # APScheduler cron jobs
-│   └── autoresclaw_runner.py     # AutoResearchClaw dispatcher + auto-patch pipeline
-├── .claude/
-│   ├── agents/                   # Desk agent definitions (incl. community-intel, market-intel)
-│   └── memory/                   # Persistent memory (gitignored)
-└── docs/                         # Architecture, guides, API reference
+│   ├── scheduler.py                # APScheduler cron jobs
+│   └── autoresclaw_runner.py       # AutoResearchClaw dispatcher
+├── .claude/memory/                 # Persistent session memory (gitignored)
+└── docs/                           # Architecture, guides, API reference
 ```
 
 ---

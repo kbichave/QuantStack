@@ -36,8 +36,9 @@ COPY src/ ./src/
 
 # Install all dependencies + editable package in one step.
 # BuildKit cache reuses downloaded wheels across rebuilds.
+# Install langgraph extras only (no torch/RL for graph services)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system -e ".[all]"
+    uv pip install --system -e ".[langgraph]"
 
 # Copy scripts (entrypoint, migrations, etc.)
 COPY scripts/ ./scripts/

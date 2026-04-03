@@ -33,9 +33,29 @@ Three LangGraph StateGraphs run as Docker services, orchestrated by `start.sh`:
 
 ## Tool Architecture
 
-**All computation uses Python imports.** Functions in `src/quantstack/mcp/tools/` are called by LangGraph nodes — either directly (deterministic tool nodes) or via LangChain `@tool` decorator (LLM-facing agent nodes).
+**All computation uses Python imports.** Two tool tiers:
+- **LLM-facing:** `src/quantstack/tools/langchain/` — `@tool` decorated, resolved via `TOOL_REGISTRY` in `tools/registry.py`
+- **Deterministic:** `src/quantstack/tools/functions/` — called directly by graph node code
+- **Legacy:** `src/quantstack/mcp/tools/` — older toolkit, still functional
 
-Agent configs live in `src/quantstack/graphs/*/config/agents.yaml`. Hot-reload supported (file-watch in dev, SIGHUP in prod).
+Agent configs in `src/quantstack/graphs/*/config/agents.yaml` bind tools by string name. Hot-reload supported (file-watch in dev, SIGHUP in prod).
+
+---
+
+## Module Reference
+
+Before modifying a subsystem, read its reference doc:
+
+| Subsystem | Doc | When to read |
+|-----------|-----|--------------|
+| Graph pipelines | `docs/architecture/graphs.md` | Changing nodes, edges, state, agent configs |
+| Tool layer | `docs/architecture/tools.md` | Adding/modifying tools, tool bindings |
+| Signal engine | `docs/architecture/signal_engine.md` | Changing collectors, SignalBrief, synthesis |
+| LLM routing | `docs/architecture/llm_routing.md` | Changing providers, tiers, fallback |
+| Database schema | `docs/architecture/database_schema.md` | Writing queries, adding tables |
+| Core library | `docs/architecture/quantcore.md` | Indicators, backtesting, ML |
+| MCP servers | `docs/architecture/mcp_servers.md` | MCP tool catalog |
+| Operations | `docs/ops-runbook.md` | Debugging, diagnostics, recovery |
 
 ---
 

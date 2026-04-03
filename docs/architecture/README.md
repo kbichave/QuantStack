@@ -282,8 +282,13 @@ system_state (key, value, updated_at)
 
 ## Further reading
 
+- [graphs.md](./graphs.md) — LangGraph StateGraphs (trading, research, supervisor), state schemas, agent config
+- [tools.md](./tools.md) — Tool layer (LLM-facing, deterministic, registry, MCP bridge)
+- [signal_engine.md](./signal_engine.md) — 18 concurrent signal collectors, SignalBrief, synthesis
+- [llm_routing.md](./llm_routing.md) — Model tiers, provider fallback, instantiation
+- [database_schema.md](./database_schema.md) — 60+ PostgreSQL tables by subsystem
 - [quantcore.md](./quantcore.md) — Core library modules (indicators, backtesting, ML)
-- [mcp_servers.md](./mcp_servers.md) — Tool catalog
+- [mcp_servers.md](./mcp_servers.md) — MCP server and tool catalog
 - [../ops-runbook.md](../ops-runbook.md) — Diagnostic queries, failure modes, recovery procedures
 - [../guides/quickstart.md](../guides/quickstart.md) — Get running in 10 minutes
 - [../guides/deployment.md](../guides/deployment.md) — Environment variables, data paths, cron jobs

@@ -2,28 +2,28 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Langfuse tracing for prompt optimization loops.
+Langfuse tracing for QuantStack.
 
-Provides a thin wrapper around langfuse-python that traces:
-- TextGrad backward passes (LLM calls, critiques, proposals)
-- OPRO meta-prompt generation + scoring
-- HypothesisJudge verdicts
-- Research orchestrator steps
+Provides:
+- Lazy-init Langfuse singleton
+- TracingSpan wrapper (no-ops if Langfuse unavailable)
+- Optimization trace helpers (TextGrad, OPRO, Judge, Research)
+- Business event trace helpers (provider failover, strategy lifecycle,
+  self-healing, capital allocation, safety boundary)
 
-All tracing is best-effort: if langfuse is not installed or not
-configured, operations proceed silently without tracing.
+All tracing is best-effort: if Langfuse is not configured,
+operations proceed silently without tracing.
 
 Setup:
     pip install langfuse
     export LANGFUSE_PUBLIC_KEY=pk-...
     export LANGFUSE_SECRET_KEY=sk-...
     export LANGFUSE_HOST=https://cloud.langfuse.com  # or self-hosted
-
-See: https://langfuse.com/docs/get-started
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from contextlib import contextmanager
 from typing import Any, Generator
@@ -31,6 +31,8 @@ from typing import Any, Generator
 from loguru import logger
 
 from langfuse import Langfuse
+
+_std_logger = logging.getLogger(__name__)
 
 # Lazy-init singleton
 _langfuse = None
@@ -55,6 +57,19 @@ def _get_langfuse():
     except Exception as exc:
         logger.warning(f"[Tracing] Langfuse init failed: {exc}")
         return None
+
+
+def shutdown() -> None:
+    """Flush pending events and shut down the Langfuse client.
+
+    Stops the background worker thread. Call at process exit.
+    """
+    lf = _get_langfuse()
+    if lf:
+        try:
+            lf.shutdown()
+        except Exception:
+            pass
 
 
 class TracingSpan:
@@ -99,13 +114,7 @@ def trace_optimization(
     name: str,
     metadata: dict | None = None,
 ) -> Generator[TracingSpan, None, None]:
-    """Context manager for tracing an optimization operation.
-
-    Usage:
-        with trace_optimization("textgrad_backward", {"trade_id": 123}) as trace:
-            trace.generation(name="critique", input=prompt, output=critique)
-            ...
-    """
+    """Context manager for tracing an optimization operation."""
     lf = _get_langfuse()
     if lf is None:
         yield TracingSpan(None)
@@ -244,3 +253,161 @@ def flush() -> None:
             lf.flush()
         except Exception:
             pass
+
+
+# --- Business event trace helpers (merged from crew_tracing.py) ---
+
+
+def trace_provider_failover(
+    original_provider: str,
+    fallback_provider: str,
+    error: str,
+    tier: str,
+) -> None:
+    """Log a provider failover event to Langfuse."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="provider_failover",
+            metadata={
+                "original_provider": original_provider,
+                "fallback_provider": fallback_provider,
+                "error": error,
+                "tier": tier,
+            },
+            tags=["failover", "llm"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace provider failover", exc_info=True)
+
+
+def trace_strategy_lifecycle(
+    strategy_id: str,
+    action: str,
+    reasoning: str,
+    evidence: dict[str, Any],
+) -> None:
+    """Log a strategy promotion/retirement/extension decision."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="strategy_lifecycle",
+            metadata={
+                "strategy_id": strategy_id,
+                "action": action,
+                "reasoning": reasoning,
+            },
+            input=evidence,
+            tags=["strategy", action],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace strategy lifecycle", exc_info=True)
+
+
+def trace_self_healing_event(
+    event_type: str,
+    details: dict[str, Any],
+) -> None:
+    """Log a self-healing event (watchdog trigger, restart, etc.)."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="self_healing",
+            metadata={"event_type": event_type, **details},
+            tags=["self_healing", event_type],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace self-healing event", exc_info=True)
+
+
+def trace_capital_allocation(
+    symbol: str,
+    recommended_size_pct: float,
+    reasoning: str,
+    portfolio_context: dict[str, Any],
+) -> None:
+    """Log a capital allocation / position sizing decision."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="capital_allocation",
+            metadata={
+                "symbol": symbol,
+                "recommended_size_pct": recommended_size_pct,
+                "reasoning": reasoning,
+            },
+            input=portfolio_context,
+            tags=["risk", "allocation"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace capital allocation", exc_info=True)
+
+
+def trace_safety_boundary_trigger(
+    symbol: str,
+    llm_recommendation: dict[str, Any],
+    gate_limit: str,
+    gate_value: float,
+) -> None:
+    """Log when the programmatic safety gate overrides an LLM decision."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="safety_boundary_trigger",
+            metadata={
+                "symbol": symbol,
+                "llm_recommendation": llm_recommendation,
+                "gate_limit": gate_limit,
+                "gate_value": gate_value,
+            },
+            tags=["safety", "override"],
+        )
+        _std_logger.warning(
+            "Safety gate triggered for %s: %s exceeded (%.4f)",
+            symbol, gate_limit, gate_value,
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace safety boundary trigger", exc_info=True)
+
+
+def trace_agent_decision(
+    agent_name: str,
+    decision_type: str,
+    symbol: str | None,
+    verdict: str,
+    reasoning: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Log a Claude agent decision to Langfuse.
+
+    Generic trace for any agent decision not covered by the specialized
+    helpers (capital_allocation, strategy_lifecycle, etc.).
+    """
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name=f"agent_decision:{agent_name}",
+            metadata={
+                "agent": agent_name,
+                "decision_type": decision_type,
+                "symbol": symbol,
+                "verdict": verdict,
+                "reasoning": reasoning,
+                **(metadata or {}),
+            },
+            tags=[agent_name, decision_type],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace agent decision for %s", agent_name, exc_info=True)

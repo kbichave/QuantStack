@@ -7,7 +7,7 @@ import json
 
 from pydantic import BaseModel
 
-from quantstack.crewai_compat import BaseTool
+from quantstack.tools.tool_base import BaseTool
 
 from ._bridge import _run_async, get_bridge
 from ._schemas import (

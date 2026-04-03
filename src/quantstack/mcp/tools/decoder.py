@@ -13,7 +13,7 @@ from typing import Any
 
 from loguru import logger
 
-from quantstack.crews.decoder_crew import decode_signals
+from quantstack.core.decoder import decode_signals
 from quantstack.db import pg_conn
 from quantstack.mcp._state import (
     _serialize,

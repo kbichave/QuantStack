@@ -69,7 +69,7 @@ DEFAULT_LOOP_CONFIGS = [
         name="trading_loop",
         expected_interval_seconds=300,
         tmux_target="quantstack-loops:trading",
-        restart_command="cat prompts/trading_loop.md | claude --model sonnet",
+        restart_command="docker compose restart trading-graph",
     ),
     LoopConfig(
         name="research_loop",

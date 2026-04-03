@@ -23,13 +23,13 @@ LOOP_CONFIGS = [
         name="trading_loop",
         expected_interval_seconds=300,
         tmux_target="quantstack-loops:trading",
-        restart_command="cat prompts/trading_loop.md | claude",
+        restart_command="docker compose restart trading-graph",
     ),
     LoopConfig(
         name="research_loop",
         expected_interval_seconds=120,
         tmux_target="quantstack-loops:research",
-        restart_command="cat prompts/research_loop.md | claude",
+        restart_command="docker compose restart research-graph",
     ),
 ]
 

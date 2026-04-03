@@ -5,7 +5,7 @@ system status, portfolio state, regime, signal brief, heartbeat,
 event bus (publish/poll), and trade execution.
 
 All heavy computation (data, ML, backtesting, options, risk) is called
-via Python imports in Bash -- see prompts/reference/python_toolkit.md.
+via Python imports in LangGraph node functions.
 """
 from quantstack.mcp.domains import Domain
 from quantstack.mcp.server_factory import create_server, run_server

@@ -25,7 +25,7 @@ import httpx
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from quantstack.crewai_compat import BaseTool
+from quantstack.tools.tool_base import BaseTool
 
 # =============================================================================
 # ALPHA VANTAGE CLIENT

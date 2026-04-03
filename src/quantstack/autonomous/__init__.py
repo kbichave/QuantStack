@@ -5,8 +5,8 @@
 Autonomous trading components — debate, routing, screening, strategy lifecycle.
 
 The Python runner (runner.py) and research orchestrator (research_orchestrator.py)
-have been removed. All trading and research execution is handled by the Ralph loops
-in prompts/trading_loop.md and prompts/research_loop.md.
+have been removed. All trading and research execution is handled by LangGraph
+graphs in src/quantstack/graphs/.
 """
 
 from quantstack.autonomous.decision import DecisionPath, DecisionRouter, RouteContext

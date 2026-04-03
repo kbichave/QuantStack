@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Multi-provider LLM configuration for CrewAI agents.
+Multi-provider LLM configuration for LangGraph agents.
 
-CrewAI uses LiteLLM under the hood. Every model string returned by this
-module is in LiteLLM's  provider/model_id  format and passed directly to
-Agent(llm=...).
+Every model string returned by this module is in LiteLLM's
+provider/model_id format and used to instantiate LangChain ChatModel
+instances via get_chat_model().
 
 Resolution order for each agent:
     1. Per-tier env override  (LLM_MODEL_IC / LLM_MODEL_POD / …)

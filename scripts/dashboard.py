@@ -30,6 +30,8 @@ def _connect():
     url = os.environ.get("TRADER_PG_URL")
     if not url:
         raise RuntimeError("TRADER_PG_URL not set")
+    # Rewrite Docker-internal hostname for host-side access
+    url = url.replace("@postgres:", "@localhost:")
     return psycopg2.connect(url)
 
 

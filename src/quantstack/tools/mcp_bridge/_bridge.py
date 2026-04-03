@@ -1,7 +1,7 @@
 # Copyright 2024 QuantStack Contributors
 # SPDX-License-Identifier: Apache-2.0
 
-"""MCPBridge class and async helper for CrewAI-to-MCP communication."""
+"""MCPBridge class and async helper for agent-to-MCP communication."""
 
 import asyncio
 import concurrent.futures
@@ -25,7 +25,7 @@ except ImportError:
 
 class MCPBridge:
     """
-    Bridge between CrewAI agents and MCP servers.
+    Bridge between LangGraph agents and MCP servers.
 
     Handles in-process communication with:
     - QuantCore MCP (technical analysis, backtesting, options, risk)

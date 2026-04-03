@@ -1,17 +1,234 @@
-# QuantStack local development stack
-# Single-user, no auth required
+# QuantStack LangGraph Stack
+# 7 infrastructure + graph services, plus legacy API and MCP profiles
 #
 # Usage:
-#   docker-compose up -d              # Start main API
-#   docker-compose up -d alpaca-mcp   # Also start Alpaca MCP HTTP server
-#   docker-compose logs -f api        # Follow API logs
-#   docker-compose down               # Stop everything
-#   docker-compose down -v            # Stop and delete data volumes
+#   docker compose up -d                    # Start all graph + infra services
+#   docker compose --profile legacy up -d   # Also start legacy API + Alpaca MCP
+#   docker compose logs -f trading-graph    # Follow trading graph logs
+#   docker compose down                     # Stop everything
+#   docker compose down -v                  # Stop and delete data volumes
 #
-# Secrets: copy .env.example → .env and fill in values.
-# Never commit .env — the pre-commit hook will block it.
+# Secrets: copy .env.example -> .env and fill in values.
 
 services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: quantstack-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: quantstack
+      POSTGRES_USER: quantstack
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantstack}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantstack"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: quantstack-langfuse-db
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:-langfuse}
+    volumes:
+      - langfuse-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 256m
+    memswap_limit: 256m
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  ollama:
+    image: ollama/ollama
+    container_name: quantstack-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: 4g
+    memswap_limit: 4g
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: quantstack-langfuse
+    ports:
+      - "3100:3000"
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD:-langfuse}@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-random-secret}
+      SALT: ${SALT:-change-me-random-salt}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-change-me}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-change-me}
+      NEXTAUTH_URL: http://localhost:3000
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://$(hostname -i):3000/api/public/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: 512m
+    memswap_limit: 512m
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── Graph Services ───────────────────────────────────────────────────────────
+
+  trading-graph:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quantstack-trading-graph
+    command: ["python", "-m", "quantstack.runners.trading_runner"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      langfuse:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "from quantstack.health.heartbeat import check_health; check_health('trading')"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    mem_limit: 1g
+    memswap_limit: 1g
+    stop_grace_period: 90s
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  research-graph:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quantstack-research-graph
+    command: ["python", "-m", "quantstack.runners.research_runner"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      langfuse:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "from quantstack.health.heartbeat import check_health; check_health('research')"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    mem_limit: 1g
+    memswap_limit: 1g
+    stop_grace_period: 90s
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  supervisor-graph:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quantstack-supervisor-graph
+    command: ["python", "-m", "quantstack.runners.supervisor_runner"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      langfuse:
+        condition: service_healthy
+    env_file:
+      - path: .env
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "from quantstack.health.heartbeat import check_health; check_health('supervisor')"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    mem_limit: 512m
+    memswap_limit: 512m
+    stop_grace_period: 90s
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ── Legacy Services (optional) ──────────────────────────────────────────────
+
   api:
     build:
       context: .
@@ -21,87 +238,17 @@ services:
     ports:
       - "8420:8420"
     volumes:
-      # Persist all DuckDB data files across restarts
-      - quantstack_data:/data/quantstack
-      # Mount source for hot-reload in development
+      - quantstack-legacy-data:/data/quantstack
       - ./packages:/app/packages
     env_file:
-      # Load all variables from .env if it exists; individual overrides below
-      # take precedence when both are set.
       - path: .env
         required: false
     environment:
-      # ── Data providers ────────────────────────────────────────────────────
       - ALPACA_API_KEY=${ALPACA_API_KEY:-}
       - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY:-}
       - ALPACA_PAPER=${ALPACA_PAPER:-true}
-      - POLYGON_API_KEY=${POLYGON_API_KEY:-}
-      - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY:-}
-      - DATA_PROVIDER_PRIORITY=${DATA_PROVIDER_PRIORITY:-alpaca,polygon,alpha_vantage}
-
-      # ── LLM routing ───────────────────────────────────────────────────────
       - LLM_PROVIDER=${LLM_PROVIDER:-bedrock}
-      - LLM_FALLBACK_CHAIN=${LLM_FALLBACK_CHAIN:-anthropic,openai}
-
-      # ── LLM credentials — set at least one provider ───────────────────────
-      # Bedrock (default): uses boto3 credential chain — mount ~/.aws as a
-      # read-only volume or inject AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.
-      - BEDROCK_REGION=${BEDROCK_REGION:-us-east-1}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-6}
-      - AWS_PROFILE=${AWS_PROFILE:-}
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
-      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
-      # Direct providers
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-20250514}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - GROQ_MODEL=${GROQ_MODEL:-llama-3.3-70b-versatile}
-      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
-      - FIREWORKS_API_KEY=${FIREWORKS_API_KEY:-}
-      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
-      - AZURE_API_KEY=${AZURE_API_KEY:-}
-      - AZURE_API_BASE=${AZURE_API_BASE:-}
-      - AZURE_API_VERSION=${AZURE_API_VERSION:-}
-      - AZURE_DEPLOYMENT_NAME=${AZURE_DEPLOYMENT_NAME:-}
-      # Per-tier model overrides (optional)
-      - LLM_MODEL_IC=${LLM_MODEL_IC:-}
-      - LLM_MODEL_POD=${LLM_MODEL_POD:-}
-      - LLM_MODEL_ASSISTANT=${LLM_MODEL_ASSISTANT:-}
-      - LLM_MODEL_DECODER=${LLM_MODEL_DECODER:-}
-
-      # ── Trading execution ─────────────────────────────────────────────────
       - USE_REAL_TRADING=${USE_REAL_TRADING:-false}
-      - ETRADE_CONSUMER_KEY=${ETRADE_CONSUMER_KEY:-}
-      - ETRADE_CONSUMER_SECRET=${ETRADE_CONSUMER_SECRET:-}
-      - ETRADE_SANDBOX=${ETRADE_SANDBOX:-true}
-      - ETRADE_ACCOUNT_ID_KEY=${ETRADE_ACCOUNT_ID_KEY:-}
-      - ETRADE_FILL_TIMEOUT=${ETRADE_FILL_TIMEOUT:-30}
-
-      # ── Discord (monitoring alerts + watchlist channel) ───────────────────
-      - DISCORD_TOKEN=${DISCORD_TOKEN:-}
-      - DISCORD_TOKEN_TYPE=${DISCORD_TOKEN_TYPE:-user}
-      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-
-      # ── Risk limits ───────────────────────────────────────────────────────
-      - RISK_MAX_POSITION_PCT=${RISK_MAX_POSITION_PCT:-0.10}
-      - RISK_MAX_POSITION_NOTIONAL=${RISK_MAX_POSITION_NOTIONAL:-20000}
-      - RISK_DAILY_LOSS_LIMIT_PCT=${RISK_DAILY_LOSS_LIMIT_PCT:-0.02}
-      - RISK_MIN_DAILY_VOLUME=${RISK_MIN_DAILY_VOLUME:-500000}
-      - RISK_RESTRICTED_SYMBOLS=${RISK_RESTRICTED_SYMBOLS:-}
-
-      # ── Data paths (fixed inside container — backed by named volume) ──────
-      - PORTFOLIO_DB_PATH=/data/quantstack/portfolio.duckdb
-      - PAPER_BROKER_DB_PATH=/data/quantstack/paper_broker.duckdb
-      - AUDIT_LOG_DB_PATH=/data/quantstack/audit_log.duckdb
-      - CALIBRATION_DB_PATH=/data/quantstack/calibration.duckdb
-      - DUCKDB_PATH=/data/quantstack/knowledge.duckdb
-      - KILL_SWITCH_SENTINEL=/data/quantstack/KILL_SWITCH_ACTIVE
-
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8420/health"]
       interval: 30s
@@ -110,10 +257,11 @@ services:
       start_period: 20s
     restart: unless-stopped
     command: ["api"]
+    networks:
+      - quantstack-net
+    profiles:
+      - legacy
 
-  # ── Alpaca MCP HTTP server (optional) ─────────────────────────────────────
-  # Exposes alpaca_mcp tools over SSE so any MCP client can reach it over HTTP.
-  # Start with: docker-compose up -d alpaca-mcp
   alpaca-mcp:
     build:
       context: .
@@ -131,23 +279,21 @@ services:
       - ALPACA_PAPER=${ALPACA_PAPER:-true}
     command: ["sh", "-c", "alpaca-mcp --transport sse --port 8430"]
     restart: unless-stopped
+    networks:
+      - quantstack-net
     profiles:
-      # Only starts when explicitly requested:
-      #   docker-compose --profile mcp-servers up -d
       - mcp-servers
 
-  # ── IBKR MCP (not containerised) ──────────────────────────────────────────
-  # ibkr_mcp requires a live IB Gateway TCP socket on the host machine.
-  # It cannot run usefully inside Docker without network_mode: host or a
-  # socat tunnel.  Run it locally instead:
-  #
-  #   IBKR_HOST=127.0.0.1 IBKR_PORT=4001 ibkr-mcp
-  #
-  # Relevant env vars (set in .env):
-  #   IBKR_HOST       default 127.0.0.1
-  #   IBKR_PORT       default 4001 (IB Gateway) or 7497 (TWS)
-  #   IBKR_CLIENT_ID  default 1
-
 volumes:
-  quantstack_data:
+  postgres-data:
     driver: local
+  langfuse-db-data:
+    driver: local
+  ollama-data:
+    driver: local
+  quantstack-legacy-data:
+    driver: local
+
+networks:
+  quantstack-net:
+    driver: bridge

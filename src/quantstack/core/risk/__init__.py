@@ -12,6 +12,12 @@ from quantstack.core.risk.span_margin import (
     SPANMarginCalculator,
     calculate_span_margin,
 )
+from quantstack.core.risk.safety_gate import (
+    RiskDecision,
+    RiskVerdict,
+    SafetyGate,
+    SafetyGateLimits,
+)
 from quantstack.core.risk.stress_testing import (
     STRESS_SCENARIOS,
     MonteCarloSimulator,
@@ -38,6 +44,11 @@ __all__ = [
     "STRESS_SCENARIOS",
     "StressResult",
     "PortfolioStressResult",
+    # Safety gate
+    "SafetyGate",
+    "SafetyGateLimits",
+    "RiskDecision",
+    "RiskVerdict",
     # SPAN margin
     "SPANMarginCalculator",
     "MarginBreakdown",

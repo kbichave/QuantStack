@@ -29,13 +29,16 @@ RUN pip install --no-cache-dir "uv>=0.5.0"
 WORKDIR /app
 
 # Copy package manifests first for layer caching
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
-# Copy all package source
-COPY packages/ ./packages/
+# Copy source code
+COPY src/ ./src/
 
-# Install all dependencies
+# Install all dependencies (includes langgraph optional group)
 RUN uv pip install --system --no-cache -e ".[all]"
+
+# Copy scripts (entrypoint, migrations, etc.)
+COPY scripts/ ./scripts/
 
 # Create data directories
 RUN mkdir -p /data/quant_pod
@@ -51,11 +54,6 @@ ENV KILL_SWITCH_SENTINEL=/data/quant_pod/KILL_SWITCH_ACTIVE
 # Copy entrypoint
 COPY scripts/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-
-EXPOSE 8420
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8420/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["api"]

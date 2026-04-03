@@ -19,9 +19,12 @@ case "${MODE}" in
   shell)
     exec /bin/bash
     ;;
+  python)
+    # Passthrough: docker-compose command overrides CMD with ["python", "-m", ...]
+    exec "$@"
+    ;;
   *)
-    echo "Unknown mode: ${MODE}"
-    echo "Usage: docker run ... [api|shell]"
-    exit 1
+    # Passthrough for any other command
+    exec "$@"
     ;;
 esac

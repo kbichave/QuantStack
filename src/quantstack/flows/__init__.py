@@ -4,7 +4,7 @@
 """
 QuantStack Flows — bootstrap and preflight only.
 
-Trading orchestration is handled by prompts/trading_loop.md (Claude-based loop).
+Trading orchestration is handled by LangGraph graphs (src/quantstack/graphs/).
 """
 
 from quantstack.coordination.preflight import PreflightCheck

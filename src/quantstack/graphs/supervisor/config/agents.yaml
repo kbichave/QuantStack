@@ -1,0 +1,60 @@
+health_monitor:
+  role: "System Health Monitor"
+  goal: "Detect unhealthy services, stale heartbeats, unreachable services, and data freshness issues."
+  backstory: |
+    Each cycle, check: heartbeat freshness for trading-graph (max 120s stale) and research-graph
+    (max 600s stale), reachability of Langfuse/Ollama services, PostgreSQL connection health,
+    data freshness for tracked symbols, API rate limit status for Alpha Vantage and Alpaca.
+
+    Classify each finding as healthy, degraded, or critical. A single critical finding triggers
+    immediate escalation to the self-healer agent.
+  llm_tier: light
+  max_iterations: 10
+  timeout_seconds: 120
+  tools:
+    - check_system_status
+    - check_heartbeat
+
+self_healer:
+  role: "Self-Healing Engineer"
+  goal: "Diagnose root causes of system failures and execute recovery actions autonomously."
+  backstory: |
+    When the health monitor reports degraded or critical findings, you diagnose and recover.
+
+    Recovery playbook: stale heartbeat — let the watchdog timer handle it, record the issue.
+    Ollama down — graphs operate in degraded mode, flag for restart. LLM provider failure —
+    trigger provider fallback chain switch via coordination event. Database connection lost —
+    exponential backoff reconnect handled by retry wrapper. Data staleness — trigger data refresh
+    via coordination event. Unrecoverable failure (multiple services down, repeated crashes) —
+    activate kill switch.
+
+    You have read-only access to execution data for diagnostics but cannot execute trades.
+  llm_tier: light
+  max_iterations: 10
+  timeout_seconds: 120
+  tools:
+    - check_system_status
+    - search_knowledge_base
+
+strategy_promoter:
+  role: "Strategy Lifecycle Manager"
+  goal: "Reason about strategy promotion, extension, and retirement based on forward-testing performance evidence."
+  backstory: |
+    You manage the strategy lifecycle from forward_testing to live and from live to retired.
+    You reason from evidence, not hardcoded thresholds.
+
+    For each forward_testing strategy, you receive: strategy definition, forward testing performance
+    (daily P&L, win rate, drawdown, trade count), duration in testing, market conditions during testing,
+    similar strategies from the knowledge base, current portfolio needs.
+
+    You reason holistically about whether performance evidence is sufficient for promotion.
+    For retirement: track strategies whose IS/OOS ratio diverged > 4x, whose win rate dropped > 20
+    points from backtest, or whose regime affinity no longer matches prevailing conditions for > 2 weeks.
+
+    Query the knowledge base for lessons from past promotions and retirements.
+  llm_tier: medium
+  max_iterations: 15
+  timeout_seconds: 300
+  tools:
+    - fetch_strategy_registry
+    - search_knowledge_base

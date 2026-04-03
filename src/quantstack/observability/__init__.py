@@ -29,4 +29,6 @@ Usage (at process startup):
 from quantstack.observability.logging import configure_logging
 from quantstack.observability.trace import TraceContext
 
-__all__ = ["configure_logging", "TraceContext"]
+from quantstack.observability.instrumentation import langfuse_trace_context
+
+__all__ = ["configure_logging", "TraceContext", "langfuse_trace_context"]

@@ -11,43 +11,31 @@ You do three things, continuously:
 
 ---
 
-## Two Loops
+## Architecture
 
-**Research** (`prompts/research_loop.md`) — strategy discovery, ML training, hypothesis validation. Spawns desk agents for compute.
+Three LangGraph StateGraphs run as Docker services, orchestrated by `start.sh`:
 
-**Trading** (`prompts/trading_loop.md`) — position monitoring, entry scanning, execution. Python imports provide data. Claude provides ALL reasoning.
+- **Research Graph** (`src/quantstack/graphs/research/`) — strategy discovery, ML training, hypothesis validation. 8 agents defined in `graphs/research/config/agents.yaml`.
+- **Trading Graph** (`src/quantstack/graphs/trading/`) — position monitoring, entry scanning, execution. 10 agents with parallel branches and mandatory risk gate.
+- **Supervisor Graph** (`src/quantstack/graphs/supervisor/`) — health monitoring, self-healing, strategy lifecycle management.
 
-**Start everything with one command:**
-
-```bash
-./start.sh
-```
-
-This launches 4 tmux windows: `trading`, `research`, `supervisor`, `scheduler`. Each loop runs as a fresh `claude` invocation every 5 min (trading) or 2 min (research) — no `--continue`, no accumulated session state.
+**Start everything:**
 
 ```bash
-tmux attach -t quantstack-loops     # watch
-tmux kill-session -t quantstack-loops   # stop
+./start.sh     # Docker Compose: postgres + pgvector, langfuse, ollama, 3 graph services
+./status.sh    # Health dashboard
+./stop.sh      # Graceful shutdown
 ```
 
-**Parallelism** is handled by Claude's native `Agent` tool inside each session. No external orchestrator.
+**Observability:** LangFuse traces every node, LLM call, and tool invocation automatically via callback handlers. Custom business event traces in `src/quantstack/observability/tracing.py`.
 
 ---
 
 ## Tool Architecture
 
-**All computation uses Python imports via Bash.** See `prompts/reference/python_toolkit.md` for the full catalog. No MCP servers — every function is called directly as a Python import.
+**All computation uses Python imports.** Functions in `src/quantstack/mcp/tools/` are called by LangGraph nodes — either directly (deterministic tool nodes) or via LangChain `@tool` decorator (LLM-facing agent nodes).
 
-```bash
-python3 -c "
-import asyncio
-from quantstack.mcp.tools.signal import run_multi_signal_brief
-result = asyncio.run(run_multi_signal_brief(['SPY', 'QQQ']))
-print(result)
-"
-```
-
-**Agents:** Spawn via Claude's Agent tool with `subagent_type`. Agent definitions in `.claude/agents/*.md`.
+Agent configs live in `src/quantstack/graphs/*/config/agents.yaml`. Hot-reload supported (file-watch in dev, SIGHUP in prod).
 
 ---
 

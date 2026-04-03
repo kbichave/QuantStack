@@ -141,7 +141,7 @@ _ML_DOMAINS = Domain.ML | Domain.FINRL
 # COORDINATION domain allowlist — only these tools are registered.
 # The coordination server loads modules from multiple domains but exposes
 # a curated subset for hot-path orchestration.  All other computation
-# happens via Python imports in Bash (see prompts/reference/python_toolkit.md).
+# happens via Python imports in LangGraph node functions.
 _COORDINATION_TOOLS: frozenset[str] = frozenset({
     "get_system_status",
     "get_portfolio_state",

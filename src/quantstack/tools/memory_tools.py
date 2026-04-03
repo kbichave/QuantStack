@@ -14,7 +14,7 @@ import json
 
 from pydantic import BaseModel, Field
 
-from quantstack.crewai_compat import BaseTool
+from quantstack.tools.tool_base import BaseTool
 from quantstack.memory.mem0_client import (
     MemoryCategory,
     get_mem0_client,

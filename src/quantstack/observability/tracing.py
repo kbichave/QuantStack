@@ -52,11 +52,23 @@ def _get_langfuse():
 
     try:
         _langfuse = Langfuse()
+        _langfuse.auth_check()
         logger.info("[Tracing] Langfuse initialized")
         return _langfuse
     except Exception as exc:
         logger.warning(f"[Tracing] Langfuse init failed: {exc}")
         return None
+
+
+def _create_event(name: str, metadata: dict | None = None, tags: list[str] | None = None) -> None:
+    """Create a Langfuse event (v4 API). Best-effort, never raises."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.create_event(name=name, metadata=metadata or {})
+    except Exception:
+        _std_logger.debug("Failed to create Langfuse event: %s", name, exc_info=True)
 
 
 def shutdown() -> None:

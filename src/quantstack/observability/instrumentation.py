@@ -1,5 +1,6 @@
 """Centralized Langfuse instrumentation setup for LangGraph.
 
+Langfuse v4 uses OpenTelemetry for automatic LLM call tracing.
 Must be called once per process before any graph is invoked.
 """
 
@@ -10,33 +11,40 @@ from typing import Generator
 
 logger = logging.getLogger(__name__)
 
+_initialized = False
+
 
 def setup_instrumentation() -> None:
-    """Initialize Langfuse instrumentation.
+    """Initialize Langfuse OTEL instrumentation.
 
-    Validates env vars and pre-warms the Langfuse client singleton.
-    Raises ValueError if required env vars are missing.
+    Langfuse v4 auto-instruments LangChain, LiteLLM, and other LLM libs
+    via OpenTelemetry. This captures all LLM calls (input/output/tokens/cost)
+    automatically — no callback handlers needed.
     """
+    global _initialized
+    if _initialized:
+        return
+
     secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
     public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
 
-    if not secret_key:
+    if not secret_key or not public_key:
         raise ValueError(
-            "LANGFUSE_SECRET_KEY is not set. "
-            "Generate keys at http://localhost:3000 and add to .env"
-        )
-    if not public_key:
-        raise ValueError(
-            "LANGFUSE_PUBLIC_KEY is not set. "
-            "Generate keys at http://localhost:3000 and add to .env"
+            "LANGFUSE_SECRET_KEY and LANGFUSE_PUBLIC_KEY must be set. "
+            "Generate keys at http://localhost:3100 and add to .env"
         )
 
-    from quantstack.observability.tracing import _get_langfuse
-    lf = _get_langfuse()
-    if lf is not None:
-        logger.info("Langfuse instrumentation initialized")
-    else:
-        logger.warning("Langfuse client initialization failed — tracing disabled")
+    try:
+        from langfuse import Langfuse
+
+        # Auth check — validates keys against the Langfuse server
+        lf = Langfuse()
+        lf.auth_check()
+        logger.info("Langfuse instrumentation initialized (v4 OTEL)")
+        _initialized = True
+    except Exception as exc:
+        logger.warning("Langfuse auth check failed: %s — tracing may be degraded", exc)
+        _initialized = True  # Don't retry, proceed without tracing
 
 
 @contextmanager
@@ -47,33 +55,16 @@ def langfuse_trace_context(
 ) -> Generator:
     """Create a Langfuse trace context for a graph invocation cycle.
 
-    Usage:
-        with langfuse_trace_context("trading-2026-04-02-cycle-3", ["trading"]) as trace:
-            # trace is a Langfuse trace object (or None if tracing disabled)
-            result = await graph.ainvoke(state)
-
-    Args:
-        session_id: Groups related traces (e.g., "trading-2026-04-02-cycle-3").
-        tags: Categorization tags (e.g., ["trading", "paper"]).
-        name: Trace name (e.g., "trading_cycle", "research_cycle").
-
-    Yields:
-        A Langfuse trace object, or None if tracing is disabled.
+    In v4, uses @observe-style context with start_observation/flush.
+    All LLM calls within the context are auto-captured via OTEL.
     """
-    from quantstack.observability.tracing import _get_langfuse
-    lf = _get_langfuse()
-    if lf is None:
-        yield None
-        return
-
     try:
-        trace = lf.trace(
-            name=name,
-            session_id=session_id,
-            tags=tags,
-        )
-        yield trace
-        trace.update(status_message="success")
+        from langfuse import Langfuse
+        lf = Langfuse()
+        # v4: use observe-style tracing
+        trace_id = lf.create_trace_id()
+        yield trace_id
+        lf.flush()
     except Exception as exc:
         logger.debug("Langfuse trace context failed: %s", exc)
         yield None

@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.mypy_cache
+.pytest_cache
+.ruff_cache
+*.egg-info
+dist
+build
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Data & logs (large, not needed in image)
+data/
+logs/
+*.duckdb
+*.duckdb.wal
+
+# Claude memory & config
+.claude/
+
+# Docker
+docker-compose*.yml
+Dockerfile
+
+# Docs
+docs/
+*.md
+!pyproject.toml
+
+# Misc
+.env
+.env.*
+*.tar.gz

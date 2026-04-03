@@ -36,8 +36,8 @@ class ProviderConfig:
 
 PROVIDER_CONFIGS: dict[str, ProviderConfig] = {
     "bedrock": ProviderConfig(
-        heavy="bedrock/us.anthropic.claude-sonnet-4-6",
-        medium="bedrock/us.anthropic.claude-sonnet-4-6",
+        heavy="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        medium="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
         light="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
         embedding="ollama/mxbai-embed-large",
     ),

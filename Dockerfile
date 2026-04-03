@@ -28,28 +28,25 @@ RUN pip install --no-cache-dir "uv>=0.5.0"
 
 WORKDIR /app
 
-# Copy package manifests first for layer caching
+# ── Layer 1: dependency install (cached unless pyproject.toml/uv.lock change) ──
 COPY pyproject.toml uv.lock ./
 
-# Copy source code
+# ── Layer 2: source code ──
 COPY src/ ./src/
 
-# Install all dependencies (includes langgraph optional group)
-RUN uv pip install --system --no-cache -e ".[all]"
+# Install all dependencies + editable package in one step.
+# BuildKit cache reuses downloaded wheels across rebuilds.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system -e ".[all]"
 
 # Copy scripts (entrypoint, migrations, etc.)
 COPY scripts/ ./scripts/
 
 # Create data directories
-RUN mkdir -p /data/quant_pod
+RUN mkdir -p /data/quantstack
 
 # Set data dir to /data so it can be volume-mounted
-ENV PORTFOLIO_DB_PATH=/data/quant_pod/portfolio.duckdb
-ENV PAPER_BROKER_DB_PATH=/data/quant_pod/paper_broker.duckdb
-ENV AUDIT_LOG_DB_PATH=/data/quant_pod/audit_log.duckdb
-ENV CALIBRATION_DB_PATH=/data/quant_pod/calibration.duckdb
-ENV DUCKDB_PATH=/data/quant_pod/knowledge.duckdb
-ENV KILL_SWITCH_SENTINEL=/data/quant_pod/KILL_SWITCH_ACTIVE
+ENV KILL_SWITCH_SENTINEL=/data/quantstack/KILL_SWITCH_ACTIVE
 
 # Copy entrypoint
 COPY scripts/docker-entrypoint.sh /entrypoint.sh

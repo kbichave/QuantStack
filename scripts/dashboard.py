@@ -31,9 +31,9 @@ def _connect():
     if not url:
         raise RuntimeError("TRADER_PG_URL not set")
     # Rewrite Docker-internal hostname for host-side access.
-    # Use 127.0.0.1 (not localhost) to force TCP/IPv4 — avoids hitting a local
-    # non-Docker postgres that may also listen on localhost via Unix socket or IPv6.
-    url = url.replace("@postgres:", "@127.0.0.1:")
+    # Docker Compose maps postgres container port 5432 → host port 5433
+    # to avoid conflict with host-local PostgreSQL on 5432.
+    url = url.replace("@postgres:5432", "@127.0.0.1:5434")
     return psycopg2.connect(url)
 
 

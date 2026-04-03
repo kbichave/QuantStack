@@ -45,7 +45,6 @@ import psycopg2
 import psycopg2.extensions
 import psycopg2.extras
 import psycopg2.pool
-import pyarrow as pa
 from loguru import logger
 
 # ---------------------------------------------------------------------------
@@ -283,6 +282,7 @@ class PgConnection:
         return {col: df[col].values for col in df.columns}
 
     def fetch_arrow_table(self):
+        import pyarrow as pa  # optional dep — only needed for Arrow export
         return pa.Table.from_pandas(self.fetchdf())
 
     @property

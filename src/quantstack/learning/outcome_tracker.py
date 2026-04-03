@@ -16,8 +16,8 @@ This is the non-parametric RLHF described in the architecture:
 Design invariants:
   - All DB writes are best-effort (try/except). A DB failure NEVER blocks a fill.
   - Reads use PostgreSQL (pg_conn) — no file-lock competition.
-  - apply_learning() calls update_strategy() MCP tool rather than writing DB
-    directly, so all audit trail and validation logic in that tool is respected.
+  - apply_learning() calls update_strategy() rather than writing DB directly,
+    so all audit trail and validation logic in that tool is respected.
 
 Usage:
     tracker = OutcomeTracker()
@@ -32,7 +32,7 @@ Usage:
         session_id="autonomous_run_abc",
     )
 
-    # At exit (called by execute_trade MCP after sell fill):
+    # At exit (called by execute_trade after sell fill):
     tracker.record_exit(
         strategy_id="strat_abc123",
         symbol="XOM",
@@ -313,9 +313,8 @@ class OutcomeTracker:
         """
         Persist updated regime_affinity via direct DB write.
 
-        We write directly rather than calling the MCP update_strategy tool
-        because OutcomeTracker may run from a non-MCP context (scheduler, script).
-        The MCP tool is just a PostgreSQL write under the hood — same effect.
+        We write directly to the DB rather than calling the update_strategy tool
+        because OutcomeTracker may run from a non-tool context (scheduler, script).
         """
         try:
             with db_conn() as conn:

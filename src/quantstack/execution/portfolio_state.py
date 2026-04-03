@@ -788,13 +788,12 @@ def get_portfolio_state_readonly() -> PortfolioState:
     """
     Get a read-only PortfolioState singleton.
 
-    Use this in processes (FastAPI, scripts) that run alongside the MCP server
-    and only need to READ portfolio data.  The returned instance cannot execute
-    writes (upsert_position, adjust_cash, etc.) — those calls will raise a
-    permission error at runtime.
+    Use this in processes (FastAPI, scripts) that only need to READ portfolio
+    data.  The returned instance cannot execute writes (upsert_position,
+    adjust_cash, etc.) — those calls will raise a permission error at runtime.
 
     Raises:
-        RuntimeError: if the database is not accessible yet (MCP server not started).
+        RuntimeError: if the database is not accessible yet.
     """
     global _portfolio_state_ro
     if _portfolio_state_ro is None:

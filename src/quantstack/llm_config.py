@@ -71,7 +71,11 @@ import requests
 from loguru import logger
 
 import boto3
-import google.auth
+
+try:
+    import google.auth  # noqa: F401 — optional, only needed for Vertex AI
+except ImportError:
+    google = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Errors

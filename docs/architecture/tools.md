@@ -7,17 +7,19 @@ structured tool layer. Tools are the boundary between LLM reasoning and
 deterministic computation -- every market data fetch, risk calculation, order
 execution, and model training call passes through this layer.
 
-The tool layer lives under `src/quantstack/tools/` and is organized into three
-sub-packages:
+The tool layer lives under `src/quantstack/tools/` and is organized into two
+sub-packages plus shared infrastructure:
 
 - **`tools/langchain/`** -- LLM-facing tools decorated with `@tool`, callable by
   agents during graph execution.
 - **`tools/functions/`** -- Deterministic Python functions called directly by
   graph node code. Not exposed to LLMs.
-- **`tools/mcp_bridge/`** -- Adapter layer for communicating with MCP servers.
-
-A legacy toolkit under `src/quantstack/mcp/tools/` (~40 functions) remains
-operational but should not be used for new development.
+- **`tools/_shared.py`** -- Shared implementation logic used by both tiers
+  (e.g., `run_backtest_impl`, `register_strategy_impl`).
+- **`tools/_state.py`** -- `TradingContext` management (`require_ctx()`,
+  `get_ctx()`). Provides DB connections, broker handles, and system state.
+- **`tools/_helpers.py`** -- Common utilities (JSON serialization, error formatting).
+- **`tools/models.py`** -- Shared Pydantic models (e.g., `StrategyRecord`).
 
 ---
 
@@ -43,8 +45,8 @@ internal computation:
                         |
                         v
             +------------------------+
-            |   MCP Bridge           |  <-- Connects to external MCP servers
-            |   tools/mcp_bridge/    |
+            |   Shared Infra         |  <-- _shared.py, _state.py, models.py
+            |   Core Libraries       |      Direct Python imports
             +------------------------+
 ```
 
@@ -183,46 +185,24 @@ chooses which tickers to research and which tools to use.
 
 ---
 
-## MCP Bridge
+## Shared Infrastructure
 
-**Directory:** `src/quantstack/tools/mcp_bridge/`
+**Directory:** `src/quantstack/tools/`
 
-The MCP bridge connects the tool layer to external MCP (Model Context Protocol)
-servers. Both LangChain tools and deterministic functions use the bridge when
-they need capabilities hosted by an MCP server.
+Files at the top level of `tools/` provide shared logic used by both tiers:
 
 | File | Purpose |
 |------|---------|
-| `_bridge.py` | `MCPBridge` class and `get_bridge()` factory singleton |
+| `_shared.py` | Implementation logic shared across tiers (backtest, strategy CRUD, portfolio snapshot) |
+| `_state.py` | `TradingContext` lifecycle -- `require_ctx()` returns a context with DB pool, broker handle, and system state |
+| `_helpers.py` | JSON serialization, error formatting, common utilities |
+| `models.py` | Pydantic models shared across tool files (e.g., `StrategyRecord`) |
+| `registry.py` | `TOOL_REGISTRY` dict + `get_tools_for_agent()` resolver |
 
-`get_bridge()` returns a shared `MCPBridge` instance configured from
-environment variables. The bridge handles connection lifecycle, request
-serialization, and error mapping.
-
-For the full catalog of MCP servers and their capabilities, see
-[`docs/architecture/mcp_servers.md`](mcp_servers.md).
-
----
-
-## Legacy Tools (mcp/tools/)
-
-**Directory:** `src/quantstack/mcp/tools/`
-
-The original toolkit, containing approximately 40 Python functions used by the
-earlier prompt-based execution loops. These tools predate the LangGraph
-architecture and the two-tier split.
-
-**Status:** Operational. Some graph nodes and scripts still import from this
-package. The legacy tools coexist with the new `tools/` directory without
-conflict.
-
-**Migration policy:**
-
-- New code must use `tools/langchain/` or `tools/functions/`.
-- When modifying an existing flow that uses a legacy tool, migrate it to the
-  new package as part of the change.
-- Do not add new functions to `mcp/tools/`. The package is frozen for new
-  development.
+`TradingContext` (from `_state.py`) is the primary mechanism for accessing
+runtime resources. Both LLM-facing tools and deterministic functions use
+`require_ctx()` to get database connections, broker handles, and system state
+without passing them as arguments through the call chain.
 
 ---
 

@@ -100,11 +100,17 @@ MEAN_REVERSION_BOLLINGER_SPACE = {
     "stop_loss_atr": [1.5, 2.0],
 }
 
+PEAD_SPACE = {
+    "sue_threshold": [1.5, 2.0, 2.5, 3.0],
+    "holding_period": [40, 50, 60, 70, 80],
+}
+
 TEMPLATE_REGISTRY: dict[str, dict[str, list[Any]]] = {
     "rsi_mean_reversion": RSI_MEAN_REVERSION_SPACE,
     "trend_momentum": TREND_MOMENTUM_SPACE,
     "breakout": BREAKOUT_SPACE,
     "mean_reversion_bollinger": MEAN_REVERSION_BOLLINGER_SPACE,
+    "auto_pead": PEAD_SPACE,
 }
 
 
@@ -112,15 +118,20 @@ def get_templates_for_regime(
     trend_regime: str,
 ) -> list[tuple[str, dict[str, list[Any]]]]:
     """Return template names and spaces appropriate for the current regime."""
+    # PEAD is regime-agnostic — earnings surprises occur in all market regimes
+    pead_entry = ("auto_pead", PEAD_SPACE)
+
     if trend_regime in ("trending_up", "trending_down"):
         return [
             ("trend_momentum", TREND_MOMENTUM_SPACE),
             ("breakout", BREAKOUT_SPACE),
+            pead_entry,
         ]
     elif trend_regime == "ranging":
         return [
             ("rsi_mean_reversion", RSI_MEAN_REVERSION_SPACE),
             ("mean_reversion_bollinger", MEAN_REVERSION_BOLLINGER_SPACE),
+            pead_entry,
         ]
     else:
         # Unknown regime: try all templates at reduced depth

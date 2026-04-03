@@ -35,8 +35,8 @@ QuantStack/
 │   ├── tools/
 │   │   ├── langchain/                # LLM-facing @tool decorated (agent nodes)
 │   │   ├── functions/                # Node-callable deterministic tools
-│   │   └── mcp_bridge/              # MCPBridge for MCP server communication
-│   ├── mcp/tools/                    # Python toolkit (signal, execution, coordination)
+│   │   ├── _shared.py               # Shared implementation logic
+│   │   └── _state.py                # TradingContext state management
 │   ├── signal_engine/                # 16 concurrent collectors, no LLM, 2–6s
 │   ├── core/                         # Indicators, backtesting, ML, options pricing
 │   ├── health/                       # Health checks for Docker services
@@ -283,12 +283,12 @@ system_state (key, value, updated_at)
 ## Further reading
 
 - [graphs.md](./graphs.md) — LangGraph StateGraphs (trading, research, supervisor), state schemas, agent config
-- [tools.md](./tools.md) — Tool layer (LLM-facing, deterministic, registry, MCP bridge)
+- [tools.md](./tools.md) — Tool layer (LLM-facing, deterministic, registry)
 - [signal_engine.md](./signal_engine.md) — 18 concurrent signal collectors, SignalBrief, synthesis
 - [llm_routing.md](./llm_routing.md) — Model tiers, provider fallback, instantiation
 - [database_schema.md](./database_schema.md) — 60+ PostgreSQL tables by subsystem
 - [quantcore.md](./quantcore.md) — Core library modules (indicators, backtesting, ML)
-- [mcp_servers.md](./mcp_servers.md) — MCP server and tool catalog
+
 - [../ops-runbook.md](../ops-runbook.md) — Diagnostic queries, failure modes, recovery procedures
 - [../guides/quickstart.md](../guides/quickstart.md) — Get running in 10 minutes
 - [../guides/deployment.md](../guides/deployment.md) — Environment variables, data paths, cron jobs

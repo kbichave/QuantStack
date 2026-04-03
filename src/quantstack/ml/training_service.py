@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-ML Training Service — core training logic extracted from MCP tools.
+ML Training Service — core training logic for model training.
 
-This module contains the business logic for ML model training, independent
-of the MCP server. Both MCP tools and the autonomous orchestrator call
-these functions directly.
+This module contains the business logic for ML model training. Both
+LangChain tools and the autonomous orchestrator call these functions
+directly.
 
 Layer: ml (L5) — depends only on config, core, data, features, ml.trainer.
 """
@@ -59,9 +59,8 @@ async def train_model(
     """
     Train an ML classification model for a symbol.
 
-    This is the service-layer entry point. The MCP tool delegates here,
-    and the autonomous orchestrator can call this directly without importing
-    from the MCP layer.
+    This is the service-layer entry point. LangChain tools and the
+    autonomous orchestrator call this directly.
 
     Returns:
         Dict with training results (success, metrics, model_path, etc.).

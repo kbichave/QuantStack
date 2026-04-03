@@ -8,7 +8,7 @@ This directory contains all Python packages that make up the QuantStack unified 
 |---------|-------------|--------|
 | [quantcore](./quantcore/) | Core quantitative trading library | Stable |
 | [quantstack](./quantstack/) | Multi-agent trading system (CrewAI) | Beta |
-| [etrade_mcp](./etrade_mcp/) | E-Trade MCP server integration | Beta |
+| [etrade_mcp](./etrade_mcp/) | E-Trade broker integration | Beta |
 
 ## Architecture
 
@@ -18,7 +18,7 @@ This directory contains all Python packages that make up the QuantStack unified 
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
-│  │  QuantStack    │  │ QuantArena   │  │ E-Trade MCP  │       │
+│  │  QuantStack    │  │ QuantArena   │  │ E-Trade      │       │
 │  │  (Agents)    │  │ (Simulation) │  │ (Execution)  │       │
 │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       │
 │         │                 │                  │               │
@@ -55,10 +55,10 @@ CrewAI-based multi-agent trading system:
 - **Hierarchical Agents**: ICs → Pod Managers → Assistant → SuperTrader
 - **Knowledge Store**: Persistent policy and learning storage
 - **Memory System**: Blackboard pattern for agent communication
-- **MCP Bridge**: Tool integration for external data/execution
+- **Tool Layer**: Two-tier tool architecture for data/execution
 
-### E-Trade MCP
-Model Context Protocol server for E-Trade:
+### E-Trade Integration
+Broker adapter for E-Trade:
 - **OAuth Authentication**: Secure credential management
 - **Account Access**: Positions, balances, order history
 - **Trade Execution**: Market/limit orders with paper trading mode
@@ -103,4 +103,4 @@ etrade_mcp ← (no internal deps)
 
 - [QuantCore Architecture](../docs/architecture/quantcore.md)
 - [QuantStack Architecture](../docs/architecture/quantstack.md)
-- [MCP Servers](../docs/architecture/mcp_servers.md)
+- [Tool Layer](../docs/architecture/tools.md)

@@ -12,7 +12,7 @@ The strategy lifecycle FSM:
 
 Multiple processes (Factory loop, /review skill, AutoPromoter) can attempt
 status changes concurrently.  Since PostgreSQL uses MVCC, the risk is TOCTOU
-within the async MCP handler: between reading the current status and writing
+within an async handler: between reading the current status and writing
 the new one, another coroutine may interleave.
 
 Solution: conditional UPDATE (compare-and-swap).  The UPDATE's WHERE clause

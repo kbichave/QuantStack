@@ -24,6 +24,15 @@ daily_planner:
     - multi_signal_brief
     - search_knowledge_base
     - fetch_portfolio
+    - fetch_strategy_registry
+    - get_regime_strategies
+    - get_strategy_gaps
+    - get_equity_alerts
+    - get_market_breadth
+    - screen_stocks
+    - get_intraday_status
+    - get_analyst_estimates
+    - list_stored_symbols
 
 position_monitor:
   role: "Position Risk Analyst"
@@ -51,6 +60,20 @@ position_monitor:
     - signal_brief
     - fetch_portfolio
     - search_knowledge_base
+    - get_position_monitor
+    - get_strategy_pnl
+    - get_daily_equity
+    - get_strategy_performance
+    - compute_alpha_decay
+    - diagnose_signal
+    - get_fills
+    - get_fill_quality
+    - update_position_stops
+    - create_exit_signal
+    - get_equity_alerts
+    - add_alert_update
+    - create_equity_alert
+    - update_alert_status
 
 trade_debater:
   role: "Trade Thesis Analyst"
@@ -76,6 +99,19 @@ trade_debater:
     - multi_signal_brief
     - fetch_fundamentals
     - search_knowledge_base
+    - fetch_market_data
+    - compute_features
+    - compute_technical_indicators
+    - get_institutional_accumulation
+    - get_capitulation_score
+    - get_cross_domain_intel
+    - analyze_text_sentiment
+    - get_credit_market_signals
+    - get_market_breadth
+    - get_analyst_estimates
+    - get_company_facts
+    - compute_information_coefficient
+    - validate_signal
 
 risk_analyst:
   role: "Portfolio Risk Reasoner"
@@ -101,6 +137,15 @@ risk_analyst:
     - fetch_portfolio
     - compute_risk_metrics
     - search_knowledge_base
+    - compute_position_size
+    - compute_var
+    - compute_max_drawdown
+    - stress_test_portfolio
+    - check_risk_limits
+    - resolve_portfolio_conflicts
+    - set_regime_allocation
+    - fit_garch_model
+    - forecast_volatility
 
 fund_manager:
   role: "Portfolio Approval Authority"
@@ -128,6 +173,9 @@ fund_manager:
     - fetch_portfolio
     - compute_risk_metrics
     - search_knowledge_base
+    - get_strategy_performance
+    - get_strategy_gaps
+    - check_risk_limits
 
 options_analyst:
   role: "Options Structure Specialist"
@@ -153,6 +201,13 @@ options_analyst:
     - fetch_options_chain
     - compute_greeks
     - search_knowledge_base
+    - analyze_option_structure
+    - compute_implied_vol
+    - get_iv_surface
+    - price_option
+    - score_trade_structure
+    - run_backtest_options
+    - finrl_screen_options
 
 earnings_analyst:
   role: "Earnings Event Specialist"
@@ -175,6 +230,9 @@ earnings_analyst:
     - fetch_earnings_data
     - fetch_options_chain
     - search_knowledge_base
+    - get_analyst_estimates
+    - compute_greeks
+    - get_iv_surface
 
 market_intel:
   role: "Market Intelligence Analyst"
@@ -194,6 +252,10 @@ market_intel:
   tools:
     - web_search
     - search_knowledge_base
+    - analyze_text_sentiment
+    - get_market_breadth
+    - get_credit_market_signals
+    - get_institutional_accumulation
 
 trade_reflector:
   role: "Post-Trade Analyst"
@@ -215,6 +277,15 @@ trade_reflector:
   tools:
     - fetch_portfolio
     - search_knowledge_base
+    - get_recent_decisions
+    - get_audit_trail
+    - get_fills
+    - get_fill_quality
+    - get_tca_report
+    - get_strategy_pnl
+    - get_daily_equity
+    - get_strategy_performance
+    - compute_alpha_decay
 
 executor:
   role: "Trade Executor"
@@ -231,4 +302,10 @@ executor:
   timeout_seconds: 120
   tools:
     - execute_order
+    - execute_options_trade
     - fetch_portfolio
+    - check_system_status
+    - check_broker_connection
+    - close_position
+    - get_fills
+    - get_algo_recommendation

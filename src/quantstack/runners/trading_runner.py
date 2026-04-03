@@ -24,10 +24,10 @@ def save_checkpoint(graph_name: str, cycle_number: int, duration: float,
         from quantstack.db import db_conn
         with db_conn() as conn:
             conn.execute(
-                """INSERT INTO crew_checkpoints
-                   (crew_name, cycle_number, duration_seconds, status, error_message)
+                """INSERT INTO graph_checkpoints
+                   (graph_name, cycle_number, duration_seconds, status, error_message)
                    VALUES (%s, %s, %s, %s, %s)
-                   ON CONFLICT (crew_name, cycle_number) DO UPDATE
+                   ON CONFLICT (graph_name, cycle_number) DO UPDATE
                    SET duration_seconds = EXCLUDED.duration_seconds,
                        status = EXCLUDED.status,
                        error_message = EXCLUDED.error_message""",
@@ -80,7 +80,7 @@ async def run_loop(
                 session_id=f"{graph_name}-{date_str}",
                 tags=[graph_name, f"cycle-{cycle_number}"],
                 name=f"{graph_name}_cycle",
-            ):
+            ) as trace:
                 final_state = await asyncio.wait_for(
                     graph.ainvoke(
                         initial_state,
@@ -143,6 +143,14 @@ async def async_main() -> None:
         setup_instrumentation()
     except Exception:
         logger.warning("Langfuse instrumentation unavailable — continuing without tracing")
+
+    # Run DB migrations (idempotent, creates graph_checkpoints etc.)
+    try:
+        from quantstack.db import db_conn, run_migrations
+        with db_conn() as conn:
+            run_migrations(conn)
+    except Exception:
+        logger.warning("DB migrations failed — checkpointing will be degraded")
 
     shutdown = GracefulShutdown()
     shutdown.install_async(asyncio.get_running_loop())

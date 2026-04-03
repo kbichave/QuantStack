@@ -11,7 +11,7 @@ is healthy and every precondition is met.
 Usage (CLI):
     python -m quantstack.coordination.preflight
 
-Usage (MCP tool):
+Usage (tool):
     run_preflight_check()
 
 Usage (code):
@@ -457,7 +457,7 @@ class PreflightCheck:
         """Verify options execution tool is available and wallet supports options."""
         try:
             tool_available = (
-                importlib.util.find_spec("quantstack.mcp.tools.options_execution")
+                importlib.util.find_spec("quantstack.tools.langchain.options_execution_tools")
                 is not None
             )
         except Exception:
@@ -467,7 +467,7 @@ class PreflightCheck:
             return PreflightResult(
                 "Options execution",
                 False,
-                "execute_options_trade MCP tool not available.",
+                "execute_options_trade tool not available.",
             )
 
         # Check wallet can support at least 1 options position
@@ -528,7 +528,7 @@ def run_preflight(
     target_wallet: float = 1000.0,
 ) -> dict[str, Any]:
     """
-    MCP-callable preflight check.
+    Callable preflight check.
 
     Returns:
         {"ready": bool, "blockers": [...], "warnings": [...], "summary": "..."}

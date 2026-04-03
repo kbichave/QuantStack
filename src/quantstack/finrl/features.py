@@ -4,7 +4,7 @@ RL Feature Extractor — canonical feature vectors for all RL agents.
 THIS IS THE SINGLE SOURCE OF TRUTH for feature computation.
 
 Problem solved: Training-serving skew.
-Both environments (training) and MCP tools (inference) call these static methods
+Both environments (training) and tools (inference) call these static methods
 to produce byte-for-byte identical feature vectors.
 
 Ported from quantstack.rl.features — same logic, no dependency on old RL base classes.

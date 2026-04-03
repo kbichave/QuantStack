@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Trade execution service — core logic extracted from MCP tools.
+Trade execution service — core trade execution logic.
 
-This module contains the business logic for trade execution, independent of
-the MCP server. Both MCP tools and the autonomous runner call these functions
-directly, passing explicit dependencies (portfolio, risk_gate, broker, audit).
+This module contains the business logic for trade execution. Both
+LangChain tools and the autonomous runner call these functions directly,
+passing explicit dependencies (portfolio, risk_gate, broker, audit).
 
 Design invariant: the risk gate is NEVER bypassed.
 """
@@ -73,7 +73,7 @@ async def execute_trade(
     """
     Execute a trade through the risk gate and broker.
 
-    All dependencies are passed explicitly — no MCP state imports.
+    All dependencies are passed explicitly — no global state imports.
 
     Returns:
         Dict with fill details or rejection reason.

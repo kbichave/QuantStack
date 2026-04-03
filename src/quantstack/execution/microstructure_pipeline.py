@@ -347,7 +347,7 @@ class MicrostructurePipeline:
     # -------------------------------------------------------------------------
 
     def stats(self) -> dict:
-        """Return pipeline counters for monitoring / MCP tool exposure."""
+        """Return pipeline counters for monitoring / tool exposure."""
         return {
             "ticks_processed": self._stats.ticks_processed,
             "signals_generated": self._stats.signals_generated,

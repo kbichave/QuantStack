@@ -35,7 +35,7 @@ from loguru import logger
 
 from quantstack.coordination.auto_promoter import AutoPromoter
 from quantstack.core.backtesting.walkforward_service import run_walkforward
-from quantstack.mcp.tools._impl import run_backtest_impl
+from quantstack.tools._shared import run_backtest_impl
 from quantstack.universe import STRATEGY_BACKTEST_DEFAULT
 from quantstack.db import PgConnection
 

@@ -5,7 +5,7 @@
 Generic in-memory TTL cache.
 
 Extracted from quantstack's IC output cache so it can be reused across
-any MCP server or subsystem that needs short-lived memoization.
+any subsystem that needs short-lived memoization.
 """
 
 from __future__ import annotations

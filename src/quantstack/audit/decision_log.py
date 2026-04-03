@@ -522,8 +522,8 @@ def get_decision_log_readonly() -> DecisionLog:
     """
     Get a read-only DecisionLog singleton backed by a PostgreSQL connection.
 
-    Use this in processes (FastAPI, scripts) that run alongside the MCP server
-    and only need to QUERY the audit trail.  The returned instance uses the
+    Use this in processes (FastAPI, scripts) that only need to QUERY the
+    audit trail.  The returned instance uses the
     shared PostgreSQL pool, which supports unlimited concurrent readers.
     """
     global _decision_log_ro

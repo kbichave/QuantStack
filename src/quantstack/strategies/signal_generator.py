@@ -1,8 +1,7 @@
 """Signal generation from strategy rules — core logic used by backtesting, GP, and param optimization.
 
-This module contains the rule-to-signal pipeline that was previously embedded
-in the MCP backtesting tool. Extracted here to break the circular dependency
-(grammar_gp → mcp.tools.backtesting → mcp.server → mcp.tools.backtesting).
+This module contains the rule-to-signal pipeline, extracted to break circular
+dependencies and shared across backtesting, GP, and parameter optimization.
 """
 
 from __future__ import annotations
@@ -174,7 +173,7 @@ def generate_signals_from_rules(
 
     # ── Enrich macro/institutional signals referenced by rules ────────────
     # These signals live outside the DataFrame pipeline (capitulation_score
-    # comes from MCP/capitulation tools; credit_regime from the macro
+    # comes from capitulation tools; credit_regime from the macro
     # collector). Rather than pulling in those full dependency chains, we
     # compute lightweight proxies from the OHLCV data already in df and read
     # the DB-persisted value for credit_regime, then broadcast as scalar

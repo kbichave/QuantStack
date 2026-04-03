@@ -70,9 +70,9 @@ def _is_weekend(dt: datetime | None = None) -> bool:
     return dt.weekday() >= 5
 
 
-def get_cycle_interval(crew_name: str, dt: datetime | None = None) -> int | None:
-    """Return the sleep interval in seconds for the given crew, or None to pause."""
-    config = INTERVALS[crew_name]
+def get_cycle_interval(graph_name: str, dt: datetime | None = None) -> int | None:
+    """Return the sleep interval in seconds for the given graph, or None to pause."""
+    config = INTERVALS[graph_name]
     if is_market_hours(dt):
         return config["market"]
     if _is_weekend(dt):

@@ -25,7 +25,7 @@ import pytest
 import quantstack.db as _db
 import quantstack.execution.portfolio_state as _ps
 import quantstack.execution.risk_gate as _rg
-import quantstack.mcp._state as _mcp_state
+import quantstack.tools._state as _tools_state
 from quantstack.context import create_trading_context
 from quantstack.execution.tick_executor import TickExecutor
 
@@ -172,7 +172,7 @@ def tick_executor(trading_ctx):
 def reset_singletons_and_seeds() -> Generator[None, None, None]:
     """Reset module-level singletons and random seeds before each test.
 
-    Without this, MCP tests that create a TradingContext pollute the global
+    Without this, tests that create a TradingContext pollute the global
     _risk_gate and _portfolio_state singletons, causing later tests to see
     stale state (wrong initial_cash, leftover positions, etc.).
     """
@@ -193,7 +193,7 @@ def reset_singletons_and_seeds() -> Generator[None, None, None]:
     _ps._portfolio_state_ro = None
 
     try:
-        _mcp_state._ctx = None
+        _tools_state._ctx = None
     except Exception:
         pass
 

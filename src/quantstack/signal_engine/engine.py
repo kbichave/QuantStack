@@ -47,6 +47,8 @@ from quantstack.signal_engine.collectors.sentiment import collect_sentiment
 from quantstack.signal_engine.collectors.sentiment_alphavantage import (
     collect_sentiment_alphavantage,
 )
+from quantstack.signal_engine.collectors.insider_signals import collect_insider_signals
+from quantstack.signal_engine.collectors.short_interest import collect_short_interest
 from quantstack.signal_engine.collectors.social_sentiment import collect_social_sentiment
 from quantstack.signal_engine.collectors.statarb import collect_statarb
 from quantstack.signal_engine.collectors.technical import collect_technical
@@ -211,6 +213,9 @@ class SignalEngine:
             "options_flow": collect_options_flow_async(symbol, self._store),
             # Phase 5 collectors (v1.2) — community social sentiment (Reddit + Stocktwits)
             "social": collect_social_sentiment(symbol, self._store),
+            # Phase 6 collectors (v1.3) — alternative data signals
+            "insider": collect_insider_signals(symbol, self._store),
+            "short_interest": collect_short_interest(symbol, self._store),
         }
 
         names = list(collector_map.keys())

@@ -2,7 +2,9 @@
 
 from typing import Any
 
-from quantstack.tools.mcp_bridge._bridge import get_bridge
+from loguru import logger
+
+from quantstack.tools._state import require_ctx, _serialize
 
 
 async def validate_risk_gate(
@@ -16,11 +18,32 @@ async def validate_risk_gate(
     Called by the risk_gate conditional edge. Returns pass/fail with reasoning.
     This is the LAW — never bypass.
     """
-    bridge = get_bridge()
-    return await bridge.call_quantcore(
-        "check_risk_limits",
-        symbol=symbol,
-        side=side,
-        quantity=quantity,
-        entry_price=entry_price,
-    )
+    try:
+        ctx = require_ctx()
+        daily_volume = 1_000_000  # Default for paper mode
+
+        verdict = ctx.risk_gate.check(
+            symbol=symbol,
+            side=side,
+            quantity=int(quantity),
+            current_price=entry_price,
+            daily_volume=daily_volume,
+        )
+
+        if verdict.approved:
+            return {
+                "approved": True,
+                "approved_quantity": verdict.approved_quantity or int(quantity),
+                "violations": [],
+            }
+        else:
+            violations = [v.description for v in verdict.violations]
+            return {
+                "approved": False,
+                "approved_quantity": 0,
+                "violations": violations,
+                "error": f"Risk gate rejected: {'; '.join(violations)}",
+            }
+    except Exception as e:
+        logger.error(f"validate_risk_gate({symbol}) failed: {e}")
+        return {"approved": False, "error": str(e), "violations": [str(e)]}

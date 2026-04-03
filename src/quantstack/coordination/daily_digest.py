@@ -8,7 +8,7 @@ Collects data from PostgreSQL tables (events, heartbeats, trades, strategies)
 and produces a structured report that can be sent to Discord or written to
 a memory file.
 
-Runs at 17:00 ET via the supervisor, or on demand via MCP tool.
+Runs at 17:00 ET via the supervisor, or on demand.
 """
 
 from __future__ import annotations

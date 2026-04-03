@@ -20,7 +20,7 @@ Process per symbol:
 Invariants:
 - Never writes live/forward_testing strategies — only 'draft'
 - DB is opened read-only for price data; strategy writes go through the
-  MCP context's write connection (require_live_db)
+  the write connection (require_live_db)
 - Exits cleanly on DB lock conflict via _connect_with_lock_guard in db.py
 - All failures are logged and counted — never raises to the caller
 
@@ -546,6 +546,28 @@ def _get_rules_for_template(template_name: str) -> tuple[list[dict], list[dict]]
                 "type": "stop_loss",
                 "atr_multiple": 2.0,
                 "_param_atr_multiple": "stop_loss_atr",
+            },
+        ]
+
+    elif template_name == "auto_pead":
+        entry_rules = [
+            {
+                "indicator": "sue",
+                "condition": "above",
+                "value": 2.0,
+                "_param_value": "sue_threshold",
+                "type": "prerequisite",
+            },
+        ]
+        exit_rules = [
+            {
+                "type": "holding_period",
+                "days": 60,
+                "_param_days": "holding_period",
+            },
+            {
+                "type": "stop_loss",
+                "atr_multiple": 2.0,
             },
         ]
 

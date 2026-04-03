@@ -4,6 +4,8 @@ Temporal Fusion Transformer for regime prediction.
 ML-based regime classification using attention mechanisms.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 
@@ -11,8 +13,14 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-import torch
-import torch.nn as nn
+try:
+    import torch
+    import torch.nn as nn
+    _HAS_TORCH = True
+except ImportError:
+    torch = None  # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
+    _HAS_TORCH = False
 
 
 class TFTRegimeState(Enum):
@@ -35,8 +43,24 @@ class TFTRegimeResult:
     feature_importance: dict[str, float]
 
 
+def _require_torch():
+    """Raise ImportError with actionable message if torch is not installed."""
+    if not _HAS_TORCH:
+        raise ImportError(
+            "torch is required for TFT regime model. "
+            "Install with: pip install 'quantstack[rl]'"
+        )
+
+
 # Simple TFT-inspired model (full TFT is complex, this is a simplified version)
-class SimpleTFTModel(nn.Module):
+# Guarded: only defined when torch is available.
+if _HAS_TORCH:
+    _nn_Module = nn.Module
+else:
+    _nn_Module = object  # type: ignore[assignment,misc]
+
+
+class SimpleTFTModel(_nn_Module):  # type: ignore[misc]
     """
     Simplified Temporal Fusion Transformer for regime prediction.
 
@@ -55,6 +79,7 @@ class SimpleTFTModel(nn.Module):
         n_regimes: int = 4,
         dropout: float = 0.1,
     ):
+        _require_torch()
         super().__init__()
 
         self.n_features = n_features
@@ -209,7 +234,7 @@ class TFTRegimeModel:
 
     def fit(
         self, df: pd.DataFrame, labels: pd.Series | None = None
-    ) -> "TFTRegimeModel":
+    ) -> TFTRegimeModel:
         """
         Fit TFT model.
 
@@ -220,6 +245,10 @@ class TFTRegimeModel:
         Returns:
             Self for chaining
         """
+        if not _HAS_TORCH:
+            logger.warning("torch not installed — TFT model will use fallback predictions")
+            return self
+
         # Prepare features
         features = self._prepare_features(df)
 

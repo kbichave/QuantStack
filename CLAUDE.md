@@ -36,7 +36,8 @@ Three LangGraph StateGraphs run as Docker services, orchestrated by `start.sh`:
 **All computation uses Python imports.** Two tool tiers:
 - **LLM-facing:** `src/quantstack/tools/langchain/` — `@tool` decorated, resolved via `TOOL_REGISTRY` in `tools/registry.py`
 - **Deterministic:** `src/quantstack/tools/functions/` — called directly by graph node code
-- **Legacy:** `src/quantstack/mcp/tools/` — older toolkit, still functional
+
+Shared implementation logic lives in `src/quantstack/tools/_shared.py`. Pydantic I/O models in `tools/models.py`. Response helpers in `tools/_helpers.py`. State management in `tools/_state.py`.
 
 Agent configs in `src/quantstack/graphs/*/config/agents.yaml` bind tools by string name. Hot-reload supported (file-watch in dev, SIGHUP in prod).
 
@@ -54,7 +55,6 @@ Before modifying a subsystem, read its reference doc:
 | LLM routing | `docs/architecture/llm_routing.md` | Changing providers, tiers, fallback |
 | Database schema | `docs/architecture/database_schema.md` | Writing queries, adding tables |
 | Core library | `docs/architecture/quantcore.md` | Indicators, backtesting, ML |
-| MCP servers | `docs/architecture/mcp_servers.md` | MCP tool catalog |
 | Operations | `docs/ops-runbook.md` | Debugging, diagnostics, recovery |
 
 ---
@@ -62,7 +62,7 @@ Before modifying a subsystem, read its reference doc:
 ## Hard Rules
 
 - **Risk gate is LAW.** Every trade passes through `src/quantstack/execution/risk_gate.py`. Never bypass. Never modify. Never auto-patch.
-- **Kill switch halts everything.** Check system status via `from quantstack.mcp.tools._impl import get_system_status` before any session. If halted, STOP.
+- **Kill switch halts everything.** Check system status via `from quantstack.tools._state import require_ctx` before any session. If halted, STOP.
 - **Paper mode is default.** Live requires `USE_REAL_TRADING=true`.
 - **Audit trail is mandatory.** Every decision logged with reasoning.
 - **DB writes use `db_conn()` context managers.** All state lives in PostgreSQL.

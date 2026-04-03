@@ -2,6 +2,7 @@
 
 import json
 
+import httpx
 from langchain_core.tools import tool
 
 
@@ -17,9 +18,10 @@ async def web_search(query: str) -> str:
 
     Returns JSON with search results including title, snippet, and URL.
     """
-    try:
-        from quantstack.mcp.tools.web import web_search as mcp_web_search
-        result = await mcp_web_search(query=query)
-        return json.dumps(result, default=str)
-    except ImportError:
-        return json.dumps({"error": "Web search not available"})
+    # TODO: Wire to a proper search API (SerpAPI, Brave Search, Tavily).
+    # For now, return a placeholder indicating the tool exists but needs config.
+    return json.dumps({
+        "error": "Web search not configured — set SEARCH_API_KEY in .env",
+        "query": query,
+        "results": [],
+    })

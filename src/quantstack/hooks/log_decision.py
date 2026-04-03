@@ -38,7 +38,7 @@ def main():
         except json.JSONDecodeError:
             tool_response = {}
 
-    # Handle FastMCP content wrapping
+    # Handle legacy content wrapping
     if isinstance(tool_response, dict) and "content" in tool_response:
         content = tool_response.get("content", [])
         if isinstance(content, list) and content:

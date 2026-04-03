@@ -28,7 +28,7 @@ Usage::
 
 ## Migrations
 
-``run_migrations(conn)`` creates all tables.  Called once at MCP server startup.
+``run_migrations(conn)`` creates all tables.  Called once at service startup.
 Idempotent — uses ``CREATE TABLE IF NOT EXISTS`` throughout.
 """
 
@@ -55,7 +55,7 @@ from loguru import logger
 # json.loads(list) → TypeError in those code paths.
 #
 # Migration path: new code should use coerce_json() from
-# quantstack.mcp.tools._base instead of calling json.loads() directly.
+# quantstack.tools._shared instead of calling json.loads() directly.
 # Once all explicit json.loads() calls on DB columns are removed, delete
 # these two lines and let psycopg2 parse JSON normally.
 psycopg2.extras.register_default_json(loads=lambda x: x)
@@ -462,7 +462,7 @@ def run_migrations_pg(conn: PgConnection) -> None:
 
     Idempotent — uses CREATE TABLE IF NOT EXISTS and ADD COLUMN IF NOT EXISTS.
 
-    Uses a PostgreSQL advisory lock so that when 10 MCP servers start
+    Uses a PostgreSQL advisory lock so that when 10 services start
     simultaneously, only one runs migrations; the others skip (tables already
     exist).  Each DDL runs in autocommit mode so that:
       - No long-held transaction blocks concurrent tool calls
@@ -520,6 +520,9 @@ def run_migrations_pg(conn: PgConnection) -> None:
             _migrate_research_queue_pg(conn)
             _migrate_loop_context_pg(conn)
             _migrate_bugs_pg(conn)
+            _migrate_ml_pipeline_pg(conn)
+            _migrate_capital_allocation_pg(conn)
+            _migrate_risk_monitoring_pg(conn)
 
             logger.info("[DB] PostgreSQL migrations complete")
             _migrations_done = True
@@ -1794,14 +1797,143 @@ def _migrate_bugs_pg(conn: PgConnection) -> None:
     )
     logger.debug("[DB] bugs table migrated")
 
+    # -- Graph runner checkpoints (LangGraph cycle tracking) --
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS graph_checkpoints (
+            graph_name          TEXT        NOT NULL,
+            cycle_number        INTEGER     NOT NULL,
+            duration_seconds    REAL        NOT NULL,
+            status              TEXT        NOT NULL DEFAULT 'success',
+            error_message       TEXT,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (graph_name, cycle_number)
+        )
+    """)
+    logger.debug("[DB] graph_checkpoints table migrated")
+
+    # -- Agent events (real-time dashboard feed) --
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS agent_events (
+            id              BIGSERIAL   PRIMARY KEY,
+            graph_name      TEXT        NOT NULL,
+            node_name       TEXT        NOT NULL,
+            agent_name      TEXT        NOT NULL DEFAULT '',
+            event_type      TEXT        NOT NULL,
+            content         TEXT        NOT NULL DEFAULT '',
+            metadata        JSONB       NOT NULL DEFAULT '{}',
+            cycle_number    INTEGER     NOT NULL DEFAULT 0,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_events_created "
+        "ON agent_events (created_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_events_graph "
+        "ON agent_events (graph_name, created_at DESC)"
+    )
+    logger.debug("[DB] agent_events table migrated")
+
+
+def _migrate_risk_monitoring_pg(conn: PgConnection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS risk_snapshots (
+            id                  BIGSERIAL       PRIMARY KEY,
+            snapshot_time       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+            total_equity        DOUBLE PRECISION NOT NULL,
+            gross_exposure      DOUBLE PRECISION NOT NULL,
+            net_exposure        DOUBLE PRECISION NOT NULL,
+            largest_position_pct DOUBLE PRECISION NOT NULL,
+            position_count      INTEGER         NOT NULL,
+            daily_pnl           DOUBLE PRECISION NOT NULL,
+            var_95              DOUBLE PRECISION,
+            var_99              DOUBLE PRECISION,
+            cvar_99             DOUBLE PRECISION,
+            portfolio_dd_pct    DOUBLE PRECISION,
+            market_beta         DOUBLE PRECISION,
+            momentum_beta       DOUBLE PRECISION,
+            value_beta          DOUBLE PRECISION,
+            avg_pairwise_corr   DOUBLE PRECISION,
+            escalation_level    TEXT,
+            metadata            JSONB           DEFAULT '{}'
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_risk_snapshots_time "
+        "ON risk_snapshots (snapshot_time DESC)"
+    )
+    logger.debug("[DB] risk_snapshots table migrated")
+
+
+def _migrate_capital_allocation_pg(conn: PgConnection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_capital_allocations (
+            id                  BIGSERIAL       PRIMARY KEY,
+            strategy_id         TEXT            NOT NULL,
+            allocated_at        TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+            score               DOUBLE PRECISION NOT NULL,
+            budget_pct          DOUBLE PRECISION NOT NULL,
+            budget_dollars      DOUBLE PRECISION NOT NULL,
+            sharpe_component    DOUBLE PRECISION,
+            capacity_component  DOUBLE PRECISION,
+            correlation_penalty DOUBLE PRECISION,
+            regime_fit          DOUBLE PRECISION
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_alloc_latest "
+        "ON strategy_capital_allocations (strategy_id, allocated_at DESC)"
+    )
+    logger.debug("[DB] strategy_capital_allocations table migrated")
+
+
+def _migrate_ml_pipeline_pg(conn: PgConnection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS bars (
+            id                  BIGSERIAL       PRIMARY KEY,
+            symbol              TEXT            NOT NULL,
+            bar_type            TEXT            NOT NULL,
+            timestamp           TIMESTAMPTZ     NOT NULL,
+            open                DOUBLE PRECISION NOT NULL,
+            high                DOUBLE PRECISION NOT NULL,
+            low                 DOUBLE PRECISION NOT NULL,
+            close               DOUBLE PRECISION NOT NULL,
+            volume              BIGINT          NOT NULL,
+            dollar_volume       DOUBLE PRECISION NOT NULL,
+            tick_count          INTEGER         NOT NULL,
+            vwap                DOUBLE PRECISION NOT NULL,
+            bar_duration_seconds INTEGER        NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bars_symbol_type_ts "
+        "ON bars (symbol, bar_type, timestamp)"
+    )
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS feature_params (
+            id          BIGSERIAL       PRIMARY KEY,
+            symbol      TEXT            NOT NULL,
+            param_name  TEXT            NOT NULL,
+            param_value DOUBLE PRECISION NOT NULL,
+            updated_at  TIMESTAMPTZ     NOT NULL DEFAULT NOW()
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_feature_params_symbol_param "
+        "ON feature_params (symbol, param_name)"
+    )
+    logger.debug("[DB] ML pipeline tables (bars, feature_params) migrated")
+
 
 # ---------------------------------------------------------------------------
-# Unified entry point (MCP server startup)
+# Unified entry point
 # ---------------------------------------------------------------------------
 
 
 def run_migrations(conn: PgConnection) -> None:
-    """Run all migrations.  Called once at MCP server startup.  Idempotent."""
+    """Run all migrations.  Called once at startup.  Idempotent."""
     run_migrations_pg(conn)
 
 

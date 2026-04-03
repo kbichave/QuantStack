@@ -41,6 +41,13 @@ class TradingState(TypedDict):
     cycle_number: int
     regime: str
     portfolio_context: dict
+    # Data refresh (runs before safety_check every cycle)
+    data_refresh_summary: dict
+    # Pre-market intelligence (populated by market_intel node)
+    market_context: dict
+    # Earnings detection (populated by plan_day when earnings within 14 days)
+    earnings_symbols: list[str]
+    earnings_analysis: dict
     # Pipeline
     daily_plan: str
     position_reviews: list[dict]
@@ -51,6 +58,8 @@ class TradingState(TypedDict):
     options_analysis: list[dict]
     entry_orders: list[dict]
     reflection: str
+    # Portfolio construction (deterministic optimizer output)
+    portfolio_target_weights: dict
     # Accumulation
     errors: Annotated[list[str], operator.add]
     decisions: Annotated[list[dict], operator.add]
@@ -65,5 +74,7 @@ class SupervisorState(TypedDict):
     recovery_actions: list[dict]
     strategy_lifecycle_actions: list[dict]
     scheduled_task_results: list[dict]
+    eod_refresh_summary: dict
+    risk_snapshot: dict  # populated by risk monitoring nodes
     # Accumulation
     errors: Annotated[list[str], operator.add]

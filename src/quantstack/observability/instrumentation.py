@@ -1,27 +1,24 @@
 """Centralized Langfuse instrumentation setup for LangGraph.
 
-Langfuse v4 uses OpenTelemetry for automatic LLM call tracing.
-Must be called once per process before any graph is invoked.
+Uses Langfuse v2 direct API for trace creation. The CallbackHandler
+approach is incompatible with langchain v1.x, so we create traces
+manually and flush at cycle end.
 """
 
 import logging
 import os
 from contextlib import contextmanager
-from typing import Generator
+from typing import Any, Generator
 
 logger = logging.getLogger(__name__)
 
 _initialized = False
+_langfuse_client = None
 
 
 def setup_instrumentation() -> None:
-    """Initialize Langfuse OTEL instrumentation.
-
-    Langfuse v4 auto-instruments LangChain, LiteLLM, and other LLM libs
-    via OpenTelemetry. This captures all LLM calls (input/output/tokens/cost)
-    automatically — no callback handlers needed.
-    """
-    global _initialized
+    """Initialize Langfuse and validate credentials."""
+    global _initialized, _langfuse_client
     if _initialized:
         return
 
@@ -37,14 +34,14 @@ def setup_instrumentation() -> None:
     try:
         from langfuse import Langfuse
 
-        # Auth check — validates keys against the Langfuse server
         lf = Langfuse()
         lf.auth_check()
-        logger.info("Langfuse instrumentation initialized (v4 OTEL)")
+        _langfuse_client = lf
+        logger.info("Langfuse instrumentation initialized (v2 direct API)")
         _initialized = True
     except Exception as exc:
-        logger.warning("Langfuse auth check failed: %s — tracing may be degraded", exc)
-        _initialized = True  # Don't retry, proceed without tracing
+        logger.warning("Langfuse auth check failed: %s — tracing disabled", exc)
+        _initialized = True
 
 
 @contextmanager
@@ -52,19 +49,53 @@ def langfuse_trace_context(
     session_id: str,
     tags: list[str],
     name: str = "graph_cycle",
-) -> Generator:
-    """Create a Langfuse trace context for a graph invocation cycle.
+) -> Generator[Any, None, None]:
+    """Create a Langfuse trace for a graph invocation cycle.
 
-    In v4, uses @observe-style context with start_observation/flush.
-    All LLM calls within the context are auto-captured via OTEL.
+    Yields a trace object (or None if Langfuse unavailable).
+    Graph nodes and tool calls within the cycle are logged as events/spans.
     """
+    if _langfuse_client is None:
+        yield None
+        return
+
+    trace = None
     try:
-        from langfuse import Langfuse
-        lf = Langfuse()
-        # v4: use observe-style tracing
-        trace_id = lf.create_trace_id()
-        yield trace_id
-        lf.flush()
+        trace = _langfuse_client.trace(
+            name=name,
+            session_id=session_id,
+            tags=tags,
+        )
+        yield trace
     except Exception as exc:
         logger.debug("Langfuse trace context failed: %s", exc)
         yield None
+    finally:
+        if trace is not None:
+            try:
+                trace.event(name="cycle_end")
+            except Exception:
+                pass
+        try:
+            _langfuse_client.flush()
+        except Exception:
+            pass
+
+
+def log_node_execution(
+    trace: Any,
+    node_name: str,
+    duration_seconds: float,
+    metadata: dict | None = None,
+) -> None:
+    """Log a graph node execution as a Langfuse span on the current trace."""
+    if trace is None:
+        return
+    try:
+        trace.span(
+            name=node_name,
+            metadata=metadata or {},
+            input={"duration_seconds": round(duration_seconds, 2)},
+        )
+    except Exception:
+        pass

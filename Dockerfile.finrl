@@ -1,0 +1,58 @@
+# QuantStack FinRL Worker — includes torch + RL dependencies
+# Separate image to avoid bloating graph services with ~4GB of CUDA libs.
+
+FROM python:3.11-slim-bookworm
+
+LABEL maintainer="QuantStack"
+LABEL description="QuantStack FinRL worker (torch + stable-baselines3)"
+
+ARG EXTRA_CA_CERT=""
+RUN if [ -n "$EXTRA_CA_CERT" ]; then \
+        printf '%s\n' "$EXTRA_CA_CERT" >> /usr/local/share/ca-certificates/corporate.crt \
+        && update-ca-certificates; \
+    fi
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    git \
+    curl \
+    wget \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build TA-Lib from source (not in Debian repos)
+RUN wget -q https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib-0.6.4-src.tar.gz \
+    && tar xzf ta-lib-0.6.4-src.tar.gz \
+    && cd ta-lib-0.6.4 \
+    && ./configure --prefix=/usr/local \
+    && make -j$(nproc) \
+    && make install \
+    && ldconfig \
+    && cd .. \
+    && rm -rf ta-lib-0.6.4 ta-lib-0.6.4-src.tar.gz
+
+RUN pip install --no-cache-dir "uv>=0.5.0"
+
+WORKDIR /app
+
+COPY pyproject.toml uv.lock ./
+COPY src/ ./src/
+
+# Install with RL + data extras (torch, gymnasium, stable-baselines3, finrl, TA-Lib).
+# CPU-only torch to avoid CUDA bloat on non-GPU hosts.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
+    uv pip install --system -e ".[langgraph,data,rl]"
+
+COPY scripts/ ./scripts/
+
+RUN mkdir -p /data/quantstack
+
+ENV KILL_SWITCH_SENTINEL=/data/quantstack/KILL_SWITCH_ACTIVE
+
+COPY scripts/docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["api"]

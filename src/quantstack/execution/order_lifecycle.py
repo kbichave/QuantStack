@@ -5,7 +5,7 @@
 OMS Order Lifecycle — explicit state machine separating OMS from EMS.
 
 Addresses GAP-7 in the gap analysis:
-  "Signal → RiskGate → PaperBroker/eTrade MCP. No separation between
+  "Signal → RiskGate → PaperBroker/Broker. No separation between
    OMS and EMS layers."
 
 What this adds to the existing flow:

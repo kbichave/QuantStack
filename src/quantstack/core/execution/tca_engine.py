@@ -222,6 +222,10 @@ class TradeRecord:
     timestamp: pd.Timestamp | None = None
     daily_volume: float | None = None  # ADV for AC benchmark
     daily_volatility: float | None = None  # Daily vol for AC benchmark
+    bid_at_arrival: float | None = None  # Best bid when signal fired
+    ask_at_arrival: float | None = None  # Best ask when signal fired
+    algo_used: str | None = None  # Execution algorithm actually used
+    symbol_adv_bucket: str | None = None  # ADV category
 
 
 @dataclass
@@ -247,6 +251,10 @@ class TradeTCAResult:
     # Almgren-Chriss benchmark
     ac_expected_cost_bps: float | None = None  # AC model expected cost for this order
 
+    # Enhanced TCA fields
+    spread_cost_bps: float | None = None  # Half-spread component
+    time_of_day_effect_bps: float | None = None  # Deviation from window avg shortfall
+
 
 def _shortfall_bps(
     fill: float,
@@ -269,17 +277,31 @@ def _shortfall_bps(
         return (benchmark - fill) / benchmark * 10000
 
 
-def post_trade_tca(record: TradeRecord) -> TradeTCAResult:
+def post_trade_tca(
+    record: TradeRecord,
+    window_avg_shortfall_bps: float | None = None,
+) -> TradeTCAResult:
     """
     Compute post-trade TCA for a single executed trade.
 
     Args:
         record: TradeRecord with fill and benchmark prices.
+        window_avg_shortfall_bps: Average shortfall in the 30-min window (for time-of-day effect).
 
     Returns:
         TradeTCAResult with shortfall vs. each benchmark.
     """
-    vs_arrival = _shortfall_bps(record.fill_price, record.arrival_price, record.side)
+    # Use prev_close as fallback when arrival_price is missing or zero
+    effective_arrival = record.arrival_price
+    if effective_arrival <= 0:
+        if record.prev_close and record.prev_close > 0:
+            effective_arrival = record.prev_close
+        elif record.vwap_price and record.vwap_price > 0:
+            effective_arrival = record.vwap_price
+        else:
+            effective_arrival = record.fill_price  # last resort
+
+    vs_arrival = _shortfall_bps(record.fill_price, effective_arrival, record.side)
     vs_vwap = (
         _shortfall_bps(record.fill_price, record.vwap_price, record.side)
         if record.vwap_price
@@ -313,6 +335,16 @@ def post_trade_tca(record: TradeRecord) -> TradeTCAResult:
         except Exception:
             pass
 
+    # Enhanced TCA: spread cost from bid-ask at arrival
+    spread_cost = None
+    if record.bid_at_arrival and record.ask_at_arrival and effective_arrival > 0:
+        spread_cost = (record.ask_at_arrival - record.bid_at_arrival) / effective_arrival * 10000 / 2
+
+    # Enhanced TCA: time-of-day effect
+    tod_effect = None
+    if window_avg_shortfall_bps is not None:
+        tod_effect = vs_arrival - window_avg_shortfall_bps
+
     return TradeTCAResult(
         trade_id=record.trade_id,
         symbol=record.symbol,
@@ -324,7 +356,40 @@ def post_trade_tca(record: TradeRecord) -> TradeTCAResult:
         ac_expected_cost_bps=ac_cost,
         shortfall_dollar=shortfall_dollar,
         is_favorable=vs_arrival <= 0,
+        spread_cost_bps=spread_cost,
+        time_of_day_effect_bps=tod_effect,
     )
+
+
+# ---------------------------------------------------------------------------
+# Classification helpers for TCA aggregation
+# ---------------------------------------------------------------------------
+
+
+def classify_adv_bucket(adv: float) -> str:
+    """Classify a symbol's ADV into a bucket for TCA aggregation."""
+    if adv < 500_000:
+        return "low_adv"
+    elif adv < 5_000_000:
+        return "mid_adv"
+    else:
+        return "high_adv"
+
+
+def classify_time_bucket(timestamp: pd.Timestamp) -> str:
+    """Classify an execution timestamp into a 30-min bucket (ET)."""
+    if timestamp.tzinfo is None:
+        et = timestamp
+    else:
+        from zoneinfo import ZoneInfo
+        et = timestamp.astimezone(ZoneInfo("America/New_York"))
+    hour = et.hour
+    minute = 0 if et.minute < 30 else 30
+    start = f"{hour:02d}:{minute:02d}"
+    end_minute = minute + 30
+    end_hour = hour + (end_minute // 60)
+    end_minute = end_minute % 60
+    return f"{start}-{end_hour:02d}:{end_minute:02d}"
 
 
 # ---------------------------------------------------------------------------

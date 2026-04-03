@@ -80,7 +80,7 @@ class KnowledgeStore(
             run_migrations(self.conn)
 
         # Schema is managed by run_migrations; _init_schema is a no-op
-        # safety net kept for standalone construction outside the MCP server.
+        # safety net kept for standalone construction outside the main service.
         self._init_schema()
 
         logger.info("KnowledgeStore initialized (PostgreSQL)")

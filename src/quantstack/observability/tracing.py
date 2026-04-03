@@ -267,7 +267,7 @@ def flush() -> None:
             pass
 
 
-# --- Business event trace helpers (merged from crew_tracing.py) ---
+# --- Business event trace helpers ---
 
 
 def trace_provider_failover(

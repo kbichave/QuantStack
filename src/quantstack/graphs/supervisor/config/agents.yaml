@@ -14,6 +14,9 @@ health_monitor:
   tools:
     - check_system_status
     - check_heartbeat
+    - check_broker_connection
+    - get_intraday_status
+    - list_stored_symbols
 
 self_healer:
   role: "Self-Healing Engineer"
@@ -35,6 +38,10 @@ self_healer:
   tools:
     - check_system_status
     - search_knowledge_base
+    - get_recent_decisions
+    - get_audit_trail
+    - acquire_historical_data
+    - register_ticker
 
 strategy_promoter:
   role: "Strategy Lifecycle Manager"
@@ -58,3 +65,14 @@ strategy_promoter:
   tools:
     - fetch_strategy_registry
     - search_knowledge_base
+    - get_strategy
+    - get_strategy_performance
+    - get_strategy_pnl
+    - promote_strategy
+    - promote_draft_strategies
+    - retire_strategy
+    - update_strategy
+    - get_strategy_gaps
+    - get_regime_strategies
+    - validate_strategy
+    - check_strategy_rules

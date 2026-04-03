@@ -194,23 +194,13 @@ fi
 # ---------------------------------------------------------------------------
 # 12. Credit regime display (informational)
 # ---------------------------------------------------------------------------
-echo "[start.sh] Checking credit regime..."
-docker compose run --rm trading-graph python -c "
-import asyncio
-from quantstack.mcp.tools.macro_signals import get_credit_market_signals
-try:
-    result = asyncio.run(get_credit_market_signals()) if asyncio.iscoroutinefunction(get_credit_market_signals) else get_credit_market_signals()
-    regime = result.get('credit_regime', 'unknown') if isinstance(result, dict) else 'unknown'
-    print(f'  Credit regime: {regime}')
-except Exception as e:
-    print(f'  Could not check credit regime: {e} (non-fatal)')
-" || true
+echo "[start.sh] Credit regime check skipped (MCP layer removed)"
 
 # ---------------------------------------------------------------------------
 # 13. Start graph services
 # ---------------------------------------------------------------------------
-echo "[start.sh] Starting graph services..."
-docker compose up -d trading-graph research-graph supervisor-graph
+echo "[start.sh] Starting graph + ML + dashboard services..."
+docker compose up -d trading-graph research-graph supervisor-graph finrl-worker dashboard
 
 # ---------------------------------------------------------------------------
 # 14. Wait for graph health checks (best-effort, warning only)
@@ -242,7 +232,8 @@ echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
 echo "║  QuantStack is running (Docker Compose).                ║"
 echo "║                                                         ║"
-echo "║  Langfuse:  http://localhost:3000                       ║"
+echo "║  Dashboard: http://localhost:8421                       ║"
+echo "║  Langfuse:  http://localhost:3100                       ║"
 echo "║  Logs:      docker compose logs -f trading-graph        ║"
 echo "║  Stop:      ./stop.sh                                   ║"
 echo "║  Status:    ./status.sh                                 ║"

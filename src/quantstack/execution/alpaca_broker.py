@@ -43,31 +43,19 @@ from quantstack.execution.kill_switch import get_kill_switch
 from quantstack.execution.paper_broker import Fill, OrderRequest
 from quantstack.execution.portfolio_state import Position, get_portfolio_state
 
-try:
-    from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockLatestTradeRequest
-    from alpaca.trading.client import TradingClient
-    from alpaca.trading.requests import (
-        GetOrdersRequest,
-        LimitOrderRequest,
-        MarketOrderRequest,
-    )
-    from alpaca.trading.enums import OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
-
-    _ALPACA_AVAILABLE = True
-except ImportError:
-    _ALPACA_AVAILABLE = False
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockLatestTradeRequest
+from alpaca.trading.client import TradingClient
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    LimitOrderRequest,
+    MarketOrderRequest,
+)
+from alpaca.trading.enums import OrderSide, OrderStatus, QueryOrderStatus, TimeInForce
 
 
 FILL_TIMEOUT_SECONDS = int(os.getenv("ALPACA_FILL_TIMEOUT", "30"))
 FILL_POLL_INTERVAL = int(os.getenv("ALPACA_FILL_POLL_INTERVAL", "1"))
-
-
-def _require_alpaca() -> None:
-    if not _ALPACA_AVAILABLE:
-        raise ImportError(
-            "alpaca-py is not installed. Run: pip install 'alpaca-py>=0.20.0'"
-        )
 
 
 def _side(action: str) -> "OrderSide":
@@ -83,12 +71,10 @@ class AlpacaBroker:
     which broker is underneath.
 
     No OAuth required — API key + secret are enough. Keys can be rotated by
-    restarting the MCP server with updated env vars.
+    restarting the service with updated env vars.
     """
 
     def __init__(self) -> None:
-        _require_alpaca()
-
         s = get_settings().alpaca
 
         if not s.api_key or not s.secret_key:

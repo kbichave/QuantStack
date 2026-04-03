@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unified serialization for MCP tool responses.
+Unified serialization for tool responses.
 
 Combines the previously duplicated ``_dc_to_dict`` (broker MCPs),
 ``_serialize`` (quantstack), and ``_serialize_result`` (quantcore) into

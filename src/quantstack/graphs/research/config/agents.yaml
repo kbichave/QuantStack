@@ -25,11 +25,33 @@ quant_researcher:
   max_iterations: 20
   timeout_seconds: 600
   tools:
+    # Data gathering (8)
     - signal_brief
-    - multi_signal_brief
     - fetch_market_data
-    - compute_features
+    - load_market_data
+    - list_stored_symbols
+    - fetch_fundamentals
+    - get_company_facts
+    - get_analyst_estimates
+    - compute_technical_indicators
+    # Signals (4)
+    - validate_signal
+    - get_institutional_accumulation
+    - get_market_breadth
+    - compute_information_coefficient
+    # Strategy management (5)
     - search_knowledge_base
+    - fetch_strategy_registry
+    - register_strategy
+    - get_strategy_gaps
+    - get_regime_strategies
+    # Backtesting (3)
+    - run_backtest
+    - run_backtest_template
+    - get_backtest_metrics
+    # Screening (2)
+    - screen_stocks
+    - list_available_indicators
 
 ml_scientist:
   role: "Machine Learning Scientist"
@@ -54,9 +76,41 @@ ml_scientist:
   max_iterations: 20
   timeout_seconds: 600
   tools:
+    # Data (3)
     - fetch_market_data
+    - load_market_data
+    - list_stored_symbols
+    # Features (5)
     - compute_features
+    - compute_feature_matrix
+    - compute_technical_indicators
+    - compute_information_coefficient
+    - run_adf_test
+    # Training (4)
     - train_model
+    - predict_ml_signal
+    - get_ml_model_status
+    - check_concept_drift
+    # Validation (3)
+    - run_purged_cv
+    - compute_deflated_sharpe_ratio
+    - compute_probability_of_overfitting
+    # Validation (2)
+    - check_lookahead_bias
+    - detect_leakage
+    # Features (1)
+    - compute_quantagent_features
+    # FinRL (9)
+    - finrl_create_environment
+    - finrl_train_model
+    - finrl_train_ensemble
+    - finrl_evaluate_model
+    - finrl_predict
+    - finrl_list_models
+    - finrl_compare_models
+    - finrl_get_model_status
+    - finrl_promote_model
+    # Knowledge (1)
     - search_knowledge_base
 
 strategy_rd:
@@ -83,8 +137,26 @@ strategy_rd:
   timeout_seconds: 600
   tools:
     - run_backtest
+    - run_backtest_template
+    - run_walkforward
+    - run_walkforward_template
+    - get_backtest_metrics
     - compute_features
+    - compute_alpha_decay
+    - compute_deflated_sharpe_ratio
+    - compute_probability_of_overfitting
+    - run_purged_cv
+    - run_combinatorial_purged_cv
+    - run_monte_carlo
+    - check_strategy_rules
+    - validate_strategy
+    - check_lookahead_bias
+    - detect_leakage
     - search_knowledge_base
+    - fetch_strategy_registry
+    - register_strategy
+    - promote_strategy
+    - promote_draft_strategies
 
 community_intel:
   role: "Quant Community Scout"
@@ -103,6 +175,8 @@ community_intel:
   tools:
     - web_search
     - search_knowledge_base
+    - fetch_strategy_registry
+    - get_strategy_gaps
 
 equity_investment_researcher:
   role: "Equity Investment Researcher"
@@ -121,10 +195,17 @@ equity_investment_researcher:
   timeout_seconds: 600
   tools:
     - fetch_market_data
+    - load_market_data
     - compute_features
     - fetch_fundamentals
+    - get_company_facts
+    - get_analyst_estimates
+    - get_institutional_accumulation
     - run_backtest
+    - run_walkforward
     - search_knowledge_base
+    - register_strategy
+    - screen_stocks
 
 equity_swing_researcher:
   role: "Equity Swing Researcher"
@@ -143,10 +224,21 @@ equity_swing_researcher:
   timeout_seconds: 600
   tools:
     - signal_brief
+    - multi_signal_brief
     - fetch_market_data
+    - load_market_data
     - compute_features
+    - compute_technical_indicators
+    - get_capitulation_score
+    - get_institutional_accumulation
     - run_backtest
+    - run_walkforward
     - search_knowledge_base
+    - register_strategy
+    - screen_stocks
+    - finrl_screen_stocks
+    - decode_strategy
+    - decode_from_trades
 
 options_researcher:
   role: "Options Strategy Researcher"
@@ -166,9 +258,18 @@ options_researcher:
   tools:
     - fetch_options_chain
     - compute_greeks
+    - compute_implied_vol
+    - get_iv_surface
+    - price_option
+    - analyze_option_structure
+    - score_trade_structure
     - fetch_market_data
     - run_backtest
+    - run_backtest_options
     - search_knowledge_base
+    - register_strategy
+    - finrl_screen_options
+    - simulate_trade_outcome
 
 execution_researcher:
   role: "Execution & Portfolio Construction Researcher"
@@ -196,3 +297,12 @@ execution_researcher:
     - fetch_portfolio
     - compute_risk_metrics
     - search_knowledge_base
+    - get_fills
+    - get_fill_quality
+    - get_tca_report
+    - get_strategy_pnl
+    - get_daily_equity
+    - get_strategy_performance
+    - stress_test_portfolio
+    - compute_var
+    - compute_max_drawdown

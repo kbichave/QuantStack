@@ -21,7 +21,7 @@ Design choices:
   - **7-day TTL.**  Events older than 7 days are pruned on each publish() to
     prevent unbounded growth.
 
-All writes go through the MCP server's PostgreSQL connection.
+All writes go through the PostgreSQL connection pool.
 Multiple consumers can poll concurrently via PostgreSQL's MVCC — no lock
 contention between readers and writers.
 
@@ -60,6 +60,16 @@ class EventType(str, Enum):
     UNIVERSE_REFRESHED = "universe_refreshed"
     LOOP_HEARTBEAT = "loop_heartbeat"
     LOOP_ERROR = "loop_error"
+    # Agent activation event types (Section 01)
+    MARKET_MOVE = "market_move"
+    IDEAS_DISCOVERED = "ideas_discovered"
+    # Risk monitoring event types (Section 06)
+    RISK_WARNING = "risk_warning"
+    RISK_SIZING_OVERRIDE = "risk_sizing_override"
+    RISK_ENTRY_HALT = "risk_entry_halt"
+    RISK_LIQUIDATION = "risk_liquidation"
+    RISK_EMERGENCY = "risk_emergency"
+    MODEL_DEGRADATION = "model_degradation"
 
 
 @dataclass(frozen=True)
@@ -82,7 +92,7 @@ class EventBus:
     Append-only PostgreSQL event log with per-consumer cursors.
 
     PostgreSQL MVCC ensures concurrent readers and writers do not block each
-    other. The MCP server injects the shared connection pool connection.
+    other. The caller injects the shared connection pool connection.
     """
 
     def __init__(self, conn: PgConnection) -> None:

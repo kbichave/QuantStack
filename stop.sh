@@ -4,7 +4,7 @@
 #
 # 1. Activates kill switch in both DB and sentinel file.
 # 2. Runs `docker compose down` (SIGTERM + grace period).
-# 3. Crew runners flush state and exit cleanly.
+# 3. Graph runners flush state and exit cleanly.
 #
 # Idempotent: safe to run when the system is already stopped.
 # To restart:  ./start.sh

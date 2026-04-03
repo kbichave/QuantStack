@@ -23,7 +23,7 @@ def main():
 
     tool_response = payload.get("tool_response", {})
 
-    # tool_response for MCP tools may be the raw return value
+    # tool_response may be the raw return value
     # or wrapped in a content structure — handle both
     if isinstance(tool_response, str):
         try:
@@ -36,7 +36,7 @@ def main():
     if isinstance(tool_response, dict):
         brief = tool_response.get("daily_brief")
         if brief is None and "content" in tool_response:
-            # FastMCP may wrap in content array
+            # Legacy content wrapping (array format)
             content = tool_response.get("content", [])
             if isinstance(content, list) and content:
                 text_item = content[0] if isinstance(content[0], dict) else {}

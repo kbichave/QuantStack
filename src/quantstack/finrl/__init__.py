@@ -10,7 +10,7 @@ Custom Gymnasium environments handle domain-specific use cases:
   - AlphaSelectionEnv: Alpha signal weighting
   - PortfolioEnv: ML-based portfolio allocation (uses FinRL built-in)
 
-All functionality exposed via MCP tools in quantstack.mcp.tools.finrl_tools.
+All functionality exposed via LangChain tools in quantstack.tools.langchain.finrl_tools.
 """
 
 from quantstack.finrl.config import FinRLConfig, get_finrl_config

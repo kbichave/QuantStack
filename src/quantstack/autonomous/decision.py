@@ -4,8 +4,6 @@
 """
 DecisionRouter — fully deterministic execution routing.
 
-v1.1 upgrade: Removed GROQ_SYNTHESIS path. All decisions are now deterministic.
-
 Two paths:
     RULE_BASED      Default + exception conditions. Signal + context → execute.
     SKIP            Do not trade (kill switch, bad regime, conflicts, etc.)
@@ -40,7 +38,6 @@ from loguru import logger
 
 class DecisionPath(Enum):
     RULE_BASED = auto()
-    GROQ_SYNTHESIS = auto()  # Kept for backward-compat; never routed to in v1.1+
     SKIP = auto()
 
 

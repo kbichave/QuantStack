@@ -45,6 +45,9 @@ models/
 # Scratch / temp
 tmp/
 
+# Planning sessions (Claude deep-plan artifacts)
+planning/
+
 # Claude local state (templates are tracked)
 .claude/memory/*.md
 !.claude/memory/templates/

@@ -12,17 +12,19 @@ Everything starts from `./start.sh`. There is no other way to start the system. 
 
 ```
 QuantStack/
-├── start.sh                          # Single entry point
-├── report.sh                         # Performance summary
-├── prompts/
-│   ├── trading_loop.md               # Trading loop prompt — Claude reads each iteration
-│   ├── research_loop.md              # Research loop prompt
-│   └── reference/                    # python_toolkit.md, trading_rules.md, etc.
+├── start.sh                          # Single entry point (Docker Compose)
+├── stop.sh / status.sh / report.sh   # Lifecycle & monitoring
+├── docker-compose.yml                # All services: postgres, langfuse, ollama, 3 graphs
 ├── src/quantstack/
+│   ├── graphs/                       # LangGraph StateGraphs
+│   │   ├── research/                 # Strategy discovery, ML training, hypothesis validation
+│   │   │   └── config/agents.yaml    # 8 research agents
+│   │   ├── trading/                  # Position monitoring, entry scanning, execution
+│   │   │   └── config/agents.yaml    # 10 trading agents + risk gate
+│   │   └── supervisor/               # Health monitoring, self-healing, lifecycle mgmt
+│   │       └── config/agents.yaml
+│   ├── runners/                      # Docker entrypoints for each graph service
 │   ├── coordination/                 # Supervisor, auto-promoter, preflight
-│   │   ├── supervisor.py             # Heartbeat monitor + bug-fix watcher thread
-│   │   ├── supervisor_main.py        # Entry point for supervisor tmux window
-│   │   └── auto_promoter.py         # forward_testing → live promotion
 │   ├── data/
 │   │   ├── fetcher.py                # Alpha Vantage client (daily quota guard, priority tiers)
 │   │   └── factory.py               # Provider routing + Alpaca OHLCV fallback
@@ -30,24 +32,22 @@ QuantStack/
 │   │   ├── risk_gate.py              # IMMUTABLE — hard-coded pre-trade checks
 │   │   ├── kill_switch.py            # Emergency halt (DB sentinel)
 │   │   └── broker_routers.py         # Alpaca, PaperBroker
-│   ├── mcp/tools/                    # Python toolkit — imported directly in loop prompts
-│   │   ├── coordination.py           # record_heartbeat, get/set_loop_context, record_tool_error
-│   │   ├── signal.py                 # run_multi_signal_brief
-│   │   ├── execution.py              # execute_trade, get_portfolio_state
-│   │   └── ...
-│   ├── signal_engine/                # 15 concurrent collectors, no LLM, 2–6s
+│   ├── tools/
+│   │   ├── langchain/                # LLM-facing @tool decorated (agent nodes)
+│   │   ├── functions/                # Node-callable deterministic tools
+│   │   └── mcp_bridge/              # MCPBridge for MCP server communication
+│   ├── mcp/tools/                    # Python toolkit (signal, execution, coordination)
+│   ├── signal_engine/                # 16 concurrent collectors, no LLM, 2–6s
 │   ├── core/                         # Indicators, backtesting, ML, options pricing
-│   ├── api/                          # FastAPI REST (optional, not required for loops)
+│   ├── health/                       # Health checks for Docker services
+│   ├── rag/                          # RAG pipeline (pgvector)
+│   ├── llm/                          # LLM config, provider routing, model tiers
+│   ├── api/                          # FastAPI REST (optional)
 │   └── db.py                         # PostgreSQL connection + all migrations
 ├── scripts/
 │   ├── scheduler.py                  # APScheduler cron jobs
 │   └── autoresclaw_runner.py         # ARC dispatcher + auto-patch pipeline
 ├── .claude/
-│   ├── agents/                       # Desk agent definitions (trade-debater, risk, etc.)
-│   ├── agents/
-│   │   ├── community-intel.md        # Weekly quant community discovery
-│   │   ├── market-intel.md           # Real-time trading intelligence
-│   │   └── ...                       # trade-debater, risk, fund-manager, etc.
 │   └── memory/                       # Persistent memory (gitignored)
 └── docs/
 ```
@@ -57,68 +57,66 @@ QuantStack/
 ## System diagram
 
 ```
-                        ./start.sh
+                    docker-compose up (via start.sh)
                             │
           ┌─────────────────┼─────────────────────┐
           ▼                 ▼                     ▼
   ┌──────────────┐  ┌──────────────┐   ┌────────────────────┐
   │   trading    │  │  research    │   │  supervisor        │
-  │  (tmux win) │  │  (tmux win) │   │  (tmux win)        │
+  │  (Docker)    │  │  (Docker)    │   │  (Docker)          │
   │              │  │              │   │                    │
-  │ fresh claude │  │ fresh claude │   │ heartbeat monitor  │
-  │ every 5 min  │  │ every 2 min  │   │ bug-fix watcher    │
+  │ LangGraph    │  │ LangGraph    │   │ LangGraph          │
+  │ StateGraph   │  │ StateGraph   │   │ StateGraph         │
   │              │  │              │   │                    │
-  │  spawns:     │  │  spawns:     │   │  ┌──────────────┐  │
-  │  position-   │  │  quant-      │   │  │  scheduler   │  │
-  │  monitor     │  │  researcher  │   │  │  (tmux win)  │  │
-  │  trade-      │  │  ml-scientist│   │  │  cron jobs   │  │
-  │  debater     │  │  strategy-rd │   │  │              │  │
-  │  risk        │  │  (BLITZ mode)│   │  │  strategy_   │  │
-  │  fund-mgr    │  │  Step 2e:    │   │  │  pipeline    │  │
-  └──────┬───────┘  │  promotion   │   │  │  (*/10 min)  │  │
-         │          │  review      │   │  └──────┬───────┘  │
-         │          │  community-  │   └─────────┼──────────┘
-         │          │  intel (10th │             │
-         │          │  iter, AH)   │             │
-         │          └──────┬───────┘             │
+  │ 10 agents:   │  │ 8 agents:    │   │ health monitor     │
+  │ daily_planner│  │ quant_       │   │ self-healing       │
+  │ position_    │  │  researcher  │   │ strategy lifecycle │
+  │  monitor     │  │ ml_scientist │   │                    │
+  │ trade_       │  │ strategy_rd  │   │  ┌──────────────┐  │
+  │  debater     │  │ hypothesis_  │   │  │  scheduler   │  │
+  │ risk_gate    │  │  generator   │   │  │  cron jobs   │  │
+  │ fund_manager │  │ community_   │   │  │  strategy_   │  │
+  │ ...          │  │  intel       │   │  │  pipeline    │  │
+  └──────┬───────┘  │ ...          │   │  └──────┬───────┘  │
+         │          └──────┬───────┘   └─────────┼──────────┘
          │                 │                     │
          └────────┬────────┴─────────────────────┘
                   ▼
-        ┌──────────────────────────────────┐
-        │          PostgreSQL               │
-        │                                  │
-        │  positions       loop_heartbeats  │
-        │  fills           loop_iteration_  │
-        │  strategies        context        │
-        │  audit_log       bugs             │
-        │  research_queue  system_state     │
-        │  universe        ml_experiments   │
-        └──────────────────────────────────┘
+  ┌──────────────────────────────────────────────┐
+  │   PostgreSQL + pgvector    │    LangFuse     │
+  │                            │  (observability)│
+  │  positions  loop_heartbeats│                 │
+  │  fills      loop_iteration_│  traces every   │
+  │  strategies   context      │  node, LLM call,│
+  │  audit_log  bugs           │  tool invocation│
+  │  research_queue            │                 │
+  │  system_state              │                 │
+  │  universe   ml_experiments │                 │
+  └──────────────────────────────────────────────┘
 ```
 
 ---
 
-## Stateless loop design
+## Graph execution model
 
-Neither loop accumulates in-session state. Each Claude invocation:
+Each graph runs as a Docker service with its own LangGraph StateGraph. State is persisted in PostgreSQL between iterations — graphs do not accumulate in-process state across runs.
 
-1. Reads current context from `loop_iteration_context` (PostgreSQL)
-2. Does its work (signals, debate, trades, or research)
-3. Writes updated context back to `loop_iteration_context`
-4. Exits — the `while :; do ... sleep N; done` wrapper in tmux starts a fresh invocation
+Each iteration:
+1. Graph runner loads current state from `loop_iteration_context` (PostgreSQL)
+2. LangGraph traverses agent nodes (parallel branches where possible)
+3. Updated state written back to `loop_iteration_context`
+4. Runner sleeps (adaptive: bootstrap vs steady-state) then re-invokes
 
-**Why no `--continue`:** Claude sessions accumulate context. By day 3–4 of a continuous run, the context window fills and loop steps get silently skipped. Stateless invocations eliminate this completely.
+**Context keys per graph:**
 
-**Context keys per loop:**
-
-| Loop | Key | Purpose |
-|------|-----|---------|
-| `trading_loop` | `market_intel` | Cached market intelligence (25-min TTL) |
-| `trading_loop` | `stale_symbols` | Symbols with stale OHLCV (set each iter) |
-| `trading_loop` | `closes_since_review` | Counter triggering weekly trade-reflector |
-| `research_loop` | `last_domain` | Last research domain processed |
-| `research_loop` | `domain_history` | Rolling 50-entry domain history |
-| `research_loop` | `last_execution_audit_at` | Date of last execution-researcher spawn |
+| Graph | Key | Purpose |
+|-------|-----|---------|
+| `trading` | `market_intel` | Cached market intelligence (25-min TTL) |
+| `trading` | `stale_symbols` | Symbols with stale OHLCV (set each iter) |
+| `trading` | `closes_since_review` | Counter triggering weekly trade-reflector |
+| `research` | `last_domain` | Last research domain processed |
+| `research` | `domain_history` | Rolling 50-entry domain history |
+| `research` | `last_execution_audit_at` | Date of last execution-researcher spawn |
 
 ---
 
@@ -242,30 +240,17 @@ fills table + audit_log
 
 ## Agent architecture
 
-Claude's native `Agent` tool handles all parallelism. No external orchestrator. Example patterns from the trading loop:
+LangGraph StateGraphs orchestrate agent nodes. Parallel branches execute concurrently where no data dependency exists. Agent configs live in `graphs/*/config/agents.yaml` (hot-reload supported).
 
-```
-Reviewing 3 open positions:
-  Agent(position-monitor, AAPL) ──┐
-  Agent(position-monitor, TSLA) ──┤── parallel, same message
-  Agent(position-monitor, SPY)  ──┘
+**Trading graph agents (10):** daily_planner, position_monitor, entry_scanner, trade_debater, risk_gate (mandatory), fund_manager, execution, market_intel, trade_reflector, options_analyst.
 
-Evaluating entry candidates:
-  Agent(trade-debater, NVDA)    ──┐
-  Agent(trade-debater, MSFT)    ──┤── parallel
-  Agent(risk, batch)            ──┘
-        ↓ all return
-  Agent(fund-manager, batch)    ── sequential (needs debater results)
-```
+**Research graph agents (8):** quant_researcher, ml_scientist, strategy_rd, hypothesis_generator, alpha_discovery, execution_researcher, community_intel, domain_selector.
 
-Desk agent definitions live in `.claude/agents/*.md`.
+**Supervisor graph:** health_monitor, self_healer, strategy_lifecycle.
 
-Key agents:
-- **trade-debater** — bull/bear/risk debate before entries and exits
-- **position-monitor** — HOLD/TRIM/CLOSE/TIGHTEN for open positions
-- **market-intel** — real-time web search for news, analyst changes, M&A deals, social buzz
-- **fund-manager** — portfolio-level correlation/concentration review before batch entries
-- **community-intel** — weekly quant community scanner (Reddit/GitHub/arXiv/X/newsletters → `research_queue`)
+Tools are provided to agents via two paths:
+- **LLM-facing:** `tools/langchain/*.py` — `@tool` decorated, used by agent nodes that need LLM reasoning
+- **Deterministic:** `tools/functions/*.py` — called directly by graph nodes without LLM
 
 ---
 

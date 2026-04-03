@@ -30,8 +30,10 @@ def _connect():
     url = os.environ.get("TRADER_PG_URL")
     if not url:
         raise RuntimeError("TRADER_PG_URL not set")
-    # Rewrite Docker-internal hostname for host-side access
-    url = url.replace("@postgres:", "@localhost:")
+    # Rewrite Docker-internal hostname for host-side access.
+    # Use 127.0.0.1 (not localhost) to force TCP/IPv4 — avoids hitting a local
+    # non-Docker postgres that may also listen on localhost via Unix socket or IPv6.
+    url = url.replace("@postgres:", "@127.0.0.1:")
     return psycopg2.connect(url)
 
 
@@ -232,6 +234,83 @@ def _build_recent_fills() -> list:
     return rows
 
 
+def _build_closed_trades() -> list[dict]:
+    """Recent closed trades with realized P&L."""
+    rows = _query("""
+        SELECT symbol, side, quantity, entry_price, exit_price,
+               realized_pnl, holding_days, strategy_id, exit_reason,
+               closed_at
+        FROM closed_trades
+        ORDER BY closed_at DESC
+        LIMIT 15
+    """)
+    trades = []
+    for (sym, side, qty, entry, exit_p, pnl, days, strat,
+         reason, closed_at) in rows:
+        trades.append({
+            "symbol": sym, "side": side, "qty": qty,
+            "entry": entry, "exit": exit_p, "pnl": pnl,
+            "days": days or 0, "strategy": strat or "",
+            "reason": reason or "", "closed_at": closed_at,
+        })
+    return trades
+
+
+def _build_strategy_performance() -> list[dict]:
+    """Per-strategy win rate and P&L from closed trades."""
+    rows = _query("""
+        SELECT
+            COALESCE(strategy_id, 'unknown') AS strat,
+            COUNT(*)                         AS trades,
+            SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+            SUM(realized_pnl)                AS total_pnl,
+            AVG(realized_pnl)                AS avg_pnl,
+            MAX(realized_pnl)                AS best,
+            MIN(realized_pnl)                AS worst,
+            AVG(holding_days)                AS avg_days
+        FROM closed_trades
+        GROUP BY COALESCE(strategy_id, 'unknown')
+        ORDER BY SUM(realized_pnl) DESC
+    """)
+    return [
+        {
+            "strategy": r[0], "trades": r[1], "wins": r[2],
+            "win_rate": (r[2] / r[1] * 100) if r[1] else 0,
+            "total_pnl": r[3], "avg_pnl": r[4],
+            "best": r[5], "worst": r[6], "avg_days": r[7] or 0,
+        }
+        for r in rows
+    ]
+
+
+def _build_research_details() -> list[dict]:
+    """Research queue items with details."""
+    rows = _query("""
+        SELECT task_type, priority, topic, status, source,
+               created_at, started_at, completed_at, error_message
+        FROM research_queue
+        ORDER BY
+            CASE status
+                WHEN 'running' THEN 0
+                WHEN 'pending' THEN 1
+                WHEN 'failed'  THEN 2
+                WHEN 'done'    THEN 3
+            END,
+            priority DESC,
+            created_at DESC
+        LIMIT 20
+    """)
+    return [
+        {
+            "type": r[0], "priority": r[1], "topic": (r[2] or "")[:40],
+            "status": r[3], "source": r[4] or "",
+            "created_at": r[5], "started_at": r[6],
+            "completed_at": r[7], "error": (r[8] or "")[:50],
+        }
+        for r in rows
+    ]
+
+
 def _build_queues() -> dict:
     bugs_rows = _query("""
         SELECT status, COUNT(*) FROM bugs
@@ -333,6 +412,9 @@ def _build_dashboard(now: datetime):
     portfolio = _build_portfolio()
     strategies = _build_strategies()
     fills = _build_recent_fills()
+    closed_trades = _build_closed_trades()
+    strat_perf = _build_strategy_performance()
+    research_items = _build_research_details()
     queues = _build_queues()
     resources = _build_resources(now)
 
@@ -453,6 +535,113 @@ def _build_dashboard(now: datetime):
         Panel(strat_table, title="[bold]Strategy Pipeline[/bold]", border_style="blue", width=28),
         Panel(fills_table, title="[bold]Recent Fills[/bold]", border_style="blue"),
     ]))
+
+    # ── Closed Trades (realized P&L) ──────────────────────────────────────
+    ct_table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
+    ct_table.add_column("Symbol", width=7)
+    ct_table.add_column("Side", width=5)
+    ct_table.add_column("Qty", width=6, justify="right")
+    ct_table.add_column("Entry", width=9, justify="right")
+    ct_table.add_column("Exit", width=9, justify="right")
+    ct_table.add_column("P&L", width=11, justify="right")
+    ct_table.add_column("Days", width=5, justify="right")
+    ct_table.add_column("Strategy", width=22)
+    ct_table.add_column("Reason", width=14)
+    ct_table.add_column("Closed", width=12)
+
+    if closed_trades:
+        total_realized = sum(t["pnl"] or 0 for t in closed_trades)
+        winners = sum(1 for t in closed_trades if (t["pnl"] or 0) > 0)
+        for t in closed_trades:
+            pnl_style = "green" if (t["pnl"] or 0) >= 0 else "red"
+            ct_table.add_row(
+                t["symbol"],
+                (t["side"] or "").upper(),
+                str(t["qty"] or ""),
+                f"${t['entry']:,.2f}" if t["entry"] else "n/a",
+                f"${t['exit']:,.2f}" if t["exit"] else "n/a",
+                f"[{pnl_style}]{_fmt_pnl(t['pnl'])}[/{pnl_style}]",
+                str(t["days"]),
+                t["strategy"][:22],
+                t["reason"][:14],
+                _fmt_age((now - t["closed_at"].replace(tzinfo=None)).total_seconds()
+                         if t["closed_at"] else None),
+            )
+        ct_summary = (
+            f"  Last {len(closed_trades)} trades: "
+            f"[bold]{_fmt_pnl(total_realized)}[/bold] realized  |  "
+            f"{winners}W / {len(closed_trades) - winners}L"
+        )
+    else:
+        ct_table.add_row("[dim]No closed trades yet[/dim]",
+                         "", "", "", "", "", "", "", "", "")
+        ct_summary = "  [dim]No trade history[/dim]"
+
+    parts.append(Panel(
+        Columns([Text.from_markup(ct_summary), ct_table]),
+        title="[bold]Closed Trades[/bold]", border_style="blue"
+    ))
+
+    # ── Strategy Performance ────────────────────────────────────────────────
+    sp_table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
+    sp_table.add_column("Strategy", width=28)
+    sp_table.add_column("Trades", width=7, justify="right")
+    sp_table.add_column("Win%", width=6, justify="right")
+    sp_table.add_column("Total P&L", width=12, justify="right")
+    sp_table.add_column("Avg P&L", width=10, justify="right")
+    sp_table.add_column("Best", width=10, justify="right")
+    sp_table.add_column("Worst", width=10, justify="right")
+    sp_table.add_column("Avg Days", width=9, justify="right")
+
+    if strat_perf:
+        for sp in strat_perf:
+            pnl_style = "green" if (sp["total_pnl"] or 0) >= 0 else "red"
+            wr_style = "green" if sp["win_rate"] >= 50 else "red"
+            sp_table.add_row(
+                sp["strategy"][:28],
+                str(sp["trades"]),
+                f"[{wr_style}]{sp['win_rate']:.0f}%[/{wr_style}]",
+                f"[{pnl_style}]{_fmt_pnl(sp['total_pnl'])}[/{pnl_style}]",
+                _fmt_pnl(sp["avg_pnl"]),
+                f"[green]{_fmt_pnl(sp['best'])}[/green]",
+                f"[red]{_fmt_pnl(sp['worst'])}[/red]",
+                f"{sp['avg_days']:.1f}",
+            )
+    else:
+        sp_table.add_row("[dim]No strategy data yet[/dim]",
+                         "", "", "", "", "", "", "")
+
+    parts.append(Panel(sp_table, title="[bold]Strategy Performance[/bold]",
+                        border_style="blue"))
+
+    # ── Research Queue Details ──────────────────────────────────────────────
+    rq_table = Table(box=box.SIMPLE, show_header=True, header_style="bold")
+    rq_table.add_column("Type", width=18)
+    rq_table.add_column("P", width=3, justify="right")
+    rq_table.add_column("Topic", width=40)
+    rq_table.add_column("Status", width=9)
+    rq_table.add_column("Source", width=16)
+    rq_table.add_column("Age", width=10)
+
+    RQ_STATUS_STYLE = {"running": "bold yellow", "pending": "white",
+                       "done": "green", "failed": "red"}
+    if research_items:
+        for ri in research_items:
+            st_style = RQ_STATUS_STYLE.get(ri["status"], "dim")
+            rq_table.add_row(
+                ri["type"],
+                str(ri["priority"]),
+                ri["topic"],
+                f"[{st_style}]{ri['status']}[/{st_style}]",
+                ri["source"][:16],
+                _fmt_age((now - ri["created_at"].replace(tzinfo=None)).total_seconds()
+                         if ri["created_at"] else None),
+            )
+    else:
+        rq_table.add_row("[dim]Research queue empty[/dim]", "", "", "", "", "")
+
+    parts.append(Panel(rq_table, title="[bold]Research Queue[/bold]",
+                        border_style="blue"))
 
     # ── Queues ───────────────────────────────────────────────────────────────
     bugs = queues["bugs"]

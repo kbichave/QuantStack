@@ -1,86 +1,38 @@
 %%{init: {'theme': 'dark', 'themeVariables': {'primaryColor': '#1a1a2e', 'primaryTextColor': '#e0e0e0', 'primaryBorderColor': '#4a9eff', 'lineColor': '#4a9eff', 'secondaryColor': '#16213e', 'tertiaryColor': '#0f3460', 'background': '#0d1117', 'mainBkg': '#161b22', 'nodeBorder': '#4a9eff', 'clusterBkg': '#161b22', 'clusterBorder': '#30363d', 'titleColor': '#e0e0e0', 'edgeLabelBackground': '#161b22'}}}%%
 
 graph TB
-    START["<b>start.sh</b><br/><i>Docker Compose</i>"]
+    START(["<b>./start.sh</b>"])
 
-    subgraph INFRA["Infrastructure Services"]
-        PG[("<b>PostgreSQL + pgvector</b><br/>60+ tables · positions · strategies<br/>loop_state · research_queue · bugs")]
-        LF["<b>LangFuse</b><br/>Traces every node,<br/>LLM call, tool invocation"]
-        OL["<b>Ollama</b><br/>Local embeddings<br/>mxbai-embed-large"]
-    end
+    TRADING["<b>Trading Graph</b><br/>12 nodes · 5 min cycles<br/>plan → debate → risk gate → execute"]
+    RESEARCH["<b>Research Graph</b><br/>8 nodes · 2 min cycles<br/>hypothesize → validate → backtest → register"]
+    SUPERVISOR["<b>Supervisor Graph</b><br/>5 nodes · continuous<br/>health → diagnose → recover → lifecycle"]
 
-    subgraph TRADING["Trading Graph  ·  12 nodes"]
-        direction TB
-        T_SC["safety_check"] --> T_PD["plan_day"]
-        T_PD --> T_PR["position_review"]
-        T_PD --> T_ES["entry_scan"]
-        T_PR --> T_EX["execute_exits"]
-        T_EX --> T_MP["merge_parallel"]
-        T_ES --> T_MP
-        T_MP --> T_RS["risk_sizing<br/><i>SafetyGate</i>"]
-        T_RS -->|approved| T_PFR["portfolio_review"]
-        T_RS -->|rejected| T_END["END"]
-        T_PFR --> T_AO["analyze_options"]
-        T_AO --> T_EE["execute_entries"]
-        T_EE --> T_RF["reflect"]
-    end
-
-    subgraph RESEARCH["Research Graph  ·  8 nodes"]
-        direction TB
-        R_CL["context_load"] --> R_DS["domain_selection"]
-        R_DS --> R_HG["hypothesis_generation"]
-        R_HG --> R_SV["signal_validation"]
-        R_SV -->|passed| R_BV["backtest_validation"]
-        R_SV -->|failed| R_END["END"]
-        R_BV --> R_ML["ml_experiment"]
-        R_ML --> R_SR["strategy_registration"]
-        R_SR --> R_KU["knowledge_update"]
-    end
-
-    subgraph SUPERVISOR["Supervisor Graph  ·  5 nodes"]
-        direction TB
-        S_HC["health_check"] --> S_DI["diagnose_issues"]
-        S_DI --> S_ER["execute_recovery"]
-        S_ER --> S_SL["strategy_lifecycle"]
-        S_SL --> S_ST["scheduled_tasks"]
-    end
-
-    subgraph TOOLS["Tool Layer"]
-        direction LR
-        TL_LLM["<b>LLM-Facing</b><br/>tools/langchain/<br/>19 @tool functions"]
-        TL_DET["<b>Deterministic</b><br/>tools/functions/<br/>Node-callable"]
-        TL_REG["<b>TOOL_REGISTRY</b><br/>YAML-driven binding"]
-    end
-
-    subgraph SIGNALS["Signal Engine"]
-        SE["<b>18 Collectors</b><br/>Pure Python · No LLM<br/>2-6s wall-clock<br/>asyncio.gather"]
-        SB["SignalBrief"]
-        SE --> SB
-    end
+    SE["<b>Signal Engine</b><br/>18 collectors · no LLM · 2-6s"]
+    TOOLS["<b>Tool Layer</b><br/>19 LLM-facing · YAML-bound"]
+    PG[("<b>PostgreSQL + pgvector</b><br/>60+ tables")]
+    LF["<b>LangFuse</b><br/>observability"]
+    OL["<b>Ollama</b><br/>embeddings"]
 
     START --> TRADING
     START --> RESEARCH
     START --> SUPERVISOR
-    START --> INFRA
 
     TRADING <--> PG
     RESEARCH <--> PG
     SUPERVISOR <--> PG
-    TRADING -.-> LF
-    RESEARCH -.-> LF
-    SUPERVISOR -.-> LF
 
     TRADING --> TOOLS
     RESEARCH --> TOOLS
-    TOOLS --> SIGNALS
+    TOOLS --> SE
 
+    TRADING -.-> LF
+    RESEARCH -.-> LF
+
+    classDef startNode fill:#238636,stroke:#2ea043,color:#fff
+    classDef svc fill:#1a1a2e,stroke:#4a9eff,color:#e0e0e0
     classDef infra fill:#0f3460,stroke:#4a9eff,color:#e0e0e0
-    classDef pipeline fill:#1a1a2e,stroke:#4a9eff,color:#e0e0e0
-    classDef gate fill:#8b0000,stroke:#ff4444,color:#e0e0e0
-    classDef startNode fill:#238636,stroke:#2ea043,color:#ffffff
-    classDef toolStyle fill:#16213e,stroke:#4a9eff,color:#e0e0e0
 
-    class PG,LF,OL infra
     class START startNode
-    class T_RS gate
-    class TL_LLM,TL_DET,TL_REG,SE,SB toolStyle
+    class TRADING,RESEARCH,SUPERVISOR svc
+    class SE,TOOLS svc
+    class PG,LF,OL infra

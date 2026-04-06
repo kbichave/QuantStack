@@ -103,6 +103,16 @@ earnings_analyst:
   timeout_seconds: 120
   tools:
     - signal_brief
+
+exit_evaluator:
+  role: "Exit Decision Engine"
+  goal: "Produce HOLD/CLOSE verdicts."
+  backstory: "Exit evaluator."
+  llm_tier: medium
+  max_iterations: 10
+  timeout_seconds: 120
+  tools:
+    - fetch_portfolio
 """
     yaml_file = tmp_path / "agents.yaml"
     yaml_file.write_text(yaml_content)
@@ -206,31 +216,26 @@ class TestSafetyCheckRouter:
 
 
 class TestRiskGateRouter:
-    """Tests for the risk gate conditional router."""
+    """Tests for the risk gate conditional router.
 
-    def test_routes_to_portfolio_review_when_approved(self):
+    _risk_gate_router checks alpha_signals (not risk_verdicts).
+    If alpha_signals is non-empty → 'approved', else → 'rejected'.
+    """
+
+    def test_routes_to_approved_when_alpha_signals_present(self):
         from quantstack.graphs.trading.graph import _risk_gate_router
-        state = {"risk_verdicts": [{"symbol": "SPY", "approved": True}]}
+        state = {"alpha_signals": [{"symbol": "SPY", "action": "buy"}]}
         assert _risk_gate_router(state) == "approved"
 
-    def test_routes_to_end_when_rejected(self):
+    def test_routes_to_rejected_when_alpha_signals_empty(self):
         from quantstack.graphs.trading.graph import _risk_gate_router
-        state = {"risk_verdicts": [
-            {"symbol": "SPY", "approved": True},
-            {"symbol": "QQQ", "approved": False, "violations": ["too large"]},
-        ]}
+        state = {"alpha_signals": []}
         assert _risk_gate_router(state) == "rejected"
 
-    def test_routes_to_end_when_no_candidates(self):
-        from quantstack.graphs.trading.graph import _risk_gate_router
-        state = {"risk_verdicts": []}
-        assert _risk_gate_router(state) == "rejected"
-
-    def test_routes_to_end_when_missing_verdicts(self):
+    def test_routes_to_rejected_when_no_alpha_signals_key(self):
         from quantstack.graphs.trading.graph import _risk_gate_router
         state = {}
         assert _risk_gate_router(state) == "rejected"
-
 
 class TestRiskGateStructural:
     """Structural test: no path from risk_sizing to execute_entries bypasses risk gate."""

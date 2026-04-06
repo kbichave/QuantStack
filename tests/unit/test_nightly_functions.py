@@ -404,7 +404,7 @@ async def test_ic_decay_not_published_for_forward_testing_strategy():
 # ===========================================================================
 
 def test_auto_promoter_blocked_by_low_icir():
-    """Strategy with icir_21d=0.35 (< 0.5) must NOT be promoted."""
+    """Strategy with icir_21d=0.25 (< 0.3 threshold) must NOT be promoted."""
     from quantstack.coordination.auto_promoter import AutoPromoter, PromotionCriteria
     from datetime import datetime, timezone, timedelta
 
@@ -422,7 +422,9 @@ def test_auto_promoter_blocked_by_low_icir():
     with patch.object(promoter, "_get_forward_test_outcomes", return_value=outcomes), \
          patch.object(promoter, "_get_backtest_sharpe", return_value=1.0), \
          patch.object(promoter, "_count_live_strategies", return_value=0), \
-         patch.object(promoter, "_get_icir", return_value=0.35):  # below 0.5 gate
+         patch.object(promoter, "_get_icir", return_value=0.25), \
+         patch.object(promoter, "_get_mmc", return_value=None), \
+         patch.object(promoter, "_get_grandfathered_until", return_value=None):  # 0.25 < 0.3 gate
 
         from datetime import datetime, timezone, timedelta
         updated_at = datetime.now(timezone.utc) - timedelta(days=30)

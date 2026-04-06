@@ -79,12 +79,13 @@ class TestGraphBuilderTierConsistency:
                     f"{agent_name}: expected {expected_tier}, got {tier_map[agent_name]}"
                 )
 
-    def test_risk_analyst_is_heavy(self):
-        """Regression test for the specific risk_analyst tier mismatch bug."""
+    def test_trade_debater_is_heavy(self):
+        """Regression test - trade_debater handles adversarial debate and needs heavy tier."""
         yaml_path = SRC_ROOT / "graphs" / "trading" / "config" / "agents.yaml"
         from quantstack.graphs.config import load_agent_configs
         configs = load_agent_configs(yaml_path)
-        assert configs["risk_analyst"].llm_tier == "heavy"
+        # trade_debater replaced risk_analyst and performs critical entry analysis
+        assert configs["trade_debater"].llm_tier == "heavy"
 
     def test_supervisor_graph_tier_consistency(self):
         yaml_path = SRC_ROOT / "graphs" / "supervisor" / "config" / "agents.yaml"

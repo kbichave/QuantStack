@@ -97,8 +97,6 @@ class TestDirectoryStructure:
         assert (SRC_ROOT / "graphs" / "config.py").is_file(), "Missing graphs/config.py"
 
     @pytest.mark.parametrize("subdir", [
-        "crews",
-        "crews/risk",
         "llm",
         "rag",
         "runners",

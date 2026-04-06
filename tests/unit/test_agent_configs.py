@@ -66,16 +66,16 @@ def test_exit_evaluator_has_no_assessment_duplication(trading_agents):
 
 # --- fund_manager tool additions ---
 
-def test_fund_manager_has_fetch_strategy(trading_agents):
-    assert "fetch_strategy" in trading_agents["fund_manager"]["tools"]
+def test_fund_manager_has_fetch_portfolio(trading_agents):
+    assert "fetch_portfolio" in trading_agents["fund_manager"]["tools"]
 
 
-def test_fund_manager_has_get_entry_thesis(trading_agents):
-    assert "get_entry_thesis" in trading_agents["fund_manager"]["tools"]
+def test_fund_manager_has_compute_risk_metrics(trading_agents):
+    assert "compute_risk_metrics" in trading_agents["fund_manager"]["tools"]
 
 
-def test_fund_manager_has_compute_pairwise_correlation(trading_agents):
-    assert "compute_pairwise_correlation" in trading_agents["fund_manager"]["tools"]
+def test_fund_manager_has_search_knowledge_base(trading_agents):
+    assert "search_knowledge_base" in trading_agents["fund_manager"]["tools"]
 
 
 # --- risk_analyst removal ---

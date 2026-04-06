@@ -13,7 +13,8 @@ from quantstack.core.attribution_engine import AttributionRecord, decompose
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_date_index(n: int, end: str = "2024-06-01") -> pd.DatetimeIndex:
+def _make_date_index(n: int, end: str = "2024-05-31") -> pd.DatetimeIndex:
+    """Create business day date index. End date must be a weekday (2024-05-31 is Friday)."""
     end_dt = pd.Timestamp(end)
     return pd.bdate_range(end=end_dt, periods=n)
 

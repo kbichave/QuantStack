@@ -126,3 +126,51 @@ def valid_impulse_legs():
 def wave_config():
     """Default wave configuration for testing."""
     return WaveConfig()
+
+
+# =============================================================================
+# Async Test Support
+# =============================================================================
+
+
+@pytest.fixture
+def run_async():
+    """
+    Fixture that provides a clean way to run async functions in sync tests.
+
+    This properly handles event loop lifecycle per test, avoiding the
+    "coroutine was never awaited" issues that arise when using
+    asyncio.get_event_loop().run_until_complete() directly across
+    multiple tests in a suite.
+
+    Usage:
+        def test_something(run_async):
+            result = run_async(my_async_function(arg1, arg2))
+            assert result == expected
+    """
+    import asyncio
+
+    def _run(coro):
+        # Create a fresh event loop for this test
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            # Clean up properly
+            try:
+                # Cancel all pending tasks
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                # Run loop once more to let tasks finish cancelling
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            finally:
+                loop.close()
+                # Remove the event loop to prevent pollution
+                asyncio.set_event_loop(None)
+
+    return _run

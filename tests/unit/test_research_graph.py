@@ -30,6 +30,16 @@ ml_scientist:
   tools:
     - train_model
     - compute_features
+
+hypothesis_critic:
+  role: "Hypothesis Critic"
+  goal: "Challenge and validate research hypotheses."
+  backstory: "Skeptical reviewer who tests edge cases."
+  llm_tier: heavy
+  max_iterations: 10
+  timeout_seconds: 120
+  tools:
+    - signal_brief
 """
     yaml_file = tmp_path / "agents.yaml"
     yaml_file.write_text(yaml_content)

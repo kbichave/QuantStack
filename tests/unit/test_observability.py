@@ -41,15 +41,14 @@ class TestSetupInstrumentation:
     def test_initializes_langfuse_client(self, monkeypatch):
         monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
         monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
-        import quantstack.observability.tracing as tracing_mod
-        tracing_mod._init_attempted = False
-        tracing_mod._langfuse = None
+        import quantstack.observability.instrumentation as instr_mod
+        instr_mod._initialized = False
+        instr_mod._langfuse_client = None
 
         mock_lf = MagicMock()
-        with patch("quantstack.observability.tracing.Langfuse", return_value=mock_lf):
-            from quantstack.observability.instrumentation import setup_instrumentation
-            setup_instrumentation()
-            assert tracing_mod._langfuse is mock_lf
+        with patch("langfuse.Langfuse", return_value=mock_lf):
+            instr_mod.setup_instrumentation()
+            assert instr_mod._langfuse_client is mock_lf
 
 
 class TestLangfuseTraceContext:
@@ -59,16 +58,16 @@ class TestLangfuseTraceContext:
         mock_lf = MagicMock()
         mock_trace = MagicMock()
         mock_lf.trace.return_value = mock_trace
-        with patch("quantstack.observability.tracing._get_langfuse", return_value=mock_lf):
-            from quantstack.observability.instrumentation import langfuse_trace_context
-            with langfuse_trace_context("test-session", ["trading"]) as trace:
+        import quantstack.observability.instrumentation as instr_mod
+        with patch.object(instr_mod, "_langfuse_client", mock_lf):
+            with instr_mod.langfuse_trace_context("test-session", ["trading"]) as trace:
                 assert trace is mock_trace
 
     def test_passes_session_id_and_tags(self):
         mock_lf = MagicMock()
-        with patch("quantstack.observability.tracing._get_langfuse", return_value=mock_lf):
-            from quantstack.observability.instrumentation import langfuse_trace_context
-            with langfuse_trace_context("cycle-42", ["research", "paper"], name="research_cycle"):
+        import quantstack.observability.instrumentation as instr_mod
+        with patch.object(instr_mod, "_langfuse_client", mock_lf):
+            with instr_mod.langfuse_trace_context("cycle-42", ["research", "paper"], name="research_cycle"):
                 pass
             mock_lf.trace.assert_called_once_with(
                 name="research_cycle",
@@ -77,20 +76,20 @@ class TestLangfuseTraceContext:
             )
 
     def test_yields_none_when_langfuse_unavailable(self):
-        with patch("quantstack.observability.tracing._get_langfuse", return_value=None):
-            from quantstack.observability.instrumentation import langfuse_trace_context
-            with langfuse_trace_context("test", ["trading"]) as trace:
+        import quantstack.observability.instrumentation as instr_mod
+        with patch.object(instr_mod, "_langfuse_client", None):
+            with instr_mod.langfuse_trace_context("test", ["trading"]) as trace:
                 assert trace is None
 
     def test_marks_trace_success(self):
         mock_lf = MagicMock()
         mock_trace = MagicMock()
         mock_lf.trace.return_value = mock_trace
-        with patch("quantstack.observability.tracing._get_langfuse", return_value=mock_lf):
-            from quantstack.observability.instrumentation import langfuse_trace_context
-            with langfuse_trace_context("test", ["trading"]):
+        import quantstack.observability.instrumentation as instr_mod
+        with patch.object(instr_mod, "_langfuse_client", mock_lf):
+            with instr_mod.langfuse_trace_context("test", ["trading"]):
                 pass
-            mock_trace.update.assert_called_once_with(status_message="success")
+            mock_trace.event.assert_called_once_with(name="cycle_end")
 
 
 class TestFlushTraces:

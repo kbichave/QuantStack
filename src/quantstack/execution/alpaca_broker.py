@@ -96,6 +96,9 @@ class AlpacaBroker:
 
         self._reconcile_on_startup()
 
+    def supports_bracket_orders(self) -> bool:
+        return True
+
     # -------------------------------------------------------------------------
     # Public interface
     # -------------------------------------------------------------------------
@@ -147,6 +150,77 @@ class AlpacaBroker:
         except Exception as e:
             logger.error(f"[ALPACA] execute({req.symbol}) failed: {e}")
             return self._reject(req, str(e))
+
+    def execute_bracket(
+        self,
+        req: OrderRequest,
+        stop_price: float,
+        take_profit_price: float,
+    ) -> Fill:
+        """Submit an entry with attached SL/TP bracket legs.
+
+        Falls back to plain execute() if bracket submission fails.
+        """
+        if stop_price is None:
+            raise ValueError("stop_price is required for bracket orders")
+        if take_profit_price is None:
+            raise ValueError("take_profit_price is required for bracket orders")
+
+        if not self._kill_switch_registered:
+            self._register_kill_switch_closer()
+
+        from alpaca.trading.requests import (
+            StopLossRequest,
+            TakeProfitRequest,
+        )
+        from alpaca.trading.enums import OrderClass
+
+        mode = "PAPER" if self._paper else "LIVE"
+        logger.info(
+            f"[ALPACA:{mode}] BRACKET {req.side.upper()} {req.quantity} {req.symbol} "
+            f"SL={stop_price:.2f} TP={take_profit_price:.2f}"
+        )
+
+        try:
+            side = _side(req.side)
+            order_req = MarketOrderRequest(
+                symbol=req.symbol.upper(),
+                qty=req.quantity,
+                side=side,
+                time_in_force=TimeInForce.DAY,
+                order_class=OrderClass.BRACKET,
+                stop_loss=StopLossRequest(stop_price=stop_price),
+                take_profit=TakeProfitRequest(limit_price=take_profit_price),
+            )
+
+            order = self._client.submit_order(order_data=order_req)
+            logger.info(
+                f"[ALPACA] Bracket order submitted: id={order.id} status={order.status}"
+            )
+
+            order = self._poll_for_fill(str(order.id))
+            fill = self._to_fill(req, order)
+
+            # Extract bracket leg IDs
+            if order.legs:
+                for leg in order.legs:
+                    leg_type = getattr(leg, "order_type", None)
+                    if leg_type and "stop" in str(leg_type).lower():
+                        fill.bracket_stop_order_id = str(leg.id)
+                    elif leg_type and "limit" in str(leg_type).lower():
+                        fill.bracket_tp_order_id = str(leg.id)
+                    elif fill.bracket_stop_order_id is None:
+                        fill.bracket_stop_order_id = str(leg.id)
+                    else:
+                        fill.bracket_tp_order_id = str(leg.id)
+
+            return fill
+
+        except Exception as e:
+            logger.warning(
+                f"[ALPACA] Bracket submission failed ({e}), falling back to plain order"
+            )
+            return self.execute(req)
 
     def get_fills(self, symbol: str | None = None, limit: int = 50) -> list[Fill]:
         """Return recent filled orders from Alpaca."""

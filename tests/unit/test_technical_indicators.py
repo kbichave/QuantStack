@@ -15,7 +15,7 @@ import time
 @pytest.fixture
 def sample_ohlcv():
     """Generate sample OHLCV data for testing."""
-    dates = pd.date_range(start="2023-01-01", periods=500, freq="1H")
+    dates = pd.date_range(start="2023-01-01", periods=500, freq="1h")
     np.random.seed(42)
 
     # Generate realistic price data

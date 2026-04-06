@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from openevals import create_llm_as_judge
-
 from quantstack.performance.models import TradeQualityScore
 
 _TRADE_QUALITY_PROMPT = """\
@@ -48,6 +46,8 @@ def create_trade_evaluator(
     Returns a callable that accepts ``inputs`` and ``outputs`` kwargs
     and returns a dict conforming to TradeQualityScore.
     """
+    from openevals import create_llm_as_judge  # lazy: optional dependency
+
     evaluator = create_llm_as_judge(
         prompt=_TRADE_QUALITY_PROMPT,
         model=model or _DEFAULT_MODEL,

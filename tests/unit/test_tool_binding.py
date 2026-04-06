@@ -60,10 +60,11 @@ class TestBindToolsToLlm:
         mock_llm.bind_tools.assert_not_called()
 
     def test_deferred_loading_path(self):
-        """When always_loaded_tools is set, uses get_tools_for_agent_with_search."""
+        """When always_loaded_tools is set with Anthropic, uses server-side BM25 search."""
         from quantstack.graphs.tool_binding import bind_tools_to_llm
 
         mock_llm = MagicMock()
+        mock_llm.__class__.__name__ = "ChatAnthropic"  # Make it look like Anthropic
         mock_llm.bind.return_value = mock_llm
         fake_api_tools = [{"name": "signal_brief"}, {"type": "tool_search_bm25_2025_04_15"}]
         fake_exec_tools = [_make_fake_tool("signal_brief"), _make_fake_tool("fetch_portfolio")]
@@ -79,17 +80,18 @@ class TestBindToolsToLlm:
         ):
             bound_llm, tools, fallback = bind_tools_to_llm(mock_llm, config)
 
-        # Uses llm.bind() not bind_tools() for deferred path
+        # Uses llm.bind() not bind_tools() for Anthropic deferred path
         mock_llm.bind.assert_called_once_with(tools=fake_api_tools)
         assert tools == fake_exec_tools
         assert len(tools) == 2  # All configured tools, not just always-loaded
         assert fallback is False
 
     def test_fallback_on_deferred_loading_error(self):
-        """When deferred loading fails, falls back to full loading."""
+        """When deferred loading fails on Anthropic, falls back to full loading."""
         from quantstack.graphs.tool_binding import bind_tools_to_llm
 
         mock_llm = MagicMock()
+        mock_llm.__class__.__name__ = "ChatAnthropic"
         mock_llm.bind_tools.return_value = mock_llm
         fake_tools = [_make_fake_tool("signal_brief")]
 
@@ -115,10 +117,11 @@ class TestBindToolsToLlm:
         mock_llm.bind_tools.assert_called_once_with(fake_tools)
 
     def test_fallback_on_registry_error(self):
-        """When get_tools_for_agent_with_search raises, falls back."""
+        """When get_tools_for_agent_with_search raises on Anthropic, falls back."""
         from quantstack.graphs.tool_binding import bind_tools_to_llm
 
         mock_llm = MagicMock()
+        mock_llm.__class__.__name__ = "ChatAnthropic"
         mock_llm.bind_tools.return_value = mock_llm
         fake_tools = [_make_fake_tool("signal_brief")]
 

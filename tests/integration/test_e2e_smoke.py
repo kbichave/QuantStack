@@ -24,6 +24,12 @@ ml_scientist:
   backstory: "ML engineer."
   llm_tier: heavy
   tools: []
+hypothesis_critic:
+  role: "Hypothesis Critic"
+  goal: "Critique hypotheses."
+  backstory: "Critic."
+  llm_tier: medium
+  tools: []
 """
     yaml_file = tmp_path / "agents.yaml"
     yaml_file.write_text(yaml_content)
@@ -48,17 +54,17 @@ position_monitor:
   backstory: "Monitors."
   llm_tier: medium
   tools: []
+exit_evaluator:
+  role: "Exit Evaluator"
+  goal: "Evaluate exits."
+  backstory: "Evaluates."
+  llm_tier: medium
+  tools: []
 trade_debater:
   role: "Debater"
   goal: "Debate."
   backstory: "Debates."
   llm_tier: heavy
-  tools: []
-risk_analyst:
-  role: "Risk"
-  goal: "Risk."
-  backstory: "Risk."
-  llm_tier: medium
   tools: []
 fund_manager:
   role: "FM"
@@ -76,6 +82,18 @@ trade_reflector:
   role: "Reflector"
   goal: "Reflect."
   backstory: "Reflects."
+  llm_tier: medium
+  tools: []
+market_intel:
+  role: "Market Intel"
+  goal: "Market intelligence."
+  backstory: "Intel."
+  llm_tier: medium
+  tools: []
+earnings_analyst:
+  role: "Earnings"
+  goal: "Earnings analysis."
+  backstory: "Earnings."
   llm_tier: medium
   tools: []
 """
@@ -100,7 +118,7 @@ self_healer:
   role: "Self Healer"
   goal: "Heal."
   backstory: "Heals."
-  llm_tier: light
+  llm_tier: medium
   tools: []
 strategy_promoter:
   role: "Promoter"

@@ -371,10 +371,12 @@ class TestFundamentalsSchema:
 
     def test_insider_trades_roundtrip(self, store):
         """Save and load insider trades."""
+        # Use a unique test ticker to avoid collisions with real data
+        test_ticker = "TEST_INSIDER"
         df = pd.DataFrame(
             [
                 {
-                    "ticker": "AAPL",
+                    "ticker": test_ticker,
                     "transaction_date": pd.Timestamp("2024-03-01"),
                     "owner_name": "Tim Cook",
                     "transaction_type": "sell",
@@ -387,7 +389,7 @@ class TestFundamentalsSchema:
         saved = store.save_insider_trades(df)
         assert saved == 1
 
-        loaded = store.load_insider_trades("AAPL")
+        loaded = store.load_insider_trades(test_ticker)
         assert len(loaded) == 1
         assert loaded["owner_name"].iloc[0] == "Tim Cook"
         store.close()

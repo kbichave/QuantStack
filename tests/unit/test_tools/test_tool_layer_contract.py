@@ -153,7 +153,10 @@ class TestToolRegistry:
     def test_registry_values_are_callable(self):
         from quantstack.tools.registry import TOOL_REGISTRY
         for name, tool_obj in TOOL_REGISTRY.items():
-            assert callable(tool_obj), f"{name} is not callable"
+            # LangChain tools have .invoke() method but may not be directly callable
+            assert callable(tool_obj) or hasattr(tool_obj, "invoke"), (
+                f"{name} is not callable and has no invoke method"
+            )
 
     def test_signal_brief_in_registry(self):
         from quantstack.tools.registry import TOOL_REGISTRY

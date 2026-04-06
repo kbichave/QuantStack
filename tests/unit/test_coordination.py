@@ -745,7 +745,7 @@ class TestWatchlistLoaderV2:
         assert result == ["XOM", "MSFT", "SPY"]
 
     def test_fallback_to_defaults(self, clean_db):
-        """When tiered mode is off and no strategies, fall back to DEFAULT_SYMBOLS."""
+        """When tiered mode is off and no strategies, fall back to DEFAULT_SYMBOLS (capped at 20)."""
         with patch.dict("os.environ", {}, clear=False):
             # Remove any env overrides
             os.environ.pop("AUTONOMOUS_WATCHLIST", None)
@@ -757,7 +757,12 @@ class TestWatchlistLoaderV2:
             ):
                 loader = WatchlistLoader()
                 result = loader.load()
-                assert result == DEFAULT_SYMBOLS
+                # DEFAULT_SYMBOLS is derived from focus symbols or WATCHLIST_DEFAULT
+                # load() caps at _MAX_SYMBOLS (20)
+                from quantstack.autonomous.watchlist import DEFAULT_SYMBOLS as CURRENT_DEFAULT, _MAX_SYMBOLS
+                assert isinstance(result, list)
+                assert len(result) == min(len(CURRENT_DEFAULT), _MAX_SYMBOLS)
+                assert result == CURRENT_DEFAULT[:_MAX_SYMBOLS]
 
 
 # ── Supervisor Tests ─────────────────────────────────────────────────────────

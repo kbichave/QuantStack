@@ -215,9 +215,6 @@ hypothesis_critic:
   tools:
     - search_knowledge_base
     - fetch_strategy_registry
-  always_loaded_tools:
-    - search_knowledge_base
-    - fetch_strategy_registry
 
 community_intel:
   role: "Quant Community Scout"
@@ -323,6 +320,12 @@ domain_researcher:
       - score_trade_structure
       - finrl_screen_options
       - simulate_trade_outcome
+  always_loaded_tools:
+    - run_backtest
+    - run_walkforward
+    - search_knowledge_base
+    - register_strategy
+    - get_ewf_analysis
   tools:
     # Always-loaded tools (all domains) — listed here for the loader
     - run_backtest
@@ -331,11 +334,6 @@ domain_researcher:
     - register_strategy
     # EWF (1)
     - get_ewf_analysis
-  always_loaded_tools:
-    - run_backtest
-    - run_walkforward
-    - search_knowledge_base
-    - register_strategy
 
 execution_researcher:
   role: "Execution & Portfolio Construction Researcher"

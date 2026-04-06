@@ -31,12 +31,19 @@ def _mock_litellm_response(analysis_dict: dict) -> MagicMock:
 
 
 _VALID_ANALYSIS = {
+    "reasoning": "Y-axis shows 160-190 range. Turning Up box in bottom-right corner. "
+                 "Invalidation level at 162.0 (green horizontal line). Current price ~178. "
+                 "Completed labels: 1 at 170, 2 at 165, 3 at 185. Projected: 4 correction "
+                 "then 5 up toward 188.",
     "symbol": "AAPL",
     "timeframe": "4h",
     "bias": "bullish",
+    "turning_signal": "turning_up",
     "wave_position": "completing wave 3 of 5",
     "wave_degree": "minor",
     "current_wave_label": "3",
+    "completed_wave_sequence": "1 → 2 → 3",
+    "projected_path": "wave 4 correction to ~175, then wave 5 up toward 188",
     "key_levels": {
         "support": [170.0, 165.0],
         "resistance": [185.0, 190.0],
@@ -48,7 +55,7 @@ _VALID_ANALYSIS = {
     "confidence": 0.82,
     "invalidation_rule_violated": False,
     "analyst_notes": "Clean impulse structure visible.",
-    "summary": "AAPL bullish wave 3 targeting 188 with invalidation at 162.",
+    "summary": "Turning Up. AAPL bullish wave 3 targeting 188 with invalidation at 162.",
 }
 
 
@@ -147,11 +154,13 @@ async def test_collector_reads_from_real_db(trading_ctx):
     assert result["ewf_age_hours"] < 0.1  # very fresh
 
     expected_keys = [
-        "ewf_bias", "ewf_wave_position", "ewf_wave_degree",
-        "ewf_current_wave_label", "ewf_confidence", "ewf_key_support",
-        "ewf_key_resistance", "ewf_invalidation_level", "ewf_target",
+        "ewf_bias", "ewf_turning_signal", "ewf_wave_position",
+        "ewf_wave_degree", "ewf_current_wave_label", "ewf_confidence",
+        "ewf_key_support", "ewf_key_resistance",
+        "ewf_invalidation_level", "ewf_target",
         "ewf_blue_box_active", "ewf_blue_box_low", "ewf_blue_box_high",
-        "ewf_summary", "ewf_timeframe_used", "ewf_age_hours",
+        "ewf_summary", "ewf_projected_path",
+        "ewf_timeframe_used", "ewf_age_hours",
     ]
     for key in expected_keys:
         assert key in result, f"Missing key: {key}"

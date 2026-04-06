@@ -207,15 +207,15 @@ def test_strategy_demoted_when_ic_decay_manually_triggered(db_conn, strategy_id)
 
 
 @skip_no_pg
-def test_re_promotion_blocked_at_icir_035(db_conn, strategy_id):
+def test_re_promotion_blocked_at_icir_025(db_conn, strategy_id):
     """
-    After demotion, icir_21d=0.35 (> 0.3 but < 0.5) must NOT trigger re-promotion.
-    AutoPromoter._get_icir() returns 0.35 → icir_recovery check fails.
+    After demotion, icir_21d=0.25 (< 0.3 threshold) must NOT trigger re-promotion.
+    AutoPromoter._get_icir() returns 0.25 → icir gate fails.
     """
     from quantstack.coordination.auto_promoter import AutoPromoter, PromotionCriteria
 
     _seed_strategy(db_conn, strategy_id, status="forward_testing")
-    _seed_signal_ic(db_conn, strategy_id, icir_21d=0.35, icir_63d=0.38)
+    _seed_signal_ic(db_conn, strategy_id, icir_21d=0.25, icir_63d=0.28)
     db_conn.commit()
 
     conn_wrapper = _PsycopgWrapper(db_conn)
@@ -239,7 +239,7 @@ def test_re_promotion_blocked_at_icir_035(db_conn, strategy_id):
 
         decision = promoter._evaluate_one(strategy_id, "Test", None, updated_at)
 
-    assert decision.decision == "hold", f"Expected hold at ICIR=0.35, got: {decision.decision}"
+    assert decision.decision == "hold", f"Expected hold at ICIR=0.25, got: {decision.decision}"
 
 
 @skip_no_pg

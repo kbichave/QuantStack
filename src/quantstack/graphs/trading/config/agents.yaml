@@ -254,9 +254,6 @@ fund_manager:
     - get_strategy_gaps
     - check_risk_limits
     - get_trading_calendar
-    - fetch_strategy
-    - get_entry_thesis
-    - compute_pairwise_correlation
   always_loaded_tools:
     - fetch_portfolio
     - compute_risk_metrics

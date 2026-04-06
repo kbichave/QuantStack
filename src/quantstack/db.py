@@ -574,6 +574,13 @@ def _migrate_portfolio_pg(conn: PgConnection) -> None:
             premium_at_entry DOUBLE PRECISION
         )
     """))
+    # v3 — execution monitor bookkeeping columns
+    conn.execute(_to_pg("""
+        ALTER TABLE positions ADD COLUMN IF NOT EXISTS monitor_last_check TIMESTAMPTZ
+    """))
+    conn.execute(_to_pg("""
+        ALTER TABLE positions ADD COLUMN IF NOT EXISTS monitor_hwm DOUBLE PRECISION
+    """))
     conn.execute(_to_pg("""
         CREATE TABLE IF NOT EXISTS cash_balance (
             id          INTEGER PRIMARY KEY DEFAULT 1,

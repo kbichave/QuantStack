@@ -24,9 +24,9 @@ class TestSettings:
         # Database defaults
         assert settings.database_path == ""
 
-        # Symbol defaults — full universe (77 symbols from INITIAL_LIQUID_UNIVERSE)
-        from quantstack.data.universe import INITIAL_LIQUID_UNIVERSE
-        assert settings.symbols == list(INITIAL_LIQUID_UNIVERSE.keys())
+        # Symbol defaults — focus symbols (26 from get_focus_symbols)
+        from quantstack.config.focus import get_focus_symbols
+        assert settings.symbols == list(get_focus_symbols())
         assert settings.benchmark_symbol == "SPY"
 
         # Data settings

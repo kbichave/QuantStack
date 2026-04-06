@@ -34,9 +34,9 @@ def test_stop_sh_sends_graceful_shutdown():
 
 def test_status_sh_displays_container_status_heartbeats_positions():
     content = (PROJECT_ROOT / "status.sh").read_text()
-    assert "docker compose" in content
-    assert "heartbeat" in content.lower()
-    assert "position" in content.lower()
+    # status.sh now launches TUI (quantstack.tui module)
+    # The TUI handles display of heartbeats and positions
+    assert "quantstack.tui" in content or "tui" in content
 
 
 def test_startup_waits_for_health_checks():

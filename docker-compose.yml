@@ -166,6 +166,10 @@ services:
         required: false
     environment:
       TRADER_PG_URL: ${TRADER_PG_URL:-postgresql://${USER}@host.docker.internal:5432/quantstack}
+      EXEC_MONITOR_POLL_INTERVAL: ${EXEC_MONITOR_POLL_INTERVAL:-5}
+      EXEC_MONITOR_RECONCILE_INTERVAL: ${EXEC_MONITOR_RECONCILE_INTERVAL:-60}
+      EXEC_MONITOR_QUOTE_FEED: ${EXEC_MONITOR_QUOTE_FEED:-auto}
+      EXEC_MONITOR_SHADOW_MODE: ${EXEC_MONITOR_SHADOW_MODE:-true}
     volumes: *graph-volumes
     healthcheck:
       test: ["CMD", "python", "-c", "from quantstack.health.heartbeat import check_health; check_health('trading')"]

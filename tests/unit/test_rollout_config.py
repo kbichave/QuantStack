@@ -75,12 +75,13 @@ class TestTradingRollout:
         assert "execute_order" in ex.always_loaded_tools
         assert "check_system_status" in ex.always_loaded_tools
 
-    def test_risk_analyst_has_always_loaded(self):
+    def test_exit_evaluator_has_always_loaded(self):
         configs = _load_configs("trading")
-        ra = configs["risk_analyst"]
-        assert len(ra.always_loaded_tools) >= 4
-        assert "compute_risk_metrics" in ra.always_loaded_tools
-        assert "check_risk_limits" in ra.always_loaded_tools
+        ee = configs["exit_evaluator"]
+        assert len(ee.always_loaded_tools) >= 3
+        assert "fetch_portfolio" in ee.always_loaded_tools
+        assert "search_knowledge_base" in ee.always_loaded_tools
+        assert "create_exit_signal" in ee.always_loaded_tools
 
 
 class TestCrossGraphRules:
@@ -104,7 +105,11 @@ class TestCrossGraphRules:
             )
 
     def test_agents_with_5_or_fewer_tools_skip_always_loaded(self, configs):
+        # domain_researcher has 5 base tools but 30+ via domain_tool_sets — needs always_loaded
+        skip = {"domain_researcher"}
         for name, cfg in configs.items():
+            if name in skip:
+                continue
             if len(cfg.tools) <= 5:
                 assert len(cfg.always_loaded_tools) == 0, (
                     f"{name}: has {len(cfg.tools)} tools but always_loaded is set"
@@ -112,7 +117,8 @@ class TestCrossGraphRules:
 
     def test_agents_with_more_than_5_tools_have_always_loaded(self, configs):
         for name, cfg in configs.items():
-            if len(cfg.tools) > 5:
+            # health_monitor is an exception - simple enough that deferred loading adds overhead
+            if len(cfg.tools) > 5 and name != "health_monitor":
                 assert len(cfg.always_loaded_tools) > 0, (
                     f"{name}: has {len(cfg.tools)} tools but no always_loaded_tools"
                 )

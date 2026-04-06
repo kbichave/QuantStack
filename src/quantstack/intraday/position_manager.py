@@ -28,6 +28,7 @@ from loguru import logger
 
 from quantstack.data.streaming.incremental_features import IncrementalFeatures
 from quantstack.core.execution.fill_tracker import FillEvent, FillTracker
+from quantstack.holding_period import HoldingType
 
 ET = pytz.timezone("US/Eastern")
 
@@ -48,6 +49,7 @@ class IntradayPositionMeta:
     low_water_mark: float  # lowest price since entry (for short trailing stop)
     strategy_id: str = ""
     atr_at_entry: float = 0.0  # ATR at the time of entry (for stop calculation)
+    holding_type: HoldingType = HoldingType.INTRADAY
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +96,7 @@ class IntradayPositionManager:
         self._bar_count = 0
         self._trades_today = 0
         self._flattened = False
+        self._intraday_flattened = False
         self._lock = threading.Lock()
         self._exit_log: list[dict] = []
 
@@ -123,6 +126,7 @@ class IntradayPositionManager:
         price: float,
         atr: float,
         strategy_id: str = "",
+        holding_type: HoldingType = HoldingType.INTRADAY,
     ) -> None:
         """Call after a fill to track the position for stop management."""
         with self._lock:
@@ -135,6 +139,7 @@ class IntradayPositionManager:
                 low_water_mark=price,
                 atr_at_entry=atr,
                 strategy_id=strategy_id,
+                holding_type=holding_type,
             )
             self._trades_today += 1
 
@@ -207,12 +212,12 @@ class IntradayPositionManager:
             await self.flatten_all(reason="kill_switch")
             return
 
-        # 3. Flatten-at-close
+        # 3. Flatten-at-close (intraday only — non-INTRADAY positions preserved)
         now_et = datetime.now(ET).time()
-        if now_et >= self._flatten_time and not self._flattened:
+        if now_et >= self._flatten_time and not self._intraday_flattened:
             logger.info(f"[IntradayPM] Flatten time {self._flatten_time} reached")
-            await self.flatten_all(reason="flatten_at_close")
-            return
+            await self.flatten_intraday(reason="flatten_at_close")
+            self._intraday_flattened = True
 
         # 4. Per-position stop checks
         with self._lock:
@@ -305,6 +310,44 @@ class IntradayPositionManager:
         finally:
             self.unregister(symbol)
 
+    async def flatten_intraday(self, reason: str = "flatten_at_close") -> list[dict]:
+        """Flatten only INTRADAY positions. Called at 15:55 ET.
+
+        Non-INTRADAY positions (SHORT_SWING, SWING, POSITION) are preserved
+        and continue to be monitored for trailing stops and time stops.
+        """
+        positions = self._tracker.get_open_positions()
+        with self._lock:
+            intraday_symbols = [
+                sym for sym, meta in self._position_meta.items()
+                if meta.holding_type == HoldingType.INTRADAY
+            ]
+            preserved = [
+                f"{sym}:{meta.holding_type.value}"
+                for sym, meta in self._position_meta.items()
+                if meta.holding_type != HoldingType.INTRADAY
+            ]
+
+        if not intraday_symbols:
+            preserved_msg = f" Preserved {len(preserved)} non-INTRADAY ({', '.join(preserved)})." if preserved else ""
+            logger.info(f"[IntradayPM] No INTRADAY positions to flatten.{preserved_msg}")
+            return []
+
+        tasks = []
+        for sym in intraday_symbols:
+            pos = positions.get(sym)
+            if pos and pos.quantity != 0:
+                tasks.append(self._exit_position(sym, pos.quantity, reason))
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        preserved_msg = f" Preserved {len(preserved)} non-INTRADAY ({', '.join(preserved)})." if preserved else ""
+        logger.info(
+            f"[IntradayPM] Flattened {len(intraday_symbols)} INTRADAY positions "
+            f"({', '.join(intraday_symbols)}).{preserved_msg}"
+        )
+        return self._exit_log
+
     async def flatten_all(self, reason: str = "flatten_at_close") -> list[dict]:
         """Market-sell/cover all open intraday positions."""
         self._flattened = True
@@ -331,4 +374,5 @@ class IntradayPositionManager:
             self._bar_count = 0
             self._trades_today = 0
             self._flattened = False
+            self._intraday_flattened = False
             self._exit_log.clear()

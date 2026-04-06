@@ -11,6 +11,18 @@ from langchain_core.tools import BaseTool
 from quantstack.graphs.agent_executor import run_agent, build_system_message
 from quantstack.graphs.config import AgentConfig
 
+# Check if bigtool dependencies are available
+try:
+    from langgraph.store.postgres import PostgresStore
+    BIGTOOL_AVAILABLE = True
+except ImportError:
+    BIGTOOL_AVAILABLE = False
+
+requires_bigtool = pytest.mark.skipif(
+    not BIGTOOL_AVAILABLE,
+    reason="langgraph.store.postgres not available (requires langgraph>=0.3.0)"
+)
+
 
 def _make_config(name="test_agent", tools=(), always_loaded=()):
     return AgentConfig(
@@ -46,6 +58,7 @@ class TestRunAgentWithDeferredTools:
         with patch("quantstack.dashboard.events.publish_event") as mock:
             yield mock
 
+    @requires_bigtool
     async def test_deferred_tool_executes_successfully(self, mock_publish):
         """When the LLM discovers and calls a deferred tool, run_agent() resolves
         it from the full tool map and executes it."""
@@ -68,6 +81,7 @@ class TestRunAgentWithDeferredTools:
         assert "risk" in result
         deferred_tool.ainvoke.assert_called_once()
 
+    @requires_bigtool
     async def test_tool_map_contains_all_configured_tools(self, mock_publish):
         """The tool_map inside run_agent() must contain every tool from the
         agent's 'tools' list, not just always_loaded_tools."""
@@ -121,7 +135,7 @@ class TestServerToolUseFiltering:
 class TestFallbackPathIntegration:
 
     def test_fallback_on_bind_failure(self):
-        """When bind_tools raises, bind_tools_to_llm falls back to full loading."""
+        """When bind_tools raises on Anthropic, bind_tools_to_llm falls back to full loading."""
         from quantstack.graphs.tool_binding import bind_tools_to_llm
 
         config = _make_config(
@@ -129,6 +143,7 @@ class TestFallbackPathIntegration:
             always_loaded=("signal_brief",),
         )
         mock_llm = MagicMock()
+        mock_llm.__class__.__name__ = "ChatAnthropic"
         # Make bind() raise to trigger fallback
         mock_llm.bind.side_effect = Exception("beta header rejected")
         mock_llm.bind_tools.return_value = mock_llm
@@ -151,6 +166,7 @@ class TestFallbackPathIntegration:
             always_loaded=("signal_brief",),
         )
         mock_llm = MagicMock()
+        mock_llm.__class__.__name__ = "ChatAnthropic"
         mock_llm.bind_tools.return_value = mock_llm
 
         with patch("quantstack.graphs.tool_binding.get_tools_for_agent_with_search") as mock_search, \

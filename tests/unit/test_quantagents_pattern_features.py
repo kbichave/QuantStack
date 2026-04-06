@@ -240,7 +240,7 @@ class TestQuantAgentsPatternFeatures:
         df = make_ohlcv_df(prices)
 
         # Add z-score and consolidation signals
-        df["zscore_price"] = 0
+        df["zscore_price"] = 0.0  # Use float, not int
         df.loc[df.index[-1], "zscore_price"] = -2.5  # Extreme oversold
 
         qa_pattern = QuantAgentsPatternFeatures(Timeframe.H1, lookback_period=20)

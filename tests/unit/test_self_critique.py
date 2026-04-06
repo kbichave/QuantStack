@@ -57,12 +57,13 @@ class TestCritiqueNode:
         configs = load_agent_configs(yaml_path)
         assert "hypothesis_critic" in configs
 
-    def test_hypothesis_critic_is_heavy(self):
+    def test_hypothesis_critic_is_medium(self):
         from quantstack.graphs.config import load_agent_configs
 
         yaml_path = Path(__file__).resolve().parents[2] / "src" / "quantstack" / "graphs" / "research" / "config" / "agents.yaml"
         configs = load_agent_configs(yaml_path)
-        assert configs["hypothesis_critic"].llm_tier == "heavy"
+        # hypothesis_critic runs quick quality checks, medium tier is appropriate
+        assert configs["hypothesis_critic"].llm_tier == "medium"
 
     @pytest.mark.asyncio
     async def test_critique_returns_confidence_and_critique(self):

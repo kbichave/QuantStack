@@ -189,7 +189,7 @@ class TestCandlestickPatternFeatures:
                 "close": [99, 99, 99, 95, 95],  # Small body
                 "volume": [1000] * 5,
             },
-            index=pd.date_range("2024-01-01", periods=5, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=5, freq="1h"),
         )
 
         cp = CandlestickPatternFeatures(Timeframe.H1)
@@ -209,7 +209,7 @@ class TestCandlestickPatternFeatures:
                 "close": [101, 102, 100, 99, 104],  # Last candle engulfs previous
                 "volume": [1000] * 5,
             },
-            index=pd.date_range("2024-01-01", periods=5, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=5, freq="1h"),
         )
 
         cp = CandlestickPatternFeatures(Timeframe.H1)
@@ -366,8 +366,8 @@ class TestQuantAgentIntegration:
         prices_h1 = np.linspace(100, 150, 200)
         prices_h4 = np.linspace(100, 150, 50)
 
-        df_h1 = make_ohlcv_df(prices_h1.tolist(), freq="1H")
-        df_h4 = make_ohlcv_df(prices_h4.tolist(), freq="4H")
+        df_h1 = make_ohlcv_df(prices_h1.tolist(), freq="1h")
+        df_h4 = make_ohlcv_df(prices_h4.tolist(), freq="4h")
 
         factory = MultiTimeframeFeatureFactory(
             include_waves=False,

@@ -13,7 +13,12 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentevals.graph_trajectory.strict import graph_trajectory_strict_match
+
+try:
+    from agentevals.graph_trajectory.strict import graph_trajectory_strict_match
+except ImportError:
+    graph_trajectory_strict_match = None
+
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -274,6 +279,13 @@ def _build_graph(config_watcher, model):
 # ---------------------------------------------------------------------------
 
 
+_skip_no_agentevals = pytest.mark.skipif(
+    graph_trajectory_strict_match is None,
+    reason="agentevals not installed",
+)
+
+
+@_skip_no_agentevals
 class TestSafetyInvariants:
     """Safety-critical trajectory invariants."""
 

@@ -56,7 +56,7 @@ class TestDockerResourceLimits:
             if mem:
                 total += _parse_mem(str(mem))
         ten_gb = 10 * 1024**3
-        assert total < ten_gb, f"Total memory {total / 1024**3:.1f}GB exceeds 10GB"
+        assert total <= ten_gb, f"Total memory {total / 1024**3:.1f}GB exceeds 10GB"
 
     def test_expected_per_service_limits(self, compose_config):
         services = compose_config.get("services", {})

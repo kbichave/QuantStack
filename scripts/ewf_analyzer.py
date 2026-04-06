@@ -35,15 +35,27 @@ from quantstack.llm.provider import get_model_with_fallback
 # ---------------------------------------------------------------------------
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "ewf"
+
+
 def _resolve_model() -> str:
     """Resolve model via env override or the central LLM provider (Bedrock by default)."""
     override = os.getenv("EWF_ANALYZER_MODEL")
     if override:
         return override
-    return get_model_with_fallback("heavy")
+    try:
+        return get_model_with_fallback("heavy")
+    except Exception:
+        return "claude-sonnet-4-5"
 
 
 MODEL: str | None = None  # resolved lazily in main()
+
+
+def _get_model() -> str:
+    """Return the resolved model, falling back to _resolve_model() if main() hasn't run."""
+    if MODEL is not None:
+        return MODEL
+    return _resolve_model()
 OHLCV_DAILY_TIMEFRAME = "daily"  # verified via SELECT DISTINCT timeframe FROM ohlcv
 
 _ALL_UPDATE_TYPES = [
@@ -520,8 +532,9 @@ def _analyze_image(
             symbol, timeframe, ohlcv_rows
         )
 
+        model = _get_model()
         response = litellm.completion(
-            model=MODEL,
+            model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {
@@ -551,7 +564,7 @@ def _analyze_image(
             raw_text = msg.content or ""
         result = _parse_vision_response(raw_text, symbol, timeframe)
         result["raw_analysis"] = raw_text
-        result["model_used"] = MODEL
+        result["model_used"] = model
         result["image_path"] = str(image_path.relative_to(DATA_DIR.parent.parent))
         if not ohlcv_rows:
             notes = result.get("analyst_notes") or ""
@@ -627,7 +640,7 @@ def _fallback_result(symbol: str, timeframe: str, raw: str) -> dict:
         "summary": None,
         "reasoning": None,
         "raw_analysis": raw,
-        "model_used": MODEL,
+        "model_used": _get_model(),
     }
 
 

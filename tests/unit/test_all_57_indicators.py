@@ -19,7 +19,7 @@ import time
 @pytest.fixture
 def large_ohlcv():
     """Generate larger OHLCV dataset for indicator testing."""
-    dates = pd.date_range(start="2022-01-01", periods=1000, freq="1H")
+    dates = pd.date_range(start="2022-01-01", periods=1000, freq="1h")
     np.random.seed(42)
 
     # Generate realistic trending price data

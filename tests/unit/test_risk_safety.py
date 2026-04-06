@@ -212,6 +212,24 @@ trade_reflector:
   backstory: "Reflects."
   llm_tier: medium
   tools: []
+exit_evaluator:
+  role: "Exit Evaluator"
+  goal: "Evaluate exits."
+  backstory: "Evaluates."
+  llm_tier: medium
+  tools: []
+market_intel:
+  role: "Intel"
+  goal: "Intel."
+  backstory: "Intel."
+  llm_tier: medium
+  tools: []
+earnings_analyst:
+  role: "Earnings"
+  goal: "Earnings."
+  backstory: "Earnings."
+  llm_tier: medium
+  tools: []
 """
     yaml_file = tmp_path / "agents.yaml"
     yaml_file.write_text(yaml_content)

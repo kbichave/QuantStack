@@ -102,7 +102,8 @@ class TestGetCycleInterval:
         from quantstack.runners import get_cycle_interval
         with patch("quantstack.runners.is_market_hours", return_value=False), \
              patch("quantstack.runners._is_weekend", return_value=False):
-            assert get_cycle_interval("trading") == 1800
+            # Trading after_hours is None (paused)
+            assert get_cycle_interval("trading") is None
 
     def test_trading_weekend(self):
         from quantstack.runners import get_cycle_interval
@@ -113,13 +114,15 @@ class TestGetCycleInterval:
     def test_research_market_hours(self):
         from quantstack.runners import get_cycle_interval
         with patch("quantstack.runners.is_market_hours", return_value=True):
-            assert get_cycle_interval("research") == 600
+            # Research market interval is 120s (bootstrap phase)
+            assert get_cycle_interval("research") == 120
 
     def test_research_weekend(self):
         from quantstack.runners import get_cycle_interval
         with patch("quantstack.runners.is_market_hours", return_value=False), \
              patch("quantstack.runners._is_weekend", return_value=True):
-            assert get_cycle_interval("research") == 7200
+            # Research weekend interval is 300s (bootstrap phase)
+            assert get_cycle_interval("research") == 300
 
     def test_supervisor_always_300(self):
         from quantstack.runners import get_cycle_interval

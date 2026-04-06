@@ -97,6 +97,9 @@ class EtradeBroker:
                 "Account reconciliation deferred until auth completes."
             )
 
+    def supports_bracket_orders(self) -> bool:
+        return False
+
     # -------------------------------------------------------------------------
     # Public interface (matches PaperBroker)
     # -------------------------------------------------------------------------

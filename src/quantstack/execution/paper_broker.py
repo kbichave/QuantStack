@@ -62,6 +62,7 @@ class BrokerProtocol(Protocol):
     """
 
     def execute(self, req: "OrderRequest") -> "Fill": ...  # noqa: E704
+    def supports_bracket_orders(self) -> bool: ...  # noqa: E704
 
 
 # =============================================================================
@@ -98,6 +99,8 @@ class Fill(BaseModel):
     rejected: bool = False
     reject_reason: str | None = None
     filled_at: datetime = Field(default_factory=datetime.now)
+    bracket_stop_order_id: str | None = None
+    bracket_tp_order_id: str | None = None
 
     @property
     def total_cost(self) -> float:
@@ -153,6 +156,9 @@ class PaperBroker:
     @property
     def conn(self) -> PgConnection:
         return self._conn
+
+    def supports_bracket_orders(self) -> bool:
+        return False
 
     # -------------------------------------------------------------------------
     # Core execution

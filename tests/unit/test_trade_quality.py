@@ -55,6 +55,14 @@ class TestTradeQualityScoreSchema:
 # ---------------------------------------------------------------------------
 
 
+try:
+    import openevals  # noqa: F401
+    _has_openevals = True
+except ImportError:
+    _has_openevals = False
+
+
+@pytest.mark.skipif(not _has_openevals, reason="openevals not installed")
 class TestEvaluatorFactory:
     def test_create_trade_evaluator_returns_callable(self):
         from quantstack.performance.trade_evaluator import create_trade_evaluator

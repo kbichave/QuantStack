@@ -15,9 +15,10 @@ from quantstack.core.portfolio.optimizer import covariance_matrix
 
 def _synthetic_returns(n_symbols: int = 30, n_days: int = 120, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    data = rng.normal(0.001, 0.015, (n_days, n_symbols))
     symbols = [f"SYM{i:02d}" for i in range(n_symbols)]
     idx = pd.bdate_range(end="2024-06-01", periods=n_days)
+    # Generate data matching actual index length (bdate_range may differ from periods due to calendar)
+    data = rng.normal(0.001, 0.015, (len(idx), n_symbols))
     return pd.DataFrame(data, index=idx, columns=symbols)
 
 
@@ -64,12 +65,12 @@ def test_fallback_for_insufficient_history():
     thin_sym = "THIN"
 
     thick_df = pd.DataFrame(
-        rng.normal(0.001, 0.015, (120, len(thick_syms))),
+        rng.normal(0.001, 0.015, (len(idx_long), len(thick_syms))),
         index=idx_long,
         columns=thick_syms,
     )
     thin_series = pd.Series(
-        rng.normal(0.001, 0.015, 30),
+        rng.normal(0.001, 0.015, len(idx_short)),
         index=idx_short,
         name=thin_sym,
     )

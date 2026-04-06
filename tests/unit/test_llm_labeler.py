@@ -98,7 +98,7 @@ class TestLLMLabelProvider:
                 "label_long": [1, 1, 0, 0, 1],
                 "label_llm_quality": [0.9, 0.3, 0.8, 0.2, 0.5],
             },
-            index=pd.date_range("2024-01-01", periods=5, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=5, freq="1h"),
         )
 
         provider = LLMLabelProvider(use_mock=True)
@@ -123,7 +123,7 @@ class TestLLMLabelProvider:
             {
                 "label_llm_quality": [0.9, 0.3, 0.8],
             },
-            index=pd.date_range("2024-01-01", periods=3, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=3, freq="1h"),
         )
 
         provider = LLMLabelProvider(use_mock=True)
@@ -138,7 +138,7 @@ class TestLLMLabelProvider:
             {
                 "label_long": [1, 0, 1],
             },
-            index=pd.date_range("2024-01-01", periods=3, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=3, freq="1h"),
         )
 
         provider = LLMLabelProvider(use_mock=True)
@@ -154,7 +154,7 @@ class TestLLMLabelProvider:
                 "label_long": [1, 1],
                 "label_llm_quality": [0.0, 1.0],
             },
-            index=pd.date_range("2024-01-01", periods=2, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=2, freq="1h"),
         )
 
         provider = LLMLabelProvider(use_mock=True)
@@ -186,7 +186,7 @@ class TestLLMLabelProvider:
                     "weak_consolidation",
                 ],
             },
-            index=pd.date_range("2024-01-01", periods=5, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=5, freq="1h"),
         )
 
         provider = LLMLabelProvider(use_mock=True)
@@ -205,7 +205,7 @@ class TestLLMLabelProvider:
                 "label_llm_quality": [np.nan, np.nan],
                 "label_llm_type": [None, None],
             },
-            index=pd.date_range("2024-01-01", periods=2, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=2, freq="1h"),
         )
 
         provider = LLMLabelProvider(use_mock=True)
@@ -247,7 +247,7 @@ class TestLLMLabelProvider:
                 "qa_pattern_consolidation": [1] * 51,
                 "zscore_price": [0] * 50 + [-2.5],
             },
-            index=pd.date_range("2024-01-01", periods=51, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=51, freq="1h"),
         )
 
         provider = LLMLabelProvider(use_mock=True)
@@ -270,7 +270,7 @@ class TestLLMLabelProvider:
                 "qa_trend_regime": [1] * 51,  # Strong uptrend
                 "qa_pattern_is_pullback": [0] * 51,  # No pullback
             },
-            index=pd.date_range("2024-01-01", periods=51, freq="1H"),
+            index=pd.date_range("2024-01-01", periods=51, freq="1h"),
         )
 
         provider = LLMLabelProvider(use_mock=True)

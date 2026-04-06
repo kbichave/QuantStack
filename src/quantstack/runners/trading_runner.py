@@ -1,7 +1,9 @@
 """Trading graph continuous runner — async cycle every 5 min (market hours)."""
 
 import asyncio
+import contextlib
 import logging
+import os
 import time
 import traceback
 from datetime import datetime
@@ -176,11 +178,46 @@ async def async_main() -> None:
             "decisions": [],
         }
 
+    # ── Execution Monitor (sibling async task) ──────────────────────────
+    monitor = None
+    monitor_task = None
+    shadow_mode = os.getenv("EXEC_MONITOR_SHADOW_MODE", "true").lower() in ("true", "1", "yes")
+
+    try:
+        from quantstack.execution.execution_monitor import ExecutionMonitor
+        from quantstack.execution.portfolio_state import PortfolioState
+        from quantstack.execution.price_feed import get_price_feed
+
+        portfolio_state = PortfolioState()
+        price_feed = get_price_feed()
+
+        # Broker is resolved lazily at first trade; use the same singleton
+        from quantstack.execution.broker_factory import get_broker
+        broker = get_broker()
+
+        monitor = ExecutionMonitor(
+            broker=broker,
+            price_feed=price_feed,
+            portfolio_state=portfolio_state,
+            shadow_mode=shadow_mode,
+        )
+        monitor_task = asyncio.create_task(monitor.run(), name="execution-monitor")
+        logger.info("Execution monitor started (shadow_mode=%s)", shadow_mode)
+    except Exception:
+        logger.warning("Execution monitor failed to start — running without it", exc_info=True)
+
+    # ── Main graph loop ───────────────────────────────────────────────────
     logger.info("Starting trading runner")
     try:
         await run_loop(graph_builder, initial_state_builder, shutdown, graph_name="trading")
     finally:
         config_watcher.stop()
+        if monitor is not None:
+            await monitor.stop()
+        if monitor_task is not None:
+            monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await monitor_task
     logger.info("Trading runner stopped")
 
 

@@ -402,8 +402,8 @@ class TestProductionYamlFiles:
         path = self.SRC_ROOT / "graphs" / "trading" / "config" / "agents.yaml"
         configs = load_agent_configs(path)
         expected = {
-            "daily_planner", "position_monitor", "trade_debater",
-            "risk_analyst", "fund_manager", "options_analyst",
+            "daily_planner", "position_monitor", "exit_evaluator", "trade_debater",
+            "fund_manager", "options_analyst",
             "earnings_analyst", "market_intel", "trade_reflector", "executor",
         }
         assert expected.issubset(configs.keys())

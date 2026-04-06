@@ -71,8 +71,14 @@ def test_registry_defines_no_inline_tools():
     import ast
     registry_path = pathlib.Path("src/quantstack/tools/registry.py")
     tree = ast.parse(registry_path.read_text())
+    # Allowed helper functions (not @tool definitions)
+    allowed_helpers = {
+        "_try_import",
+        "get_tools_for_agent",
+        "get_tools_for_agent_with_search",
+        "search_deferred_tools",  # Client-side search helper
+    }
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # _try_import and get_tools_for_agent are helpers, not @tool definitions
-            if node.name not in ("_try_import", "get_tools_for_agent", "get_tools_for_agent_with_search"):
+            if node.name not in allowed_helpers:
                 assert False, f"registry.py defines function '{node.name}' — move it to a langchain module"

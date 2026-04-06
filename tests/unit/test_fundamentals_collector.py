@@ -140,8 +140,7 @@ def _make_store(with_fundamentals: bool = True) -> MagicMock:
     return store
 
 
-def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+# Removed: _run helper is replaced by run_async fixture from conftest.py
 
 
 # ---------------------------------------------------------------------------
@@ -150,22 +149,22 @@ def _run(coro):
 
 
 class TestFundamentalsCollectorCore:
-    def test_returns_dict(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_returns_dict(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert isinstance(result, dict)
 
-    def test_empty_when_all_data_missing(self):
+    def test_empty_when_all_data_missing(self, run_async):
         store = MagicMock()
         store.get_fundamentals.return_value = None
         store.load_financial_statements.return_value = pd.DataFrame()
         store.load_insider_trades.return_value = pd.DataFrame()
         store.load_institutional_ownership.return_value = pd.DataFrame()
         store.load_analyst_estimates.return_value = pd.DataFrame()
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         # Should return {} or minimal keys when no data
         assert isinstance(result, dict)
 
-    def test_never_raises(self):
+    def test_never_raises(self, run_async):
         """Collector must never raise — returns {} on exception."""
         store = MagicMock()
         store.get_fundamentals.side_effect = RuntimeError("db crash")
@@ -173,11 +172,11 @@ class TestFundamentalsCollectorCore:
         store.load_insider_trades.side_effect = RuntimeError("db crash")
         store.load_institutional_ownership.side_effect = RuntimeError("db crash")
         store.load_analyst_estimates.side_effect = RuntimeError("db crash")
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         assert isinstance(result, dict)
 
-    def test_baseline_keys_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_baseline_keys_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         for key in (
             "pe_ratio",
             "eps_ttm",
@@ -189,12 +188,12 @@ class TestFundamentalsCollectorCore:
         ):
             assert key in result, f"missing baseline key: {key}"
 
-    def test_pe_ratio_value(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_pe_ratio_value(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert result.get("pe_ratio") == pytest.approx(22.5, rel=1e-4)
 
-    def test_market_cap_value(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_market_cap_value(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert result.get("market_cap") == pytest.approx(1_500_000_000.0, rel=1e-4)
 
 
@@ -204,44 +203,44 @@ class TestFundamentalsCollectorCore:
 
 
 class TestFundamentalsCollectorQuantamental:
-    def test_novy_marx_gp_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_novy_marx_gp_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "novy_marx_gp" in result
 
-    def test_novy_marx_gp_positive(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_novy_marx_gp_positive(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("novy_marx_gp")
         if v is not None:
             assert v > 0.0
 
-    def test_asset_growth_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_asset_growth_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "asset_growth" in result
 
-    def test_revenue_acceleration_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_revenue_acceleration_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "revenue_acceleration" in result
 
-    def test_operating_leverage_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_operating_leverage_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "operating_leverage" in result
 
-    def test_quantamental_absent_when_statements_empty(self):
+    def test_quantamental_absent_when_statements_empty(self, run_async):
         store = _make_store()
         # Clear side_effect so return_value takes precedence
         store.load_financial_statements.side_effect = None
         store.load_financial_statements.return_value = pd.DataFrame()
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         # Quantamental keys should be absent when no financial data
         assert "novy_marx_gp" not in result
         assert "asset_growth" not in result
 
-    def test_quantamental_absent_when_insufficient_bars(self):
+    def test_quantamental_absent_when_insufficient_bars(self, run_async):
         store = _make_store()
         # Only 1 row — not enough for any computation
         store.load_financial_statements.side_effect = None
         store.load_financial_statements.return_value = _make_income_df(n=1)
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         assert "novy_marx_gp" not in result
 
 
@@ -251,22 +250,22 @@ class TestFundamentalsCollectorQuantamental:
 
 
 class TestFundamentalsCollectorAnalyst:
-    def test_analyst_revision_momentum_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_analyst_revision_momentum_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "analyst_revision_momentum" in result
 
-    def test_analyst_estimate_dispersion_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_analyst_estimate_dispersion_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "analyst_estimate_dispersion" in result
 
-    def test_analyst_signals_absent_when_no_data(self):
+    def test_analyst_signals_absent_when_no_data(self, run_async):
         store = _make_store()
         store.load_analyst_estimates.return_value = pd.DataFrame()
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         assert "analyst_revision_momentum" not in result
 
-    def test_dispersion_non_negative(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_dispersion_non_negative(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("analyst_estimate_dispersion")
         if v is not None:
             assert v >= 0.0
@@ -278,30 +277,30 @@ class TestFundamentalsCollectorAnalyst:
 
 
 class TestFundamentalsCollectorInsider:
-    def test_insider_cluster_buy_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_insider_cluster_buy_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "insider_cluster_buy" in result
 
-    def test_insider_cluster_buy_binary(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_insider_cluster_buy_binary(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("insider_cluster_buy")
         if v is not None:
             assert v in (0, 1)
 
-    def test_insider_adj_ratio_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_insider_adj_ratio_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "insider_adj_ratio" in result
 
-    def test_insider_adj_ratio_in_zero_one(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_insider_adj_ratio_in_zero_one(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("insider_adj_ratio")
         if v is not None:
             assert 0.0 <= v <= 1.0
 
-    def test_insider_signals_absent_when_no_data(self):
+    def test_insider_signals_absent_when_no_data(self, run_async):
         store = _make_store()
         store.load_insider_trades.return_value = pd.DataFrame()
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         assert "insider_cluster_buy" not in result
 
 
@@ -311,32 +310,32 @@ class TestFundamentalsCollectorInsider:
 
 
 class TestFundamentalsCollectorHerding:
-    def test_herding_measure_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_herding_measure_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         assert "inst_herding_measure" in result
 
-    def test_herding_measure_non_negative(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_herding_measure_non_negative(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("inst_herding_measure")
         if v is not None:
             assert v >= 0.0
 
-    def test_herding_buy_bias_valid(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_herding_buy_bias_valid(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("inst_herding_buy_bias")
         if v is not None:
             assert v in (-1, 0, 1)
 
-    def test_herding_high_binary(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_herding_high_binary(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("inst_herding_high")
         if v is not None:
             assert v in (0, 1)
 
-    def test_herding_absent_when_no_ownership_data(self):
+    def test_herding_absent_when_no_ownership_data(self, run_async):
         store = _make_store()
         store.load_institutional_ownership.return_value = pd.DataFrame()
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         assert "inst_herding_measure" not in result
 
 
@@ -346,31 +345,31 @@ class TestFundamentalsCollectorHerding:
 
 
 class TestFundamentalsCollectorCashFlowSignals:
-    def test_sloan_accruals_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_sloan_accruals_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         # SloanAccruals requires operating_cash_flow from cashflow statement;
         # present when cashflow data is available and net_income + total_assets exist
         if "sloan_accruals" in result:
             assert isinstance(result["sloan_accruals"], float)
 
-    def test_sloan_accruals_high_binary(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_sloan_accruals_high_binary(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("sloan_accruals_high")
         if v is not None:
             assert v in (0, 1)
 
-    def test_fcf_yield_present(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_fcf_yield_present(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         if "fcf_yield" in result:
             assert isinstance(result["fcf_yield"], float)
 
-    def test_fcf_positive_binary(self):
-        result = _run(collect_fundamentals("AAPL", _make_store()))
+    def test_fcf_positive_binary(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store()))
         v = result.get("fcf_positive")
         if v is not None:
             assert v in (0, 1)
 
-    def test_cashflow_signals_absent_when_no_cashflow_data(self):
+    def test_cashflow_signals_absent_when_no_cashflow_data(self, run_async):
         store = _make_store()
 
         # Override to return empty cashflow statement
@@ -382,14 +381,14 @@ class TestFundamentalsCollectorCashFlowSignals:
             return _make_income_df(n=min(limit, 12))
 
         store.load_financial_statements.side_effect = _load_statements_no_cf
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         assert "sloan_accruals" not in result
         assert "fcf_yield" not in result
 
-    def test_cashflow_signals_absent_when_no_market_cap(self):
+    def test_cashflow_signals_absent_when_no_market_cap(self, run_async):
         """FCFYield needs market_cap from the fundamentals row."""
         store = _make_store(with_fundamentals=False)
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         assert "fcf_yield" not in result
 
 
@@ -440,36 +439,36 @@ def _make_store_with_piotroski() -> MagicMock:
 
 
 class TestFundamentalsCollectorPiotroski:
-    def test_piotroski_present_when_columns_available(self):
-        result = _run(collect_fundamentals("AAPL", _make_store_with_piotroski()))
+    def test_piotroski_present_when_columns_available(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store_with_piotroski()))
         if "piotroski_f_score" in result:
             assert isinstance(result["piotroski_f_score"], float)
 
-    def test_piotroski_score_in_range(self):
-        result = _run(collect_fundamentals("AAPL", _make_store_with_piotroski()))
+    def test_piotroski_score_in_range(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store_with_piotroski()))
         score = result.get("piotroski_f_score")
         if score is not None:
             assert 0.0 <= score <= 9.0
 
-    def test_piotroski_strong_buy_binary(self):
-        result = _run(collect_fundamentals("AAPL", _make_store_with_piotroski()))
+    def test_piotroski_strong_buy_binary(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store_with_piotroski()))
         v = result.get("piotroski_strong_buy")
         if v is not None:
             assert v in (0, 1)
 
-    def test_piotroski_short_signal_binary(self):
-        result = _run(collect_fundamentals("AAPL", _make_store_with_piotroski()))
+    def test_piotroski_short_signal_binary(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store_with_piotroski()))
         v = result.get("piotroski_short_signal")
         if v is not None:
             assert v in (0, 1)
 
-    def test_piotroski_absent_when_columns_missing(self):
+    def test_piotroski_absent_when_columns_missing(self, run_async):
         """Without total_assets etc., piotroski_f_score should not appear."""
         store = _make_store(with_fundamentals=True)
         # Default income df has revenue, gross_profit, total_assets, net_income,
         # operating_income — but missing long_term_debt, current_assets/liabilities,
         # shares_outstanding → PiotroskiFScore skipped
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         assert "piotroski_f_score" not in result
 
 
@@ -503,35 +502,35 @@ def _make_store_with_earnings() -> MagicMock:
 
 
 class TestFundamentalsCollectorSUE:
-    def test_sue_present_when_earnings_available(self):
-        result = _run(collect_fundamentals("AAPL", _make_store_with_earnings()))
+    def test_sue_present_when_earnings_available(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store_with_earnings()))
         if "sue" in result:
             assert result["sue"] is None or isinstance(result["sue"], float)
 
-    def test_sue_positive_binary(self):
-        result = _run(collect_fundamentals("AAPL", _make_store_with_earnings()))
+    def test_sue_positive_binary(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store_with_earnings()))
         v = result.get("sue_positive")
         if v is not None:
             assert v in (0, 1)
 
-    def test_sue_negative_binary(self):
-        result = _run(collect_fundamentals("AAPL", _make_store_with_earnings()))
+    def test_sue_negative_binary(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store_with_earnings()))
         v = result.get("sue_negative")
         if v is not None:
             assert v in (0, 1)
 
-    def test_beat_streak_non_negative(self):
-        result = _run(collect_fundamentals("AAPL", _make_store_with_earnings()))
+    def test_beat_streak_non_negative(self, run_async):
+        result = run_async(collect_fundamentals("AAPL", _make_store_with_earnings()))
         v = result.get("beat_streak")
         if v is not None:
             assert v >= 0
 
-    def test_sue_absent_when_no_conn(self):
+    def test_sue_absent_when_no_conn(self, run_async):
         """Without conn attribute, SUE signals should gracefully not appear."""
         store = _make_store(with_fundamentals=True)
         # MagicMock by default does not have a .conn attribute that returns
         # a proper cursor; _add_earnings_surprise_signals should catch the
         # exception and leave result clean
-        result = _run(collect_fundamentals("AAPL", store))
+        result = run_async(collect_fundamentals("AAPL", store))
         # result may or may not have sue depending on mock behaviour; just assert no crash
         assert isinstance(result, dict)

@@ -65,6 +65,15 @@ class AlpacaStreamingAdapter(StreamingAdapter):
         # Alpaca's real-time bar feed is 1-minute only.
         return [Timeframe.M1]
 
+    @property
+    def stream(self) -> StockDataStream | None:
+        """The underlying StockDataStream, or None if not connected.
+
+        Used by AlpacaQuoteFeed to add quote subscriptions to the
+        same WebSocket connection that delivers bars.
+        """
+        return self._stream
+
     # ── Connection lifecycle ──────────────────────────────────────────────────
 
     async def _connect(self) -> None:

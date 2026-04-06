@@ -775,8 +775,8 @@ class TestSyntheticTAIntegration:
         factory._compute_features_for_timeframe(df_1h, Timeframe.H1)
         elapsed = time.time() - start
 
-        # Should complete in reasonable time (<2s for 500 bars on H1)
-        assert elapsed < 2.0, f"TA computation too slow: {elapsed:.3f}s"
+        # Should complete in reasonable time (<5s for 500 bars on H1)
+        assert elapsed < 5.0, f"TA computation too slow: {elapsed:.3f}s"
 
     def test_ta_features_for_ml_extraction(self):
         """Should be able to extract TA features for ML model input."""

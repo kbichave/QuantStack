@@ -102,21 +102,19 @@ position_monitor:
   llm_tier: medium
   tools: [signal_brief]
 
+exit_evaluator:
+  role: "Exit Evaluator"
+  goal: "Evaluate exits"
+  backstory: "Evaluates"
+  llm_tier: medium
+  tools: [signal_brief]
+
 trade_debater:
   role: "Debater"
   goal: "Debate"
   backstory: "Debater"
   llm_tier: heavy
   tools: [signal_brief]
-
-risk_analyst:
-  role: "Risk"
-  goal: "Risk"
-  backstory: "Risk"
-  llm_tier: heavy
-  thinking:
-    type: adaptive
-  tools: [compute_risk_metrics]
 
 fund_manager:
   role: "FM"
@@ -172,27 +170,6 @@ class TestPerAgentLLMTrading:
         finally:
             watcher.stop()
 
-    def test_risk_analyst_gets_thinking_config(self, tmp_path):
-        """risk_analyst with thinking config passes it to get_chat_model."""
-        from langgraph.checkpoint.memory import MemorySaver
-        from quantstack.graphs.trading.graph import build_trading_graph
-
-        watcher = _make_config_watcher(tmp_path, TRADING_YAML)
-        try:
-            with patch("quantstack.graphs.trading.graph.get_chat_model") as mock_gcm:
-                mock_gcm.return_value = MagicMock()
-                build_trading_graph(watcher, MemorySaver())
-
-            # Find the call for risk_analyst (heavy tier with thinking)
-            thinking_calls = [
-                c for c in mock_gcm.call_args_list
-                if c.kwargs.get("thinking") == {"type": "adaptive"}
-                or (len(c.args) > 1 and c.args[1] == {"type": "adaptive"})
-            ]
-            assert len(thinking_calls) >= 1
-        finally:
-            watcher.stop()
-
     def test_non_thinking_agents_get_none(self, tmp_path):
         """Agents without thinking config pass thinking=None."""
         from langgraph.checkpoint.memory import MemorySaver
@@ -204,12 +181,12 @@ class TestPerAgentLLMTrading:
                 mock_gcm.return_value = MagicMock()
                 build_trading_graph(watcher, MemorySaver())
 
-            # Most calls should have thinking=None
+            # All calls should have thinking=None (no thinking agents in this fixture)
             none_calls = [
                 c for c in mock_gcm.call_args_list
                 if c.kwargs.get("thinking") is None
             ]
-            assert len(none_calls) == 8  # 9 agents - 1 with thinking
+            assert len(none_calls) == 9
         finally:
             watcher.stop()
 
@@ -235,7 +212,7 @@ hypothesis_critic:
   role: "Critic"
   goal: "Critique"
   backstory: "Critic"
-  llm_tier: heavy
+  llm_tier: medium
   tools: [search_knowledge_base]
 """
 
@@ -379,10 +356,6 @@ class TestTargetNodeConfig:
         configs = self._load_production_configs("research")
         assert configs["quant_researcher"].thinking == {"type": "adaptive"}
 
-    def test_risk_analyst_has_thinking(self):
-        configs = self._load_production_configs("trading")
-        assert configs["risk_analyst"].thinking == {"type": "adaptive"}
-
     def test_trade_debater_no_thinking(self):
         configs = self._load_production_configs("trading")
         assert configs["trade_debater"].thinking is None
@@ -390,3 +363,7 @@ class TestTargetNodeConfig:
     def test_daily_planner_no_thinking(self):
         configs = self._load_production_configs("trading")
         assert configs["daily_planner"].thinking is None
+
+    def test_exit_evaluator_no_thinking(self):
+        configs = self._load_production_configs("trading")
+        assert configs["exit_evaluator"].thinking is None

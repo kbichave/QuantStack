@@ -20,6 +20,7 @@ class ResearchState(TypedDict):
     # Input
     cycle_number: int
     regime: str
+    regime_detail: dict
     # Pipeline
     context_summary: str
     selected_domain: str
@@ -29,9 +30,25 @@ class ResearchState(TypedDict):
     backtest_id: str
     ml_experiment_id: str
     registered_strategy_id: str
+    # Self-critique loop (WI-8)
+    hypothesis_confidence: float
+    hypothesis_critique: str
+    hypothesis_attempts: int
+    # Fan-out accumulator (WI-7)
+    validation_results: Annotated[list[dict], operator.add]
+    # research_queue task_ids consumed this cycle (marked done in knowledge_update)
+    queued_task_ids: list[str]
     # Accumulation
     errors: Annotated[list[str], operator.add]
     decisions: Annotated[list[dict], operator.add]
+
+
+class SymbolValidationState(TypedDict):
+    """State received by each Send()-spawned validation worker (WI-7)."""
+
+    symbol_hypothesis: dict
+    validation_results: Annotated[list[dict], operator.add]
+    errors: Annotated[list[str], operator.add]
 
 
 class TradingState(TypedDict):
@@ -58,8 +75,16 @@ class TradingState(TypedDict):
     options_analysis: list[dict]
     entry_orders: list[dict]
     reflection: str
+    # Post-trade quality scoring (populated by reflection node)
+    trade_quality_scores: list[dict]
     # Portfolio construction (deterministic optimizer output)
     portfolio_target_weights: dict
+    # Covariance from previous cycle, stored as nested list (ndarray not JSON-serializable)
+    last_covariance: list  # [] if none yet
+    # Volatility state for hysteresis across cycles ("normal" or "high")
+    vol_state: str
+    # P&L attribution context injected into reflection prompt; symbol → aggregated summary
+    attribution_contexts: dict
     # Accumulation
     errors: Annotated[list[str], operator.add]
     decisions: Annotated[list[dict], operator.add]
@@ -72,6 +97,7 @@ class SupervisorState(TypedDict):
     health_status: dict
     diagnosed_issues: list[dict]
     recovery_actions: list[dict]
+    strategy_pipeline_report: dict  # draft → backtested pipeline results
     strategy_lifecycle_actions: list[dict]
     scheduled_task_results: list[dict]
     eod_refresh_summary: dict

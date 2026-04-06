@@ -4,36 +4,21 @@ import json
 import logging
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 logger = logging.getLogger(__name__)
 
 
 @tool
 async def run_backtest(
-    strategy_id: str,
-    symbol: str,
-    initial_capital: float = 100000,
-    position_size_pct: float = 0.10,
-    start_date: str | None = None,
-    end_date: str | None = None,
+    strategy_id: str = Field(description="Unique strategy identifier from register_strategy to load entry/exit rules for backtesting"),
+    symbol: str = Field(description="Ticker symbol to run the historical backtest on, e.g. 'AAPL' or 'SPY'"),
+    initial_capital: float = Field(default=100000, description="Starting portfolio capital in USD for the backtest simulation"),
+    position_size_pct: float = Field(default=0.10, description="Position size as a fraction of total capital per trade, e.g. 0.10 for 10%"),
+    start_date: str | None = Field(default=None, description="Backtest start date in YYYY-MM-DD format; omit to use all available historical data"),
+    end_date: str | None = Field(default=None, description="Backtest end date in YYYY-MM-DD format; omit to use data through the most recent date"),
 ) -> str:
-    """Run a backtest for a registered strategy using its entry/exit rules.
-
-    The strategy must already be registered (via register_strategy).
-    Loads the strategy's rules from DB, generates signals, and runs
-    a full backtest. Updates the strategy status to 'backtested' on success.
-
-    Returns JSON with total return, Sharpe ratio, max drawdown,
-    win rate, trade count, profit factor.
-
-    Args:
-        strategy_id: The strategy ID to backtest (from register_strategy).
-        symbol: Ticker symbol to test on.
-        initial_capital: Starting capital (default 100000).
-        position_size_pct: Position size as fraction of capital (default 0.10 = 10%).
-        start_date: Optional start date (YYYY-MM-DD). Defaults to all available data.
-        end_date: Optional end date (YYYY-MM-DD).
-    """
+    """Run a full historical backtest simulation for a registered strategy using its entry and exit rules. Use when evaluating strategy performance, validating trading signals, or comparing strategy variants. Returns JSON with total return, Sharpe ratio, max drawdown, win rate, trade count, and profit factor. Computes equity curve metrics and updates strategy status to backtested on success."""
     try:
         from quantstack.tools._shared import run_backtest_impl
 
@@ -53,31 +38,20 @@ async def run_backtest(
 
 @tool
 async def run_walkforward(
-    symbol: str,
-    strategy_type: str = "mean_reversion",
-    n_splits: int = 5,
+    symbol: str = Field(description="Ticker symbol to run walk-forward analysis on, e.g. 'AAPL' or 'QQQ'"),
+    strategy_type: str = Field(default="mean_reversion", description="Strategy type to evaluate: 'mean_reversion', 'momentum', 'trend_following', or other registered strategy types"),
+    n_splits: int = Field(default=5, description="Number of train/test walk-forward splits for out-of-sample validation"),
 ) -> str:
-    """Run walk-forward analysis on a strategy.
-
-    Args:
-        symbol: Ticker symbol.
-        strategy_type: Strategy type.
-        n_splits: Number of walk-forward splits.
-    """
+    """Run walk-forward optimization and out-of-sample validation analysis on a trading strategy. Use when testing strategy robustness, detecting overfitting, or performing rolling window cross-validation. Returns JSON with per-split performance metrics including Sharpe ratio, drawdown, and stability scores across time periods."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 
 
 @tool
 async def run_backtest_options(
-    symbol: str,
-    strategy_type: str = "covered_call",
+    symbol: str = Field(description="Underlying ticker symbol for the options backtest, e.g. 'AAPL' or 'SPY'"),
+    strategy_type: str = Field(default="covered_call", description="Options strategy type to backtest: 'covered_call', 'iron_condor', 'straddle', 'put_spread', or 'call_spread'"),
 ) -> str:
-    """Run options-specific backtest.
-
-    Args:
-        symbol: Underlying symbol.
-        strategy_type: Options strategy type.
-    """
+    """Run a historical backtest simulation specifically for options strategies on an underlying symbol. Use when evaluating covered calls, iron condors, spreads, straddles, or other derivatives strategies. Returns JSON with options-specific performance metrics including premium collected, assignment rate, and risk-adjusted returns."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)

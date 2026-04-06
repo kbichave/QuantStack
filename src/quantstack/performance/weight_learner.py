@@ -26,6 +26,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 from datetime import date, timedelta
 from typing import Any
 
@@ -184,8 +185,8 @@ class WeightLearner:
             ).fetchone()
             if row and row[0]:
                 return json.loads(row[0])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[WeightLearner] Failed to load active weights: %s", exc)
         return _DEFAULT_PROFILES
 
     # ── Internal ──────────────────────────────────────────────────────────
@@ -330,7 +331,13 @@ class WeightLearner:
         start_date: date,
         end_date: date,
     ) -> list[dict[str, Any]]:
-        """Load closed trades joined with signal snapshots."""
+        """Load closed trades joined with signal snapshots.
+
+        Trades with execution_quality below QUALITY_SCORE_FILTER_THRESHOLD
+        are excluded to prevent signal weight corruption from bad execution.
+        Trades without quality scores (NULL) are always included.
+        """
+        threshold = float(os.environ.get("QUALITY_SCORE_FILTER_THRESHOLD", "0.3"))
         try:
             rows = self._conn.execute(
                 """
@@ -343,10 +350,18 @@ class WeightLearner:
                 LEFT JOIN signal_snapshots ss
                     ON ct.symbol = ss.symbol
                     AND ABS(EPOCH(ct.opened_at) - EPOCH(ss.created_at)) < 3600
+                LEFT JOIN LATERAL (
+                    SELECT execution_quality
+                    FROM trade_quality_scores tqs
+                    WHERE tqs.trade_id = ct.id
+                    ORDER BY tqs.scored_at DESC
+                    LIMIT 1
+                ) tqs ON true
                 WHERE ct.closed_at >= ? AND ct.closed_at <= ?
+                  AND (tqs.execution_quality IS NULL OR tqs.execution_quality >= ?)
                 ORDER BY ct.closed_at
                 """,
-                [start_date, end_date],
+                [start_date, end_date, threshold],
             ).fetchall()
 
             trades = []
@@ -457,8 +472,8 @@ class WeightLearner:
             self._conn.execute(
                 "CREATE SEQUENCE IF NOT EXISTS synthesis_weights_seq START 1"
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[WeightLearner] Failed to create synthesis_weights table: %s", exc)
 
     def _persist_weights(
         self,

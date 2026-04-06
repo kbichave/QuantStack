@@ -1,46 +1,27 @@
 """Options execution tools for LangGraph agents."""
 
 import json
-from typing import Optional
+from typing import Annotated, Optional
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 
 @tool
 async def execute_options_trade(
-    symbol: str,
-    option_type: str,
-    strike: float,
-    expiry_date: str,
-    action: str,
-    contracts: int,
-    reasoning: str,
-    confidence: float,
-    strategy_id: Optional[str] = None,
-    order_type: str = "market",
-    limit_price: Optional[float] = None,
-    paper_mode: bool = True,
+    symbol: Annotated[str, Field(description="Underlying stock ticker symbol for the options contract, e.g. 'SPY', 'AAPL', 'QQQ'")],
+    option_type: Annotated[str, Field(description="Contract type: 'call' for call option or 'put' for put option")],
+    strike: Annotated[float, Field(description="Strike price (exercise price) of the options contract in dollars")],
+    expiry_date: Annotated[str, Field(description="Options expiration date in YYYY-MM-DD format, e.g. '2026-04-18'")],
+    action: Annotated[str, Field(description="Trade action: 'buy' to go long (purchase) or 'sell' to go short (write) the contract")],
+    contracts: Annotated[int, Field(description="Number of options contracts to trade; each contract represents 100 shares of underlying")],
+    reasoning: Annotated[str, Field(description="Required trade justification explaining the thesis, catalyst, and expected outcome")],
+    confidence: Annotated[float, Field(description="Required confidence score from 0.0 (no confidence) to 1.0 (maximum conviction)")],
+    strategy_id: Annotated[Optional[str], Field(description="Optional strategy identifier to link this trade to a registered strategy for tracking")] = None,
+    order_type: Annotated[str, Field(description="Order type: 'market' for immediate fill or 'limit' for price-constrained execution")] = "market",
+    limit_price: Annotated[Optional[float], Field(description="Per-contract limit price in dollars; required when order_type is 'limit'")] = None,
+    paper_mode: Annotated[bool, Field(description="Paper trading mode flag; must be explicitly set to False for live order execution")] = True,
 ) -> str:
-    """Execute an options trade through the risk gate and broker.
-
-    The risk gate checks premium-at-risk, DTE bounds, and daily loss limits.
-    Paper mode uses Black-Scholes pricing with 20-day realized vol.
-
-    Args:
-        symbol: Underlying ticker (e.g., "SPY").
-        option_type: "call" or "put".
-        strike: Strike price.
-        expiry_date: Expiration date (YYYY-MM-DD).
-        action: "buy" or "sell" (buy = long, sell = short/write).
-        contracts: Number of contracts (each = 100 shares).
-        reasoning: REQUIRED. Why you are making this trade.
-        confidence: REQUIRED. 0-1 confidence score.
-        strategy_id: Links trade to a registered strategy.
-        order_type: "market" or "limit".
-        limit_price: Per-contract limit price (required for limit orders).
-        paper_mode: Must be explicitly False for live trading.
-
-    Returns JSON with fill details, premium paid/received, Greeks, or rejection reason.
-    """
+    """Executes an options trade (call or put) through the mandatory risk gate and broker interface. Use when placing options orders for directional bets, hedging, or volatility strategies. Validates premium-at-risk limits, days-to-expiration (DTE) bounds, and daily loss caps before routing to the broker. Computes Black-Scholes theoretical pricing with 20-day realized volatility in paper mode. Returns JSON with fill details including execution price, total premium paid or received, option Greeks (delta, gamma, theta, vega), or a rejection reason if the risk gate blocks the trade."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)

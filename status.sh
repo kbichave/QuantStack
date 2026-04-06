@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# QuantStack — status dashboard.
+# QuantStack — status dashboard (Textual TUI).
 # Usage:
-#   ./status.sh                         # print once and exit
-#   ./status.sh --watch                 # live refresh every 10s
-#   ./status.sh --watch --interval 30   # custom refresh interval
+#   ./status.sh
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-exec python3 scripts/dashboard.py "$@"
+exec uv run python -m quantstack.tui

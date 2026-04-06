@@ -104,35 +104,98 @@ _KNOWN_INDICATORS = frozenset(
 # Strategies often register with suffixed names (e.g. "rsi_14", "adx_14")
 # but the signal generator computes unsuffixed columns ("rsi", "adx").
 _INDICATOR_ALIASES: dict[str, str] = {
+    # RSI variants
     "rsi_14": "rsi",
     "rsi14": "rsi",
+    "RSI": "rsi",
+    "RSI_14": "rsi",
+    # ADX variants
     "adx_14": "adx",
     "adx14": "adx",
+    "ADX": "adx",
+    "ADX_14": "adx",
+    # ATR variants
     "atr_14": "atr",
     "atr14": "atr",
+    "ATR": "atr",
+    "ATR_14": "atr",
+    # CCI variants
     "cci_14": "cci",
     "cci_20": "cci",
+    "CCI": "cci",
+    # Bollinger Bands — LLMs frequently use these names
+    "BBANDS": "bb_pct",
+    "bbands": "bb_pct",
+    "BBands": "bb_pct",
+    "bollinger": "bb_pct",
+    "bollinger_bands": "bb_pct",
     "bb_width": "bb_pct",
     "bb_width_20": "bb_pct",
     "bb_pctb": "bb_pct",
     "bb_percent_b": "bb_pct",
     "bollinger_pct": "bb_pct",
+    "BBANDS_upper": "bb_upper",
+    "bbands_upper": "bb_upper",
+    "BBANDS_lower": "bb_lower",
+    "bbands_lower": "bb_lower",
+    # Stochastic variants
     "stochastic_k": "stoch_k",
     "stochastic_d": "stoch_d",
     "stoch_k_14": "stoch_k",
     "stoch_d_14": "stoch_d",
+    "STOCH_K": "stoch_k",
+    "STOCH_D": "stoch_d",
+    # DI variants
     "plus_di_14": "plus_di",
     "minus_di_14": "minus_di",
+    "PLUS_DI": "plus_di",
+    "MINUS_DI": "minus_di",
+    # Z-score variants
     "zscore_20": "zscore",
+    "ZSCORE": "zscore",
+    "z_score": "zscore",
+    "Z_SCORE": "zscore",
+    # SMA uppercase variants — specific periods handled by _normalize_indicator
+    "SMA_200": "sma_200",
+    "SMA_FAST": "sma_fast",
+    "SMA_SLOW": "sma_slow",
+    # Price columns
+    "CLOSE": "close",
+    "HIGH": "high",
+    "LOW": "low",
+    "OPEN": "open",
+    "VOLUME": "volume",
+    "current_price": "close",
+}
+
+# Compound conditions that LLMs generate — map to (indicator, condition, value).
+# These are resolved in evaluate_rule() before standard condition processing.
+_COMPOUND_CONDITIONS: dict[str, tuple[str, str, str]] = {
+    "below_lower_band": ("close", "below", "bb_lower"),
+    "above_upper_band": ("close", "above", "bb_upper"),
+    "below_lower_bb": ("close", "below", "bb_lower"),
+    "above_upper_bb": ("close", "above", "bb_upper"),
+    "above_sma": ("close", "above", "sma_fast"),
+    "below_sma": ("close", "below", "sma_fast"),
 }
 
 
 def _normalize_indicator(name: str) -> str:
-    """Map common indicator aliases to the canonical name used by signal_generator."""
+    """Map common indicator aliases to the canonical name used by signal_generator.
+
+    Handles:
+      - Exact aliases (e.g. ``BBANDS`` → ``bb_pct``)
+      - Dynamic SMA patterns (e.g. ``SMA_20`` → ``sma_20``)
+    """
     canonical = _INDICATOR_ALIASES.get(name)
     if canonical:
         logger.debug(f"Normalized indicator alias '{name}' → '{canonical}'")
         return canonical
+    # Dynamic SMA: SMA_20, SMA_50 etc. → sma_20, sma_50
+    lower = name.lower()
+    if lower.startswith("sma_") and lower[4:].isdigit():
+        logger.debug(f"Normalized dynamic SMA indicator '{name}' → '{lower}'")
+        return lower
     return name
 
 

@@ -172,12 +172,16 @@ class OPROLoop:
             if not row or row[3] < 3:  # Need at least 3 trades
                 return 0.0
 
-            sharpe = row[0] or 0.0
+            # Annualise the mean/std Sharpe (daily returns → yearly)
+            import math
+            raw_sharpe = row[0] or 0.0
+            sharpe = raw_sharpe * math.sqrt(252)
             win_rate = row[1] or 0.0
-            max_dd = abs(row[2] or 0.0) / 100.0  # Normalize
+            max_dd = abs(row[2] or 0.0) / 100.0  # Normalize to 0-1
 
             return 0.5 * sharpe + 0.3 * win_rate + 0.2 * (1.0 - min(max_dd, 1.0))
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[OPRO] score_candidate failed: {exc}")
             return 0.0
 
     # ------------------------------------------------------------------
@@ -341,7 +345,8 @@ class OPROLoop:
                 f"SELECT DISTINCT node_name FROM {CRITIQUES_TABLE}"
             ).fetchall()
             return [row[0] for row in rows]
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[OPRO] Failed to get active nodes: {exc}")
             return []
 
     def _load_candidates(self, node_name: str) -> list[PromptCandidate]:
@@ -368,7 +373,8 @@ class OPROLoop:
                 )
                 for r in rows
             ]
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[OPRO] Failed to load candidates for {node_name}: {exc}")
             return []
 
     def _load_recent_critiques(self, node_name: str, days: int = 7) -> list[str]:
@@ -382,7 +388,8 @@ class OPROLoop:
                 [node_name],
             ).fetchall()
             return [r[0] for r in rows if r[0]]
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[OPRO] Failed to load critiques for {node_name}: {exc}")
             return []
 
     def _persist_candidate(self, candidate: PromptCandidate) -> None:
@@ -403,7 +410,7 @@ class OPROLoop:
                 ],
             )
         except Exception as exc:
-            logger.debug(f"[OPRO] Persist candidate failed: {exc}")
+            logger.warning(f"[OPRO] Persist candidate failed: {exc}")
 
     # NOTE: Research agent prompt evolution (run_weekly_research, _evolve_agent_prompt,
     # _get_active_research_nodes, _load_research_critiques_for_agent) removed —
@@ -421,4 +428,4 @@ class OPROLoop:
                 [candidate.status, candidate.promoted_at, candidate.candidate_id],
             )
         except Exception as exc:
-            logger.debug(f"[OPRO] Update status failed: {exc}")
+            logger.warning(f"[OPRO] Update status failed: {exc}")

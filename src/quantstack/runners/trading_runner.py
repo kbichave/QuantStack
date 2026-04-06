@@ -25,12 +25,13 @@ def save_checkpoint(graph_name: str, cycle_number: int, duration: float,
         with db_conn() as conn:
             conn.execute(
                 """INSERT INTO graph_checkpoints
-                   (graph_name, cycle_number, duration_seconds, status, error_message)
-                   VALUES (%s, %s, %s, %s, %s)
+                   (graph_name, cycle_number, duration_seconds, status, error_message, created_at)
+                   VALUES (%s, %s, %s, %s, %s, NOW())
                    ON CONFLICT (graph_name, cycle_number) DO UPDATE
                    SET duration_seconds = EXCLUDED.duration_seconds,
                        status = EXCLUDED.status,
-                       error_message = EXCLUDED.error_message""",
+                       error_message = EXCLUDED.error_message,
+                       created_at = NOW()""",
                 [graph_name, cycle_number, duration, status, error_message],
             )
     except Exception:

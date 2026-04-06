@@ -242,8 +242,8 @@ def compute_options_flow_signals(
                 exp_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
                 dte_days = max((exp_date - date.today()).days, 0)
                 dte_years = dte_days / 365.0
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[options_flow] failed to parse expiry '%s': %s", expiry_str, exc)
 
         # If API didn't provide gamma/delta, use BS with IV if available
         if gamma is None and iv is not None and dte_years > 0:
@@ -471,7 +471,7 @@ def _fetch_chain_alphavantage(symbol: str) -> list[dict]:
         return contracts or []
 
     except Exception as exc:
-        logger.debug(f"[options_flow] {symbol}: Alpha Vantage chain failed — {exc}")
+        logger.warning(f"[options_flow] {symbol}: Alpha Vantage chain failed — {exc}")
         return []
 
 
@@ -492,7 +492,8 @@ def _fetch_chain_alpaca(symbol: str) -> list[dict]:
             try:
                 option_type = "call" if sym[-9] == "C" else "put"
                 strike = int(sym[-8:]) / 1000.0
-            except Exception:
+            except Exception as exc:
+                logger.debug("[options_flow] failed to parse option symbol '%s': %s", sym, exc)
                 continue
 
             greeks = snap.greeks if hasattr(snap, "greeks") and snap.greeks else None
@@ -531,5 +532,5 @@ def _fetch_chain_alpaca(symbol: str) -> list[dict]:
         return contracts
 
     except Exception as exc:
-        logger.debug(f"[options_flow] {symbol}: Alpaca chain failed — {exc}")
+        logger.warning(f"[options_flow] {symbol}: Alpaca chain failed — {exc}")
         return []

@@ -111,7 +111,7 @@ async def collect_social_sentiment(symbol: str, _store: "DataStore") -> dict:
         }
 
     except Exception as exc:
-        logger.debug(f"[social_sentiment] Unexpected failure for {symbol}: {exc}")
+        logger.warning(f"[social_sentiment] Unexpected failure for {symbol}: {exc}")
         return dict(_DEFAULT_RESULT)
 
 

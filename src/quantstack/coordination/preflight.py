@@ -344,8 +344,8 @@ class PreflightCheck:
                                 f"{sym} at ${price:.0f} exceeds max position ${max_per_position:.0f}. "
                                 f"Either increase wallet, raise RISK_MAX_POSITION_PCT, or enable fractional shares.",
                             )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[Preflight] Price check for %s failed: %s", sym, exc)
 
         daily_halt = self._wallet * self._env_float("RISK_DAILY_LOSS_LIMIT_PCT", 0.02)
         detail = (

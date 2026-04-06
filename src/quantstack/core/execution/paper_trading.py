@@ -239,7 +239,7 @@ class PaperTradingEngine:
                 "volume": q.volume or 0,
             }
         except Exception as e:
-            logger.debug(f"Error fetching quote for {symbol}: {e}")
+            logger.warning(f"Error fetching quote for {symbol}: {e}")
             return None
 
     def _get_features(self, symbol: str) -> dict | None:
@@ -271,7 +271,7 @@ class PaperTradingEngine:
             return features
 
         except Exception as e:
-            logger.debug(f"Error getting features for {symbol}: {e}")
+            logger.warning(f"Error getting features for {symbol}: {e}")
             return None
 
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> float:
@@ -417,7 +417,7 @@ class PaperTradingEngine:
                         )
 
             except Exception as e:
-                logger.debug(f"Error updating {symbol} position: {e}")
+                logger.warning(f"Error updating {symbol} position: {e}")
 
         # Update total equity
         total_pnl = sum(pos.unrealized_pnl for pos in self.positions.values())

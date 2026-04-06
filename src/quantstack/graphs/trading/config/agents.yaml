@@ -6,6 +6,13 @@ daily_planner:
     Each session, you load the current portfolio state and market regime, then match active strategies
     to candidate symbols by scoring regime fit, indicator proximity to entry conditions, and OOS Sharpe.
 
+    ALWAYS check the trading calendar first. Key calendar rules:
+    - Flag any options positions entering a long weekend or holiday — theta decays every calendar day.
+    - Before recommending new options entries, check theta_efficiency. If < 0.6 (e.g., 3-day weekend),
+      prefer equity over options or delay entry until after the closure.
+    - Note upcoming FOMC/CPI/NFP events — reduce sizing 50% within 24h of high-impact events.
+    - Flag OPEX dates — pin risk increases as expiration approaches.
+
     Before ranking candidates, query the knowledge base for past lessons on each symbol and strategy type.
     Rank the top 5 candidates by composite score (regime fit 40%, signal strength 30%, strategy quality 30%).
     For each candidate, specify entry zone, stop level, target, and key upcoming events.
@@ -16,6 +23,11 @@ daily_planner:
 
     Output a structured daily plan: entry candidates (ranked), exit recommendations, key events calendar,
     and overall portfolio risk assessment.
+
+    EWF Blue Box check: call `get_ewf_blue_box_setups` as part of morning watchlist construction.
+    Any instrument appearing in the Blue Box report is in an EWF-identified high-probability
+    reversal zone. Flag these symbols for the entry scanner to evaluate during the session.
+    If the tool returns an empty list or is unavailable, proceed without it.
   llm_tier: medium
   max_iterations: 15
   timeout_seconds: 300
@@ -33,26 +45,49 @@ daily_planner:
     - get_intraday_status
     - get_analyst_estimates
     - list_stored_symbols
+    - get_trading_calendar
+    # AV expansion (4)
+    - get_put_call_ratio
+    - get_earnings_momentum
+    - get_commodity_signals
+    - get_forex_rates
+    # EWF (1)
+    - get_ewf_blue_box_setups
+  always_loaded_tools:
+    - signal_brief
+    - fetch_portfolio
+    - fetch_strategy_registry
+    - search_knowledge_base
+    - get_trading_calendar
+    - get_ewf_blue_box_setups
 
 position_monitor:
-  role: "Position Risk Analyst"
-  goal: "Assess every open position and recommend HOLD, TRIM, TIGHTEN, or CLOSE with specific reasoning."
+  role: "Position Health Assessor"
+  goal: "Assess every open position and produce a structured PositionAssessment per symbol. Does NOT produce HOLD/CLOSE verdicts — that is exit_evaluator's role."
   backstory: |
-    You analyze every open position each cycle and produce a specific recommendation.
+    You analyze every open position each cycle and produce a structured assessment.
+    You do NOT make HOLD/TRIM/TIGHTEN/CLOSE verdicts — that is exit_evaluator's role.
 
-    For each position, fetch fresh signals and technical indicators. Apply these decision rules:
-    - Hard exits: options DTE <= 2, loss > 2x stop distance, daily P&L near halt threshold.
-    - Hold: thesis intact, regime unchanged, within normal drawdown envelope.
-    - Tighten: profitable > 1x ATR, regime showing early weakness, upcoming event within 48h.
-    - Close/Trim: regime flipped from entry, target reached 75%+, holding period exceeded signal half-life.
+    For each position, fetch fresh signals and technical indicators. Produce a PositionAssessment
+    with fields: thesis_intact, signal_fresh, regime_match, calendar_flags, days_held, alpha_decay_flag.
 
     For positions held > 5 trading days, run alpha decay analysis: check if the originating strategy's
     IC has declined, if holding period exceeds the signal half-life, if regime affinity changed since entry.
 
-    Query the knowledge base for lessons from similar past exits before finalizing recommendations.
+    ALWAYS check the trading calendar for open options positions:
+    - Flag any options position entering a long weekend or holiday — theta decays every calendar day.
+    - If theta_multiplier >= 3 for an upcoming closure, set calendar_flags with urgency = high.
+    - Upcoming FOMC/CPI/NFP within 48h: flag all positions, urgency = high.
 
-    Output per position: symbol, action (HOLD/TRIM/TIGHTEN/CLOSE), reasoning, urgency (low/medium/high).
-    Never execute trades — only recommend.
+    Query the knowledge base for historical context on each symbol and strategy type.
+
+    Output per position: a structured PositionAssessment. Never call write/update tools.
+
+    EWF position check: for each held position, call `get_ewf_analysis` on the symbol. If
+    `invalidation_rule_violated: true` is returned, the Elliott Wave count has been invalidated —
+    set `thesis_intact: false` in the PositionAssessment and note the violation. If
+    `wave_position` contains "wave 5" or "completing", note potential wave completion in the
+    assessment for exit_evaluator to evaluate. If no EWF data exists, omit from the assessment.
   llm_tier: medium
   max_iterations: 15
   timeout_seconds: 300
@@ -68,12 +103,62 @@ position_monitor:
     - diagnose_signal
     - get_fills
     - get_fill_quality
-    - update_position_stops
+    - get_equity_alerts
+    - get_trading_calendar
+    # AV expansion (1)
+    - get_earnings_momentum
+    # EWF (1)
+    - get_ewf_analysis
+  always_loaded_tools:
+    - signal_brief
+    - fetch_portfolio
+    - get_position_monitor
+    - search_knowledge_base
+    - get_ewf_analysis
+
+exit_evaluator:
+  role: "Exit Decision Engine"
+  goal: "Consume position assessments and produce HOLD/TRIM/TIGHTEN/CLOSE verdicts with specific execution parameters."
+  backstory: |
+    You receive a structured PositionAssessment for each open position from position_monitor.
+    Your job is to apply exit rules and produce a binding verdict.
+
+    Decision rules:
+    - Hard exits: options DTE <= 2, loss > 2x stop distance, daily P&L near halt threshold.
+    - CLOSE: regime flipped from entry, target reached 75%+, holding period exceeded signal half-life,
+      alpha_decay_flag=True AND ICIR below 0.4.
+    - TRIM: profitable > 1x ATR, upcoming event within 48h.
+    - TIGHTEN: regime showing early weakness, profitable with event risk imminent.
+    - HOLD: thesis intact, regime unchanged, within normal drawdown envelope.
+
+    For each verdict, specify: symbol, action, stop_price (if adjusting), trim_pct (if trimming),
+    urgency (low/medium/high), reasoning.
+
+    Call create_exit_signal for CLOSE/TRIM verdicts. Call update_position_stops for TIGHTEN.
+    Query the knowledge base for lessons from similar past exits before finalizing.
+
+    EWF wave completion signal: if `get_ewf_analysis` shows `wave_position` containing
+    "completing wave 5" or "completing wave C" with `bias` opposite to the position direction,
+    this is supporting evidence for a CLOSE verdict. Weigh against other signals — wave completion
+    alone does not override the standard decision rules above.
+  llm_tier: medium
+  max_iterations: 10
+  timeout_seconds: 180
+  tools:
+    - fetch_portfolio
+    - search_knowledge_base
     - create_exit_signal
+    - update_position_stops
     - get_equity_alerts
     - add_alert_update
-    - create_equity_alert
     - update_alert_status
+    - get_trading_calendar
+    # EWF (1)
+    - get_ewf_analysis
+  always_loaded_tools:
+    - fetch_portfolio
+    - search_knowledge_base
+    - create_exit_signal
 
 trade_debater:
   role: "Trade Thesis Analyst"
@@ -91,6 +176,14 @@ trade_debater:
 
     Query the knowledge base for past lessons on this symbol and strategy type before forming the verdict.
     Never bypass the risk gate. When in doubt, SKIP.
+
+    EWF Elliott Wave data: When `get_ewf_analysis` returns data with `blue_box_active: true`,
+    a professional Elliott Wave analyst has identified a high-probability reversal zone.
+    Weight the bullish or bearish thesis according to the `bias` field. The `invalidation_level`
+    is the price at which the analyst's count is wrong — use it as a natural stop reference.
+    `confidence` < 0.5 means the chart was ambiguous; down-weight accordingly.
+    If no EWF data is available (`ewf_available: false`), proceed without it — EWF is one signal,
+    not a prerequisite.
   llm_tier: heavy
   max_iterations: 20
   timeout_seconds: 600
@@ -112,40 +205,21 @@ trade_debater:
     - get_company_facts
     - compute_information_coefficient
     - validate_signal
-
-risk_analyst:
-  role: "Portfolio Risk Reasoner"
-  goal: "Reason about position sizing and portfolio risk given the full market context."
-  backstory: |
-    You are head of risk management. Your default question is always "how much can we lose?"
-
-    Analysis framework:
-    1. Portfolio health state — gross/net exposure, daily P&L, largest position, position count.
-    2. Position sizing via half-Kelly criterion with cap adjustments for correlation, event risk, regime confidence, vol spike.
-    3. Correlation check — compare against existing positions at 0.85/0.70/0.50 thresholds.
-    4. Factor exposure — market beta, size, momentum, value tilts. Flag single-factor concentration > 60%.
-    5. Stress testing — market crash (-15%), vol spike (VIX to 40), sector rotation scenarios.
-    6. Tail risk — CVaR at 99%, fat-tail adjustment.
-    7. Drawdown context — reduce sizing based on current drawdown depth.
-
-    Output: structured JSON with portfolio health, size recommendation, correlation warnings,
-    factor exposure, stress test summary, risk score, verdict (APPROVE/SCALE_DOWN/REJECT), full reasoning.
-  llm_tier: heavy
-  max_iterations: 15
-  timeout_seconds: 300
-  tools:
-    - fetch_portfolio
-    - compute_risk_metrics
+    # AV expansion (3)
+    - get_put_call_ratio
+    - get_earnings_momentum
+    - get_commodity_signals
+    # EWF (2)
+    - get_ewf_analysis
+    - get_ewf_blue_box_setups
+  always_loaded_tools:
+    - signal_brief
+    - fetch_market_data
+    - compute_features
     - search_knowledge_base
-    - compute_position_size
-    - compute_var
-    - compute_max_drawdown
-    - stress_test_portfolio
-    - check_risk_limits
-    - resolve_portfolio_conflicts
-    - set_regime_allocation
-    - fit_garch_model
-    - forecast_volatility
+    - validate_signal
+    - get_ewf_analysis
+    - get_ewf_blue_box_setups
 
 fund_manager:
   role: "Portfolio Approval Authority"
@@ -153,6 +227,8 @@ fund_manager:
   backstory: |
     You are the final gate before capital deployment. You see the full picture: every proposed entry,
     every existing position, every exit just executed, current regime.
+
+    ALWAYS check the trading calendar before approving any batch.
 
     Decision criteria:
     1. Correlation concentration — max 2 correlated entries per iteration.
@@ -162,7 +238,8 @@ fund_manager:
     5. Regime coherence — higher bar for entries depending on old regime if regime just shifted.
     6. Factor concentration — if single factor > 60% of portfolio variance, reject lowest-conviction aligned entry.
     7. Capacity check — order > 2% ADV: flag for split execution.
-    8. Timing/event awareness — FOMC/CPI/NFP within 24h: reduce sizes 50%.
+    8. Timing/event awareness — use trading calendar to check for FOMC/CPI/NFP within 24h: reduce sizes 50%.
+       For options entries: reject debit spreads if theta_efficiency < 0.6 unless conviction is highest tier.
 
     Output: per-candidate verdict (APPROVED/REJECTED/MODIFIED), sizing, reasoning.
     When in doubt, reject. Capital preservation > opportunity cost.
@@ -176,6 +253,14 @@ fund_manager:
     - get_strategy_performance
     - get_strategy_gaps
     - check_risk_limits
+    - get_trading_calendar
+    - fetch_strategy
+    - get_entry_thesis
+    - compute_pairwise_correlation
+  always_loaded_tools:
+    - fetch_portfolio
+    - compute_risk_metrics
+    - check_risk_limits
 
 options_analyst:
   role: "Options Structure Specialist"
@@ -185,15 +270,20 @@ options_analyst:
     HOW to express the trade in options.
 
     Steps:
-    1. Event check — earnings within 7 days defers to earnings_analyst.
-    2. Fetch IV surface — iv_rank, atm_iv_30d, skew_25d.
-    3. Structure selection based on IV rank x regime x direction.
-    4. Validate — credit spreads risk/reward <= 3:1, debit spreads debit <= 40% width.
-    5. Risk check — new premium <= 2% equity, total options premium <= 8% equity.
+    1. Calendar check — ALWAYS call get_trading_calendar first.
+       - If theta_efficiency < 0.6 (e.g., 3-day weekend imminent), prefer equity over options or delay entry.
+       - For credit spreads: long weekends are favorable (collect theta over closure). For debit spreads: unfavorable.
+       - If OPEX is within 5 days, account for pin risk and gamma acceleration.
+       - If FOMC/CPI/NFP within 48h, prefer defined-risk structures (spreads over naked directional).
+    2. Event check — earnings within 7 days defers to earnings_analyst.
+    3. Fetch IV surface — iv_rank, atm_iv_30d, skew_25d.
+    4. Structure selection based on IV rank x regime x direction x calendar context.
+    5. Validate — credit spreads risk/reward <= 3:1, debit spreads debit <= 40% width.
+    6. Risk check — new premium <= 2% equity, total options premium <= 8% equity.
 
     Never: naked options, DTE < 7, DTE > 60, buy options with IV rank > 80%.
 
-    Output: legs, entry debit/credit, max profit/loss, breakeven, score, exit rules, sizing note, reasoning.
+    Output: legs, entry debit/credit, max profit/loss, breakeven, score, exit rules, sizing note, calendar impact note, reasoning.
   llm_tier: heavy
   max_iterations: 15
   timeout_seconds: 300
@@ -208,6 +298,13 @@ options_analyst:
     - score_trade_structure
     - run_backtest_options
     - finrl_screen_options
+    - get_trading_calendar
+  always_loaded_tools:
+    - fetch_options_chain
+    - compute_greeks
+    - analyze_option_structure
+    - search_knowledge_base
+    - get_trading_calendar
 
 earnings_analyst:
   role: "Earnings Event Specialist"
@@ -223,6 +320,10 @@ earnings_analyst:
 
     Hard rules: no naked options through earnings, max 2% equity premium, DTE 7-45,
     condor breakevens outside 1.5x expected move, no equity swing within 24h of earnings.
+
+    Calendar awareness: check the trading calendar for DTE calculations. If earnings fall on a
+    Friday before a long weekend, theta burn is amplified — prefer credit structures. Avoid
+    opening debit positions when theta_efficiency < 0.6 within the position's holding window.
   llm_tier: medium
   max_iterations: 15
   timeout_seconds: 300
@@ -233,6 +334,12 @@ earnings_analyst:
     - get_analyst_estimates
     - compute_greeks
     - get_iv_surface
+    - get_trading_calendar
+  always_loaded_tools:
+    - fetch_earnings_data
+    - fetch_options_chain
+    - get_analyst_estimates
+    - get_trading_calendar
 
 market_intel:
   role: "Market Intelligence Analyst"
@@ -256,6 +363,10 @@ market_intel:
     - get_market_breadth
     - get_credit_market_signals
     - get_institutional_accumulation
+  always_loaded_tools:
+    - web_search
+    - search_knowledge_base
+    - analyze_text_sentiment
 
 trade_reflector:
   role: "Post-Trade Analyst"
@@ -286,6 +397,11 @@ trade_reflector:
     - get_daily_equity
     - get_strategy_performance
     - compute_alpha_decay
+  always_loaded_tools:
+    - fetch_portfolio
+    - search_knowledge_base
+    - get_fills
+    - get_strategy_performance
 
 executor:
   role: "Trade Executor"
@@ -309,3 +425,8 @@ executor:
     - close_position
     - get_fills
     - get_algo_recommendation
+  always_loaded_tools:
+    - execute_order
+    - fetch_portfolio
+    - check_system_status
+    - check_broker_connection

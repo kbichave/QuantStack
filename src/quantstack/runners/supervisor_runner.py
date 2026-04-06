@@ -9,7 +9,7 @@ from quantstack.runners.trading_runner import run_loop
 
 logger = logging.getLogger(__name__)
 
-WATCHDOG_TIMEOUT = 300  # seconds — supervisor cycles are short
+WATCHDOG_TIMEOUT = 600  # seconds — Bedrock calls avg 50-80s × 6 nodes needs headroom
 
 
 async def async_main() -> None:

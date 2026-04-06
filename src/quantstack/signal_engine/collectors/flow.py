@@ -34,7 +34,7 @@ async def collect_flow(symbol: str, store: DataStore) -> dict[str, Any]:
             timeout=_TIMEOUT_SECONDS,
         )
     except (asyncio.TimeoutError, Exception) as exc:
-        logger.debug(f"[flow] {symbol}: {type(exc).__name__} — returning empty")
+        logger.warning(f"[flow] {symbol}: {type(exc).__name__} — returning empty")
         return {}
 
 

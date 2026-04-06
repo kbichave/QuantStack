@@ -206,8 +206,8 @@ class PgConnection:
                 if is_broken:
                     try:
                         self._pool.putconn(self._raw, close=True)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("[DB] putconn(close=True) for broken conn failed: %s", exc)
                     self._raw = None
                     self._cur = None
                     logger.warning(
@@ -380,8 +380,8 @@ def pg_conn() -> Iterator[PgConnection]:
         if conn._raw is not None and not conn._raw.closed:
             try:
                 conn._raw.rollback()
-            except Exception:
-                pass
+            except Exception as rb_exc:
+                logger.debug("[DB] rollback during exception cleanup failed: %s", rb_exc)
         raise
     finally:
         conn.release()
@@ -485,7 +485,8 @@ def run_migrations_pg(conn: PgConnection) -> None:
     try:
         # Advisory lock: only one process runs migrations at a time.
         cur.execute("SELECT pg_try_advisory_lock(%s)", (_MIGRATION_ADVISORY_LOCK,))
-        locked = cur.fetchone()[0]
+        result = cur.fetchone()
+        locked = result[0] if result else False
         if not locked:
             logger.info("[DB] Migration lock held by another server — skipping (tables already exist)")
             return
@@ -523,6 +524,16 @@ def run_migrations_pg(conn: PgConnection) -> None:
             _migrate_ml_pipeline_pg(conn)
             _migrate_capital_allocation_pg(conn)
             _migrate_risk_monitoring_pg(conn)
+            _migrate_stat_arb_pg(conn)
+            _migrate_tool_search_metrics_pg(conn)
+            _migrate_trade_quality_pg(conn)
+            _migrate_market_holidays_pg(conn)
+            _migrate_signal_history_pg(conn)
+            _migrate_signal_ic_pg(conn)
+            _migrate_pnl_attribution_pg(conn)
+            _migrate_regime_state_pg(conn)
+            _migrate_institutional_gaps_pg(conn)
+            _migrate_ewf_pg(conn)
 
             logger.info("[DB] PostgreSQL migrations complete")
             _migrations_done = True
@@ -725,6 +736,14 @@ def _migrate_system_pg(conn: PgConnection) -> None:
             value       TEXT NOT NULL,
             updated_at  TIMESTAMPTZ DEFAULT NOW()
         )
+    """)
+    # Seed the daily risk-free rate used by attribution_engine.
+    # ON CONFLICT DO NOTHING — never overwrites a value set by eod_data_sync.
+    # Initial value: ~5% annual ÷ 252 trading days.
+    conn.execute("""
+        INSERT INTO system_state (key, value, updated_at)
+        VALUES ('risk_free_rate_daily', '0.000198', NOW())
+        ON CONFLICT (key) DO NOTHING
     """)
 
 
@@ -1427,6 +1446,30 @@ def _migrate_market_data_pg(conn: PgConnection) -> None:
         ON news_sentiment (ticker, time_published)
     """)
 
+    # -- Put-Call Ratio (AV Data Expansion) --------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS put_call_ratio (
+            symbol      VARCHAR          NOT NULL,
+            date        DATE             NOT NULL,
+            put_volume  DOUBLE PRECISION,
+            call_volume DOUBLE PRECISION,
+            pcr         DOUBLE PRECISION,
+            source      VARCHAR          NOT NULL DEFAULT 'computed',
+            fetched_at  TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (symbol, date, source)
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_pcr_symbol_date
+        ON put_call_ratio (symbol, date)
+    """)
+
+    # -- Delisting status on company_overview ------------------------------
+    conn.execute("""
+        ALTER TABLE company_overview
+        ADD COLUMN IF NOT EXISTS delisted_at DATE
+    """)
+
     logger.debug("[DB] Market data tables migrated")
 
 
@@ -1866,6 +1909,30 @@ def _migrate_risk_monitoring_pg(conn: PgConnection) -> None:
     logger.debug("[DB] risk_snapshots table migrated")
 
 
+def _migrate_stat_arb_pg(conn: PgConnection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS stat_arb_pairs (
+            id                  BIGSERIAL       PRIMARY KEY,
+            symbol_a            TEXT            NOT NULL,
+            symbol_b            TEXT            NOT NULL,
+            sector              TEXT,
+            p_value             DOUBLE PRECISION NOT NULL,
+            half_life_days      DOUBLE PRECISION,
+            current_z_score     DOUBLE PRECISION,
+            beta                DOUBLE PRECISION,
+            is_active           BOOLEAN         DEFAULT TRUE,
+            discovered_at       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+            updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+            UNIQUE (symbol_a, symbol_b)
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_stat_arb_pairs_active "
+        "ON stat_arb_pairs (is_active) WHERE is_active = TRUE"
+    )
+    logger.debug("[DB] stat_arb_pairs table migrated")
+
+
 def _migrate_capital_allocation_pg(conn: PgConnection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS strategy_capital_allocations (
@@ -1930,6 +1997,382 @@ def _migrate_ml_pipeline_pg(conn: PgConnection) -> None:
 # ---------------------------------------------------------------------------
 # Unified entry point
 # ---------------------------------------------------------------------------
+
+
+def _migrate_tool_search_metrics_pg(conn: PgConnection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tool_search_metrics (
+            id                  SERIAL PRIMARY KEY,
+            computed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            time_window_h       INTEGER NOT NULL,
+            search_hit_rate     DOUBLE PRECISION NOT NULL,
+            discovery_accuracy  DOUBLE PRECISION NOT NULL,
+            fallback_rate       DOUBLE PRECISION NOT NULL,
+            top_missed_tools    TEXT[],
+            total_searches      INTEGER NOT NULL,
+            total_discoveries   INTEGER NOT NULL,
+            total_misses        INTEGER NOT NULL,
+            total_fallbacks     INTEGER NOT NULL
+        )
+    """)
+    logger.debug("[DB] tool_search_metrics table migrated")
+
+
+def _migrate_trade_quality_pg(conn: PgConnection) -> None:
+    # Repair closed_trades if it was created without a PRIMARY KEY
+    # (legacy schema from DuckDB era). The FK below requires a unique constraint.
+    row = conn.execute("""
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'closed_trades'::regclass AND contype = 'p'
+    """).fetchone()
+    if row is None:
+        # Upgrade id column to BIGINT with PK + default sequence
+        conn.execute("CREATE SEQUENCE IF NOT EXISTS closed_trades_seq START 1")
+        conn.execute("""
+            ALTER TABLE closed_trades
+                ALTER COLUMN id SET DATA TYPE BIGINT,
+                ALTER COLUMN id SET DEFAULT nextval('closed_trades_seq'),
+                ALTER COLUMN id SET NOT NULL,
+                ADD PRIMARY KEY (id)
+        """)
+        logger.info("[DB] Repaired closed_trades: added PRIMARY KEY on id")
+
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS trade_quality_scores_seq START 1")
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS trade_quality_scores (
+            id                BIGINT PRIMARY KEY DEFAULT nextval('trade_quality_scores_seq'),
+            trade_id          BIGINT REFERENCES closed_trades(id),
+            cycle_number      INTEGER NOT NULL,
+            execution_quality DOUBLE PRECISION NOT NULL,
+            thesis_accuracy   DOUBLE PRECISION NOT NULL,
+            risk_management   DOUBLE PRECISION NOT NULL,
+            timing_quality    DOUBLE PRECISION NOT NULL,
+            sizing_quality    DOUBLE PRECISION NOT NULL,
+            overall_score     DOUBLE PRECISION NOT NULL,
+            justification     TEXT NOT NULL,
+            scored_at         TIMESTAMPTZ DEFAULT NOW(),
+            model_used        TEXT NOT NULL
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS tqs_trade_idx ON trade_quality_scores (trade_id)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS tqs_cycle_idx ON trade_quality_scores (cycle_number)
+    """)
+
+
+def _compute_us_holidays(year: int) -> list[tuple]:
+    """Return US market holidays for a given year.
+
+    Each tuple: (date, name, market_status, close_time_str_or_None).
+    """
+    import calendar as cal
+    from datetime import date as d
+    from datetime import timedelta
+
+    from dateutil.easter import easter
+
+    def _observe(dt: d) -> d:
+        """Apply weekend observance rules."""
+        if dt.weekday() == 5:  # Saturday -> Friday
+            return dt - timedelta(days=1)
+        if dt.weekday() == 6:  # Sunday -> Monday
+            return dt + timedelta(days=1)
+        return dt
+
+    def _nth_weekday(year: int, month: int, weekday: int, n: int) -> d:
+        """Return the nth occurrence of weekday in month/year (1-indexed)."""
+        first = d(year, month, 1)
+        offset = (weekday - first.weekday()) % 7
+        return first + timedelta(days=offset + 7 * (n - 1))
+
+    def _last_weekday(year: int, month: int, weekday: int) -> d:
+        """Return the last occurrence of weekday in month/year."""
+        last_day = d(year, month, cal.monthrange(year, month)[1])
+        offset = (last_day.weekday() - weekday) % 7
+        return last_day - timedelta(days=offset)
+
+    holidays = []
+
+    # Full closures
+    holidays.append((_observe(d(year, 1, 1)), "New Year's Day", "closed", None))
+    holidays.append((_nth_weekday(year, 1, 0, 3), "Martin Luther King Jr. Day", "closed", None))  # 3rd Monday Jan
+    holidays.append((_nth_weekday(year, 2, 0, 3), "Presidents' Day", "closed", None))  # 3rd Monday Feb
+    good_friday = easter(year) - timedelta(days=2)
+    holidays.append((good_friday, "Good Friday", "closed", None))
+    holidays.append((_last_weekday(year, 5, 0), "Memorial Day", "closed", None))  # Last Monday May
+    holidays.append((_observe(d(year, 6, 19)), "Juneteenth", "closed", None))
+    holidays.append((_observe(d(year, 7, 4)), "Independence Day", "closed", None))
+    holidays.append((_nth_weekday(year, 9, 0, 1), "Labor Day", "closed", None))  # 1st Monday Sep
+    thanksgiving = _nth_weekday(year, 11, 3, 4)  # 4th Thursday Nov
+    holidays.append((thanksgiving, "Thanksgiving", "closed", None))
+    holidays.append((_observe(d(year, 12, 25)), "Christmas", "closed", None))
+
+    # Early closures (13:00 ET)
+    early_time = "13:00:00"
+    # Day before Independence Day (only if Jul 4 not Monday)
+    jul4 = d(year, 7, 4)
+    if jul4.weekday() != 0:  # not Monday
+        jul3_observed = _observe(d(year, 7, 3))
+        if jul3_observed.weekday() < 5:  # weekday
+            holidays.append((jul3_observed, "Day Before Independence Day", "early_close", early_time))
+    # Black Friday
+    holidays.append((thanksgiving + timedelta(days=1), "Black Friday", "early_close", early_time))
+    # Christmas Eve (only if Dec 25 not Monday)
+    dec25 = d(year, 12, 25)
+    if dec25.weekday() != 0:  # not Monday
+        dec24 = d(year, 12, 24)
+        if dec24.weekday() < 5:  # weekday
+            holidays.append((dec24, "Christmas Eve", "early_close", early_time))
+
+    return holidays
+
+
+def _seed_market_holidays(conn: PgConnection, year: int) -> None:
+    """Seed market_holidays for a given year. Idempotent via ON CONFLICT."""
+    holidays = _compute_us_holidays(year)
+    for dt, name, status, close_time in holidays:
+        conn.execute(
+            "INSERT INTO market_holidays (date, name, market_status, close_time, exchange) "
+            "VALUES (%s, %s, %s, %s, 'NYSE') ON CONFLICT DO NOTHING",
+            (dt, name, status, close_time),
+        )
+
+
+def _migrate_market_holidays_pg(conn: PgConnection) -> None:
+    """Create market_holidays table and seed US holidays."""
+    import datetime
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS market_holidays (
+            date            DATE NOT NULL,
+            name            TEXT NOT NULL,
+            market_status   TEXT NOT NULL DEFAULT 'closed',
+            close_time      TIME,
+            exchange        TEXT NOT NULL DEFAULT 'NYSE',
+            PRIMARY KEY (date, exchange)
+        )
+    """)
+    current_year = datetime.date.today().year
+    _seed_market_holidays(conn, current_year)
+    _seed_market_holidays(conn, current_year + 1)
+
+
+def _migrate_signal_history_pg(conn: PgConnection) -> None:
+    """Create the signals table: authoritative per-strategy, per-symbol signal record."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS signals (
+            signal_date   DATE        NOT NULL,
+            strategy_id   TEXT        NOT NULL,
+            symbol        TEXT        NOT NULL,
+            signal_value  FLOAT       NOT NULL,
+            confidence    FLOAT       NOT NULL,
+            regime        TEXT,
+            metadata      JSONB,
+            created_at    TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (signal_date, strategy_id, symbol)
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS signals_strategy_symbol_date_idx
+        ON signals (strategy_id, symbol, signal_date DESC)
+    """)
+
+
+def _migrate_signal_ic_pg(conn: PgConnection) -> None:
+    """Create signal_ic: nightly cross-sectional IC metrics per strategy (no symbol column)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS signal_ic (
+            date              DATE    NOT NULL,
+            strategy_id       TEXT    NOT NULL,
+            horizon_days      INTEGER NOT NULL,
+            rank_ic           FLOAT,
+            ic_positive_rate  FLOAT,
+            icir_21d          FLOAT,
+            icir_63d          FLOAT,
+            ic_tstat          FLOAT,
+            n_symbols         INTEGER,
+            updated_at        TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (date, strategy_id, horizon_days)
+        )
+    """)
+
+
+def _migrate_pnl_attribution_pg(conn: PgConnection) -> None:
+    """Create pnl_attribution: daily 4-component P&L decomposition per position."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pnl_attribution (
+            date             DATE             NOT NULL,
+            symbol           TEXT             NOT NULL,
+            strategy_id      TEXT             NOT NULL,
+            total_pnl        NUMERIC          NOT NULL,
+            market_pnl       NUMERIC          NOT NULL DEFAULT 0,
+            sector_pnl       NUMERIC          NOT NULL DEFAULT 0,
+            alpha_pnl        NUMERIC          NOT NULL DEFAULT 0,
+            residual_pnl     NUMERIC          NOT NULL DEFAULT 0,
+            beta_market      NUMERIC,
+            beta_sector      NUMERIC,
+            sector_etf       TEXT,
+            holding_day      INTEGER,
+            PRIMARY KEY (date, symbol, strategy_id)
+        )
+    """)
+
+
+def _migrate_regime_state_pg(conn: PgConnection) -> None:
+    """Create regime_state: historical regime classifications; current = most recent row."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS regime_state (
+            detected_at      TIMESTAMPTZ PRIMARY KEY,
+            regime           TEXT        NOT NULL,
+            adx              FLOAT,
+            vix_level        FLOAT,
+            spy_20d_return   FLOAT,
+            breadth_score    FLOAT,
+            confidence       FLOAT,
+            previous_regime  TEXT,
+            regime_change    BOOLEAN     DEFAULT FALSE
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS regime_state_detected_at_idx
+        ON regime_state (detected_at DESC)
+    """)
+
+
+def _migrate_institutional_gaps_pg(conn: PgConnection) -> None:
+    """Schema changes for the five institutional gap fixes.
+
+    M1: ic_gate_grandfathered_until on strategies
+    M2: ac_expected_cost_bps + forecast_error_bps on tca_results
+    M3: tca_coefficients table
+    M4: symbol_execution_quality table
+    M5: strategy_mmc table
+    M6: alt_data_ic table
+    """
+    # M1 — Grandfathered IC gate column
+    _alter_safe(conn, "strategies", "ic_gate_grandfathered_until", "TIMESTAMPTZ")
+    conn.execute("""
+        UPDATE strategies
+        SET ic_gate_grandfathered_until = NOW() + INTERVAL '90 days'
+        WHERE status = 'live' AND ic_gate_grandfathered_until IS NULL
+    """)
+    logger.debug("[DB] M1: ic_gate_grandfathered_until column added")
+
+    # M2 — TCA forecast tracking columns
+    _alter_safe(conn, "tca_results", "ac_expected_cost_bps", "FLOAT")
+    _alter_safe(conn, "tca_results", "forecast_error_bps", "FLOAT")
+    logger.debug("[DB] M2: tca_results forecast columns added")
+
+    # M3 — TCA coefficients table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tca_coefficients (
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            symbol_group    TEXT NOT NULL,
+            eta             FLOAT NOT NULL,
+            gamma           FLOAT NOT NULL,
+            beta            FLOAT NOT NULL DEFAULT 0.6,
+            n_trades_in_fit INTEGER,
+            r_squared       FLOAT,
+            PRIMARY KEY (updated_at, symbol_group)
+        )
+    """)
+    logger.debug("[DB] M3: tca_coefficients table created")
+
+    # M4 — Symbol execution quality table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS symbol_execution_quality (
+            symbol          TEXT NOT NULL,
+            week_ending     DATE NOT NULL,
+            mean_abs_error_bps FLOAT,
+            quality_scalar  FLOAT,
+            n_trades        INTEGER,
+            PRIMARY KEY (symbol, week_ending)
+        )
+    """)
+    logger.debug("[DB] M4: symbol_execution_quality table created")
+
+    # M5 — Strategy MMC table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_mmc (
+            date                             DATE NOT NULL,
+            strategy_id                      TEXT NOT NULL,
+            mmc_score                        FLOAT,
+            signal_correlation_to_portfolio  FLOAT,
+            capital_weight_scalar            FLOAT,
+            n_days_in_window                 INTEGER,
+            computed_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (date, strategy_id)
+        )
+    """)
+    logger.debug("[DB] M5: strategy_mmc table created")
+
+    # M6 — Alt data IC table
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alt_data_ic (
+            date            DATE NOT NULL,
+            signal_source   TEXT NOT NULL,
+            symbol          TEXT NOT NULL DEFAULT '',
+            rank_ic         FLOAT,
+            icir_21d        FLOAT,
+            n_observations  INTEGER,
+            PRIMARY KEY (date, signal_source, symbol)
+        )
+    """)
+    logger.debug("[DB] M6: alt_data_ic table created")
+
+    logger.info("[DB] Institutional gap migrations complete")
+
+
+def _migrate_ewf_pg(conn: PgConnection) -> None:
+    """Create ewf_chart_analyses table for EWF Elliott Wave signal integration."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ewf_chart_analyses (
+            id                         BIGSERIAL PRIMARY KEY,
+            symbol                     VARCHAR(10)  NOT NULL,
+            timeframe                  VARCHAR(20)  NOT NULL,
+            fetched_at                 TIMESTAMPTZ  NOT NULL,
+            analyzed_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+            image_path                 TEXT,
+            bias                       VARCHAR(10),
+            wave_position              TEXT,
+            wave_degree                VARCHAR(20),
+            current_wave_label         VARCHAR(10),
+            key_levels                 JSONB,
+            blue_box_active            BOOLEAN      NOT NULL DEFAULT FALSE,
+            blue_box_zone              JSONB,
+            confidence                 FLOAT,
+            invalidation_rule_violated BOOLEAN      NOT NULL DEFAULT FALSE,
+            analyst_notes              TEXT,
+            summary                    TEXT,
+            raw_analysis               TEXT,
+            model_used                 VARCHAR(50),
+            CONSTRAINT ewf_chart_analyses_unique UNIQUE (symbol, timeframe, fetched_at)
+        )
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ewf_symbol_timeframe_fetched
+        ON ewf_chart_analyses (symbol, timeframe, fetched_at DESC)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ewf_blue_box_active
+        ON ewf_chart_analyses (blue_box_active, fetched_at DESC)
+        WHERE blue_box_active = TRUE
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_ewf_symbol_fetched
+        ON ewf_chart_analyses (symbol, fetched_at DESC)
+    """)
+    # v2: add columns for improved prompt extraction (turning_signal, reasoning, etc.)
+    for col_sql in [
+        "ALTER TABLE ewf_chart_analyses ADD COLUMN IF NOT EXISTS turning_signal VARCHAR(20)",
+        "ALTER TABLE ewf_chart_analyses ADD COLUMN IF NOT EXISTS completed_wave_sequence TEXT",
+        "ALTER TABLE ewf_chart_analyses ADD COLUMN IF NOT EXISTS projected_path TEXT",
+        "ALTER TABLE ewf_chart_analyses ADD COLUMN IF NOT EXISTS reasoning TEXT",
+    ]:
+        conn.execute(col_sql)
+    logger.debug("[DB] ewf_chart_analyses table migrated")
 
 
 def run_migrations(conn: PgConnection) -> None:

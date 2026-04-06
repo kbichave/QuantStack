@@ -1,32 +1,21 @@
 """Research and statistical tools for LangGraph agents."""
 
 import json
-from typing import Any, Optional
+from typing import Annotated, Optional
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 
 @tool
 async def run_adf_test(
-    symbol: str,
-    timeframe: str = "daily",
-    column: str = "close",
-    max_lags: Optional[int] = None,
-    end_date: Optional[str] = None,
+    symbol: Annotated[str, Field(description="Ticker symbol to test for stationarity, e.g. 'AAPL', 'SPY', or a spread symbol")],
+    timeframe: Annotated[str, Field(description="Candle interval for the time series: 'daily', '1h', '4h', or 'weekly'")] = "daily",
+    column: Annotated[str, Field(description="Column to test for unit root: 'close', 'returns', or 'spread' (for cointegration pairs)")] = "close",
+    max_lags: Annotated[Optional[int], Field(description="Maximum number of lags to include in the ADF regression; auto-selected by AIC if None")] = None,
+    end_date: Annotated[Optional[str], Field(description="End date filter in YYYY-MM-DD format for historical simulation or backtesting")] = None,
 ) -> str:
-    """Run Augmented Dickey-Fuller test for stationarity.
-
-    Tests whether a time series is stationary (mean-reverting) or has a unit root.
-    A p-value < 0.05 indicates the series is stationary.
-
-    Args:
-        symbol: Stock symbol
-        timeframe: Data timeframe
-        column: Column to test ("close", "returns", "spread")
-        max_lags: Maximum lags to include (auto if None)
-        end_date: End date filter (YYYY-MM-DD) for historical simulation.
-
-    Returns JSON with test statistic, p-value, and interpretation.
+    """Calculates the Augmented Dickey-Fuller (ADF) test statistic and p-value to determine whether a time series is stationary or contains a unit root. Use when testing for mean reversion, validating cointegration residuals in stat-arb pairs, or checking stationarity assumptions before model fitting. A p-value below 0.05 indicates the series is stationary. Returns JSON with ADF test statistic, p-value, critical values, and interpretation.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -34,22 +23,13 @@ async def run_adf_test(
 
 @tool
 async def compute_alpha_decay(
-    symbol: str,
-    timeframe: str = "daily",
-    signal_column: str = "rsi_14",
-    max_lag: int = 20,
-    end_date: Optional[str] = None,
+    symbol: Annotated[str, Field(description="Ticker symbol to analyze alpha decay for, e.g. 'AAPL', 'SPY'")],
+    timeframe: Annotated[str, Field(description="Candle interval for the analysis: 'daily', '1h', '4h', or 'weekly'")] = "daily",
+    signal_column: Annotated[str, Field(description="Feature column name to analyze as the predictive signal, e.g. 'rsi_14', 'macd_hist', 'ic_score'")] = "rsi_14",
+    max_lag: Annotated[int, Field(description="Maximum forward lag (in bars) to compute the information coefficient decay curve")] = 20,
+    end_date: Annotated[Optional[str], Field(description="End date filter in YYYY-MM-DD format for historical simulation or backtesting")] = None,
 ) -> str:
-    """Analyze how a trading signal's predictive power decays over time.
-
-    Args:
-        symbol: Stock symbol
-        timeframe: Data timeframe
-        signal_column: Feature to analyze as signal
-        max_lag: Maximum forward lag to analyze
-        end_date: End date filter (YYYY-MM-DD) for historical simulation.
-
-    Returns JSON with IC decay curve, half-life, and optimal holding period.
+    """Calculates how a trading signal's predictive power (information coefficient) decays over successive forward lags to determine optimal holding period and signal half-life. Use when evaluating alpha persistence, sizing holding horizons for momentum or mean-reversion strategies, or comparing IC decay across candidate signals. Returns JSON with IC decay curve, alpha half-life, and optimal holding period recommendation.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -57,25 +37,13 @@ async def compute_alpha_decay(
 
 @tool
 async def compute_information_coefficient(
-    symbol: str,
-    timeframe: str = "daily",
-    signal_column: str = "rsi_14",
-    forward_return_periods: int = 5,
-    end_date: Optional[str] = None,
+    symbol: Annotated[str, Field(description="Ticker symbol to compute IC for, e.g. 'AAPL', 'SPY', 'TSLA'")],
+    timeframe: Annotated[str, Field(description="Candle interval for computing returns: 'daily', '1h', '4h', or 'weekly'")] = "daily",
+    signal_column: Annotated[str, Field(description="Feature column to correlate with forward returns, e.g. 'rsi_14', 'macd_hist', 'sentiment_score'")] = "rsi_14",
+    forward_return_periods: Annotated[int, Field(description="Number of forward bars for return calculation, e.g. 5 for 5-day forward returns")] = 5,
+    end_date: Annotated[Optional[str], Field(description="End date filter in YYYY-MM-DD format for historical simulation or backtesting")] = None,
 ) -> str:
-    """Compute Information Coefficient (IC) between a signal and forward returns.
-
-    IC measures the correlation between a predictive signal and subsequent returns.
-    IC > 0.05 is generally considered meaningful.
-
-    Args:
-        symbol: Stock symbol
-        timeframe: Data timeframe
-        signal_column: Feature to analyze
-        forward_return_periods: Forward return horizon in bars
-        end_date: End date filter (YYYY-MM-DD) for historical simulation.
-
-    Returns JSON with IC value, t-statistic, and interpretation.
+    """Computes the Information Coefficient (IC) — rank correlation between a predictive signal and forward returns — to measure signal quality. Use when evaluating whether a feature (e.g. RSI, sentiment, factor score) has genuine predictive power for alpha generation. IC above 0.05 is generally meaningful; also provides t-statistic for statistical significance. Returns JSON with IC value, t-statistic, p-value, and interpretation.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -83,25 +51,13 @@ async def compute_information_coefficient(
 
 @tool
 async def run_monte_carlo(
-    symbol: str,
-    timeframe: str = "daily",
-    n_simulations: int = 1000,
-    strategy_params: Optional[dict[str, float]] = None,
-    end_date: Optional[str] = None,
+    symbol: Annotated[str, Field(description="Ticker symbol to run Monte Carlo simulation on, e.g. 'AAPL', 'SPY'")],
+    timeframe: Annotated[str, Field(description="Candle interval for the backtest simulation: 'daily', '1h', '4h', or 'weekly'")] = "daily",
+    n_simulations: Annotated[int, Field(description="Number of Monte Carlo simulation paths to generate (higher = more precise confidence intervals)")] = 1000,
+    strategy_params: Annotated[Optional[dict[str, float]], Field(description="Strategy parameter dict (e.g. entry_zscore, exit_zscore, stop_loss_pct) to perturb during simulation")] = None,
+    end_date: Annotated[Optional[str], Field(description="End date filter in YYYY-MM-DD format for historical simulation or backtesting")] = None,
 ) -> str:
-    """Run Monte Carlo simulation to test strategy robustness.
-
-    Randomly perturbs entry/exit timing and slippage to assess
-    strategy stability under realistic conditions.
-
-    Args:
-        symbol: Stock symbol
-        timeframe: Data timeframe
-        n_simulations: Number of simulations to run
-        strategy_params: Strategy parameters (entry_zscore, exit_zscore, etc.)
-        end_date: End date filter (YYYY-MM-DD) for historical simulation.
-
-    Returns JSON with simulation statistics.
+    """Runs Monte Carlo simulation to assess strategy robustness by randomly perturbing entry/exit timing, slippage, and parameter values across thousands of paths. Use when validating whether a backtest result is statistically robust or fragile, stress-testing a strategy under realistic execution conditions, or computing confidence intervals for Sharpe ratio and drawdown. Returns JSON with simulation statistics including percentile P&L, drawdown distribution, and robustness score.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -109,24 +65,11 @@ async def run_monte_carlo(
 
 @tool
 async def validate_signal(
-    signal: list[float],
-    returns: list[float],
-    significance_level: float = 0.05,
+    signal: Annotated[list[float], Field(description="Array of signal values (predictions or scores) to validate; must be same length as returns")],
+    returns: Annotated[list[float], Field(description="Array of forward returns corresponding to each signal observation")],
+    significance_level: Annotated[float, Field(description="Significance level (alpha) for hypothesis tests, e.g. 0.05 for 95% confidence")] = 0.05,
 ) -> str:
-    """Run comprehensive signal validation suite.
-
-    Performs statistical tests to validate a trading signal:
-    - ADF stationarity test
-    - Information Coefficient (IC) analysis
-    - Lagged cross-correlations
-    - Harvey-Liu multiple testing correction
-
-    Args:
-        signal: Signal values (same length as returns)
-        returns: Forward returns
-        significance_level: Significance level for hypothesis tests
-
-    Returns JSON with test results and recommendations.
+    """Runs a comprehensive signal validation suite including ADF stationarity test, Information Coefficient (IC) analysis, lagged cross-correlations, and Harvey-Liu multiple testing correction to determine whether a trading signal has genuine predictive power. Use when you need to validate a new alpha signal before deploying it in a strategy, or when checking for spurious correlations. Returns JSON with test results, significance flags, and deployment recommendations.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -134,24 +77,11 @@ async def validate_signal(
 
 @tool
 async def diagnose_signal(
-    signal: list[float],
-    returns: list[float],
-    cost_bps: float = 5.0,
+    signal: Annotated[list[float], Field(description="Array of position signal values (e.g. -1 to +1 weights) to diagnose")],
+    returns: Annotated[list[float], Field(description="Array of return series corresponding to each signal observation")],
+    cost_bps: Annotated[float, Field(description="Transaction cost in basis points (e.g. 5.0 = 0.05%) for cost-adjusted performance calculation")] = 5.0,
 ) -> str:
-    """Run comprehensive signal diagnostics.
-
-    Provides detailed analysis of signal quality including:
-    - IC and IC Information Ratio
-    - Alpha decay analysis
-    - Turnover and holding period
-    - Cost-adjusted performance
-
-    Args:
-        signal: Position signal values
-        returns: Return series
-        cost_bps: Transaction cost in basis points
-
-    Returns JSON with comprehensive signal diagnostics.
+    """Provides comprehensive signal diagnostics including IC, IC Information Ratio (ICIR), alpha decay analysis, turnover rate, implied holding period, and cost-adjusted net performance. Use when you need a full health check on a trading signal before strategy deployment, or when comparing signal quality across multiple candidate alphas. Calculates both gross and net-of-cost Sharpe ratio. Returns JSON with IC, ICIR, decay profile, turnover, holding period, and cost-adjusted metrics.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -159,26 +89,12 @@ async def diagnose_signal(
 
 @tool
 async def detect_leakage(
-    symbol: str,
-    timeframe: str = "daily",
-    feature_columns: Optional[list[str]] = None,
-    end_date: Optional[str] = None,
+    symbol: Annotated[str, Field(description="Ticker symbol to check for data leakage, e.g. 'AAPL', 'SPY'")],
+    timeframe: Annotated[str, Field(description="Candle interval for the feature data: 'daily', '1h', '4h', or 'weekly'")] = "daily",
+    feature_columns: Annotated[Optional[list[str]], Field(description="Specific feature column names to audit for leakage; checks all features if None")] = None,
+    end_date: Annotated[Optional[str], Field(description="End date filter in YYYY-MM-DD format for historical simulation or backtesting")] = None,
 ) -> str:
-    """Detect data leakage and lookahead bias in features.
-
-    Checks for:
-    - Feature lookahead: Features computed using future data
-    - Label leakage: Labels containing future information
-    - Suspicious correlations indicating leakage
-    - Temporal alignment issues
-
-    Args:
-        symbol: Stock symbol
-        timeframe: Data timeframe
-        feature_columns: Specific feature columns to check (None = all)
-        end_date: End date filter (YYYY-MM-DD) for historical simulation.
-
-    Returns JSON with leakage findings, severity, and recommendations.
+    """Detects data leakage and lookahead bias in feature pipelines by checking for feature lookahead (features computed with future data), label leakage, suspicious zero-lag correlations, and temporal alignment issues. Use when auditing ML training pipelines, validating backtest integrity, or diagnosing suspiciously high in-sample performance. Critical for preventing overfitting and ensuring out-of-sample validity. Returns JSON with leakage findings, severity levels, and remediation recommendations.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -186,25 +102,12 @@ async def detect_leakage(
 
 @tool
 async def check_lookahead_bias(
-    symbol: str,
-    timeframe: str = "daily",
-    feature_columns: Optional[list[str]] = None,
-    end_date: Optional[str] = None,
+    symbol: Annotated[str, Field(description="Ticker symbol to audit for lookahead bias, e.g. 'AAPL', 'SPY'")],
+    timeframe: Annotated[str, Field(description="Candle interval for the feature data: 'daily', '1h', '4h', or 'weekly'")] = "daily",
+    feature_columns: Annotated[Optional[list[str]], Field(description="Specific feature column names to check for lookahead; audits all features if None")] = None,
+    end_date: Annotated[Optional[str], Field(description="End date filter in YYYY-MM-DD format for historical simulation or backtesting")] = None,
 ) -> str:
-    """Check for lookahead bias in features.
-
-    Detects features that may contain future information:
-    - High correlation with future returns (lag 0 or negative)
-    - Perfect prediction of future events
-    - Temporal misalignment
-
-    Args:
-        symbol: Stock symbol
-        timeframe: Data timeframe
-        feature_columns: Specific columns to check (None = all)
-        end_date: End date filter (YYYY-MM-DD) for historical simulation.
-
-    Returns JSON with suspect features and recommendations.
+    """Checks for lookahead bias in feature columns by detecting high correlation with future returns at lag 0 or negative lags, perfect prediction of future events, and temporal misalignment between features and labels. Use when validating backtest pipelines, auditing ML features for leakage, or investigating suspiciously good model performance that may not generalize out-of-sample. Returns JSON with suspect features, bias severity, and remediation recommendations.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -212,25 +115,13 @@ async def check_lookahead_bias(
 
 @tool
 async def fit_garch_model(
-    symbol: str,
-    model_type: str = "garch",
-    p: int = 1,
-    q: int = 1,
-    lookback_days: int = 756,
+    symbol: Annotated[str, Field(description="Ticker symbol to fit the GARCH volatility model on, e.g. 'AAPL', 'SPY'")],
+    model_type: Annotated[str, Field(description="GARCH model variant: 'garch' (symmetric), 'egarch' (exponential), or 'gjr-garch' (asymmetric leverage)")] = "garch",
+    p: Annotated[int, Field(description="GARCH lag order — number of lagged conditional variance terms in the model")] = 1,
+    q: Annotated[int, Field(description="ARCH lag order — number of lagged squared-return (innovation) terms in the model")] = 1,
+    lookback_days: Annotated[int, Field(description="Number of trading days of historical returns to use for model fitting, e.g. 756 for ~3 years")] = 756,
 ) -> str:
-    """Fit a GARCH-family volatility model to daily returns.
-
-    Estimates conditional volatility dynamics including volatility clustering
-    and (for EGARCH/GJR-GARCH) asymmetric leverage effects.
-
-    Args:
-        symbol: Stock symbol.
-        model_type: Model variant -- "garch", "egarch", or "gjr-garch".
-        p: GARCH lag order (number of lagged variance terms).
-        q: ARCH lag order (number of lagged squared-return terms).
-        lookback_days: Number of trading days of history to use.
-
-    Returns JSON with fitted model parameters, AIC/BIC, persistence, and current annualized vol.
+    """Fits a GARCH-family conditional volatility model (GARCH, EGARCH, or GJR-GARCH) to daily returns, estimating volatility clustering dynamics and asymmetric leverage effects. Use when modeling time-varying volatility for options pricing, risk management, position sizing, or regime detection. Provides model selection via AIC/BIC and persistence diagnostics. Returns JSON with fitted parameters, AIC/BIC, volatility persistence, and current annualized vol estimate.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -238,26 +129,13 @@ async def fit_garch_model(
 
 @tool
 async def forecast_volatility(
-    symbol: str,
-    horizon_days: int = 5,
-    model_type: str = "garch",
-    p: int = 1,
-    q: int = 1,
+    symbol: Annotated[str, Field(description="Ticker symbol to forecast volatility for, e.g. 'AAPL', 'SPY', 'QQQ'")],
+    horizon_days: Annotated[int, Field(description="Number of trading days to forecast forward (1-60), e.g. 5 for one-week vol forecast")] = 5,
+    model_type: Annotated[str, Field(description="GARCH model variant: 'garch' (symmetric), 'egarch' (exponential), or 'gjr-garch' (asymmetric leverage)")] = "garch",
+    p: Annotated[int, Field(description="GARCH lag order — number of lagged conditional variance terms")] = 1,
+    q: Annotated[int, Field(description="ARCH lag order — number of lagged squared-return (innovation) terms")] = 1,
 ) -> str:
-    """Forecast future volatility using a GARCH model.
-
-    Fits a GARCH model on recent daily returns and produces a term structure
-    of volatility forecasts out to the specified horizon.
-
-    Args:
-        symbol: Stock symbol.
-        horizon_days: Number of days to forecast (1-60).
-        model_type: Model variant -- "garch", "egarch", or "gjr-garch".
-        p: GARCH lag order.
-        q: ARCH lag order.
-
-    Returns JSON with daily vol forecasts, annualized terminal vol,
-    realized vol comparison, vol regime classification, and 1-day 95% VaR.
+    """Forecasts future volatility term structure using a fitted GARCH model on recent daily returns, producing daily conditional vol estimates out to the specified horizon. Use when pricing options, computing Value-at-Risk (VaR), sizing positions based on expected volatility, or classifying the current vol regime (low/normal/high/extreme). Compares forecast against realized vol. Returns JSON with daily vol forecasts, annualized terminal vol, realized vol comparison, vol regime classification, and 1-day 95% VaR.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -265,26 +143,13 @@ async def forecast_volatility(
 
 @tool
 async def compute_deflated_sharpe_ratio(
-    observed_sharpe: float,
-    n_trials: int,
-    variance_of_sharpe: float = 1.0,
-    skewness: float = 0.0,
-    kurtosis: float = 3.0,
+    observed_sharpe: Annotated[float, Field(description="Observed Sharpe ratio from the best backtest or strategy selection")],
+    n_trials: Annotated[int, Field(description="Number of backtests or strategies tested — the multiple testing count for DSR correction")],
+    variance_of_sharpe: Annotated[float, Field(description="Variance of Sharpe ratios across all trials; defaults to 1.0 under normal assumptions")] = 1.0,
+    skewness: Annotated[float, Field(description="Skewness of the return distribution; 0.0 assumes normality")] = 0.0,
+    kurtosis: Annotated[float, Field(description="Kurtosis of the return distribution; 3.0 assumes normality (mesokurtic)")] = 3.0,
 ) -> str:
-    """Compute the Deflated Sharpe Ratio (DSR) from Bailey & Lopez de Prado (2014).
-
-    DSR adjusts for multiple testing: if you ran 100 backtests and picked the
-    best Sharpe, DSR tells you the probability that the best Sharpe is genuine
-    (not just the max of 100 random walks).
-
-    Args:
-        observed_sharpe: The Sharpe ratio from the best backtest.
-        n_trials: Number of backtests/strategies tested (the multiple testing count).
-        variance_of_sharpe: Variance of Sharpe ratios across trials (default 1.0).
-        skewness: Skewness of returns (default 0.0 = normal).
-        kurtosis: Kurtosis of returns (default 3.0 = normal).
-
-    Returns JSON with DSR probability, expected max Sharpe, significance flag, and haircut %.
+    """Computes the Deflated Sharpe Ratio (DSR) from Bailey and Lopez de Prado (2014) to correct for multiple testing bias in backtest optimization. Use when you have selected the best strategy from N backtests and need to assess the probability that the observed Sharpe ratio is genuine rather than the expected maximum of N random walks. Critical for detecting overfitting and p-hacking in strategy research. Returns JSON with DSR probability, expected max Sharpe under null, significance flag, and Sharpe haircut percentage.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -292,26 +157,13 @@ async def compute_deflated_sharpe_ratio(
 
 @tool
 async def run_combinatorial_purged_cv(
-    symbol: str,
-    strategy_id: str,
-    n_splits: int = 6,
-    n_test_groups: int = 2,
-    embargo_pct: float = 0.01,
+    symbol: Annotated[str, Field(description="Ticker symbol to backtest the strategy on, e.g. 'AAPL', 'SPY'")],
+    strategy_id: Annotated[str, Field(description="Strategy ID from the registry used to load trading rules and parameters for backtesting")],
+    n_splits: Annotated[int, Field(description="Number of CPCV time groups to partition the data into (e.g. 6 yields C(6,2)=15 combinations)")] = 6,
+    n_test_groups: Annotated[int, Field(description="Number of groups used as out-of-sample test set per combination (e.g. 2 for pairwise splits)")] = 2,
+    embargo_pct: Annotated[float, Field(description="Fraction of total data used as embargo gap between train and test to prevent leakage (e.g. 0.01 = 1%)")] = 0.01,
 ) -> str:
-    """Combinatorial Purged Cross-Validation (CPCV) from Lopez de Prado (2018).
-
-    Unlike standard walk-forward (which tests one path), CPCV tests ALL
-    combinatorial train/test splits. With n_splits=6 and n_test_groups=2,
-    there are C(6,2)=15 unique train/test combinations.
-
-    Args:
-        symbol: Stock symbol to backtest on.
-        strategy_id: Strategy ID from the registry (used to load rules).
-        n_splits: Number of CPCV time groups (default 6).
-        n_test_groups: Number of groups used as test per combination (default 2).
-        embargo_pct: Fraction of total data used as embargo gap (default 0.01).
-
-    Returns JSON with OOS Sharpe distribution, PBO, and overfitting verdict.
+    """Runs Combinatorial Purged Cross-Validation (CPCV) from Lopez de Prado (2018) to test strategy robustness across all combinatorial train/test splits with temporal purging and embargo. Use when validating a strategy beyond standard walk-forward analysis, computing the probability of backtest overfitting (PBO), or assessing out-of-sample Sharpe ratio distribution. Unlike single-path walk-forward, CPCV generates C(n,k) unique split combinations for comprehensive OOS evaluation. Returns JSON with OOS Sharpe distribution, PBO estimate, and overfitting verdict.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
@@ -319,21 +171,10 @@ async def run_combinatorial_purged_cv(
 
 @tool
 async def compute_probability_of_overfitting(
-    is_sharpe_ratios: list[float],
-    oos_sharpe_ratios: list[float],
+    is_sharpe_ratios: Annotated[list[float], Field(description="Array of in-sample Sharpe ratios, one per walk-forward fold or CPCV combination")],
+    oos_sharpe_ratios: Annotated[list[float], Field(description="Array of matched out-of-sample Sharpe ratios, same length and order as is_sharpe_ratios")],
 ) -> str:
-    """Probability of Backtest Overfitting (PBO) from Bailey et al. (2015).
-
-    Given matched IS and OOS Sharpe ratios from walk-forward or CPCV folds,
-    compute the probability that the best IS strategy underperforms OOS.
-
-    PBO > 0.5 = likely overfit.
-
-    Args:
-        is_sharpe_ratios: In-sample Sharpe ratios (one per fold/combination).
-        oos_sharpe_ratios: Matched out-of-sample Sharpe ratios (same length).
-
-    Returns JSON with PBO scalar, rank correlation, best-IS OOS rank, and interpretation.
+    """Calculates the Probability of Backtest Overfitting (PBO) from Bailey et al. (2015) using matched in-sample and out-of-sample Sharpe ratios from walk-forward or CPCV folds. Use when assessing whether a strategy's in-sample performance generalizes or is merely curve-fitted noise. PBO above 0.5 indicates likely overfitting. Computes rank correlation between IS and OOS performance to detect selection bias. Returns JSON with PBO scalar, rank correlation, best-IS OOS rank, and interpretation.
     """
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)

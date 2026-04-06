@@ -70,6 +70,9 @@ class EventType(str, Enum):
     RISK_LIQUIDATION = "risk_liquidation"
     RISK_EMERGENCY = "risk_emergency"
     MODEL_DEGRADATION = "model_degradation"
+    IC_DECAY = "ic_decay"
+    REGIME_CHANGE = "regime_change"
+    RISK_ALERT = "risk_alert"
 
 
 @dataclass(frozen=True)

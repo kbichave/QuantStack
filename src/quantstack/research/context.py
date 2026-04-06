@@ -71,7 +71,7 @@ class ResearchContext:
                 for r in rows
             ]
         except Exception as exc:
-            logger.debug(f"[ResearchContext] experiment_history failed: {exc}")
+            logger.warning(f"[ResearchContext] experiment_history failed: {exc}")
             return []
 
     def get_strategy_pnl_summary(self, days: int = 30) -> list[dict]:
@@ -107,7 +107,7 @@ class ResearchContext:
                 for r in rows
             ]
         except Exception as exc:
-            logger.debug(f"[ResearchContext] strategy_pnl failed: {exc}")
+            logger.warning(f"[ResearchContext] strategy_pnl failed: {exc}")
             return []
 
     def get_active_investigations(self) -> list[dict]:
@@ -139,7 +139,7 @@ class ResearchContext:
                 for r in rows
             ]
         except Exception as exc:
-            logger.debug(f"[ResearchContext] active_investigations failed: {exc}")
+            logger.warning(f"[ResearchContext] active_investigations failed: {exc}")
             return []
 
     def get_dead_ends(self) -> list[dict]:
@@ -155,7 +155,7 @@ class ResearchContext:
             ).fetchall()
             return [{"id": r[0], "thesis": r[1], "reason": r[2]} for r in rows]
         except Exception as exc:
-            logger.debug(f"[ResearchContext] dead_ends failed: {exc}")
+            logger.warning(f"[ResearchContext] dead_ends failed: {exc}")
             return []
 
     def get_breakthrough_features(self) -> list[dict]:
@@ -181,7 +181,7 @@ class ResearchContext:
                 for r in rows
             ]
         except Exception as exc:
-            logger.debug(f"[ResearchContext] breakthrough_features failed: {exc}")
+            logger.warning(f"[ResearchContext] breakthrough_features failed: {exc}")
             return []
 
     def get_regime_summary(self) -> dict:
@@ -197,7 +197,7 @@ class ResearchContext:
                     "spy_confidence": regime.get("confidence", 0),
                 }
         except Exception as exc:
-            logger.debug(f"[ResearchContext] regime_summary failed: {exc}")
+            logger.warning(f"[ResearchContext] regime_summary failed: {exc}")
         return {"spy_trend": "unknown", "spy_vol": "normal", "spy_confidence": 0}
 
     def get_strategy_breaker_states(self) -> list[dict]:
@@ -217,7 +217,7 @@ class ResearchContext:
                 if s.status != "ACTIVE"
             ]
         except Exception as exc:
-            logger.debug(f"[ResearchContext] strategy_breaker_states failed: {exc}")
+            logger.warning(f"[ResearchContext] strategy_breaker_states failed: {exc}")
             return []
 
     def get_live_strategies(self) -> list[dict]:
@@ -244,7 +244,7 @@ class ResearchContext:
                 for r in rows
             ]
         except Exception as exc:
-            logger.debug(f"[ResearchContext] live_strategies failed: {exc}")
+            logger.warning(f"[ResearchContext] live_strategies failed: {exc}")
             return []
 
     def get_equity_summary(self, days: int = 30) -> dict:
@@ -278,7 +278,7 @@ class ResearchContext:
                 "total_return_30d": round(sum(returns), 2),
             }
         except Exception as exc:
-            logger.debug(f"[ResearchContext] equity_summary failed: {exc}")
+            logger.warning(f"[ResearchContext] equity_summary failed: {exc}")
             return {}
 
     def get_model_status(self) -> list[dict]:
@@ -317,7 +317,7 @@ class ResearchContext:
                     )
             return results
         except Exception as exc:
-            logger.debug(f"[ResearchContext] model_status failed: {exc}")
+            logger.warning(f"[ResearchContext] model_status failed: {exc}")
             return []
 
     def build_alpha_researcher_context(self) -> dict[str, Any]:

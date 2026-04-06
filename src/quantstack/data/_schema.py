@@ -74,6 +74,7 @@ class SchemaMixin:
             self._init_news_sentiment_schema()
             self._init_intraday_schema()
             self._init_fundamentals_schema()
+            self._init_pcr_schema()
         finally:
             self._conn = old_conn
 
@@ -207,6 +208,14 @@ class SchemaMixin:
         """
         )
 
+        # Add delisted_at tracking column (AV data expansion, Section 02).
+        self.conn.execute(
+            """
+            ALTER TABLE company_overview
+            ADD COLUMN IF NOT EXISTS delisted_at DATE
+        """
+        )
+
         # Create indexes for options queries
         self.conn.execute(
             """
@@ -273,3 +282,36 @@ class SchemaMixin:
             ON news_sentiment (ticker, time_published)
         """
         )
+
+    def _init_pcr_schema(self) -> None:
+        """Initialize put/call ratio table (AV data expansion, Section 02)."""
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS put_call_ratio (
+                symbol      VARCHAR NOT NULL,
+                date        DATE    NOT NULL,
+                put_volume  INTEGER,
+                call_volume INTEGER,
+                pcr         DOUBLE PRECISION,
+                source      VARCHAR NOT NULL,
+                fetched_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (symbol, date, source)
+            )
+        """
+        )
+        self.conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_pcr_symbol_date
+            ON put_call_ratio (symbol, date)
+        """
+        )
+
+
+# ── Rollback DDL (Section 02) ──────────────────────────────────────────────
+# To revert the AV data expansion schema changes, run:
+#
+#   DROP TABLE IF EXISTS put_call_ratio;
+#   ALTER TABLE company_overview DROP COLUMN IF EXISTS delisted_at;
+#
+# These are idempotent and safe to run on any environment.
+# ────────────────────────────────────────────────────────────────────────────

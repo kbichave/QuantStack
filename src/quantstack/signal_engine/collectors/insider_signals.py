@@ -33,7 +33,7 @@ async def collect_insider_signals(symbol: str, store: DataStore) -> dict[str, An
             timeout=10.0,
         )
     except (asyncio.TimeoutError, Exception) as exc:
-        logger.debug(f"[insider_signals] {symbol}: {type(exc).__name__}")
+        logger.warning(f"[insider_signals] {symbol}: {type(exc).__name__}")
         return {}
 
 

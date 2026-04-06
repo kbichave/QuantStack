@@ -42,8 +42,10 @@ COPY src/ ./src/
 # Install with RL + data extras (torch, gymnasium, stable-baselines3, finrl, TA-Lib).
 # CPU-only torch to avoid CUDA bloat on non-GPU hosts.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu \
-    uv pip install --system -e ".[langgraph,data,rl]"
+    uv pip install --system \
+    --index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://pypi.org/simple/ \
+    -e ".[langgraph,data,rl]"
 
 COPY scripts/ ./scripts/
 

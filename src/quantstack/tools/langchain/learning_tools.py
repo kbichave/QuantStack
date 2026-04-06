@@ -2,23 +2,20 @@
 
 import json
 import logging
+from typing import Annotated
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 logger = logging.getLogger(__name__)
 
 
 @tool
-async def search_knowledge_base(query: str, top_k: int = 5) -> str:
-    """Search the knowledge base for past lessons, strategies, and trade outcomes.
-
-    Use before making trading decisions to learn from past experience.
-    Returns JSON with relevant knowledge entries ranked by relevance.
-
-    Args:
-        query: Natural language query (e.g., "AAPL earnings trade lessons").
-        top_k: Number of results to return.
-    """
+async def search_knowledge_base(
+    query: Annotated[str, Field(description="Natural language search query for the knowledge base, e.g. 'AAPL earnings trade lessons', 'momentum strategy drawdown'")],
+    top_k: Annotated[int, Field(description="Maximum number of knowledge entries to return, ranked by recency")] = 5,
+) -> str:
+    """Retrieves past lessons, trade outcomes, and strategy notes from the knowledge base using keyword search. Use when preparing for a new trade to recall historical mistakes, reviewing what worked or failed on a specific ticker, or gathering institutional memory before strategy design. Returns JSON with matching knowledge entries including category, content snippet, metadata, and creation timestamp."""
     try:
         from quantstack.tools._state import require_ctx
 
@@ -50,45 +47,37 @@ async def search_knowledge_base(query: str, top_k: int = 5) -> str:
 
 
 @tool
-async def promote_strategy(strategy_id: str) -> str:
-    """Promote a strategy from draft to forward_testing.
-
-    Args:
-        strategy_id: Strategy ID to promote.
-    """
+async def promote_strategy(
+    strategy_id: Annotated[str, Field(description="Unique strategy identifier (UUID) to promote from draft to forward_testing")],
+) -> str:
+    """Promotes a strategy from draft status to forward_testing, enabling paper-trade validation. Use when a strategy has passed backtesting criteria and is ready for live paper evaluation. Returns JSON confirmation with updated status or error details."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 
 
 @tool
-async def retire_strategy(strategy_id: str, reason: str = "") -> str:
-    """Retire a strategy.
-
-    Args:
-        strategy_id: Strategy ID to retire.
-        reason: Reason for retirement.
-    """
+async def retire_strategy(
+    strategy_id: Annotated[str, Field(description="Unique strategy identifier (UUID) to retire and deactivate")],
+    reason: Annotated[str, Field(description="Human-readable explanation for retirement, e.g. 'regime shift invalidated edge', 'max drawdown exceeded threshold'")] = "",
+) -> str:
+    """Retires and deactivates a strategy, removing it from the active trading roster. Use when a strategy has underperformed, its market regime edge has disappeared, or risk limits have been breached. Returns JSON confirmation with retirement status and timestamp."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 
 
 @tool
-async def get_strategy_performance(strategy_id: str) -> str:
-    """Get performance metrics for a strategy.
-
-    Args:
-        strategy_id: Strategy ID.
-    """
+async def get_strategy_performance(
+    strategy_id: Annotated[str, Field(description="Unique strategy identifier (UUID) to retrieve performance metrics for")],
+) -> str:
+    """Retrieves performance metrics and statistics for a specific strategy including PnL, win rate, Sharpe ratio, and drawdown. Use when evaluating whether to promote, retire, or adjust a strategy based on its track record. Returns JSON with cumulative and per-trade performance data."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 
 
 @tool
-async def validate_strategy(strategy_id: str) -> str:
-    """Validate a strategy's rules and configuration.
-
-    Args:
-        strategy_id: Strategy ID.
-    """
+async def validate_strategy(
+    strategy_id: Annotated[str, Field(description="Unique strategy identifier (UUID) to validate rules and configuration for")],
+) -> str:
+    """Validates a strategy's entry rules, exit rules, parameters, and configuration for correctness and completeness. Use before promoting a strategy to forward_testing to catch missing fields, invalid thresholds, or incompatible rule combinations. Returns JSON with validation pass/fail status and any identified issues."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)

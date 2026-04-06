@@ -154,8 +154,8 @@ async def execute_trade(
                 "broker_mode": get_broker_mode(),
             }
 
-        # Use approved_quantity (may have been scaled down)
-        approved_qty = verdict.approved_quantity or quantity
+        # Use approved_quantity (may have been scaled down by risk gate)
+        approved_qty = verdict.approved_quantity if verdict.approved_quantity is not None else quantity
 
         # 6. Execute via broker
         order = OrderRequest(
@@ -202,7 +202,7 @@ async def execute_trade(
                             vals,
                         )
             except Exception as _meta_exc:
-                logger.debug(
+                logger.warning(
                     f"[trade_service] position metadata update failed (non-critical): {_meta_exc}"
                 )
 

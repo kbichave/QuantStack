@@ -30,6 +30,11 @@ from typing import Any
 
 from loguru import logger
 
+from quantstack.core.portfolio.mmc_scorer import (
+    MMC_BLOCK_THRESHOLD,
+    MMC_PENALTY_THRESHOLD,
+    get_capital_weight_scalar,
+)
 from quantstack.db import PgConnection
 
 
@@ -44,6 +49,8 @@ class PromotionCriteria:
     min_win_rate: float = 0.40
     max_max_drawdown: float = 0.08
     max_concurrent_live: int = 8
+    min_icir_21d: float = 0.3
+    min_ic_positive_rate: float = 0.55
 
 
 @dataclass
@@ -286,8 +293,62 @@ class AutoPromoter:
         evidence["current_live_count"] = live_count
         checks["strategy_cap"] = live_count < criteria.max_concurrent_live
 
-        # All checks must pass
-        all_pass = all(checks.values())
+        # IC gate — strategy must demonstrate signal quality before promotion.
+        # Grandfathered strategies (existing live before IC gate rollout) skip this.
+        grandfathered_until = self._get_grandfathered_until(strategy_id)
+        if grandfathered_until is not None and grandfathered_until > datetime.now(timezone.utc):
+            checks["icir_gate"] = None  # Gate not checked — grandfathered
+        else:
+            icir_current = self._get_icir(strategy_id)
+            if icir_current is None:
+                checks["icir_gate"] = False
+                return PromotionDecision(
+                    strategy_id=strategy_id,
+                    name=name,
+                    decision="hold",
+                    reason="Insufficient IC history: strategy has < 21 days of signal scoring",
+                    evidence=evidence,
+                    criteria_results=checks,
+                )
+            if icir_current < criteria.min_icir_21d:
+                checks["icir_gate"] = False
+                evidence["icir_21d"] = round(icir_current, 3)
+                return PromotionDecision(
+                    strategy_id=strategy_id,
+                    name=name,
+                    decision="hold",
+                    reason=f"ICIR below threshold: {icir_current:.3f} < {criteria.min_icir_21d}",
+                    evidence=evidence,
+                    criteria_results=checks,
+                )
+            checks["icir_gate"] = True
+            evidence["icir_21d"] = round(icir_current, 3)
+
+        # MMC gate — check signal correlation to portfolio (section-11)
+        mmc_row = self._get_mmc(strategy_id)
+        if mmc_row is not None:
+            corr = mmc_row["signal_correlation"]
+            evidence["signal_correlation"] = round(corr, 3)
+            if corr > MMC_BLOCK_THRESHOLD:
+                checks["mmc_gate"] = False
+                return PromotionDecision(
+                    strategy_id=strategy_id,
+                    name=name,
+                    decision="hold",
+                    reason=f"Signal too correlated to portfolio: {corr:.3f} > {MMC_BLOCK_THRESHOLD}",
+                    evidence=evidence,
+                    criteria_results=checks,
+                )
+            scalar = get_capital_weight_scalar(corr)
+            evidence["capital_weight_scalar"] = scalar
+            checks["mmc_gate"] = True
+        else:
+            # No MMC data yet — allow promotion at full weight
+            evidence["capital_weight_scalar"] = 1.0
+            checks["mmc_gate"] = True
+
+        # All checks must pass (None = gate not checked, counts as pass)
+        all_pass = all(v is not False for v in checks.values())
 
         if all_pass:
             return PromotionDecision(
@@ -384,3 +445,56 @@ class AutoPromoter:
             "SELECT COUNT(*) FROM strategies WHERE status = 'live'"
         ).fetchone()
         return row[0] if row else 0
+
+    def _get_grandfathered_until(self, strategy_id: str) -> datetime | None:
+        """Return ic_gate_grandfathered_until for a strategy, or None."""
+        row = self._conn.execute(
+            "SELECT ic_gate_grandfathered_until FROM strategies WHERE strategy_id = %s",
+            [strategy_id],
+        ).fetchone()
+        if row is None or row[0] is None:
+            return None
+        dt = row[0]
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    def _get_mmc(self, strategy_id: str) -> dict | None:
+        """Return the latest MMC row for this strategy, or None if no data."""
+        try:
+            row = self._conn.execute(
+                """
+                SELECT signal_correlation_to_portfolio, capital_weight_scalar
+                FROM strategy_mmc
+                WHERE strategy_id = %s
+                ORDER BY date DESC LIMIT 1
+                """,
+                [strategy_id],
+            ).fetchone()
+            if row is None or row[0] is None:
+                return None
+            return {
+                "signal_correlation": float(row[0]),
+                "capital_weight_scalar": float(row[1]) if row[1] is not None else 1.0,
+            }
+        except Exception as exc:
+            logger.debug("[AutoPromoter] MMC lookup failed for %s: %s", strategy_id, exc)
+            return None
+
+    def _get_icir(self, strategy_id: str) -> float | None:
+        """
+        Return the most recent icir_21d from signal_ic for this strategy (horizon_days=21).
+
+        Returns None if no IC history exists — callers must treat None as "not blocked".
+        """
+        row = self._conn.execute(
+            """
+            SELECT icir_21d FROM signal_ic
+            WHERE strategy_id = %s AND horizon_days = 21
+            ORDER BY date DESC LIMIT 1
+            """,
+            [strategy_id],
+        ).fetchone()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])

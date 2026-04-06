@@ -36,7 +36,7 @@ async def collect_macro(symbol: str, store: DataStore) -> dict[str, Any]:
             timeout=_TIMEOUT_SECONDS,
         )
     except (asyncio.TimeoutError, Exception) as exc:
-        logger.debug(f"[macro] {symbol}: {type(exc).__name__} — returning empty")
+        logger.warning(f"[macro] {symbol}: {type(exc).__name__} — returning empty")
         return {}
 
 
@@ -117,7 +117,7 @@ def _collect_macro_sync(symbol: str, store: DataStore) -> dict[str, Any]:
                 result["yc_inverted"] = int(ycf_df["inverted"].iloc[-1])
                 result["yc_slope_smooth"] = _safe_float(ycf_df["slope_smooth"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[macro] YieldCurveFeatures failed: {exc}")
+            logger.warning(f"[macro] YieldCurveFeatures failed: {exc}")
 
         # SpreadSignals — TED spread proxy (3M T-bill vs fed funds / overnight rate)
         # Uses 3M Treasury as the "risky" short rate and the 1-month or fed-funds
@@ -138,7 +138,7 @@ def _collect_macro_sync(symbol: str, store: DataStore) -> dict[str, Any]:
                 result["credit_stress"] = int(sp_df["credit_stress"].iloc[-1])
                 result["spread_widening"] = int(sp_df["spread_widening"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[macro] SpreadSignals failed: {exc}")
+            logger.warning(f"[macro] SpreadSignals failed: {exc}")
     else:
         result["yield_curve_slope"] = None
         result["rate_momentum_5d"] = None
@@ -167,7 +167,7 @@ def _collect_macro_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["hy_oas_zscore"] = _safe_float(cs_df["hy_oas_zscore"].iloc[-1])
             result["credit_regime_fred"] = cs_df["credit_regime"].iloc[-1]
     except Exception as exc:
-        logger.debug(f"[macro] FRED credit signals skipped: {exc}")
+        logger.warning(f"[macro] FRED credit signals failed: {exc}")
 
     return result
 

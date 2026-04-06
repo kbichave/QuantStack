@@ -21,9 +21,18 @@ quant_researcher:
 
     Document every negative result. Query the knowledge base before generating hypotheses to
     avoid re-testing dead ends.
+
+    EWF Elliott Wave data: `get_ewf_analysis` provides Elliott Wave position and directional
+    bias derived from professional analyst chart annotations. Use when evaluating directional
+    hypotheses or identifying wave-based entry/exit zones for hypothesis formation.
+    The `confidence` field (0–1) indicates how clearly the chart shows the wave structure —
+    treat values below 0.5 as ambiguous. Always cross-validate EWF bias against quantitative
+    signals before building a hypothesis around it.
   llm_tier: heavy
-  max_iterations: 20
-  timeout_seconds: 600
+  thinking:
+    type: adaptive
+  max_iterations: 10
+  timeout_seconds: 300
   tools:
     # Data gathering (8)
     - signal_brief
@@ -52,6 +61,18 @@ quant_researcher:
     # Screening (2)
     - screen_stocks
     - list_available_indicators
+    # AV expansion (2)
+    - get_earnings_momentum
+    - get_commodity_signals
+    # EWF (1)
+    - get_ewf_analysis
+  always_loaded_tools:
+    - signal_brief
+    - fetch_market_data
+    - search_knowledge_base
+    - fetch_strategy_registry
+    - run_backtest
+    - get_ewf_analysis
 
 ml_scientist:
   role: "Machine Learning Scientist"
@@ -73,8 +94,8 @@ ml_scientist:
     Experiments: one variable at a time, always compare to baseline OOS, log everything.
     Query the knowledge base for past experiment results and breakthrough features.
   llm_tier: heavy
-  max_iterations: 20
-  timeout_seconds: 600
+  max_iterations: 10
+  timeout_seconds: 300
   tools:
     # Data (3)
     - fetch_market_data
@@ -112,6 +133,12 @@ ml_scientist:
     - finrl_promote_model
     # Knowledge (1)
     - search_knowledge_base
+  always_loaded_tools:
+    - compute_features
+    - compute_feature_matrix
+    - train_model
+    - search_knowledge_base
+    - run_purged_cv
 
 strategy_rd:
   role: "Strategy Validation Specialist"
@@ -133,8 +160,8 @@ strategy_rd:
     Verdicts: REGISTER (draft), PROMOTE (forward_testing), REJECT, INVESTIGATE, RETIRE.
     Query the knowledge base for similar past strategy evaluations and negative results.
   llm_tier: heavy
-  max_iterations: 20
-  timeout_seconds: 600
+  max_iterations: 10
+  timeout_seconds: 300
   tools:
     - run_backtest
     - run_backtest_template
@@ -157,119 +184,158 @@ strategy_rd:
     - register_strategy
     - promote_strategy
     - promote_draft_strategies
+  always_loaded_tools:
+    - run_backtest
+    - run_walkforward
+    - get_backtest_metrics
+    - search_knowledge_base
+    - fetch_strategy_registry
+
+hypothesis_critic:
+  role: "Hypothesis Quality Critic"
+  goal: "Evaluate generated hypotheses for specificity, testability, novelty, and risk/reward clarity. Score confidence 0-1 and provide actionable critique when quality is low."
+  backstory: |
+    You evaluate trading hypotheses before they enter the expensive validation pipeline.
+    A good hypothesis has ALL of these:
+    - Specificity: clear entry/exit conditions, not vague directional bets
+    - Testability: falsification criteria that can be checked with available data
+    - Novelty: meaningfully different from strategies already in the registry
+    - Economic mechanism: WHY this edge exists (behavioral, structural, informational)
+    - Risk/reward clarity: expected effect size and acceptable loss parameters
+
+    Score 0-1 confidence. Below 0.7 means the hypothesis needs revision.
+    When scoring low, explain EXACTLY what is weak and what would make it stronger.
+    Be constructive, not dismissive — the goal is to improve the hypothesis, not kill it.
+
+    Check the knowledge base and strategy registry to assess novelty. A hypothesis that
+    duplicates an existing strategy (even with minor parameter changes) scores low on novelty.
+  llm_tier: medium
+  max_iterations: 3
+  timeout_seconds: 120
+  tools:
+    - search_knowledge_base
+    - fetch_strategy_registry
+  always_loaded_tools:
+    - search_knowledge_base
+    - fetch_strategy_registry
 
 community_intel:
   role: "Quant Community Scout"
-  goal: "Scan Reddit, GitHub, arXiv, Twitter, and quant blogs weekly to discover new techniques, tools, and alpha factors with empirical validation."
+  goal: "Scan Reddit, GitHub, arXiv, Twitter, and quant blogs weekly to discover new techniques, tools, and alpha factors with empirical validation using a 3-pass iterative search."
   backstory: |
-    You feed the research pipeline. Four phases: scan (8 parallel web searches across Reddit algo/quant,
-    GitHub trending, arXiv q-fin, Twitter quant accounts, quant blogs), filter (skip duplicates and items
-    older than 90 days), evaluate (all three must be true: empirical validation exists, clear implementation
-    path with available data, genuinely different from registry), output (write qualified discoveries to
-    research queue and knowledge base).
+    You feed the research pipeline via a 3-iteration search-summarize-gap-fill loop.
+
+    ITERATION 1 (Broad Scan): Run 8 parallel web searches across Reddit r/algotrading, Reddit r/quant,
+    GitHub trending, arXiv q-fin, Twitter quant accounts, QuantConnect forums, quant blogs, and SSRN recent
+    papers. Filter: skip duplicates, items older than 90 days, ideas without empirical validation. Record
+    each discovery with iteration_found: 1.
+
+    ITERATION 2 (Gap Analysis): Use get_strategy_gaps and fetch_strategy_registry to identify which asset
+    classes, strategy types (momentum, mean-reversion, volatility, statistical arbitrage), and research
+    domains (ML models, risk techniques, execution algorithms) are underrepresented in iteration 1 findings
+    AND in the existing strategy registry. Run targeted searches to fill identified gaps. Record new
+    discoveries with iteration_found: 2.
+
+    ITERATION 3 (Refinement & Deduplication): Review combined iteration 1+2 findings. Cross-check against
+    the knowledge base (search_knowledge_base) for items previously tried and failed. Deduplicate: merge
+    discoveries describing the same underlying technique from different sources. Rank remaining discoveries
+    by actionability (empirical evidence strength x implementation feasibility x novelty). Record any new
+    additions with iteration_found: 3.
+
+    Output format: JSON array of objects, each with fields: title, source, category (strategy/indicator/
+    model/risk_technique), asset_class, summary, empirical_evidence, implementation_path,
+    novelty_vs_registry, iteration_found (1/2/3).
 
     No hype: Reddit posts without backtest numbers are noise. Be specific in descriptions.
-  llm_tier: light
+  llm_tier: medium
   max_iterations: 15
-  timeout_seconds: 300
+  timeout_seconds: 450
   tools:
     - web_search
     - search_knowledge_base
     - fetch_strategy_registry
     - get_strategy_gaps
 
-equity_investment_researcher:
-  role: "Equity Investment Researcher"
-  goal: "Research one symbol for fundamental-driven investment strategies (weeks-to-months holding period) and return standardized results."
+domain_researcher:
+  role: "Domain Strategy Researcher"
+  goal: "Research one symbol for one domain iteration and return standardized strategy results."
   backstory: |
-    You are a specialized equity investment researcher. You research ONE symbol for ONE domain iteration.
+    You research ONE symbol for ONE domain iteration. Domain type is specified in your
+    system prompt: investment, swing, or options.
 
-    Scope: fundamental-driven investment strategies. Analyze financial statements, valuation ratios,
-    institutional ownership changes, insider activity, analyst estimates and revisions, sector positioning.
-    Cross-reference with macro regime and factor tilts (value, quality, momentum).
+    Investment scope: fundamental-driven strategies (weeks-to-months holding). Analyze financial
+    statements, valuation ratios, institutional ownership, analyst estimates, sector positioning.
 
-    Must lock work via DB before starting to prevent duplicate research. Return structured JSON with
-    strategy parameters, backtest results, and registration recommendation.
+    Swing scope: technical + quantamental strategies (days-to-weeks holding). Analyze price action,
+    momentum, mean-reversion signals, volume profiles, regime-conditional entries.
+
+    Options scope: directional, volatility, earnings, and defined-risk structures. Analyze IV surface,
+    term structure, skew, historical vs implied vol, earnings history, options flow, Greeks sensitivity.
+
+    Must lock work via DB before starting to prevent duplicate research.
+    Return structured JSON with strategy parameters, backtest results, and registration recommendation.
+
+    Validation gates: signal validity (IC > 0.02), IS performance (Sharpe > 0.5, trades > 20,
+    PF > 1.2), OOS consistency (walk-forward OOS Sharpe > 0.3, overfit ratio < 2.0, PBO < 0.40).
+
+    EWF Elliott Wave context (swing domain): Elliott Wave position provides a useful frame for
+    strategy type selection. If EWF shows an impulse wave in progress (wave 1, 3, or early 5),
+    bias toward momentum continuation strategies. If a corrective wave is completing near a Blue
+    Box zone, consider a reversal or mean-reversion entry candidate.
+    Treat EWF wave counts as hypothesis-grade inputs, not confirmed signals — the analysis
+    is a model reading analyst-drawn labels on a chart. Cross-validate with price action,
+    volume, and quantitative indicators before drawing conclusions.
   llm_tier: heavy
-  max_iterations: 20
-  timeout_seconds: 600
+  max_iterations: 10
+  timeout_seconds: 300
+  domain_tool_sets:
+    investment:
+      - fetch_market_data
+      - load_market_data
+      - fetch_fundamentals
+      - get_company_facts
+      - get_analyst_estimates
+      - get_institutional_accumulation
+      - screen_stocks
+      - get_earnings_momentum
+    swing:
+      - signal_brief
+      - multi_signal_brief
+      - fetch_market_data
+      - load_market_data
+      - compute_features
+      - compute_technical_indicators
+      - get_capitulation_score
+      - get_institutional_accumulation
+      - screen_stocks
+      - finrl_screen_stocks
+      - decode_strategy
+      - decode_from_trades
+      - get_put_call_ratio
+      - get_ewf_analysis
+    options:
+      - fetch_options_chain
+      - compute_greeks
+      - compute_implied_vol
+      - get_iv_surface
+      - price_option
+      - analyze_option_structure
+      - score_trade_structure
+      - finrl_screen_options
+      - simulate_trade_outcome
   tools:
-    - fetch_market_data
-    - load_market_data
-    - compute_features
-    - fetch_fundamentals
-    - get_company_facts
-    - get_analyst_estimates
-    - get_institutional_accumulation
+    # Always-loaded tools (all domains) — listed here for the loader
     - run_backtest
     - run_walkforward
     - search_knowledge_base
     - register_strategy
-    - screen_stocks
-
-equity_swing_researcher:
-  role: "Equity Swing Researcher"
-  goal: "Research one symbol for technical + quantamental swing/position strategies (days-to-weeks holding period) and return standardized results."
-  backstory: |
-    You are a specialized equity swing/position researcher. You research ONE symbol for ONE domain iteration.
-
-    Scope: technical + quantamental swing strategies. Analyze price action, support/resistance levels,
-    volume profiles, momentum indicators, mean-reversion signals, regime-conditional entry conditions.
-    Cross-reference with sector rotation and market microstructure signals.
-
-    Must lock work via DB before starting to prevent duplicate research. Return structured JSON with
-    strategy parameters, backtest results, and registration recommendation.
-  llm_tier: heavy
-  max_iterations: 20
-  timeout_seconds: 600
-  tools:
-    - signal_brief
-    - multi_signal_brief
-    - fetch_market_data
-    - load_market_data
-    - compute_features
-    - compute_technical_indicators
-    - get_capitulation_score
-    - get_institutional_accumulation
+    # EWF (1)
+    - get_ewf_analysis
+  always_loaded_tools:
     - run_backtest
     - run_walkforward
     - search_knowledge_base
     - register_strategy
-    - screen_stocks
-    - finrl_screen_stocks
-    - decode_strategy
-    - decode_from_trades
-
-options_researcher:
-  role: "Options Strategy Researcher"
-  goal: "Research one symbol for options strategies (directional, volatility, earnings, defined-risk structures) and return standardized results."
-  backstory: |
-    You are a specialized options researcher. You research ONE symbol for ONE domain iteration.
-
-    Scope: options strategies — directional, volatility plays, earnings plays, defined-risk structures.
-    Analyze IV surface, term structure, skew, historical vol vs implied vol, earnings history,
-    options flow, and Greeks sensitivity. Design structures that match the thesis with defined risk.
-
-    Must lock work via DB before starting to prevent duplicate research. Return structured JSON with
-    strategy parameters, backtest results, and registration recommendation.
-  llm_tier: heavy
-  max_iterations: 20
-  timeout_seconds: 600
-  tools:
-    - fetch_options_chain
-    - compute_greeks
-    - compute_implied_vol
-    - get_iv_surface
-    - price_option
-    - analyze_option_structure
-    - score_trade_structure
-    - fetch_market_data
-    - run_backtest
-    - run_backtest_options
-    - search_knowledge_base
-    - register_strategy
-    - finrl_screen_options
-    - simulate_trade_outcome
 
 execution_researcher:
   role: "Execution & Portfolio Construction Researcher"
@@ -291,8 +357,8 @@ execution_researcher:
 
     Output: structured recommendations for improving execution quality and portfolio construction.
   llm_tier: heavy
-  max_iterations: 20
-  timeout_seconds: 600
+  max_iterations: 10
+  timeout_seconds: 300
   tools:
     - fetch_portfolio
     - compute_risk_metrics
@@ -306,3 +372,8 @@ execution_researcher:
     - stress_test_portfolio
     - compute_var
     - compute_max_drawdown
+  always_loaded_tools:
+    - fetch_portfolio
+    - compute_risk_metrics
+    - search_knowledge_base
+    - get_tca_report

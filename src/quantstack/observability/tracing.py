@@ -80,8 +80,8 @@ def shutdown() -> None:
     if lf:
         try:
             lf.shutdown()
-        except Exception:
-            pass
+        except Exception as exc:
+            _std_logger.debug("[Tracing] shutdown failed: %s", exc)
 
 
 class TracingSpan:
@@ -94,30 +94,30 @@ class TracingSpan:
         if self._span:
             try:
                 self._span.update(**kwargs)
-            except Exception:
-                pass
+            except Exception as exc:
+                _std_logger.debug("[Tracing] span update failed: %s", exc)
 
     def end(self, **kwargs) -> None:
         if self._span:
             try:
                 self._span.end(**kwargs)
-            except Exception:
-                pass
+            except Exception as exc:
+                _std_logger.debug("[Tracing] span end failed: %s", exc)
 
     def generation(self, **kwargs) -> "TracingSpan":
         if self._span:
             try:
                 return TracingSpan(self._span.generation(**kwargs))
-            except Exception:
-                pass
+            except Exception as exc:
+                _std_logger.debug("[Tracing] span generation failed: %s", exc)
         return TracingSpan(None)
 
     def span(self, **kwargs) -> "TracingSpan":
         if self._span:
             try:
                 return TracingSpan(self._span.span(**kwargs))
-            except Exception:
-                pass
+            except Exception as exc:
+                _std_logger.debug("[Tracing] span creation failed: %s", exc)
         return TracingSpan(None)
 
 
@@ -263,8 +263,8 @@ def flush() -> None:
     if lf:
         try:
             lf.flush()
-        except Exception:
-            pass
+        except Exception as exc:
+            _std_logger.debug("[Tracing] flush failed: %s", exc)
 
 
 # --- Business event trace helpers ---
@@ -423,3 +423,229 @@ def trace_agent_decision(
         )
     except Exception:
         _std_logger.debug("Failed to trace agent decision for %s", agent_name, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Tool Search tracing helpers
+# ---------------------------------------------------------------------------
+
+def trace_tool_search_event(
+    agent_name: str,
+    query: str,
+    result_count: int,
+    tool_names_returned: list[str],
+    latency_ms: float | None = None,
+) -> None:
+    """Log a BM25 tool search event to LangFuse."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="tool_search:search",
+            metadata={
+                "agent": agent_name,
+                "query": query,
+                "result_count": result_count,
+                "tool_names_returned": tool_names_returned,
+                "latency_ms": latency_ms,
+            },
+            tags=["tool_search", "search"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace tool search event for %s", agent_name, exc_info=True)
+
+
+def trace_tool_discovery_event(
+    agent_name: str,
+    tool_name: str,
+    search_query: str,
+) -> None:
+    """Log when a deferred tool is discovered via search and subsequently called."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="tool_search:discovery",
+            metadata={
+                "agent": agent_name,
+                "tool_name": tool_name,
+                "search_query": search_query,
+            },
+            tags=["tool_search", "discovery"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace tool discovery for %s", agent_name, exc_info=True)
+
+
+def trace_tool_search_miss_event(
+    agent_name: str,
+    query: str,
+    reason: str,
+) -> None:
+    """Log when a tool search returns no useful results."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="tool_search:miss",
+            metadata={
+                "agent": agent_name,
+                "query": query,
+                "reason": reason,
+            },
+            tags=["tool_search", "miss"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace tool search miss for %s", agent_name, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Work-item trace helpers (WI-1, WI-5, WI-6, WI-7, WI-8)
+# ---------------------------------------------------------------------------
+
+
+def trace_quality_evaluation(
+    trade_id: int,
+    scores: dict,
+    model_used: str,
+    latency_ms: float,
+) -> None:
+    """Trace a trade quality evaluation from WI-1."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="trade_quality_evaluation",
+            metadata={
+                "trade_id": trade_id,
+                "overall_score": scores.get("overall_score"),
+                "model_used": model_used,
+                "latency_ms": latency_ms,
+            },
+            tags=["quality", "evaluation"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace quality evaluation", exc_info=True)
+
+
+def trace_thinking_enabled(
+    agent_name: str,
+    thinking_config: dict,
+    model_id: str,
+) -> None:
+    """Trace when extended thinking is activated for an agent (WI-5)."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="thinking_enabled",
+            metadata={
+                "agent_name": agent_name,
+                "thinking_config": thinking_config,
+                "model_id": model_id,
+            },
+            tags=["thinking", "llm"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace thinking_enabled", exc_info=True)
+
+
+def trace_parallel_branch_timing(
+    graph_name: str,
+    branch_name: str,
+    duration_seconds: float,
+) -> None:
+    """Trace parallel branch execution duration (WI-6)."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="parallel_branch_timing",
+            metadata={
+                "graph_name": graph_name,
+                "branch_name": branch_name,
+                "duration_seconds": duration_seconds,
+            },
+            tags=["parallel", "timing"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace parallel branch timing", exc_info=True)
+
+
+def trace_fanout_worker(
+    symbol: str,
+    worker_index: int,
+    duration_seconds: float,
+    success: bool,
+    error: str | None = None,
+) -> None:
+    """Trace per-symbol worker execution in research fan-out (WI-7)."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="fanout_worker",
+            metadata={
+                "symbol": symbol,
+                "worker_index": worker_index,
+                "duration_seconds": duration_seconds,
+                "success": success,
+                "error": error,
+            },
+            tags=["fanout", "research"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace fanout worker", exc_info=True)
+
+
+def trace_hypothesis_loop(
+    loop_count: int,
+    final_confidence: float,
+    max_attempts_hit: bool,
+) -> None:
+    """Trace hypothesis self-critique loop metrics (WI-8)."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="hypothesis_loop",
+            metadata={
+                "loop_count": loop_count,
+                "final_confidence": final_confidence,
+                "max_attempts_hit": max_attempts_hit,
+            },
+            tags=["hypothesis", "self_critique"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace hypothesis loop", exc_info=True)
+
+
+def trace_tool_search_fallback(
+    agent_name: str,
+    error: str,
+    tools_loaded: int,
+) -> None:
+    """Log when tool search falls back to full loading."""
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    try:
+        lf.trace(
+            name="tool_search:fallback",
+            metadata={
+                "agent": agent_name,
+                "error": error,
+                "tools_loaded": tools_loaded,
+            },
+            tags=["tool_search", "fallback"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace tool search fallback for %s", agent_name, exc_info=True)

@@ -25,7 +25,7 @@ Design notes
 from __future__ import annotations
 
 import json as _json
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -98,12 +98,19 @@ class PgDataStore:
     ) -> pd.DataFrame:
         """Execute *query* and return a DataFrame.
 
-        Accepts a PgConnection rather than conn._raw so that it can prime
-        the underlying psycopg2 connection (conn._ensure_raw()) before
-        calling pd.read_sql_query, which requires the raw connection object.
+        Uses cursor.execute + fetchall instead of pd.read_sql_query to avoid
+        the 'pandas only supports SQLAlchemy connectable' UserWarning that
+        fires when passing a raw psycopg2 connection.
         """
         raw = conn._ensure_raw()
-        return pd.read_sql_query(query, raw, params=params)
+        cur = raw.cursor()
+        try:
+            cur.execute(query, params)
+            cols = [desc[0] for desc in cur.description] if cur.description else []
+            rows = cur.fetchall()
+            return pd.DataFrame(rows, columns=cols)
+        finally:
+            cur.close()
 
     # ------------------------------------------------------------------
     # OHLCV
@@ -859,7 +866,7 @@ class PgDataStore:
         if "data_date" not in data.columns:
             data["data_date"] = data_date
 
-        if isinstance(data["data_date"].iloc[0], pd.Timestamp):
+        if not data.empty and isinstance(data["data_date"].iloc[0], pd.Timestamp):
             data["data_date"] = data["data_date"].dt.date
 
         valid_columns = [
@@ -945,6 +952,105 @@ class PgDataStore:
                 df[col] = pd.to_datetime(df[col])
 
         return df
+
+    # ========================================
+    # Put-Call Ratio & Listing Status (AV Data Expansion)
+    # ========================================
+
+    def load_options_volume_summary(
+        self, symbol: str, start_date: date, end_date: date
+    ) -> pd.DataFrame:
+        """Aggregate put/call volume by date from options_chains.
+
+        Returns a DataFrame with columns ['date', 'put_volume', 'call_volume'].
+        """
+        query = """
+            SELECT
+                data_date AS date,
+                SUM(CASE WHEN option_type = 'put' THEN volume ELSE 0 END) AS put_volume,
+                SUM(CASE WHEN option_type = 'call' THEN volume ELSE 0 END) AS call_volume
+            FROM options_chains
+            WHERE underlying = %s AND data_date BETWEEN %s AND %s
+            GROUP BY data_date
+            ORDER BY data_date
+        """
+        params: list[Any] = [symbol, start_date, end_date]
+
+        with pg_conn() as conn:
+            df = self._df_from_query(query, params, conn)
+
+        if df.empty:
+            return pd.DataFrame(columns=["date", "put_volume", "call_volume"])
+
+        return df
+
+    def save_put_call_ratio(self, df: pd.DataFrame) -> int:
+        """Upsert put-call ratio rows.
+
+        Expects columns: symbol, date, put_volume, call_volume, pcr, source.
+        Returns the number of rows written.
+        """
+        if df.empty:
+            return 0
+
+        cols = ["symbol", "date", "put_volume", "call_volume", "pcr", "source"]
+        rows = list(df[cols].itertuples(index=False, name=None))
+
+        with pg_conn() as conn:
+            psycopg2.extras.execute_values(
+                self._prime_cursor(conn),
+                """
+                INSERT INTO put_call_ratio (symbol, date, put_volume, call_volume, pcr, source)
+                VALUES %s
+                ON CONFLICT (symbol, date, source) DO UPDATE SET
+                    put_volume = EXCLUDED.put_volume,
+                    call_volume = EXCLUDED.call_volume,
+                    pcr = EXCLUDED.pcr
+                """,
+                rows,
+            )
+
+        logger.info(f"[PgDataStore] Saved {len(rows)} put-call ratio rows")
+        return len(rows)
+
+    def load_put_call_ratio(
+        self, symbol: str, start_date: date, end_date: date
+    ) -> pd.DataFrame:
+        """Load put-call ratio data for a symbol within a date range."""
+        query = (
+            "SELECT symbol, date, put_volume, call_volume, pcr, source "
+            "FROM put_call_ratio "
+            "WHERE symbol = %s AND date BETWEEN %s AND %s "
+            "ORDER BY date"
+        )
+        params: list[Any] = [symbol, start_date, end_date]
+
+        with pg_conn() as conn:
+            return self._df_from_query(query, params, conn)
+
+    def update_delisting_status(self, symbols: list[str], delisted_at: date) -> int:
+        """Mark symbols as delisted in company_overview.
+
+        Returns the number of rows updated.
+        """
+        if not symbols:
+            return 0
+
+        with pg_conn() as conn:
+            conn.execute(
+                "UPDATE company_overview SET delisted_at = %s WHERE symbol = ANY(%s)",
+                [delisted_at, symbols],
+            )
+            return conn._cur.rowcount if conn._cur else 0  # type: ignore[union-attr]
+
+    def get_delisted_symbols(self) -> list[str]:
+        """Return symbols that have a non-null delisted_at value."""
+        with pg_conn() as conn:
+            rows = conn.execute(
+                "SELECT symbol FROM company_overview "
+                "WHERE delisted_at IS NOT NULL ORDER BY symbol"
+            ).fetchall()
+        return [r[0] for r in rows]
 
     # ------------------------------------------------------------------
     # Earnings calendar

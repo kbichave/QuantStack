@@ -13,6 +13,8 @@ Phases:
   options           — historical options chains
   news              — news sentiment (30-day rolling)
   fundamentals      — company overview (sector, beta, ratios, etc.)
+  commodities       — gold, silver, copper, all-commodities, EUR/USD, USD/JPY
+  put_call_ratio    — historical put/call ratio (conditional on endpoint)
 
 Usage:
   # Full cold-start (all 50 symbols, all phases):
@@ -72,8 +74,11 @@ _CALLS_PER_SYMBOL = {
     "options": 1,
     "news": 0,  # batched — computed separately
     "fundamentals": 1,
+    "commodities": 0,       # global — 6 calls total, not per symbol
+    "put_call_ratio": 1,    # conditional — may be 0 if endpoint blocked
 }
-_MACRO_CALLS = 9  # fixed regardless of symbol count
+_MACRO_CALLS = 9   # fixed regardless of symbol count
+_COMMODITY_CALLS = 6  # gold, silver, copper, all_commodities, 2 forex pairs
 
 
 def _parse_args() -> argparse.Namespace:
@@ -113,6 +118,8 @@ def _estimate_calls(
             estimates[phase] = n * months
         elif phase == "macro":
             estimates[phase] = _MACRO_CALLS
+        elif phase == "commodities":
+            estimates[phase] = _COMMODITY_CALLS
         elif phase == "news":
             estimates[phase] = -(-n // 5)  # ceil div by batch size
         else:

@@ -1,0 +1,10 @@
+{
+  "langchain_anthropic_version": "0.3.22",
+  "finding": "bind_tools() does NOT recognize tool_search_bm25_2025_04_15 as a builtin tool type (KeyError on 'parameters'). Use llm.bind(tools=...) instead to bypass conversion. convert_to_anthropic_tool() preserves defer_loading on tool dicts.",
+  "bind_tools_tool_search_support": false,
+  "llm_bind_tool_search_support": true,
+  "convert_preserves_defer_loading": true,
+  "workaround": "Use llm.bind(tools=formatted_tools) instead of bind_tools() for the tool search path. Format tools with convert_to_anthropic_tool() + defer_loading flag, pass tool_search dict as-is.",
+  "server_tool_use_in_tool_calls": "unknown - requires live API call to determine",
+  "tested_at": "2026-04-03"
+}

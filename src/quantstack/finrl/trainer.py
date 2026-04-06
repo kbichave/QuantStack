@@ -286,8 +286,8 @@ class FinRLTrainer:
                 obs_tensor = torch.as_tensor(obs).unsqueeze(0).float()
                 value = model.policy.predict_values(obs_tensor)
                 confidence = float(torch.sigmoid(value).item())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[FinRL] Confidence estimation failed: %s", exc)
 
         return action, confidence
 

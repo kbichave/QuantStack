@@ -106,7 +106,7 @@ async def collect_sector(symbol: str, store: DataStore) -> dict[str, Any]:
     try:
         return await asyncio.to_thread(_collect_sector_sync, symbol, store)
     except Exception as exc:
-        logger.debug(f"[sector] {symbol}: {exc} — returning empty")
+        logger.warning(f"[sector] {symbol}: {exc} — returning empty")
         return {}
 
 

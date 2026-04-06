@@ -1,15 +1,14 @@
 """Trading pipeline graph builder.
 
-Builds a 14-node StateGraph with parallel branches and risk gate:
+Builds a 16-node StateGraph with parallel branches and risk gate:
   START -> data_refresh -> safety_check -> [halted?] -> END
-                                        -> plan_day
+                                        -> market_intel -> plan_day
                             |-> position_review -> execute_exits -> merge_parallel
                             |-> entry_scan --------------------->  merge_parallel
                         -> risk_sizing -> [SafetyGate] -> portfolio_construction
-                                                        -> portfolio_review
-                                                        -> analyze_options
-                                                        -> execute_entries
-                                                        -> reflect -> END
+                                                         |-> portfolio_review -----> merge_pre_execution
+                                                         |-> analyze_options -----> merge_pre_execution
+                                                        -> execute_entries -> reflect -> END
                                        |-> [rejected] -> END
 """
 
@@ -22,7 +21,7 @@ from langgraph.types import RetryPolicy
 from quantstack.graphs.config_watcher import ConfigWatcher
 from quantstack.graphs.state import TradingState
 from quantstack.llm.provider import get_chat_model
-from quantstack.tools.registry import get_tools_for_agent
+from quantstack.graphs.tool_binding import bind_tools_to_llm
 
 from .nodes import (
     make_daily_plan,
@@ -40,29 +39,10 @@ from .nodes import (
     make_risk_sizing,
     make_safety_check,
     merge_parallel,
+    merge_pre_execution,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _bind_tools_to_llm(llm, config):
-    """Bind tools from agent config to the LLM. Returns (llm_with_tools, tool_list)."""
-    if not config.tools:
-        return llm, []
-    try:
-        tools = get_tools_for_agent(config.tools)
-        bound_llm = llm.bind_tools(tools)
-        logger.info(
-            "Agent '%s' bound %d tools: %s",
-            config.name, len(tools), [t.name for t in tools],
-        )
-        return bound_llm, tools
-    except (KeyError, Exception) as exc:
-        logger.warning(
-            "Failed to bind tools for agent '%s': %s — running without tools",
-            config.name, exc,
-        )
-        return llm, []
 
 
 def _safety_check_router(state: TradingState) -> str:
@@ -88,20 +68,15 @@ def _earnings_router(state: TradingState) -> str:
 
 
 def _risk_gate_router(state: TradingState) -> str:
-    """Route based on SafetyGate verdict.
+    """Route based on whether risk_sizing produced alpha signals.
 
-    If ANY verdict is rejected, the entire batch is rejected.
-    Conservative by design — partial approval is not supported
-    because correlated entries could collectively breach limits.
+    SafetyGate now runs inside portfolio_construction (post-optimization).
+    This router simply checks whether there are candidates to optimize.
+    If risk_sizing produced no alpha_signals, skip to END (no candidates).
     """
-    verdicts = state.get("risk_verdicts", [])
-    if not verdicts:
+    alpha_signals = state.get("alpha_signals", [])
+    if not alpha_signals:
         return "rejected"
-
-    for verdict in verdicts:
-        if not verdict.get("approved", False):
-            return "rejected"
-
     return "approved"
 
 
@@ -117,28 +92,35 @@ def build_trading_graph(
     """
     planner_cfg = config_watcher.get_config("daily_planner")
     monitor_cfg = config_watcher.get_config("position_monitor")
+    exit_cfg = config_watcher.get_config("exit_evaluator")
     debater_cfg = config_watcher.get_config("trade_debater")
-    risk_cfg = config_watcher.get_config("risk_analyst")
     fm_cfg = config_watcher.get_config("fund_manager")
     options_cfg = config_watcher.get_config("options_analyst")
     reflector_cfg = config_watcher.get_config("trade_reflector")
     market_intel_cfg = config_watcher.get_config("market_intel")
     earnings_cfg = config_watcher.get_config("earnings_analyst")
 
-    # Base LLMs per tier
-    medium_llm = get_chat_model(planner_cfg.llm_tier)
-    heavy_llm = get_chat_model(debater_cfg.llm_tier)
+    # Per-agent LLM instances (each agent gets its own tier + thinking config)
+    planner_llm_base = get_chat_model(planner_cfg.llm_tier, thinking=planner_cfg.thinking)
+    monitor_llm_base = get_chat_model(monitor_cfg.llm_tier, thinking=monitor_cfg.thinking)
+    exit_llm_base = get_chat_model(exit_cfg.llm_tier, thinking=exit_cfg.thinking)
+    debater_llm_base = get_chat_model(debater_cfg.llm_tier, thinking=debater_cfg.thinking)
+    fm_llm_base = get_chat_model(fm_cfg.llm_tier, thinking=fm_cfg.thinking)
+    options_llm_base = get_chat_model(options_cfg.llm_tier, thinking=options_cfg.thinking)
+    reflector_llm_base = get_chat_model(reflector_cfg.llm_tier, thinking=reflector_cfg.thinking)
+    mi_llm_base = get_chat_model(market_intel_cfg.llm_tier, thinking=market_intel_cfg.thinking)
+    earnings_llm_base = get_chat_model(earnings_cfg.llm_tier, thinking=earnings_cfg.thinking)
 
     # Bind tools per agent from YAML config
-    planner_llm, planner_tools = _bind_tools_to_llm(medium_llm, planner_cfg)
-    monitor_llm, monitor_tools = _bind_tools_to_llm(medium_llm, monitor_cfg)
-    debater_llm, debater_tools = _bind_tools_to_llm(heavy_llm, debater_cfg)
-    risk_llm, risk_tools = _bind_tools_to_llm(medium_llm, risk_cfg)
-    fm_llm, fm_tools = _bind_tools_to_llm(heavy_llm, fm_cfg)
-    options_llm, options_tools = _bind_tools_to_llm(heavy_llm, options_cfg)
-    reflector_llm, reflector_tools = _bind_tools_to_llm(medium_llm, reflector_cfg)
-    mi_llm, mi_tools = _bind_tools_to_llm(medium_llm, market_intel_cfg)
-    earnings_llm, earnings_tools = _bind_tools_to_llm(medium_llm, earnings_cfg)
+    planner_llm, planner_tools, _ = bind_tools_to_llm(planner_llm_base, planner_cfg)
+    monitor_llm, monitor_tools, _ = bind_tools_to_llm(monitor_llm_base, monitor_cfg)
+    exit_llm, exit_tools, _ = bind_tools_to_llm(exit_llm_base, exit_cfg)
+    debater_llm, debater_tools, _ = bind_tools_to_llm(debater_llm_base, debater_cfg)
+    fm_llm, fm_tools, _ = bind_tools_to_llm(fm_llm_base, fm_cfg)
+    options_llm, options_tools, _ = bind_tools_to_llm(options_llm_base, options_cfg)
+    reflector_llm, reflector_tools, _ = bind_tools_to_llm(reflector_llm_base, reflector_cfg)
+    mi_llm, mi_tools, _ = bind_tools_to_llm(mi_llm_base, market_intel_cfg)
+    earnings_llm, earnings_tools, _ = bind_tools_to_llm(earnings_llm_base, earnings_cfg)
 
     graph = StateGraph(TradingState)
 
@@ -146,14 +128,17 @@ def build_trading_graph(
     graph.add_node("data_refresh", make_data_refresh())
 
     # Critical node (no retry — fail fast)
-    graph.add_node("safety_check", make_safety_check(medium_llm, planner_cfg))
+    graph.add_node("safety_check", make_safety_check(planner_llm_base, planner_cfg))
 
     # Pre-market intelligence (runs between safety_check and plan_day)
     graph.add_node("market_intel", make_market_intel(mi_llm, market_intel_cfg, mi_tools), retry=RetryPolicy(max_attempts=2))
 
     # Agent nodes with tool access (retry up to 2 times for transient LLM failures)
     graph.add_node("plan_day", make_daily_plan(planner_llm, planner_cfg, planner_tools), retry=RetryPolicy(max_attempts=3))
-    graph.add_node("position_review", make_position_review(monitor_llm, monitor_cfg, monitor_tools), retry=RetryPolicy(max_attempts=3))
+    graph.add_node("position_review", make_position_review(
+        monitor_llm, monitor_cfg, monitor_tools,
+        exit_llm=exit_llm, exit_config=exit_cfg, exit_tools=exit_tools,
+    ), retry=RetryPolicy(max_attempts=3))
     graph.add_node("entry_scan", make_entry_scan(debater_llm, debater_cfg, debater_tools), retry=RetryPolicy(max_attempts=3))
     graph.add_node("portfolio_review", make_portfolio_review(fm_llm, fm_cfg, fm_tools), retry=RetryPolicy(max_attempts=3))
     graph.add_node("analyze_options", make_options_analysis(options_llm, options_cfg, options_tools), retry=RetryPolicy(max_attempts=3))
@@ -166,14 +151,15 @@ def build_trading_graph(
     # Earnings analysis (conditional — only when earnings_symbols non-empty)
     graph.add_node("earnings_analysis", make_earnings_analysis(earnings_llm, earnings_cfg, earnings_tools), retry=RetryPolicy(max_attempts=2))
 
-    # Risk sizing (SafetyGate portion has no retry — critical)
-    graph.add_node("risk_sizing", make_risk_sizing(risk_llm, risk_cfg, risk_tools))
+    # Risk sizing (deterministic, no LLM — SafetyGate runs in portfolio_construction)
+    graph.add_node("risk_sizing", make_risk_sizing())
 
     # Portfolio construction (deterministic, no LLM)
     graph.add_node("portfolio_construction", make_portfolio_construction())
 
-    # Join node (no retry needed)
+    # Join nodes (no retry needed)
     graph.add_node("merge_parallel", merge_parallel)
+    graph.add_node("merge_pre_execution", merge_pre_execution)
 
     # --- Edges ---
     graph.add_edge(START, "data_refresh")
@@ -213,10 +199,12 @@ def build_trading_graph(
         {"approved": "portfolio_construction", "rejected": END},
     )
 
-    # Post-risk-gate: optimizer -> fund manager review -> options -> execution
+    # Post-risk-gate: optimizer -> parallel (fund manager + options) -> execution
     graph.add_edge("portfolio_construction", "portfolio_review")
-    graph.add_edge("portfolio_review", "analyze_options")
-    graph.add_edge("analyze_options", "execute_entries")
+    graph.add_edge("portfolio_construction", "analyze_options")
+    graph.add_edge("portfolio_review", "merge_pre_execution")
+    graph.add_edge("analyze_options", "merge_pre_execution")
+    graph.add_edge("merge_pre_execution", "execute_entries")
     graph.add_edge("execute_entries", "reflect")
     graph.add_edge("reflect", END)
 

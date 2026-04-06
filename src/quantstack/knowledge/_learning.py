@@ -157,7 +157,8 @@ class LearningMixin:
             max_id = self.conn.execute(
                 "SELECT COALESCE(MAX(log_id), 0) FROM agent_logs"
             ).fetchone()[0]
-        except Exception:
+        except Exception as exc:
+            logger.warning("[Learning] Failed to fetch max log_id, defaulting to 0: %s", exc)
             max_id = 0
         next_id = max_id + 1
 
@@ -946,7 +947,7 @@ class LearningMixin:
             cols = ["date", "agent_name", "symbol", "message", "reasoning"]
             return [dict(zip(cols, row, strict=False)) for row in results]
         except Exception as e:
-            logger.debug(f"Failed to get agent logs: {e}")
+            logger.warning(f"Failed to get agent logs: {e}")
             return []
 
     # =========================================================================
@@ -1020,7 +1021,8 @@ class LearningMixin:
                 ORDER BY captured_at DESC LIMIT 1
                 """
             ).fetchone()
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"Failed to get latest portfolio snapshot: {exc}")
             return None
 
         if row is None:

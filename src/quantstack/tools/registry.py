@@ -14,9 +14,14 @@ from quantstack.tools.langchain.signal_tools import signal_brief, multi_signal_b
 
 # Data
 from quantstack.tools.langchain.data_tools import (
+    check_listing_status,
     fetch_market_data,
     fetch_fundamentals,
     fetch_earnings_data,
+    get_commodity_signals,
+    get_earnings_momentum,
+    get_forex_rates,
+    get_put_call_ratio,
     load_market_data,
     list_stored_symbols,
     get_company_facts,
@@ -94,6 +99,9 @@ from quantstack.tools.langchain.strategy_tools import (
     get_strategy,
     update_strategy,
 )
+
+# Calendar
+from quantstack.tools.langchain.calendar_tools import get_trading_calendar
 
 
 def _try_import(module: str, names: list[str]) -> dict[str, BaseTool]:
@@ -180,6 +188,11 @@ _qc_research_tools = _try_import("quantstack.tools.langchain.qc_research_tools",
     "compute_deflated_sharpe_ratio", "run_combinatorial_purged_cv",
     "compute_probability_of_overfitting",
 ])
+# EWF Elliott Wave tools
+_ewf_tools = _try_import("quantstack.tools.langchain.ewf_tools", [
+    "get_ewf_analysis",
+    "get_ewf_blue_box_setups",
+])
 
 
 TOOL_REGISTRY: dict[str, BaseTool] = {
@@ -195,6 +208,11 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     "get_company_facts": get_company_facts,
     "get_analyst_estimates": get_analyst_estimates,
     "screen_stocks": screen_stocks,
+    "get_put_call_ratio": get_put_call_ratio,
+    "get_earnings_momentum": get_earnings_momentum,
+    "get_commodity_signals": get_commodity_signals,
+    "get_forex_rates": get_forex_rates,
+    "check_listing_status": check_listing_status,
     # Portfolio
     "fetch_portfolio": fetch_portfolio,
     # Options
@@ -243,6 +261,8 @@ TOOL_REGISTRY: dict[str, BaseTool] = {
     "register_strategy": register_strategy,
     "get_strategy": get_strategy,
     "update_strategy": update_strategy,
+    # Calendar
+    "get_trading_calendar": get_trading_calendar,
 }
 
 # Merge in dynamically-imported tools from new modules
@@ -251,9 +271,50 @@ for _tools_dict in [
     _cross_domain_tools, _decoder_tools, _feedback_tools, _institutional_tools,
     _intraday_tools, _macro_tools, _nlp_tools, _options_exec_tools, _meta_tools,
     _finrl_tools, _qc_acquisition_tools, _qc_backtesting_tools,
-    _qc_indicator_tools, _qc_research_tools,
+    _qc_indicator_tools, _qc_research_tools, _ewf_tools,
 ]:
     TOOL_REGISTRY.update(_tools_dict)
+
+
+from quantstack.graphs.tool_search_compat import TOOL_SEARCH_TOOL, tool_to_anthropic_dict
+
+
+# Client-side search tool schema — used by non-Anthropic providers (Bedrock, etc.)
+# that don't support defer_loading. The agent executor handles this tool specially.
+CLIENT_SEARCH_TOOL_NAME = "search_available_tools"
+
+
+def search_deferred_tools(
+    query: str,
+    deferred_names: set[str],
+    max_results: int = 5,
+) -> list[dict[str, str]]:
+    """Client-side keyword search over deferred tool descriptions.
+
+    Returns up to max_results tool summaries sorted by relevance (keyword match count).
+    """
+    query_lower = query.lower()
+    query_words = query_lower.split()
+
+    scored: list[tuple[int, str, str]] = []
+    for name in deferred_names:
+        tool = TOOL_REGISTRY.get(name)
+        if tool is None:
+            continue
+        desc = tool.description.lower()
+        # Score: number of query words that appear in the description
+        score = sum(1 for w in query_words if w in desc)
+        # Bonus for exact phrase match
+        if query_lower in desc:
+            score += len(query_words)
+        if score > 0:
+            scored.append((score, name, tool.description))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [
+        {"name": name, "description": desc[:200]}
+        for _, name, desc in scored[:max_results]
+    ]
 
 
 def get_tools_for_agent(tool_names: list[str] | tuple[str, ...]) -> list[BaseTool]:
@@ -272,3 +333,41 @@ def get_tools_for_agent(tool_names: list[str] | tuple[str, ...]) -> list[BaseToo
             )
         tools.append(TOOL_REGISTRY[name])
     return tools
+
+
+def get_tools_for_agent_with_search(
+    tool_names: list[str] | tuple[str, ...],
+    always_loaded: list[str] | tuple[str, ...],
+) -> tuple[list[dict], list[BaseTool]]:
+    """Partition tools into deferred/always-loaded and return API-ready dicts.
+
+    Args:
+        tool_names: All tool names configured for the agent (from agents.yaml tools:).
+        always_loaded: Subset of tool_names that must never be deferred
+            (from agents.yaml always_loaded_tools:).
+
+    Returns:
+        tools_for_api: List of tool schema dicts with defer_loading flags,
+            plus the BM25 search tool definition. Pass to llm.bind(tools=...).
+        tools_for_execution: All BaseTool objects for tool_names. The agent
+            executor needs these to run any tool the LLM discovers via search.
+    """
+    always_loaded_set = set(always_loaded)
+    tool_names_set = set(tool_names)
+    invalid = always_loaded_set - tool_names_set
+    if invalid:
+        raise ValueError(
+            f"always_loaded contains tools not in tool_names: {sorted(invalid)}"
+        )
+
+    tools_for_execution = get_tools_for_agent(tool_names)
+    tool_map = {t.name: t for t in tools_for_execution}
+
+    tools_for_api: list[dict] = []
+    for name in tool_names:
+        defer = name not in always_loaded_set
+        tools_for_api.append(tool_to_anthropic_dict(tool_map[name], defer=defer))
+
+    tools_for_api.append(TOOL_SEARCH_TOOL)
+
+    return tools_for_api, tools_for_execution

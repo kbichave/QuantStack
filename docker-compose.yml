@@ -18,6 +18,8 @@
 # Host paths → container paths — models, logs, memory, and execution state
 # persist across rebuilds and restarts.
 x-graph-volumes: &graph-volumes
+  - ./src:/app/src                                # Live source code (no rebuild needed)
+  - ./scripts:/app/scripts                        # Runner scripts
   - ./models:/app/models                          # ML model checkpoints (joblib, pkl)
   - ./data:/app/data                              # Market data cache, DuckDB files
   - ./logs:/app/logs                              # Application logs (trader.log)

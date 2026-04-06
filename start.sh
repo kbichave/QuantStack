@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 # QuantStack — Docker Compose launcher for the autonomous trading system.
-# Usage: ./start.sh
+# Usage: ./start.sh [--build]
 # Starts infrastructure (postgres, ollama, langfuse) then graph services.
+# Pass --build to rebuild images before starting.
 # See ./status.sh for health dashboard, ./stop.sh for graceful shutdown.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# Parse CLI args
+BUILD_FLAG=""
+for arg in "$@"; do
+    case "$arg" in
+        --build) BUILD_FLAG="--build" ;;
+        *) echo "Unknown argument: $arg"; echo "Usage: ./start.sh [--build]"; exit 1 ;;
+    esac
+done
 
 # ---------------------------------------------------------------------------
 # 1. Load .env
@@ -51,7 +61,7 @@ fi
 # 4. Start infrastructure services
 # ---------------------------------------------------------------------------
 echo "[start.sh] Starting infrastructure services..."
-docker compose up -d postgres langfuse-db ollama langfuse
+docker compose up -d $BUILD_FLAG postgres langfuse-db ollama langfuse
 
 # ---------------------------------------------------------------------------
 # 5. Wait for infrastructure health checks
@@ -115,7 +125,7 @@ conn = open_db()
 row = conn.execute('SELECT COUNT(*) FROM universe WHERE is_active = TRUE').fetchone()
 conn.close()
 print(row[0])
-" 2>/dev/null || echo "0")
+" 2>/dev/null | tail -1 || echo "0")
 
 if [[ "$UNIVERSE_COUNT" -eq 0 ]]; then
     echo "[start.sh] Empty universe — running bootstrap..."
@@ -159,7 +169,7 @@ if row and row[0]:
     print(age)
 else:
     print(999)
-" 2>/dev/null || echo "999")
+" 2>/dev/null | tail -1 || echo "999")
 
 if [[ "$STALE_DAYS" -gt 1 ]]; then
     echo "[start.sh] OHLCV data is ${STALE_DAYS} days stale — running sync (background)..."
@@ -184,7 +194,7 @@ try:
     print('yes' if count == 0 else 'no')
 except:
     print('yes')
-" 2>/dev/null || echo "yes")
+" 2>/dev/null | tail -1 || echo "yes")
 
 if [[ "$RAG_EMPTY" == "yes" ]]; then
     echo "[start.sh] Embeddings table empty — running memory ingestion..."
@@ -200,7 +210,7 @@ echo "[start.sh] Credit regime check skipped (MCP layer removed)"
 # 13. Start graph services
 # ---------------------------------------------------------------------------
 echo "[start.sh] Starting graph + ML + dashboard services..."
-docker compose up -d trading-graph research-graph supervisor-graph finrl-worker dashboard
+docker compose up -d $BUILD_FLAG trading-graph research-graph supervisor-graph finrl-worker dashboard
 
 # ---------------------------------------------------------------------------
 # 14. Wait for graph health checks (best-effort, warning only)

@@ -247,8 +247,8 @@ class DailyDigest:
         try:
             row = self._conn.execute("SELECT COUNT(*) FROM positions").fetchone()
             report.open_positions = row[0] if row else 0
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[DailyDigest] _fill_portfolio failed: %s", exc)
 
     def _fill_trades(
         self, report: DigestReport, start: datetime, end: datetime
@@ -261,8 +261,8 @@ class DailyDigest:
             if row:
                 report.trades_today = row[0]
                 report.total_realized_pnl = row[1]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[DailyDigest] _fill_trades failed: %s", exc)
 
     def _fill_strategies(
         self, report: DigestReport, start: datetime, end: datetime
@@ -279,8 +279,8 @@ class DailyDigest:
                     report.total_forward_testing = count
                 else:
                     report.total_draft = count
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[DailyDigest] _fill_strategies failed: %s", exc)
 
     def _fill_loop_health(
         self, report: DigestReport, start: datetime, end: datetime
@@ -304,8 +304,8 @@ class DailyDigest:
                     elif loop_name == "ml_research":
                         report.ml_iterations = iterations
                     report.total_loop_errors += errors
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[DailyDigest] _fill_loop_health failed: %s", exc)
 
     def _fill_events(
         self, report: DigestReport, start: datetime, end: datetime
@@ -336,8 +336,8 @@ class DailyDigest:
                 elif etype == "degradation_detected":
                     if payload.get("severity") == "critical":
                         report.breakers_tripped.append(sid)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[DailyDigest] _fill_events failed: %s", exc)
 
     def _fill_screener(self, report: DigestReport) -> None:
         try:
@@ -353,5 +353,5 @@ class DailyDigest:
                 """
             ).fetchone()
             report.watchlist_size = row[0] if row else 0
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[DailyDigest] _fill_screener failed: %s", exc)

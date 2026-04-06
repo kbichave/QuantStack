@@ -113,7 +113,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["st_direction"] = int(st_df["st_direction"].iloc[-1])
         result["st_uptrend"] = bool(st_df["st_uptrend"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Supertrend failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Supertrend failed: {exc}")
 
     try:
         ichi_df = IchimokuCloud().compute(hi, lo, cl)
@@ -124,14 +124,14 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["price_below_cloud"] = int(ichi_df["price_below_cloud"].iloc[-1])
         result["tenkan_above_kijun"] = int(ichi_df["tenkan_above_kijun"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Ichimoku failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Ichimoku failed: {exc}")
 
     try:
         hma_df = HullMovingAverage(period=20).compute(cl)
         result["hma"] = _safe_float(hma_df["hma"].iloc[-1])
         result["hma_uptrend"] = int(hma_df["hma_uptrend"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: HMA failed: {exc}")
+        logger.warning(f"[technical] {symbol}: HMA failed: {exc}")
 
     try:
         pct_r_df = PercentRExhaustion(short=14, long=112).compute(hi, lo, cl)
@@ -140,7 +140,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["exhaustion_top"] = int(pct_r_df["exhaustion_top"].iloc[-1])
         result["exhaustion_bottom"] = int(pct_r_df["exhaustion_bottom"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: %R Exhaustion failed: {exc}")
+        logger.warning(f"[technical] {symbol}: %R Exhaustion failed: {exc}")
 
     try:
         wvf_df = WilliamsVIXFix(lookback=22, bb_period=20, bb_dev=2.0).compute(
@@ -149,7 +149,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["wvf"] = _safe_float(wvf_df["wvf"].iloc[-1])
         result["wvf_extreme"] = int(wvf_df["wvf_extreme"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Williams VIX Fix failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Williams VIX Fix failed: {exc}")
 
     # --- ICT Smart Money Concepts ---
     op = df["open"] if "open" in df.columns else cl  # fallback if open unavailable
@@ -160,7 +160,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["fvg_top"] = _safe_float(fvg_df["fvg_top"].iloc[-1])
         result["fvg_bottom"] = _safe_float(fvg_df["fvg_bottom"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: FVG failed: {exc}")
+        logger.warning(f"[technical] {symbol}: FVG failed: {exc}")
 
     try:
         ob_df = OrderBlockDetector(impulse_atr_multiple=1.5).compute(op, hi, lo, cl)
@@ -169,7 +169,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["ob_high"] = _safe_float(ob_df["ob_high"].iloc[-1])
         result["ob_low"] = _safe_float(ob_df["ob_low"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Order Block failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Order Block failed: {exc}")
 
     try:
         sa_df = StructureAnalysis(swing_period=5).compute(hi, lo, cl)
@@ -178,14 +178,14 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["choch_bullish"] = int(sa_df["choch_bullish"].iloc[-1])
         result["choch_bearish"] = int(sa_df["choch_bearish"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Structure Analysis failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Structure Analysis failed: {exc}")
 
     try:
         ehl_df = EqualHighsLows(lookback=20).compute(hi, lo, cl)
         result["equal_highs"] = int(ehl_df["equal_highs"].iloc[-1])
         result["equal_lows"] = int(ehl_df["equal_lows"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Equal H/L failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Equal H/L failed: {exc}")
 
     try:
         ote_df = OTELevels(swing_period=20).compute(hi, lo, cl)
@@ -193,7 +193,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["ote_upper"] = _safe_float(ote_df["ote_upper"].iloc[-1])
         result["ote_lower"] = _safe_float(ote_df["ote_lower"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: OTE Levels failed: {exc}")
+        logger.warning(f"[technical] {symbol}: OTE Levels failed: {exc}")
 
     try:
         kz_df = ICTKillZones().compute(df.index)
@@ -201,7 +201,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["in_london_kz"] = int(kz_df["in_london_kz"].iloc[-1])
         result["in_ny_am_kz"] = int(kz_df["in_ny_am_kz"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Kill Zones failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Kill Zones failed: {exc}")
 
     try:
         po3_df = ICTPowerOfThree().compute(op, hi, lo, cl)
@@ -211,7 +211,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["po3_distribution_up"] = int(po3_df["distribution_up"].iloc[-1])
         result["po3_distribution_down"] = int(po3_df["distribution_down"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Power of Three failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Power of Three failed: {exc}")
 
     try:
         bb_df = BreakerBlockDetector(impulse_atr_multiple=1.5).compute(op, hi, lo, cl)
@@ -220,7 +220,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["breaker_high"] = _safe_float(bb_df["breaker_high"].iloc[-1])
         result["breaker_low"] = _safe_float(bb_df["breaker_low"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Breaker Block failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Breaker Block failed: {exc}")
 
     try:
         mmxm_df = MMXMCycle().compute(hi, lo, cl)
@@ -231,7 +231,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["in_expansion"] = int(mmxm_df["in_expansion"].iloc[-1])
         result["in_retracement"] = int(mmxm_df["in_retracement"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: MMXM Cycle failed: {exc}")
+        logger.warning(f"[technical] {symbol}: MMXM Cycle failed: {exc}")
 
     try:
         sb_df = SilverBullet().compute(hi, lo, cl)
@@ -240,7 +240,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["sb_fvg_top"] = _safe_float(sb_df["sb_fvg_top"].iloc[-1])
         result["sb_fvg_bot"] = _safe_float(sb_df["sb_fvg_bot"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: SilverBullet failed: {exc}")
+        logger.warning(f"[technical] {symbol}: SilverBullet failed: {exc}")
 
     try:
         lrsi_df = LaguerreRSI(gamma=0.5).compute(cl)
@@ -249,7 +249,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["lrsi_overbought"] = int(lrsi_df["lrsi_ob"].iloc[-1])
         result["lrsi_oversold"] = int(lrsi_df["lrsi_os"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Laguerre RSI failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Laguerre RSI failed: {exc}")
 
     try:
         dm_df = DualMomentum(abs_lookback=252, skip_period=21).compute(cl)
@@ -258,7 +258,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["momentum_6m"] = _safe_float(dm_df["momentum_6m"].iloc[-1])
         result["momentum_3m"] = _safe_float(dm_df["momentum_3m"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: DualMomentum failed: {exc}")
+        logger.warning(f"[technical] {symbol}: DualMomentum failed: {exc}")
 
     # --- Order flow approximations (require volume column) ---
     if "volume" in df.columns:
@@ -269,7 +269,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["cvd_divergence"] = int(cvd_df["cvd_divergence"].iloc[-1])
             result["bar_delta"] = _safe_float(cvd_df["bar_delta"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[technical] {symbol}: CVD failed: {exc}")
+            logger.warning(f"[technical] {symbol}: CVD failed: {exc}")
 
         try:
             hawkes_df = HawkesIntensity().compute(hi, lo, cl, vol)
@@ -277,7 +277,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["hawkes_excited"] = int(hawkes_df["excited"].iloc[-1])
             result["hawkes_event"] = int(hawkes_df["event"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[technical] {symbol}: Hawkes Intensity failed: {exc}")
+            logger.warning(f"[technical] {symbol}: Hawkes Intensity failed: {exc}")
 
         try:
             kc_df = Koncorde().compute(hi, lo, cl, vol)
@@ -286,7 +286,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["koncorde_agreement"] = int(kc_df["agreement"].iloc[-1])
             result["koncorde_divergence"] = int(kc_df["divergence"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[technical] {symbol}: Koncorde failed: {exc}")
+            logger.warning(f"[technical] {symbol}: Koncorde failed: {exc}")
 
         try:
             op = df["open"]
@@ -299,14 +299,14 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["fp_stacked_bear"] = int(fp_df["stacked_bear"].iloc[-1])
             result["fp_poc_price"] = _safe_float(fp_df["poc_price"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[technical] {symbol}: FootprintApproximation failed: {exc}")
+            logger.warning(f"[technical] {symbol}: FootprintApproximation failed: {exc}")
 
         try:
             vpin_df = VPIN(n_buckets=50, window=50).compute(op, hi, lo, cl, vol)
             result["vpin"] = _safe_float(vpin_df["vpin"].iloc[-1])
             result["vpin_high"] = int(vpin_df["vpin_high"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[technical] {symbol}: VPIN failed: {exc}")
+            logger.warning(f"[technical] {symbol}: VPIN failed: {exc}")
 
     # --- Overnight gap + volume spike (institutional intent signal) ---
     if "open" in df.columns:
@@ -325,7 +325,7 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
                 result["volume_spike"] = int(gap_df["volume_spike"].iloc[-1])
                 result["institutional_gap"] = int(gap_df["institutional_gap"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[technical] {symbol}: OvernightGapPersistence failed: {exc}")
+            logger.warning(f"[technical] {symbol}: OvernightGapPersistence failed: {exc}")
 
     # --- Statistical features (hedge fund grade) ---
     try:
@@ -336,21 +336,21 @@ def _collect_technical_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["yang_zhang_vol"] = _safe_float(yz_df["yang_zhang_vol"].iloc[-1])
             result["parkinson_vol"] = _safe_float(yz_df["parkinson_vol"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: YangZhang failed: {exc}")
+        logger.warning(f"[technical] {symbol}: YangZhang failed: {exc}")
 
     try:
         vr_df = VarianceRatioTest(lags=[2, 5, 10], window=126).compute(cl)
         result["vr_5"] = _safe_float(vr_df["vr_5"].iloc[-1])
         result["vr_10"] = _safe_float(vr_df["vr_10"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: VarianceRatio failed: {exc}")
+        logger.warning(f"[technical] {symbol}: VarianceRatio failed: {exc}")
 
     try:
         ent_df = EntropyFeatures(window=63).compute(cl)
         result["shannon_entropy"] = _safe_float(ent_df["shannon_entropy"].iloc[-1])
         result["entropy_regime"] = _safe_float(ent_df["entropy_regime"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[technical] {symbol}: Entropy failed: {exc}")
+        logger.warning(f"[technical] {symbol}: Entropy failed: {exc}")
 
     # Note: HurstExponent (window=252) is too slow for real-time collector
     # (~0.5s per symbol). Use it in the FeatureFactory for ML training only.

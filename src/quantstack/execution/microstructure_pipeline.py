@@ -284,8 +284,19 @@ class MicrostructurePipeline:
         try:
             pos = self._fill_tracker.get_position(features.symbol)
             current_price = pos.avg_cost if pos else 0.0
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                f"[MicroPipeline] Failed to fetch position price for {features.symbol}, "
+                f"defaulting to 0.0: {exc}"
+            )
             current_price = 0.0
+
+        if current_price <= 0.0:
+            logger.warning(
+                f"[MicroPipeline] No valid price for {features.symbol} — skipping risk gate"
+            )
+            self._stats.risk_rejections += 1
+            return
 
         try:
             self._risk_gate.check(order=order, current_price=current_price)

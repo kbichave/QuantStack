@@ -74,5 +74,5 @@ def test_registry_defines_no_inline_tools():
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             # _try_import and get_tools_for_agent are helpers, not @tool definitions
-            if node.name not in ("_try_import", "get_tools_for_agent"):
+            if node.name not in ("_try_import", "get_tools_for_agent", "get_tools_for_agent_with_search"):
                 assert False, f"registry.py defines function '{node.name}' — move it to a langchain module"

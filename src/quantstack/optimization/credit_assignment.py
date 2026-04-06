@@ -270,4 +270,4 @@ class CreditAssigner:
                         ],
                     )
         except Exception as exc:
-            logger.debug(f"[CreditAssigner] Persist failed: {exc}")
+            logger.warning(f"[CreditAssigner] Persist failed: {exc}")

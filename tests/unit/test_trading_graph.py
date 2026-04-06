@@ -83,6 +83,26 @@ trade_reflector:
   timeout_seconds: 120
   tools:
     - signal_brief
+
+market_intel:
+  role: "Market Intelligence"
+  goal: "Pre-market intelligence gathering."
+  backstory: "Market intelligence specialist."
+  llm_tier: medium
+  max_iterations: 5
+  timeout_seconds: 120
+  tools:
+    - signal_brief
+
+earnings_analyst:
+  role: "Earnings Analyst"
+  goal: "Analyze earnings impact."
+  backstory: "Earnings specialist."
+  llm_tier: medium
+  max_iterations: 10
+  timeout_seconds: 120
+  tools:
+    - signal_brief
 """
     yaml_file = tmp_path / "agents.yaml"
     yaml_file.write_text(yaml_content)
@@ -113,7 +133,7 @@ class TestBuildTradingGraph:
         assert graph is not None
         assert hasattr(graph, "ainvoke")
 
-    def test_graph_has_twelve_nodes(self, mock_config_watcher):
+    def test_graph_has_sixteen_nodes(self, mock_config_watcher):
         from langgraph.checkpoint.memory import MemorySaver
         from quantstack.graphs.trading.graph import build_trading_graph
         with patch("quantstack.graphs.trading.graph.get_chat_model") as mock_gcm:
@@ -121,16 +141,17 @@ class TestBuildTradingGraph:
             graph = build_trading_graph(mock_config_watcher, MemorySaver())
         node_names = set(graph.get_graph().nodes.keys())
         expected_nodes = {
-            "safety_check", "plan_day", "position_review", "execute_exits",
-            "entry_scan", "merge_parallel", "risk_sizing", "portfolio_review",
-            "analyze_options", "execute_entries", "reflect",
+            "data_refresh", "safety_check", "market_intel", "plan_day",
+            "position_review", "execute_exits", "entry_scan", "earnings_analysis",
+            "merge_parallel", "merge_pre_execution", "risk_sizing",
+            "portfolio_construction", "portfolio_review", "analyze_options",
+            "execute_entries", "reflect",
         }
         assert expected_nodes.issubset(node_names), (
             f"Missing nodes: {expected_nodes - node_names}"
         )
-        # 11 real nodes (merge_parallel is the 11th, __start__/__end__ excluded)
         real_nodes = node_names - {"__start__", "__end__"}
-        assert len(real_nodes) == 11
+        assert len(real_nodes) == 16
 
     def test_reads_agent_configs(self, mock_config_watcher):
         from langgraph.checkpoint.memory import MemorySaver

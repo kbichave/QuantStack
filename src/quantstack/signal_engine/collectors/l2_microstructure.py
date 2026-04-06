@@ -269,7 +269,7 @@ def collect_l2_microstructure(
             )
             result["l2_high_impact"] = int(last["high_impact"])
         except Exception as exc:
-            logger.debug(f"[l2] {symbol}: Kyle's Lambda failed — {exc}")
+            logger.warning(f"[l2] {symbol}: Kyle's Lambda failed — {exc}")
 
     # IBKR L2 book — gated on connectivity
     book = _fetch_ibkr_book(symbol, n_levels=n_levels)

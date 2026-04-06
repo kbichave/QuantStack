@@ -165,7 +165,7 @@ class TradesMixin:
             ]
             return [dict(zip(cols, row, strict=False)) for row in results]
         except Exception as e:
-            logger.debug(f"Failed to get recent trades: {e}")
+            logger.warning(f"Failed to get recent trades: {e}")
             return []
 
     # =========================================================================

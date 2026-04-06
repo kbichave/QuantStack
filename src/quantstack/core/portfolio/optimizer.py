@@ -471,7 +471,8 @@ class MeanVarianceOptimizer:
                 )
             )
             return lw.covariance_
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[OPT] Ledoit-Wolf shrinkage failed, using constant-correlation fallback: {exc}")
             # Fallback: shrink toward scaled identity
             trace = np.trace(sigma)
             n = sigma.shape[0]
@@ -530,7 +531,8 @@ def covariance_matrix(
             lw = LedoitWolf()
             lw.fit(returns.fillna(0))
             cov_arr = lw.covariance_
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[OPT] Ledoit-Wolf covariance shrinkage failed, using sample covariance: {exc}")
             cov_arr = returns.cov().values
     else:
         cov_arr = returns.cov().values

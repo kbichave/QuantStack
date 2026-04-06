@@ -60,10 +60,10 @@ async def collect_options_flow_async(symbol: str, store: DataStore) -> dict[str,
             timeout=15.0,  # options chain fetch can be slow
         )
     except asyncio.TimeoutError:
-        logger.debug(f"[options_flow] {symbol}: timeout after 15s")
+        logger.warning(f"[options_flow] {symbol}: timeout after 15s")
         return {}
     except Exception as exc:
-        logger.debug(f"[options_flow] {symbol}: {exc}")
+        logger.warning(f"[options_flow] {symbol}: {exc}")
         return {}
 
 

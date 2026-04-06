@@ -2,10 +2,11 @@
 
 import json
 import time
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.tools import tool
 from loguru import logger
+from pydantic import Field
 
 from quantstack.tools._state import (
     _read_memory_file,
@@ -42,12 +43,10 @@ def _populate_signal_cache(symbol: str, brief: Any) -> None:
 
 
 @tool
-async def signal_brief(symbol: str) -> str:
-    """Get a technical signal brief for a symbol including trend, momentum, and key levels.
-
-    Returns JSON with technical, fundamental, momentum, and regime signals.
-    Call this first when evaluating any symbol.
-    """
+async def signal_brief(
+    symbol: Annotated[str, Field(description="Ticker symbol to analyze, e.g. 'AAPL', 'SPY', 'TSLA'")],
+) -> str:
+    """Retrieve a comprehensive technical signal brief for a stock or ETF symbol. Use when you need trend direction, momentum indicators, support/resistance levels, regime classification, and fundamental context for a single ticker. Returns JSON containing technical analysis, fundamental snapshot, momentum scores, regime detection, consensus bias, conviction level, and key observations. Provides the foundation for entry/exit decisions and strategy evaluation. Synonyms: quote, analysis, overview, snapshot, market data, indicator summary."""
     start = time.monotonic()
     symbol = symbol.upper().strip()
 
@@ -90,11 +89,10 @@ async def signal_brief(symbol: str) -> str:
 
 
 @tool
-async def multi_signal_brief(symbols: list[str]) -> str:
-    """Get signal briefs for multiple symbols in parallel.
-
-    Returns JSON with per-symbol signal data. Use for watchlist scanning.
-    """
+async def multi_signal_brief(
+    symbols: Annotated[list[str], Field(description="List of ticker symbols to scan in parallel, e.g. ['AAPL', 'MSFT', 'GOOG']")],
+) -> str:
+    """Retrieve signal briefs for multiple stock or ETF symbols concurrently in a single batch call. Use when scanning a watchlist, comparing tickers, or screening a portfolio for entry candidates. Returns JSON with per-symbol technical analysis, regime data, momentum scores, and collector status. Provides succeeded/failed symbol lists for reliability tracking. Synonyms: batch scan, watchlist analysis, multi-ticker overview, parallel screening, bulk signal fetch."""
     start = time.monotonic()
 
     try:

@@ -159,9 +159,9 @@ class TradingCalendar:
             cal = self._calendars[exchange]
             try:
                 return cal.is_session(dt)
-            except Exception:
+            except Exception as exc:
                 # Fall through to basic implementation
-                pass
+                logger.debug("exchange_calendars is_session failed for %s: %s", exchange, exc)
 
         # Basic fallback: check US holidays
         if exchange in ("NYSE", "NASDAQ"):
@@ -247,8 +247,8 @@ class TradingCalendar:
             try:
                 next_session = cal.next_session(dt)
                 return next_session.date()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("exchange_calendars next_session failed for %s: %s", exchange, exc)
 
         # Basic fallback
         next_day = dt + timedelta(days=1)
@@ -290,8 +290,8 @@ class TradingCalendar:
             try:
                 prev_session = cal.previous_session(dt)
                 return prev_session.date()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("exchange_calendars previous_session failed for %s: %s", exchange, exc)
 
         # Basic fallback
         prev_day = dt - timedelta(days=1)

@@ -1,32 +1,16 @@
 """Institutional accumulation tools for LangGraph agents."""
 
 import json
+from typing import Annotated
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 
 @tool
-async def get_institutional_accumulation(symbol: str) -> str:
-    """Assess whether institutional/smart money is accumulating a symbol.
-
-    Combines tier_3_institutional signals -- NOT retail indicators. Designed
-    for buy-the-bottom strategies that need confirmation beyond price action.
-
-    Components:
-    - Insider cluster score (0.30): CEO/CFO-weighted net buy ratio over 90 days.
-    - GEX support (0.25): Positive gamma exposure = dealers long gamma = support.
-    - IV skew extreme (0.25): Put skew z-score >2.0 = maximum fear = contrarian buy.
-    - Institutional direction (0.20): 13F ownership trend.
-
-    Score > 0.55: Institutional accumulation underway
-    Score 0.35-0.55: Neutral/mixed signals
-    Score < 0.35: Distribution or no signal
-
-    Args:
-        symbol: Stock ticker (e.g., "RDDT", "NVDA").
-
-    Returns JSON with accumulation_score (0-1), component scores, insider details,
-    GEX signal, IV skew context, and recommendation.
-    """
+async def get_institutional_accumulation(
+    symbol: Annotated[str, Field(description="Ticker symbol to assess for institutional accumulation, e.g. 'RDDT', 'NVDA', 'AAPL'")],
+) -> str:
+    """Retrieves institutional and smart-money accumulation signals for a stock ticker symbol. Use when evaluating whether large investors, hedge funds, or corporate insiders are building positions. Computes a composite accumulation score (0-1) from insider buying clusters, gamma exposure (GEX) support levels, implied volatility (IV) skew extremes, and 13F institutional ownership trends. Provides contrarian buy-the-dip confirmation beyond price action alone. Returns JSON with accumulation_score, component breakdowns, insider transaction details, GEX signal direction, IV skew context, and a buy/hold/avoid recommendation."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)

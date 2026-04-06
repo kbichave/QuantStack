@@ -122,7 +122,7 @@ class LoopSupervisor:
                 """
                 SELECT iteration, started_at, finished_at, errors, status
                 FROM loop_heartbeats
-                WHERE loop_name = ?
+                WHERE loop_name = %s
                   AND status != 'orphaned'
                 ORDER BY started_at DESC
                 LIMIT 1
@@ -328,8 +328,8 @@ class LoopSupervisor:
                                 [bug_id],
                             )
                             self._conn.commit()
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.warning("[BugFixWatcher] Failed to update bug %s status: %s", bug_id, exc)
                         self._run_arc_task(task_id)
 
             except Exception as exc:

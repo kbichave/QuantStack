@@ -203,7 +203,7 @@ class ReflectionManager:
                     [regime, symbol, top_k],
                 ).fetchall()
         except Exception as exc:
-            logger.debug(f"[Reflection] find_similar query failed: {exc}")
+            logger.warning(f"[Reflection] find_similar query failed: {exc}")
             rows = []
         return [self._row_to_reflection(row) for row in rows]
 
@@ -248,12 +248,13 @@ class ReflectionManager:
         # Check for repeat losses via SQL
         try:
             with pg_conn() as conn:
-                repeat_count = conn.execute(
+                result = conn.execute(
                     f"""SELECT COUNT(*) FROM {REFLECTIONS_TABLE}
-                        WHERE symbol = ? AND regime_at_entry = ? AND strategy_id = ?
+                        WHERE symbol = %s AND regime_at_entry = %s AND strategy_id = %s
                           AND realized_pnl_pct < -1.0""",
                     [symbol, regime_entry, strategy_id],
-                ).fetchone()[0]
+                ).fetchone()
+                repeat_count = result[0] if result else 0
         except Exception:
             repeat_count = 0
 
@@ -340,7 +341,7 @@ class ReflectionManager:
             with open(JOURNAL_FILE, "a") as f:
                 f.write(entry)
         except Exception as exc:
-            logger.debug(f"[Reflection] Failed to write journal: {exc}")
+            logger.warning(f"[Reflection] Failed to write journal: {exc}")
 
     def _append_workshop(self, summary: str) -> None:
         """Append daily summary to workshop_lessons.md."""
@@ -349,4 +350,4 @@ class ReflectionManager:
             with open(WORKSHOP_FILE, "a") as f:
                 f.write(f"\n{summary}\n")
         except Exception as exc:
-            logger.debug(f"[Reflection] Failed to write workshop lessons: {exc}")
+            logger.warning(f"[Reflection] Failed to write workshop lessons: {exc}")

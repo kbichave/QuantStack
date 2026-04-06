@@ -281,7 +281,8 @@ class TrajectoryEvolution:
                 f"SELECT MAX(generation) FROM {TRAJECTORIES_TABLE}"
             ).fetchone()
             return (row[0] or 0) if row else 0
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[TrajectoryEvolution] Failed to get current generation: {exc}")
             return 0
 
     def _load_top_trajectories(self, generation: int, top_k: int = 5) -> list[Trajectory]:
@@ -346,4 +347,4 @@ class TrajectoryEvolution:
                 ],
             )
         except Exception as exc:
-            logger.debug(f"[TrajectoryEvolution] Persist failed: {exc}")
+            logger.warning(f"[TrajectoryEvolution] Persist failed: {exc}")

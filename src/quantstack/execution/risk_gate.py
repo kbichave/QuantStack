@@ -48,6 +48,7 @@ from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
+from quantstack.db import PgConnection, pg_conn
 from quantstack.execution.portfolio_state import get_portfolio_state
 
 # =============================================================================
@@ -142,6 +143,35 @@ class RiskLimits:
             if hasattr(limits, key):
                 setattr(limits, key, val)
         return limits
+
+
+# =============================================================================
+# EXECUTION QUALITY LOOKUP
+# =============================================================================
+
+
+def get_execution_quality_scalar(symbol: str, conn: PgConnection) -> float:
+    """Look up the most recent execution quality scalar for *symbol*.
+
+    Queries the ``symbol_execution_quality`` table (populated by the nightly
+    TCA feedback job) and returns the ``quality_scalar`` column.  If no row
+    exists for the symbol, returns **1.0** (no adjustment).
+
+    Args:
+        symbol: Ticker symbol to look up.
+        conn: An open :class:`PgConnection` (caller manages lifecycle).
+
+    Returns:
+        Quality scalar (e.g. 1.1, 1.0, 0.7, 0.5).
+    """
+    row = conn.execute(
+        "SELECT quality_scalar FROM symbol_execution_quality "
+        "WHERE symbol = %s ORDER BY week_ending DESC LIMIT 1",
+        [symbol.upper()],
+    ).fetchone()
+    if row is not None:
+        return float(row[0])
+    return 1.0
 
 
 # =============================================================================
@@ -298,6 +328,18 @@ class RiskGate:
         """
         violations: list[RiskViolation] = []
         snapshot = self._portfolio.get_snapshot()
+        if snapshot is None:
+            return RiskVerdict(
+                approved=False,
+                violations=[
+                    RiskViolation(
+                        rule="portfolio_unavailable",
+                        limit=0,
+                        actual=0,
+                        description="Portfolio snapshot unavailable — cannot evaluate risk",
+                    )
+                ],
+            )
 
         # -- 1. Daily halt check (fast path — checked before all other work)
         if self._daily_halted == date.today():
@@ -323,9 +365,9 @@ class RiskGate:
             )
             return RiskVerdict(approved=False, violations=violations)
 
-        # -- 3. Unknown volume: reject rather than skip liquidity checks.
+        # -- 3. Unknown/invalid volume: reject rather than skip liquidity checks.
         #    Silently skipping when volume=0 allows trading illiquid names through.
-        if daily_volume == 0:
+        if daily_volume <= 0:
             violations.append(
                 RiskViolation(
                     rule="unknown_volume",
@@ -384,6 +426,46 @@ class RiskGate:
                 f"capping order {quantity:,} → {max_qty:,}"
             )
             quantity = max_qty
+
+        # -- 6b. Execution quality scalar: penalise symbols with poor fills.
+        #    Applied AFTER ADV cap so both adjustments compose multiplicatively.
+        try:
+            with pg_conn() as conn:
+                quality_scalar = get_execution_quality_scalar(symbol, conn)
+        except Exception as exc:
+            logger.debug(f"[RISK] execution quality lookup failed: {exc}")
+            quality_scalar = 1.0
+
+        if quality_scalar != 1.0:
+            pre_quality_qty = quantity
+            quantity = max(1, round(quantity * quality_scalar))
+            logger.info(
+                f"[RISK] {symbol} execution quality scalar {quality_scalar:.2f}: "
+                f"{pre_quality_qty} → {quantity} shares"
+            )
+
+        # -- 6c. Macro stress scalar: reduce size under stressed macro conditions.
+        #    Applied AFTER both ADV cap and execution quality scalar.
+        try:
+            from quantstack.core.signals.alt_data_normalizer import (
+                compute_macro_stress,
+                get_macro_stress_scalar,
+            )
+            with pg_conn() as conn:
+                stress_score = compute_macro_stress(conn)
+            macro_scalar = get_macro_stress_scalar(stress_score)
+        except Exception as exc:
+            logger.debug(f"[RISK] macro stress lookup failed: {exc}")
+            macro_scalar = 1.0
+            stress_score = 0.0
+
+        if macro_scalar != 1.0:
+            pre_macro_qty = quantity
+            quantity = max(1, round(quantity * macro_scalar))
+            logger.info(
+                f"[RISK] Macro stress scalar {macro_scalar:.2f} "
+                f"(score {stress_score:.2f}): {pre_macro_qty} → {quantity} shares"
+            )
 
         if not violations and instrument_type == "options":
             # -- Options path: DTE and premium-at-risk checks.
@@ -465,7 +547,22 @@ class RiskGate:
             existing_notional = (
                 abs(existing_pos.quantity) * current_price if existing_pos else 0.0
             )
-            new_total_notional = existing_notional + order_notional
+
+            # Determine if this order reduces or increases position exposure.
+            # A sell against a long (or buy against a short) is a position
+            # reduction and should not be penalised by the position limit.
+            is_reducing = False
+            if existing_pos:
+                existing_long = existing_pos.quantity > 0
+                order_is_sell = side.upper() in ("SELL", "SHORT")
+                is_reducing = (existing_long and order_is_sell) or (
+                    not existing_long and not order_is_sell
+                )
+
+            if is_reducing:
+                new_total_notional = max(0.0, existing_notional - order_notional)
+            else:
+                new_total_notional = existing_notional + order_notional
 
             max_notional_by_pct = equity * self.limits.max_position_pct
             max_notional = min(max_notional_by_pct, self.limits.max_position_notional)
@@ -503,7 +600,7 @@ class RiskGate:
             # -- 8. Gross exposure
             positions = self._portfolio.get_positions()
             current_gross = sum(abs(p.quantity) * p.current_price for p in positions)
-            new_gross = current_gross + order_notional
+            new_gross = current_gross + (-order_notional if is_reducing else order_notional)
             max_gross = equity * self.limits.max_gross_exposure_pct
 
             if new_gross > max_gross:

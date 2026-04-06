@@ -6,7 +6,47 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 from loguru import logger
+
+# ---------------------------------------------------------------------------
+# EWMA Volatility (Gap 1: vol-targeting)
+# ---------------------------------------------------------------------------
+
+_VOL_FLOOR_ANNUAL: float = 0.10  # Annualized vol floor (prevents extreme leverage)
+
+
+def ewma_volatility(
+    returns: pd.Series,
+    lambda_: float = 0.94,
+    annualize: bool = True,
+    trading_days: int = 252,
+    min_periods: int = 21,
+) -> float | None:
+    """Compute EWMA realized volatility estimate.
+
+    Uses exponentially weighted moving average with decay factor lambda_
+    (default 0.94, half-life ~11 trading days).
+
+    Returns None if fewer than min_periods observations — the caller should
+    not trade until the initialization window is complete.
+    """
+    if len(returns) < min_periods:
+        return None
+
+    ewma_var = returns.ewm(alpha=1 - lambda_, min_periods=min_periods).var()
+    last_var = ewma_var.iloc[-1]
+
+    if pd.isna(last_var) or last_var < 0:
+        return None
+
+    daily_vol = float(np.sqrt(last_var))
+
+    if annualize:
+        vol = daily_vol * np.sqrt(trading_days)
+        return max(vol, _VOL_FLOOR_ANNUAL)
+
+    return daily_vol
 
 
 @dataclass

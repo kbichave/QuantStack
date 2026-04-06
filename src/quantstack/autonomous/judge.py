@@ -83,7 +83,8 @@ class HypothesisJudge:
 
     def __init__(self, conn: Any) -> None:
         self._conn = conn
-        self._knowledge_base = self._load_knowledge()
+        self._knowledge_base: list[dict] = []
+        self._knowledge_loaded_at: float = 0.0
 
     def _load_knowledge(self) -> list[dict]:
         """Load knowledge base from strategy_outcomes + workshop_lessons."""
@@ -108,8 +109,8 @@ class HypothesisJudge:
                     "avg_pnl": row[3],
                     "trades": row[4],
                 })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[Judge] Failed to load past performance knowledge: %s", exc)
 
         return knowledge
 
@@ -185,8 +186,8 @@ class HypothesisJudge:
             trace_judge_verdict(
                 hypothesis.get("name", "?"), approved, score, flags,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[Judge] Langfuse trace failed: %s", exc)
 
         log_fn = logger.info if approved else logger.warning
         log_fn(
@@ -273,8 +274,16 @@ class HypothesisJudge:
     # Check: Knowledge base
     # ------------------------------------------------------------------
 
+    def _ensure_knowledge_fresh(self) -> None:
+        """Reload knowledge base if stale (>5 minutes)."""
+        import time
+        if time.monotonic() - self._knowledge_loaded_at > 300:
+            self._knowledge_base = self._load_knowledge()
+            self._knowledge_loaded_at = time.monotonic()
+
     def _check_knowledge_base(self, hypothesis: dict) -> list[str]:
         """Match against failed strategies in the knowledge base."""
+        self._ensure_knowledge_fresh()
         similar = []
         name = hypothesis.get("name", "").lower()
         regime = hypothesis.get("regime_target", "").lower()
@@ -329,7 +338,7 @@ class HypothesisJudge:
                 f"INSERT INTO {JUDGE_VERDICTS_TABLE} "
                 f"(verdict_id, hypothesis_id, approved, score, flags, "
                 f"reasoning, similar_failures) "
-                f"VALUES (?, ?, ?, ?, ?, ?, ?)",
+                f"VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 [
                     str(uuid.uuid4()),
                     hypothesis.get("name", str(uuid.uuid4())),

@@ -56,7 +56,7 @@ TIMEZONE = "US/Eastern"
 # ---------------------------------------------------------------------------
 
 def run_data_refresh(dry_run: bool = False) -> None:
-    """Full daily data refresh — all 12 phases for all universe symbols.
+    """Full daily data refresh — all 14 phases for all universe symbols.
 
     All phases are idempotent: existing rows are skipped, only deltas fetched.
     At 75 req/min (AV premium) incremental runs take ~5-15 min after cold start.
@@ -102,7 +102,7 @@ def run_eod_data_refresh(dry_run: bool = False) -> None:
 
     cmd = [
         sys.executable, "scripts/acquire_historical_data.py",
-        "--phases", "ohlcv_daily", "options", "news", "macro",
+        "--phases", "ohlcv_daily", "options", "news", "macro", "commodities",
     ]
 
     if dry_run:
@@ -729,9 +729,127 @@ def run_community_intel_weekly(dry_run: bool = False) -> None:
         logger.error(f"'{label}' failed: {exc}")
 
 
+def run_listing_status_check(dry_run: bool = False) -> None:
+    """Weekly listing status check — flags delisted symbols in the universe.
+
+    Calls Alpha Vantage LISTING_STATUS(state=delisted), cross-references with
+    active universe symbols, and sets delisted_at in company_overview.
+    Does NOT auto-remove symbols — that requires supervisor review.
+
+    Runs Monday 07:00 ET (before morning data refresh).
+    """
+    label = "listing_status_check"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would run at {timestamp}: {label}")
+        return
+
+    try:
+        from quantstack.data.acquisition_pipeline import (
+            run_listing_status_check as _run_check,
+        )
+        from quantstack.data.fetcher import AlphaVantageClient
+        from quantstack.data.pg_storage import PgDataStore
+        from quantstack.db import pg_conn
+
+        av = AlphaVantageClient()
+        store = PgDataStore()
+
+        with pg_conn() as conn:
+            rows = conn.execute(
+                "SELECT symbol FROM universe WHERE is_active = TRUE"
+            ).fetchall()
+        universe = [r[0] for r in rows]
+
+        delisted = asyncio.run(_run_check(av, store, universe))
+        if delisted:
+            logger.warning(f"[{label}] Delisted symbols found in universe: {delisted}")
+        else:
+            logger.info(f"[{label}] No delisted symbols in universe")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # Schedule
 # ---------------------------------------------------------------------------
+
+def run_ewf_fetch(update_type: str, dry_run: bool = False) -> None:
+    """Fetch EWF charts / Blue Box report for the given update type.
+
+    Silently skips if EWF_USERNAME or EWF_PASSWORD are not set — makes the jobs
+    safe to leave in the schedule on machines without EWF credentials.
+
+    update_type: market_overview | 1h_premarket | 1h_midday | blue_box | 4h | daily | weekly
+    """
+    if not os.environ.get("EWF_USERNAME") or not os.environ.get("EWF_PASSWORD"):
+        logger.debug("[ewf] EWF_USERNAME/EWF_PASSWORD not set — skipping")
+        return
+
+    label = f"ewf_{update_type}"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    cmd = [sys.executable, "scripts/ewf_scraper.py", update_type]
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would run at {timestamp}: {' '.join(cmd)}")
+        return
+
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(WORKDIR), timeout=600, check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(f"'{label}' exited with code {result.returncode}")
+        else:
+            logger.info(f"'{label}' completed successfully")
+    except subprocess.TimeoutExpired:
+        logger.error(f"'{label}' timed out after 10 minutes")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_ewf_analysis(update_type: str, dry_run: bool = False) -> None:
+    """Run EWF vision analysis for the given update type.
+
+    Reads images downloaded by run_ewf_fetch and calls Claude Sonnet to extract
+    structured Elliott Wave data, storing results in ewf_chart_analyses.
+
+    Silently skips if EWF_USERNAME or EWF_PASSWORD are not set — the images
+    won't exist if the scraper hasn't run, so there is nothing to analyze.
+
+    update_type: market_overview | 1h_premarket | 1h_midday | blue_box | 4h | daily | weekly
+    """
+    if not os.environ.get("EWF_USERNAME") or not os.environ.get("EWF_PASSWORD"):
+        logger.debug("[ewf] EWF_USERNAME/EWF_PASSWORD not set — skipping analysis")
+        return
+
+    label = f"ewf_analyze_{update_type}"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    cmd = [sys.executable, "scripts/ewf_analyzer.py", "--update-type", update_type]
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would run at {timestamp}: {' '.join(cmd)}")
+        return
+
+    try:
+        result = subprocess.run(
+            cmd, cwd=str(WORKDIR), timeout=900, check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(f"'{label}' exited with code {result.returncode}")
+        else:
+            logger.info(f"'{label}' completed successfully")
+    except subprocess.TimeoutExpired:
+        logger.error(f"'{label}' timed out after 15 minutes")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
 
 JOBS = [
     # ── Intraday (market hours) ──────────────────────────────────────────
@@ -773,6 +891,41 @@ JOBS = [
     {"trigger": {"hour": 19, "minute": 0, "day_of_week": "sun"}, "func": run_community_intel_weekly, "label": "community_intel_weekly_sun19:00"},
     # AutoResearchClaw deep research — processes research_queue (requires Docker).
     {"trigger": {"hour": 20, "minute": 0, "day_of_week": "sun"}, "func": run_autoresclaw_weekly, "label": "autoresclaw_weekly_sun20:00"},
+
+    # Listing status check — flags delisted symbols (1 AV call).
+    {"trigger": {"hour": 7, "minute": 0, "day_of_week": "mon"}, "func": run_listing_status_check, "label": "listing_status_check_mon07:00"},
+
+    # ── EWF chart fetches (only active when EWF_USERNAME / EWF_PASSWORD are set) ──
+    # Market Overview (midnight) — Mon-Fri
+    {"trigger": {"hour": 0, "minute": 5, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_fetch("market_overview", dry), "label": "ewf_market_overview_00:05"},
+    # 1H Pre-Market counts — Mon-Fri 09:15 ET (available from 09:00, fetch at 09:15)
+    {"trigger": {"hour": 9, "minute": 15, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_fetch("1h_premarket", dry), "label": "ewf_1h_premarket_09:15"},
+    # 1H Mid-Day counts — Mon-Fri 13:35 ET (available 13:00-13:30, fetch at 13:35)
+    {"trigger": {"hour": 13, "minute": 35, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_fetch("1h_midday", dry), "label": "ewf_1h_midday_13:35"},
+    # Blue Box Report — Mon-Fri 14:05 ET (available at 14:00)
+    {"trigger": {"hour": 14, "minute": 5, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_fetch("blue_box", dry), "label": "ewf_blue_box_14:05"},
+    # 4H counts — Mon-Fri 18:35 ET (available 18:00-18:30)
+    {"trigger": {"hour": 18, "minute": 35, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_fetch("4h", dry), "label": "ewf_4h_18:35"},
+    # Daily counts — weekend (Sat 10:00)
+    {"trigger": {"hour": 10, "minute": 0, "day_of_week": "sat"}, "func": lambda dry: run_ewf_fetch("daily", dry), "label": "ewf_daily_sat10:00"},
+    # Weekly counts — weekend (Sat 12:00, after daily)
+    {"trigger": {"hour": 12, "minute": 0, "day_of_week": "sat"}, "func": lambda dry: run_ewf_fetch("weekly", dry), "label": "ewf_weekly_sat12:00"},
+
+    # ── EWF vision analysis (runs 10 min after each scraper job) ──────────
+    # Market Overview analysis — Mon-Fri 00:10
+    {"trigger": {"hour": 0, "minute": 15, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_analysis("market_overview", dry), "label": "ewf_analyze_market_overview_00:15"},
+    # 1H Pre-Market analysis — Mon-Fri 09:25
+    {"trigger": {"hour": 9, "minute": 25, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_analysis("1h_premarket", dry), "label": "ewf_analyze_1h_premarket_09:25"},
+    # 1H Mid-Day analysis — Mon-Fri 13:45
+    {"trigger": {"hour": 13, "minute": 45, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_analysis("1h_midday", dry), "label": "ewf_analyze_1h_midday_13:45"},
+    # Blue Box analysis — Mon-Fri 14:15
+    {"trigger": {"hour": 14, "minute": 15, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_analysis("blue_box", dry), "label": "ewf_analyze_blue_box_14:15"},
+    # 4H analysis — Mon-Fri 18:45
+    {"trigger": {"hour": 18, "minute": 45, "day_of_week": "mon-fri"}, "func": lambda dry: run_ewf_analysis("4h", dry), "label": "ewf_analyze_4h_18:45"},
+    # Daily analysis — Sat 10:10
+    {"trigger": {"hour": 10, "minute": 10, "day_of_week": "sat"}, "func": lambda dry: run_ewf_analysis("daily", dry), "label": "ewf_analyze_daily_sat10:10"},
+    # Weekly analysis — Sat 12:10
+    {"trigger": {"hour": 12, "minute": 10, "day_of_week": "sat"}, "func": lambda dry: run_ewf_analysis("weekly", dry), "label": "ewf_analyze_weekly_sat12:10"},
 
     # ── Monthly ──────────────────────────────────────────────────────────
     {"trigger": {"hour": 9, "minute": 0, "day": "1"}, "func": run_strategy_lifecycle_monthly, "label": "strategy_lifecycle_monthly_1st09:00"},
@@ -830,9 +983,10 @@ def start_scheduler(dry_run: bool = False) -> None:
         f"  */5   Mon-Fri 9-16 — 5-min adjusted OHLCV bars via Alpha Vantage\n"
         f"  */15  Mon-Fri 9-16 — Position quote refresh via Alpaca (P&L + stops)\n"
         f"  10,12,14 Mon-Fri   — Credit regime intraday checks (2h intervals)\n"
-        f"  08:00 Mon-Fri      — Full data refresh (all 12 phases, all universe symbols)\n"
+        f"  07:00 Mon          — Listing status check (flag delisted universe symbols)\n"
+        f"  08:00 Mon-Fri      — Full data refresh (all 14 phases, all universe symbols)\n"
         f"  16:10 Mon-Fri      — Daily P&L attribution (equity snapshot + benchmark)\n"
-        f"  16:30 Mon-Fri      — EOD data refresh (close bar, options, news, macro)\n"
+        f"  16:30 Mon-Fri      — EOD data refresh (close bar, options, news, macro, commodities)\n"
         f"  16:45 Mon-Fri      — Credit regime EOD re-validation\n"
         f"  17:00 Sun+Wed      — Memory compaction (trim oversized files)\n"
         f"  */10  always       — Strategy pipeline (backtest draft→backtested)\n"
@@ -842,6 +996,24 @@ def start_scheduler(dry_run: bool = False) -> None:
         f"  09:00 1st/mo       — Strategy lifecycle monthly (validate, retire)\n"
         f"\n"
         f"  Note: Trading execution handled by tmux trading loop\n"
+        f"\n"
+        f"  EWF chart fetches (active when EWF_USERNAME + EWF_PASSWORD are set):\n"
+        f"  00:05 Mon-Fri — Market Overview\n"
+        f"  09:15 Mon-Fri — 1H Pre-Market counts\n"
+        f"  13:35 Mon-Fri — 1H Mid-Day counts\n"
+        f"  14:05 Mon-Fri — Blue Box Report\n"
+        f"  18:35 Mon-Fri — 4H counts\n"
+        f"  Sat 10:00     — Daily counts\n"
+        f"  Sat 12:00     — Weekly counts\n"
+        f"\n"
+        f"  EWF vision analysis (active when EWF_USERNAME + EWF_PASSWORD are set):\n"
+        f"  00:15 Mon-Fri — Market Overview analysis\n"
+        f"  09:25 Mon-Fri — 1H Pre-Market analysis\n"
+        f"  13:45 Mon-Fri — 1H Mid-Day analysis\n"
+        f"  14:15 Mon-Fri — Blue Box analysis\n"
+        f"  18:45 Mon-Fri — 4H analysis\n"
+        f"  Sat 10:10     — Daily analysis\n"
+        f"  Sat 12:10     — Weekly analysis\n"
     )
 
     try:
@@ -894,6 +1066,22 @@ def main() -> None:
             "autoresclaw_weekly": run_autoresclaw_weekly,
             "community_intel_weekly": run_community_intel_weekly,
             "strategy_pipeline": run_strategy_pipeline,
+            "listing_status_check": run_listing_status_check,
+            "ewf_market_overview": lambda dry=False: run_ewf_fetch("market_overview", dry),
+            "ewf_1h_premarket": lambda dry=False: run_ewf_fetch("1h_premarket", dry),
+            "ewf_1h_midday": lambda dry=False: run_ewf_fetch("1h_midday", dry),
+            "ewf_blue_box": lambda dry=False: run_ewf_fetch("blue_box", dry),
+            "ewf_4h": lambda dry=False: run_ewf_fetch("4h", dry),
+            "ewf_daily": lambda dry=False: run_ewf_fetch("daily", dry),
+            "ewf_weekly": lambda dry=False: run_ewf_fetch("weekly", dry),
+            # EWF vision analysis
+            "ewf_analyze_market_overview": lambda dry=False: run_ewf_analysis("market_overview", dry),
+            "ewf_analyze_1h_premarket": lambda dry=False: run_ewf_analysis("1h_premarket", dry),
+            "ewf_analyze_1h_midday": lambda dry=False: run_ewf_analysis("1h_midday", dry),
+            "ewf_analyze_blue_box": lambda dry=False: run_ewf_analysis("blue_box", dry),
+            "ewf_analyze_4h": lambda dry=False: run_ewf_analysis("4h", dry),
+            "ewf_analyze_daily": lambda dry=False: run_ewf_analysis("daily", dry),
+            "ewf_analyze_weekly": lambda dry=False: run_ewf_analysis("weekly", dry),
         }
         func = func_map.get(args.run_now)
         if func is None:

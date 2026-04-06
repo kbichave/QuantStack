@@ -298,8 +298,8 @@ class TradingSheetGenerator:
                 if sheet.atr_14:
                     sheet.stop_loss = round(sheet.close_price - 2 * sheet.atr_14, 2)
                     sheet.take_profit = round(sheet.close_price + 3 * sheet.atr_14, 2)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[TradingSheet] Technical data extraction failed for %s: %s", symbol, exc)
 
         # Options
         sheet.opt_gex = brief.opt_gex

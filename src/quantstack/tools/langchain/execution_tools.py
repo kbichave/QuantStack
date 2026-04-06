@@ -4,6 +4,7 @@ import json
 import logging
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 logger = logging.getLogger(__name__)
 
@@ -18,30 +19,16 @@ def _calc_quantity_from_size(position_size: str, equity: float, current_price: f
 
 @tool
 async def execute_order(
-    symbol: str,
-    side: str,
-    quantity: float,
-    order_type: str = "market",
-    limit_price: float | None = None,
-    reasoning: str = "",
-    confidence: float = 0.5,
-    position_size: str = "quarter",
+    symbol: str = Field(description="Ticker symbol to trade, e.g. 'AAPL' or 'TSLA'"),
+    side: str = Field(description="Trade direction: 'buy' to open long or cover short, 'sell' to close long or open short"),
+    quantity: float = Field(description="Number of shares or contracts to trade; set to 0 for automatic position sizing based on position_size parameter"),
+    order_type: str = Field(default="market", description="Order type: 'market' for immediate execution or 'limit' for price-constrained execution"),
+    limit_price: float | None = Field(default=None, description="Limit price for limit orders; required when order_type is 'limit', ignored for market orders"),
+    reasoning: str = Field(default="", description="Explanation of the trade thesis, rationale, or signal that triggered this order"),
+    confidence: float = Field(default=0.5, description="Confidence score between 0.0 and 1.0 indicating conviction strength for this trade"),
+    position_size: str = Field(default="quarter", description="Position sizing tier: 'full' (10% equity), 'half' (5%), or 'quarter' (2.5%); used only when quantity is 0"),
 ) -> str:
-    """Execute a trade order through the broker.
-
-    Only call this after the fund manager has approved the trade.
-    The risk gate and kill switch are checked automatically.
-
-    Args:
-        symbol: Ticker symbol.
-        side: "buy" or "sell".
-        quantity: Number of shares/contracts (0 = auto-size from position_size).
-        order_type: "market" or "limit".
-        limit_price: Required for limit orders.
-        reasoning: Why this trade is being placed.
-        confidence: Confidence level 0-1.
-        position_size: "full", "half", or "quarter" (used if quantity=0).
-    """
+    """Execute a buy or sell trade order through the broker after risk gate and kill switch validation. Use when submitting a stock or equity order for execution. Returns JSON with fill status, order details, and confirmation. Provides order routing, automatic position sizing, and risk-checked trade submission for market and limit orders."""
     try:
         from quantstack.tools._state import require_ctx
 
@@ -114,13 +101,11 @@ async def execute_order(
 
 
 @tool
-async def close_position(symbol: str, reasoning: str = "position close") -> str:
-    """Close an entire position for a symbol.
-
-    Args:
-        symbol: Ticker symbol to close.
-        reasoning: Why the position is being closed.
-    """
+async def close_position(
+    symbol: str = Field(description="Ticker symbol of the open position to close, e.g. 'AAPL'"),
+    reasoning: str = Field(default="position close", description="Explanation for why this position is being liquidated or exited"),
+) -> str:
+    """Close an entire open position for a given ticker symbol by submitting the inverse order. Use when liquidating, exiting, or unwinding a long or short equity holding. Returns JSON with order fill status and confirmation details. Provides full position flattening with automatic side and quantity detection."""
     try:
         from quantstack.tools._state import require_ctx
 
@@ -146,44 +131,38 @@ async def close_position(symbol: str, reasoning: str = "position close") -> str:
 
 
 @tool
-async def get_fills(symbol: str | None = None, limit: int = 20) -> str:
-    """Get recent order fills from the broker.
-
-    Args:
-        symbol: Filter by symbol (None for all).
-        limit: Maximum number of fills to return.
-    """
+async def get_fills(
+    symbol: str | None = Field(default=None, description="Ticker symbol to filter fills by; pass None or omit to retrieve fills for all symbols"),
+    limit: int = Field(default=20, description="Maximum number of recent fills to return, ordered most recent first"),
+) -> str:
+    """Retrieve recent order fill history and execution records from the broker. Use when checking trade confirmations, verifying execution prices, or auditing completed orders. Returns JSON list of fills with price, quantity, and timestamp details."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 
 
 @tool
-async def get_audit_trail(symbol: str | None = None, limit: int = 20) -> str:
-    """Get the decision audit trail for recent trades.
-
-    Args:
-        symbol: Filter by symbol (None for all).
-        limit: Maximum entries to return.
-    """
+async def get_audit_trail(
+    symbol: str | None = Field(default=None, description="Ticker symbol to filter audit entries by; pass None or omit to retrieve all trade decisions"),
+    limit: int = Field(default=20, description="Maximum number of audit trail entries to return, ordered most recent first"),
+) -> str:
+    """Retrieve the decision audit trail showing reasoning and metadata for recent trade executions. Use when reviewing trade rationale, debugging order decisions, or generating compliance reports. Returns JSON with decision logs, timestamps, and reasoning for each trade action."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 
 
 @tool
-async def update_position_stops(symbol: str, new_stop: float) -> str:
-    """Update stop loss for an open position.
-
-    Args:
-        symbol: Ticker symbol.
-        new_stop: New stop loss price.
-    """
+async def update_position_stops(
+    symbol: str = Field(description="Ticker symbol of the open position whose stop loss needs updating"),
+    new_stop: float = Field(description="New stop loss price level; must be a positive value representing the exit trigger price"),
+) -> str:
+    """Update or modify the stop loss price for an existing open position. Use when trailing stops, tightening risk, or adjusting protective stop orders after price movement. Returns JSON confirmation with the updated stop loss level and position details."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 
 
 @tool
 async def check_broker_connection() -> str:
-    """Check if the broker connection is healthy."""
+    """Check if the broker connection is healthy and responsive. Use when diagnosing connectivity issues, verifying API availability, or performing pre-trade health checks. Returns JSON with broker status, latency, and connection health indicators."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 

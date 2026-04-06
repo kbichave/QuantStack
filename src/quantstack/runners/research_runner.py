@@ -9,7 +9,7 @@ from quantstack.runners.trading_runner import run_loop
 
 logger = logging.getLogger(__name__)
 
-WATCHDOG_TIMEOUT = 900  # seconds — research cycles are longer
+WATCHDOG_TIMEOUT = 1800  # seconds — research agent makes 30+ serial LLM calls per cycle
 
 
 async def async_main() -> None:
@@ -40,8 +40,10 @@ async def async_main() -> None:
         return {
             "cycle_number": cycle_number,
             "regime": "unknown",
+            "regime_detail": {},
             "errors": [],
             "decisions": [],
+            "queued_task_ids": [],
         }
 
     logger.info("Starting research runner")

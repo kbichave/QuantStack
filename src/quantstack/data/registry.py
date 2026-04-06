@@ -180,6 +180,28 @@ class DataProviderRegistry:
         )
         return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
+    # ── Fundamentals & Earnings (delegated to primary adapter) ─────────────
+
+    def fetch_fundamentals(self, symbol: str) -> dict:
+        """Fetch company overview data, delegating to the primary equity adapter."""
+        adapter = self.get_primary(AssetClass.EQUITY)
+        if not hasattr(adapter, "fetch_fundamentals"):
+            raise AttributeError(
+                f"Primary adapter {adapter.provider.value} does not support fetch_fundamentals"
+            )
+        return adapter.fetch_fundamentals(symbol)
+
+    def fetch_earnings(
+        self, symbol: str | None = None, horizon: str = "3month"
+    ) -> pd.DataFrame:
+        """Fetch earnings calendar data, delegating to the primary equity adapter."""
+        adapter = self.get_primary(AssetClass.EQUITY)
+        if not hasattr(adapter, "fetch_earnings"):
+            raise AttributeError(
+                f"Primary adapter {adapter.provider.value} does not support fetch_earnings"
+            )
+        return adapter.fetch_earnings(symbol=symbol, horizon=horizon)
+
     # ── Factory ───────────────────────────────────────────────────────────────
 
     @classmethod

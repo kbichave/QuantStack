@@ -234,8 +234,8 @@ class TickExecutor:
         try:
             record_fill(symbol=sym, side=order.side, speed="tick")
             record_tick_latency(latency_ns / 1e9)
-        except Exception:
-            pass  # Never let metrics instrumentation crash the hot path
+        except Exception as exc:
+            logger.debug(f"[TickExecutor] Metrics recording failed (non-fatal): {exc}")
 
     # -----------------------------------------------------------------------
     # Metrics helpers

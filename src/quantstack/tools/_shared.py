@@ -24,6 +24,7 @@ from quantstack.core.backtesting.engine import BacktestConfig, BacktestEngine
 from quantstack.db import pg_conn
 from quantstack.tools._helpers import _get_reader
 from quantstack.tools._state import _serialize, live_db_or_error
+from quantstack.strategies.rule_engine import _KNOWN_INDICATORS, _INDICATOR_ALIASES
 from quantstack.strategies.signal_generator import (
     fetch_price_data as _fetch_price_data,
     generate_signals_from_rules as _generate_signals_from_rules,
@@ -42,11 +43,11 @@ async def get_strategy_impl(
         with pg_conn() as conn:
             if strategy_id:
                 row = conn.execute(
-                    "SELECT * FROM strategies WHERE strategy_id = ?", [strategy_id]
+                    "SELECT * FROM strategies WHERE strategy_id = %s", [strategy_id]
                 ).fetchone()
             elif name:
                 row = conn.execute(
-                    "SELECT * FROM strategies WHERE name = ?", [name]
+                    "SELECT * FROM strategies WHERE name = %s", [name]
                 ).fetchone()
             else:
                 return {"success": False, "error": "Provide strategy_id or name"}
@@ -109,6 +110,39 @@ async def get_strategy_impl(
         return {"success": False, "error": str(e)}
 
 
+def validate_entry_rules(entry_rules: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Validate and normalize entry rules against the backtest engine's supported indicators.
+
+    Returns (valid_rules, warnings). Rules with unsupported indicators are dropped
+    so the backtest engine can actually generate trades.
+    """
+    if not entry_rules:
+        return [], ["No entry rules provided"]
+
+    valid: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for rule in entry_rules:
+        indicator = rule.get("indicator", "")
+        if not indicator:
+            # Rules without 'indicator' key use custom conditions the engine
+            # can't evaluate (e.g. price_at_hvn_support, elevated_volatility).
+            condition = rule.get("condition", "unknown")
+            warnings.append(f"Dropped non-indicator rule: {condition}")
+            continue
+
+        # Normalize via alias map
+        canonical = _INDICATOR_ALIASES.get(indicator, indicator)
+        if canonical in _KNOWN_INDICATORS:
+            normalized = rule.copy()
+            normalized["indicator"] = canonical
+            valid.append(normalized)
+        else:
+            warnings.append(f"Dropped unsupported indicator: {indicator}")
+
+    return valid, warnings
+
+
 async def register_strategy_impl(
     name: str,
     parameters: dict[str, Any],
@@ -128,12 +162,43 @@ async def register_strategy_impl(
     _, err = live_db_or_error()
     if err:
         return err
+
+    # Validate entry rules — drop unsupported indicators so backtests generate trades
+    valid_rules, rule_warnings = validate_entry_rules(entry_rules)
+    if not valid_rules:
+        return {
+            "success": False,
+            "error": (
+                "No backtestable entry rules after validation. "
+                "Rules must use supported indicators: "
+                f"{', '.join(sorted(_KNOWN_INDICATORS))}. "
+                f"Dropped: {'; '.join(rule_warnings)}"
+            ),
+        }
+    if rule_warnings:
+        logger.warning(
+            "[_shared] Entry rule validation for '%s': %s", name, "; ".join(rule_warnings)
+        )
+    entry_rules = valid_rules
+
+    # Auto-detect regime affinity if not provided
+    if not regime_affinity:
+        try:
+            from quantstack.agents.regime_detector import RegimeDetectorAgent
+            det = RegimeDetectorAgent(symbols=["SPY"])
+            r = det.detect_regime("SPY")
+            if r.get("success") and r["trend_regime"] != "unknown":
+                regime_affinity = {r["trend_regime"]: 1.0}
+                logger.info("[_shared] Auto-set regime_affinity=%s for '%s'", regime_affinity, name)
+        except Exception:
+            pass  # Non-fatal
+
     strategy_id = f"strat_{uuid.uuid4().hex[:12]}"
 
     try:
         with pg_conn() as conn:
             row = conn.execute(
-                "SELECT strategy_id FROM strategies WHERE name = ?", [name]
+                "SELECT strategy_id FROM strategies WHERE name = %s", [name]
             ).fetchone()
             if row:
                 return {
@@ -209,6 +274,12 @@ async def run_backtest_impl(
         exit_rules = strat.get("exit_rules") or []
         parameters = strat.get("parameters") or {}
 
+        # Normalise to list — LLMs sometimes store a single rule dict
+        if isinstance(entry_rules, dict):
+            entry_rules = [entry_rules]
+        if isinstance(exit_rules, dict):
+            exit_rules = [exit_rules]
+
         # Inject symbol into parameters for indicator computation and feature enrichment
         parameters["symbol"] = symbol
 
@@ -265,7 +336,7 @@ async def run_backtest_impl(
         # 6. Persist summary on strategy record
         with pg_conn() as conn:
             conn.execute(
-                "UPDATE strategies SET backtest_summary = ?, status = CASE WHEN status = 'draft' THEN 'backtested' ELSE status END, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = ?",
+                "UPDATE strategies SET backtest_summary = %s, status = CASE WHEN status = 'draft' THEN 'backtested' ELSE status END, updated_at = CURRENT_TIMESTAMP WHERE strategy_id = %s",
                 [_json.dumps(summary), strategy_id],
             )
 

@@ -14,6 +14,7 @@ class ModelConfig:
     tier: str
     max_tokens: int = 4096
     temperature: float = 0.0
+    thinking: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -36,14 +37,14 @@ class ProviderConfig:
 
 PROVIDER_CONFIGS: dict[str, ProviderConfig] = {
     "bedrock": ProviderConfig(
-        heavy="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        heavy="bedrock/us.anthropic.claude-sonnet-4-6",
         medium="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
         light="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
         embedding="ollama/mxbai-embed-large",
     ),
     "anthropic": ProviderConfig(
-        heavy="anthropic/claude-sonnet-4",
-        medium="anthropic/claude-sonnet-4",
+        heavy="anthropic/claude-sonnet-4-6",
+        medium="anthropic/claude-sonnet-4-6",
         light="anthropic/claude-haiku-4-5",
         embedding="ollama/mxbai-embed-large",
     ),

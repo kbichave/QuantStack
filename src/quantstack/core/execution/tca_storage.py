@@ -128,30 +128,44 @@ class TCAStore:
         logger.debug(f"[TCAStore] Saved forecast: {trade_id}")
         return trade_id
 
-    def save_result(self, result: TradeTCAResult) -> None:
-        """Persist a post-trade TCA result.
+    def save_result(
+        self,
+        result: TradeTCAResult,
+        forecast: PreTradeForecast | None = None,
+    ) -> None:
+        """Persist a post-trade TCA result with optional forecast for error tracking.
 
         Args:
             result: TradeTCAResult from tca_engine.post_trade_tca().
+            forecast: Matched PreTradeForecast, if available. When provided,
+                ac_expected_cost_bps and forecast_error_bps are populated.
         """
+        ac_expected: float | None = None
+        forecast_error: float | None = None
+
+        if forecast is not None:
+            ac_expected = forecast.total_expected_bps
+            forecast_error = result.shortfall_vs_arrival_bps - forecast.total_expected_bps
+        elif result.ac_expected_cost_bps is not None:
+            ac_expected = result.ac_expected_cost_bps
+            forecast_error = result.shortfall_vs_arrival_bps - result.ac_expected_cost_bps
+
         with pg_conn() as conn:
             conn.execute(
                 """
                 INSERT INTO tca_results
                     (trade_id, symbol, side, shares, fill_price, arrival_price,
                      shortfall_vs_arrival_bps, shortfall_vs_vwap_bps,
-                     shortfall_dollar, is_favorable, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     shortfall_dollar, is_favorable,
+                     ac_expected_cost_bps, forecast_error_bps, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (trade_id) DO UPDATE SET
-                    symbol = EXCLUDED.symbol,
-                    side = EXCLUDED.side,
-                    shares = EXCLUDED.shares,
-                    fill_price = EXCLUDED.fill_price,
-                    arrival_price = EXCLUDED.arrival_price,
                     shortfall_vs_arrival_bps = EXCLUDED.shortfall_vs_arrival_bps,
                     shortfall_vs_vwap_bps = EXCLUDED.shortfall_vs_vwap_bps,
                     shortfall_dollar = EXCLUDED.shortfall_dollar,
                     is_favorable = EXCLUDED.is_favorable,
+                    ac_expected_cost_bps = EXCLUDED.ac_expected_cost_bps,
+                    forecast_error_bps = EXCLUDED.forecast_error_bps,
                     timestamp = EXCLUDED.timestamp
                 """,
                 [
@@ -165,6 +179,8 @@ class TCAStore:
                     result.shortfall_vs_vwap_bps,
                     result.shortfall_dollar,
                     result.is_favorable,
+                    ac_expected,
+                    forecast_error,
                     datetime.now(timezone.utc),
                 ],
             )
@@ -182,6 +198,8 @@ class TCAStore:
         shortfall_vs_vwap_bps: float | None = None,
         shortfall_dollar: float = 0.0,
         is_favorable: bool = False,
+        ac_expected_cost_bps: float | None = None,
+        forecast_error_bps: float | None = None,
     ) -> None:
         """Persist a post-trade result from raw values (no TradeTCAResult needed).
 
@@ -193,18 +211,16 @@ class TCAStore:
                 INSERT INTO tca_results
                     (trade_id, symbol, side, shares, fill_price, arrival_price,
                      shortfall_vs_arrival_bps, shortfall_vs_vwap_bps,
-                     shortfall_dollar, is_favorable, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     shortfall_dollar, is_favorable,
+                     ac_expected_cost_bps, forecast_error_bps, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (trade_id) DO UPDATE SET
-                    symbol = EXCLUDED.symbol,
-                    side = EXCLUDED.side,
-                    shares = EXCLUDED.shares,
-                    fill_price = EXCLUDED.fill_price,
-                    arrival_price = EXCLUDED.arrival_price,
                     shortfall_vs_arrival_bps = EXCLUDED.shortfall_vs_arrival_bps,
                     shortfall_vs_vwap_bps = EXCLUDED.shortfall_vs_vwap_bps,
                     shortfall_dollar = EXCLUDED.shortfall_dollar,
                     is_favorable = EXCLUDED.is_favorable,
+                    ac_expected_cost_bps = EXCLUDED.ac_expected_cost_bps,
+                    forecast_error_bps = EXCLUDED.forecast_error_bps,
                     timestamp = EXCLUDED.timestamp
                 """,
                 [
@@ -218,6 +234,8 @@ class TCAStore:
                     shortfall_vs_vwap_bps,
                     shortfall_dollar,
                     is_favorable,
+                    ac_expected_cost_bps,
+                    forecast_error_bps,
                     datetime.now(timezone.utc),
                 ],
             )

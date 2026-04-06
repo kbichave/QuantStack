@@ -156,12 +156,12 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["vpoc"] = _sfloat(vpoc_df["vpoc"].iloc[-1])
         result["vah"] = _sfloat(vpoc_df["vah"].iloc[-1])
         result["val"] = _sfloat(vpoc_df["val"].iloc[-1])
-        result["price_in_value_area"] = int(vpoc_df["in_value_area"].iloc[-1])
+        result["price_in_value_area"] = int(vpoc_df["in_value"].iloc[-1])
         result["price_above_vpoc"] = (
             int(current_price > result["vpoc"]) if result["vpoc"] else None
         )
     except Exception as exc:
-        logger.debug(f"[volume] {symbol}: VPOC failed: {exc}")
+        logger.warning(f"[volume] {symbol}: VPOC failed: {exc}")
 
     # --- Anchored VWAP (anchored to the bar with the lowest close in the lookback window) ---
     try:
@@ -173,7 +173,7 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["avwap_deviation"] = _sfloat(avwap_df["avwap_deviation"].iloc[-1])
         result["above_avwap"] = int(avwap_df["above_avwap"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[volume] {symbol}: AnchoredVWAP failed: {exc}")
+        logger.warning(f"[volume] {symbol}: AnchoredVWAP failed: {exc}")
 
     # --- Microstructure liquidity signals ---
     try:
@@ -181,13 +181,13 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         result["amihud"] = _sfloat(amihud_df["amihud"].iloc[-1])
         result["amihud_zscore"] = _sfloat(amihud_df["amihud_zscore"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[volume] {symbol}: Amihud failed: {exc}")
+        logger.warning(f"[volume] {symbol}: Amihud failed: {exc}")
 
     try:
         roll_df = RollImpliedSpread(period=22).compute(df["close"])
         result["roll_spread_pct"] = _sfloat(roll_df["roll_spread_pct"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[volume] {symbol}: Roll spread failed: {exc}")
+        logger.warning(f"[volume] {symbol}: Roll spread failed: {exc}")
 
     try:
         cs_df = CorwinSchultzSpread(period=22).compute(
@@ -195,7 +195,7 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         )
         result["cs_spread_pct"] = _sfloat(cs_df["cs_spread_pct"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[volume] {symbol}: Corwin-Schultz failed: {exc}")
+        logger.warning(f"[volume] {symbol}: Corwin-Schultz failed: {exc}")
 
     try:
         vwap_dev_df = VWAPSessionDeviation(period=20).compute(
@@ -206,7 +206,7 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             vwap_dev_df["vwap_deviation_zscore"].iloc[-1]
         )
     except Exception as exc:
-        logger.debug(f"[volume] {symbol}: VWAPSessionDeviation failed: {exc}")
+        logger.warning(f"[volume] {symbol}: VWAPSessionDeviation failed: {exc}")
 
     if "open" in df.columns:
         try:
@@ -217,7 +217,7 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
                 rv_df["overnight_var_ratio"].iloc[-1]
             )
         except Exception as exc:
-            logger.debug(f"[volume] {symbol}: RV decomp failed: {exc}")
+            logger.warning(f"[volume] {symbol}: RV decomp failed: {exc}")
 
         try:
             gap_df = OvernightGapPersistence(min_gap_pct=0.2).compute(
@@ -228,7 +228,7 @@ def _collect_volume_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["gap_down"] = int(gap_df["gap_down"].iloc[-1])
             result["gap_persisted"] = int(gap_df["gap_persisted"].iloc[-1])
         except Exception as exc:
-            logger.debug(f"[volume] {symbol}: Overnight gap failed: {exc}")
+            logger.warning(f"[volume] {symbol}: Overnight gap failed: {exc}")
 
     return result
 

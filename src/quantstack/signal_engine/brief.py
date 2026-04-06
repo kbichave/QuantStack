@@ -127,6 +127,47 @@ class SignalBrief(BaseModel):
     # Defaults to empty dict when collector is unavailable or returns no data.
     social: dict = Field(default_factory=dict)
 
+    # -- Phase 7 additions (v2.0) — AV data expansion collectors --------
+
+    # Put-call ratio (put_call_ratio collector)
+    pcr_signal: int | None = None  # +1 contrarian bullish, -1 contrarian bearish, 0 neutral
+    pcr_10d_sma: float | None = None
+
+    # Earnings momentum (earnings_momentum collector)
+    earnings_momentum_score: float | None = None  # [-1, 1] composite
+    consecutive_beats: int | None = None
+    drift_active: bool = False  # PEAD drift detection
+
+    # Commodity signals (commodity collector — global)
+    commodity_regime: str = "unknown"  # "risk_off" | "risk_on" | "neutral" | "unknown"
+    sector_rotation_signal_commodity: str = "unknown"  # from copper/gold dynamics
+    risk_off_score: float | None = None  # 0-1 composite
+    gold_silver_ratio: float | None = None
+    copper_gold_ratio: float | None = None
+    usd_strength_proxy: float | None = None
+
+    # -- EWF (Elliott Wave Forecast) signal fields ---------------------------
+    # Populated by collect_ewf collector. All default to safe neutral values.
+    # EWF data is supplementary — not included in synthesis weights.
+
+    ewf_bias: str | None = None
+    ewf_turning_signal: str | None = None
+    ewf_wave_position: str | None = None
+    ewf_wave_degree: str | None = None
+    ewf_current_wave_label: str | None = None
+    ewf_confidence: float | None = None
+    ewf_key_support: list[float] = Field(default_factory=list)
+    ewf_key_resistance: list[float] = Field(default_factory=list)
+    ewf_invalidation_level: float | None = None
+    ewf_target: float | None = None
+    ewf_blue_box_active: bool = False
+    ewf_blue_box_low: float | None = None
+    ewf_blue_box_high: float | None = None
+    ewf_summary: str | None = None
+    ewf_projected_path: str | None = None
+    ewf_timeframe_used: str | None = None
+    ewf_age_hours: float | None = None
+
     def to_daily_brief(self) -> DailyBrief:
         """Return a DailyBrief-compatible view of this brief (drops extra fields)."""
         return DailyBrief.model_validate(self.model_dump())

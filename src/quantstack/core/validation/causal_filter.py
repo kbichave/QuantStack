@@ -428,7 +428,7 @@ class CausalFilter:
                 verbose=False,
             )
         except Exception as e:
-            logger.debug(f"  {feature_name}: Granger test failed: {e}")
+            logger.warning(f"  {feature_name}: Granger test failed: {e}")
             return CausalTestResult(
                 feature_name=feature_name,
                 granger_p_value=1.0,

@@ -2,21 +2,19 @@
 
 import json
 import logging
+from typing import Annotated
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 logger = logging.getLogger(__name__)
 
 
 @tool
-async def fetch_strategy_registry(status: str | None = None) -> str:
-    """Fetch strategies from the registry, optionally filtered by status.
-
-    Args:
-        status: Filter by status ("active", "forward_testing", "retired", or None for all).
-
-    Returns JSON with strategy details: ID, type, symbol, performance, status.
-    """
+async def fetch_strategy_registry(
+    status: Annotated[str | None, Field(description="Filter strategies by lifecycle status: 'active', 'forward_testing', 'draft', 'retired', or None to list all strategies")] = None,
+) -> str:
+    """Retrieves the full strategy registry with details for each registered strategy including ID, name, symbol, instrument type, time horizon, backtest summary, and status. Use when surveying the current strategy roster, checking which strategies are active or in forward testing, or auditing the strategy pipeline. Returns JSON array of strategy records sorted by creation date descending."""
     try:
         from quantstack.db import pg_conn
 
@@ -60,29 +58,17 @@ async def fetch_strategy_registry(status: str | None = None) -> str:
 
 @tool
 async def register_strategy(
-    name: str,
-    symbol: str,
-    strategy_type: str,
-    entry_rules: list | None = None,
-    exit_rules: list | None = None,
-    parameters: dict | None = None,
-    description: str = "",
-    instrument_type: str = "equity",
-    time_horizon: str = "swing",
+    name: Annotated[str, Field(description="Unique human-readable strategy name, e.g. 'AAPL_mean_reversion_swing'")],
+    symbol: Annotated[str, Field(description="Ticker symbol the strategy trades, e.g. 'AAPL', 'SPY', 'QQQ'")],
+    strategy_type: Annotated[str, Field(description="Strategy archetype: 'mean_reversion', 'momentum', 'trend_following', 'stat_arb', 'options_spread', etc.")],
+    entry_rules: Annotated[list | None, Field(description="List of entry rule dicts defining conditions to open a position, e.g. [{'indicator': 'RSI', 'condition': 'below', 'value': 30}]")] = None,
+    exit_rules: Annotated[list | None, Field(description="List of exit rule dicts defining conditions to close a position, e.g. [{'type': 'stop_loss', 'value': 0.05}]")] = None,
+    parameters: Annotated[dict | None, Field(description="Strategy-specific parameters dict, e.g. {'lookback': 20, 'threshold': 1.5}")] = None,
+    description: Annotated[str, Field(description="Human-readable description of the strategy thesis, edge, and expected market regime")] = "",
+    instrument_type: Annotated[str, Field(description="Instrument class: 'equity' for stocks/ETFs or 'options' for options strategies")] = "equity",
+    time_horizon: Annotated[str, Field(description="Trading time horizon: 'day' for intraday, 'swing' for multi-day, 'investment' for long-term holds")] = "swing",
 ) -> str:
-    """Register a new strategy in the registry as draft.
-
-    Args:
-        name: Unique strategy name.
-        symbol: Ticker symbol.
-        strategy_type: Strategy type (e.g., "mean_reversion", "momentum").
-        entry_rules: List of entry rule dicts.
-        exit_rules: List of exit rule dicts.
-        parameters: Strategy parameters dict.
-        description: Human-readable description.
-        instrument_type: "equity" or "options".
-        time_horizon: "swing", "investment", or "day".
-    """
+    """Registers a new trading strategy in the strategy registry with draft status. Use after completing research and backtesting to persist a strategy for promotion to forward testing and eventually live trading. Provides entry rules, exit rules, parameters, and metadata. Returns JSON with the assigned strategy_id and creation confirmation."""
     try:
         from quantstack.tools._shared import register_strategy_impl
 
@@ -104,12 +90,10 @@ async def register_strategy(
 
 
 @tool
-async def get_strategy(strategy_id: str) -> str:
-    """Get details for a specific strategy.
-
-    Args:
-        strategy_id: Strategy ID to look up.
-    """
+async def get_strategy(
+    strategy_id: Annotated[str, Field(description="Unique strategy identifier (UUID) to retrieve full details for")],
+) -> str:
+    """Retrieves complete details for a single strategy by ID including name, rules, parameters, backtest results, and current status. Use when inspecting a specific strategy before trade execution, reviewing its configuration, or preparing a promotion/retirement decision. Returns JSON with all strategy fields."""
     try:
         from quantstack.tools._shared import get_strategy_impl
 
@@ -120,12 +104,10 @@ async def get_strategy(strategy_id: str) -> str:
 
 
 @tool
-async def update_strategy(strategy_id: str, updates: dict) -> str:
-    """Update a strategy's metadata or status.
-
-    Args:
-        strategy_id: Strategy ID to update.
-        updates: Dict of fields to update.
-    """
+async def update_strategy(
+    strategy_id: Annotated[str, Field(description="Unique strategy identifier (UUID) of the strategy to modify")],
+    updates: Annotated[dict, Field(description="Dictionary of fields to update, e.g. {'description': 'new thesis', 'parameters': {'lookback': 30}}")],
+) -> str:
+    """Updates a strategy's metadata, parameters, rules, or status fields in the registry. Use when tuning strategy parameters after performance review, correcting configuration errors, or changing descriptive metadata. Returns JSON confirmation with the updated fields."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)

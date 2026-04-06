@@ -254,8 +254,8 @@ class AlpacaBroker:
             if order_id:
                 try:
                     self._client.cancel_order_by_id(order_id)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("[ALPACA] Best-effort cancel for %s failed: %s", order_id, exc)
 
         return result
 

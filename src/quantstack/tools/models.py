@@ -411,3 +411,40 @@ class ConflictResolution(BaseModel):
     reasoning: str = ""
     original_trades: list[dict[str, Any]] = Field(default_factory=list)
     resolved_trade: dict[str, Any] | None = None
+
+
+# =============================================================================
+# AV Data Expansion
+# =============================================================================
+
+
+class PutCallRatioInput(BaseModel):
+    """Input for the get_put_call_ratio tool."""
+
+    symbol: str = Field(description="Ticker symbol (e.g., 'AAPL')")
+    lookback_days: int = Field(default=30, description="Days of PCR history")
+
+
+class EarningsMomentumInput(BaseModel):
+    """Input for the get_earnings_momentum tool."""
+
+    symbol: str = Field(description="Ticker symbol")
+    quarters: int = Field(default=8, description="Quarters of history")
+
+
+class CommoditySignalsInput(BaseModel):
+    """Input for the get_commodity_signals tool."""
+
+    lookback_days: int = Field(default=60, description="Days of commodity history")
+
+
+class ForexRatesInput(BaseModel):
+    """Input for the get_forex_rates tool."""
+
+    lookback_days: int = Field(default=30, description="Days of forex history")
+
+
+class ListingStatusInput(BaseModel):
+    """Input for the check_listing_status tool."""
+
+    symbol: str = Field(description="Ticker symbol to check")

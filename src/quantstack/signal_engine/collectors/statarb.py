@@ -60,7 +60,7 @@ async def collect_statarb(symbol: str, store: DataStore) -> dict[str, Any]:
     try:
         return await asyncio.to_thread(_collect_statarb_sync, symbol, store)
     except Exception as exc:
-        logger.debug(f"[statarb] {symbol}: {exc} — returning empty")
+        logger.warning(f"[statarb] {symbol}: {exc} — returning empty")
         return {}
 
 

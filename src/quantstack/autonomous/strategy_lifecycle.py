@@ -101,12 +101,20 @@ _STRATEGY_TEMPLATES = [
     },
 ]
 
-# Promotion thresholds
+# Promotion thresholds — walkforward path (run_weekly template candidates)
 _MIN_OOS_SHARPE = 0.5
 _MAX_OVERFIT_RATIO = 2.0
 _FORWARD_TEST_DAYS = 30
 _MIN_LIVE_SHARPE = 0.3
 _RETIREMENT_DEGRADATION_PCT = 50.0
+
+# Phase 2 screening thresholds — backtest-only path (research-graph candidates)
+# Lower bar than walkforward: forward_testing is itself a probationary period
+# with 50% position size and AutoPromoter gating before live.
+_PHASE2_MIN_SHARPE = 0.15
+_PHASE2_MIN_PROFIT_FACTOR = 1.0
+_PHASE2_MIN_TRADES = 50
+_PHASE2_MAX_DRAWDOWN = 15.0  # percent
 
 
 @dataclass
@@ -256,7 +264,9 @@ class StrategyLifecycle:
 
         Returns True if the candidate passes thresholds and gets registered.
         """
-        strategy_name = f"{template['name_prefix']}_{target_regime}_{date.today().strftime('%Y%m%d')}"
+        import uuid as _uuid
+        nonce = _uuid.uuid4().hex[:8]
+        strategy_name = f"{template['name_prefix']}_{target_regime}_{date.today().strftime('%Y%m%d')}_{nonce}"
 
         # Register as draft; idempotent — weekly reruns won't blow up on name collision.
         self._conn.execute(
@@ -365,8 +375,8 @@ class StrategyLifecycle:
                             else backtest_json
                         )
                         bt_sharpe = bt.get("sharpe_ratio", 0)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("[Lifecycle] Failed to parse backtest JSON for %s: %s", strategy_id, exc)
 
                 # Get live performance
                 pnl_rows = self._conn.execute(
@@ -438,8 +448,8 @@ class StrategyLifecycle:
             ).fetchone()
             if row:
                 iteration = int(row[0])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[Pipeline] Failed to derive next iteration number: %s", exc)
 
         try:
             self._conn.execute(
@@ -454,6 +464,102 @@ class StrategyLifecycle:
             self._conn.commit()
         except Exception as exc:
             logger.debug(f"[Pipeline] Failed to record start heartbeat: {exc}")
+
+        # Phase 0a: auto-retire drafts with empty entry_rules (they can never
+        # produce trades, so looping on them wastes cycles).
+        try:
+            empty_rows = self._conn.execute(
+                "SELECT strategy_id, name FROM strategies "
+                "WHERE status = 'draft' AND (entry_rules IS NULL OR entry_rules IN ('', '[]'))"
+            ).fetchall()
+            for sid, sname in empty_rows:
+                self._conn.execute(
+                    "UPDATE strategies SET status = 'retired', updated_at = NOW() "
+                    "WHERE strategy_id = %s",
+                    [sid],
+                )
+                self._conn.commit()
+                logger.info("[Pipeline] Auto-retired draft with no entry_rules: %s (%s)", sname, sid)
+        except Exception as exc:
+            logger.debug("[Pipeline] Auto-retire check failed (non-fatal): %s", exc)
+
+        # Phase 0b: auto-retire backtested strategies with 0 trades.
+        # These strategies had entry rules that never fired during the backtest
+        # window. They will never be promoted (Phase 2 requires ≥50 trades),
+        # so keeping them wastes evaluation cycles.
+        try:
+            zero_trade_rows = self._conn.execute(
+                """
+                SELECT strategy_id, name, symbol FROM strategies
+                WHERE status = 'backtested'
+                  AND backtest_summary IS NOT NULL
+                  AND backtest_summary != ''
+                """
+            ).fetchall()
+            for sid, sname, sym in zero_trade_rows:
+                try:
+                    bt = json.loads(
+                        self._conn.execute(
+                            "SELECT backtest_summary FROM strategies WHERE strategy_id = %s",
+                            [sid],
+                        ).fetchone()[0]
+                    )
+                except (json.JSONDecodeError, TypeError, IndexError):
+                    continue
+                trades = bt.get("total_trades", 0) or 0
+                if trades == 0:
+                    self._conn.execute(
+                        "UPDATE strategies SET status = 'retired', updated_at = NOW() "
+                        "WHERE strategy_id = %s AND status = 'backtested'",
+                        [sid],
+                    )
+                    self._conn.commit()
+                    logger.info(
+                        "[Pipeline] Auto-retired 0-trade backtested strategy: %s (%s/%s)",
+                        sname, sym, sid,
+                    )
+        except Exception as exc:
+            logger.debug("[Pipeline] Zero-trade retire check failed (non-fatal): %s", exc)
+
+        # Phase 0c: reset orphaned research_queue tasks.
+        # When the research graph times out mid-cycle, tasks claimed as
+        # 'running' are never released. Reset tasks stuck >60 min back to
+        # 'pending' so the next research cycle can pick them up. Tasks stuck
+        # >4 hours are marked 'failed' (likely a permanent issue).
+        try:
+            # Fail tasks stuck >4 hours
+            self._conn.execute(
+                """
+                UPDATE research_queue
+                SET status = 'failed',
+                    completed_at = NOW(),
+                    error_message = 'Orphaned: stuck in running for >4 hours'
+                WHERE status = 'running'
+                  AND started_at < NOW() - INTERVAL '4 hours'
+                """
+            )
+            # Reset tasks stuck 60min–4h back to pending for retry
+            reset_result = self._conn.execute(
+                """
+                UPDATE research_queue
+                SET status = 'pending',
+                    started_at = NULL
+                WHERE status = 'running'
+                  AND started_at < NOW() - INTERVAL '60 minutes'
+                """
+            )
+            self._conn.commit()
+            # Log if any tasks were cleaned up
+            try:
+                orphaned = self._conn.execute(
+                    "SELECT COUNT(*) FROM research_queue WHERE status = 'pending' AND started_at IS NULL"
+                ).fetchone()[0]
+                if orphaned:
+                    logger.info("[Pipeline] Reset %d orphaned research_queue tasks", orphaned)
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.debug("[Pipeline] Orphan cleanup failed (non-fatal): %s", exc)
 
         # Phase 1: run backtests for every draft strategy that has a symbol.
         try:
@@ -482,6 +588,13 @@ class StrategyLifecycle:
                 report.errors.append(f"{strategy_id}: {exc}")
                 logger.warning(f"[Pipeline] Backtest exception for {strategy_id}: {exc}")
 
+        # Phase 2: promote best backtested strategies to forward_testing.
+        # This covers research-graph strategies that went draft → backtested
+        # but have no walkforward path. forward_testing is itself a safety net
+        # (50% size, AutoPromoter gate before live).
+        promoted = self._screen_and_promote_backtested()
+        report.backtested.extend(f"promoted:{sid}" for sid in promoted)
+
         try:
             self._conn.execute(
                 """
@@ -502,6 +615,61 @@ class StrategyLifecycle:
 
         logger.info(
             f"[Pipeline] Pass complete: backtested={len(report.backtested)} "
-            f"errors={len(report.errors)}"
+            f"promoted={len(promoted)} errors={len(report.errors)}"
         )
         return report
+
+    def _screen_and_promote_backtested(self) -> list[str]:
+        """
+        Phase 2: screen backtested strategies on backtest metrics alone
+        and promote the best to forward_testing.
+
+        Thresholds are intentionally lower than walkforward — the forward_testing
+        period with reduced position size IS the real-world validation.
+        """
+        promoted: list[str] = []
+        try:
+            rows = self._conn.execute(
+                """
+                SELECT strategy_id, name, symbol, backtest_summary
+                FROM strategies
+                WHERE status = 'backtested'
+                  AND backtest_summary IS NOT NULL
+                  AND backtest_summary != ''
+                ORDER BY updated_at ASC
+                """
+            ).fetchall()
+        except Exception as exc:
+            logger.warning(f"[Pipeline Phase 2] Query failed: {exc}")
+            return promoted
+
+        for strategy_id, name, symbol, bt_raw in rows:
+            try:
+                bt = json.loads(bt_raw) if isinstance(bt_raw, str) else (bt_raw or {})
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            sharpe = bt.get("sharpe_ratio", bt.get("sharpe", 0)) or 0
+            pf = bt.get("profit_factor", 0) or 0
+            trades = bt.get("total_trades", 0) or 0
+            dd = bt.get("max_drawdown", 999) or 0
+
+            if (
+                sharpe >= _PHASE2_MIN_SHARPE
+                and pf >= _PHASE2_MIN_PROFIT_FACTOR
+                and trades >= _PHASE2_MIN_TRADES
+                and dd <= _PHASE2_MAX_DRAWDOWN
+            ):
+                self._conn.execute(
+                    "UPDATE strategies SET status = 'forward_testing', updated_at = NOW() "
+                    "WHERE strategy_id = %s AND status = 'backtested'",
+                    [strategy_id],
+                )
+                self._conn.commit()
+                promoted.append(strategy_id)
+                logger.info(
+                    f"[Pipeline Phase 2] PROMOTED {name} ({symbol}) to forward_testing — "
+                    f"Sharpe={sharpe:.3f} PF={pf:.2f} trades={trades} DD={dd:.1f}%"
+                )
+
+        return promoted

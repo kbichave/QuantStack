@@ -112,7 +112,7 @@ def on_trade_close(
             signals_entry=signals_summary,
         )
     except Exception as exc:
-        logger.debug(f"[hooks] on_trade_close reflection failed (non-critical): {exc}")
+        logger.warning(f"[hooks] on_trade_close reflection failed: {exc}")
         return
 
     # 2. research_queue INSERT for losses > 1% — feeds AutoResearchClaw bug_fix pipeline
@@ -141,7 +141,7 @@ def on_trade_close(
                     ],
                 )
         except Exception as exc:
-            logger.debug(f"[hooks] research_queue insert failed (non-critical): {exc}")
+            logger.warning(f"[hooks] research_queue insert failed: {exc}")
 
     # 3. PromptTuner outcome — losses only (≥ 5 same-pattern samples before surfacing)
     if realized_pnl_pct < -1.0:
@@ -160,7 +160,7 @@ def on_trade_close(
                     symbol=symbol,
                 )
         except Exception as exc:
-            logger.debug(f"[hooks] on_trade_close prompt tuner failed (non-critical): {exc}")
+            logger.warning(f"[hooks] on_trade_close prompt tuner failed: {exc}")
 
     # 3. Structured reflexion episode (losses only)
     if realized_pnl_pct < -1.0:
@@ -169,7 +169,7 @@ def on_trade_close(
             if mem is not None:
                 mem.record_episode(ref)
         except Exception as exc:
-            logger.debug(f"[hooks] on_trade_close reflexion episode failed (non-critical): {exc}")
+            logger.warning(f"[hooks] on_trade_close reflexion episode failed: {exc}")
 
     # 3. Step-level credit assignment (every trade)
     try:
@@ -195,7 +195,7 @@ def on_trade_close(
                     f"score={worst.credit_score:.2f} — {worst.evidence}"
                 )
     except Exception as exc:
-        logger.debug(f"[hooks] on_trade_close credit assignment failed (non-critical): {exc}")
+        logger.warning(f"[hooks] on_trade_close credit assignment failed: {exc}")
 
 
 def on_daily_close(
@@ -220,7 +220,7 @@ def on_daily_close(
             closed_trades=closed_trades,
         )
     except Exception as exc:
-        logger.debug(f"[hooks] on_daily_close failed (non-critical): {exc}")
+        logger.warning(f"[hooks] on_daily_close failed: {exc}")
 
 
 def find_similar_situations(
@@ -251,7 +251,7 @@ def find_similar_situations(
             if m.lesson  # Only return entries with lessons
         ]
     except Exception as exc:
-        logger.debug(f"[hooks] find_similar_situations failed: {exc}")
+        logger.warning(f"[hooks] find_similar_situations failed: {exc}")
         return []
 
 
@@ -272,7 +272,7 @@ def get_reflexion_episodes(
             return []
         return mem.get_relevant(regime=regime, strategy_id=strategy_id, symbol=symbol, k=k)
     except Exception as exc:
-        logger.debug(f"[hooks] get_reflexion_episodes failed: {exc}")
+        logger.warning(f"[hooks] get_reflexion_episodes failed: {exc}")
         return []
 
 
@@ -302,7 +302,7 @@ def _on_trade_fill(
             tracker.record_exit(strategy_id, symbol, fill_price)
             tracker.apply_learning(strategy_id)
     except Exception as exc:
-        logger.debug(f"[hooks] trade_fill outcome attribution failed: {exc}")
+        logger.warning(f"[hooks] trade_fill outcome attribution failed: {exc}")
 
 
 register("trade_close", on_trade_close)

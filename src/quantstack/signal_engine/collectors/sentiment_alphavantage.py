@@ -13,8 +13,6 @@ Design:
 - Considers: price action, earnings, sector, macro regime, institutional flow
 - Returns: sentiment_score, reasoning, confidence
 - Fails gracefully: no context → safe defaults immediately
-
-Replaces simple sentiment scoring with reasoning that connects dots.
 """
 
 import asyncio
@@ -26,6 +24,7 @@ from loguru import logger
 import litellm
 
 from quantstack.data.storage import DataStore
+from quantstack.db import db_conn
 from quantstack.llm_config import get_llm_for_role
 
 
@@ -58,7 +57,7 @@ async def collect_sentiment_alphavantage(
             timeout=_SENTIMENT_TIMEOUT,
         )
     except (asyncio.TimeoutError, Exception) as exc:
-        logger.debug(
+        logger.warning(
             f"[sentiment_av] {symbol}: {type(exc).__name__} — returning safe defaults"
         )
         return _safe_defaults()
@@ -70,14 +69,14 @@ def _collect_sentiment_alphavantage_sync(
     """Synchronous sentiment collection with context."""
 
     # Fetch headlines from Alpha Vantage news_sentiment table
-    headlines_data = _fetch_alphavantage_headlines(symbol, store)
+    headlines_data = _fetch_alphavantage_headlines(symbol)
     if not headlines_data:
         return {**_safe_defaults(), "source": "no_headlines"}
 
     headlines, raw_scores = headlines_data
 
     # Gather context from technicals, fundamentals, macro, flow
-    context = _gather_context(symbol, store)
+    context = _gather_context(symbol)
 
     # Build rich reasoning prompt
     prompt = _build_reasoning_prompt(symbol, headlines, context, raw_scores)
@@ -94,7 +93,7 @@ def _collect_sentiment_alphavantage_sync(
         raw = response.choices[0].message.content.strip()
         return _parse_reasoning_response(raw, len(headlines), context)
     except Exception as exc:
-        logger.debug(
+        logger.warning(
             f"[sentiment_av] {symbol}: Groq reasoning failed: {exc} — "
             f"falling back to pre-scored sentiment"
         )
@@ -103,7 +102,7 @@ def _collect_sentiment_alphavantage_sync(
 
 
 def _fetch_alphavantage_headlines(
-    symbol: str, store: DataStore
+    symbol: str,
 ) -> tuple[list[str], list[float]] | None:
     """
     Fetch recent headlines from Alpha Vantage news_sentiment table.
@@ -115,14 +114,14 @@ def _fetch_alphavantage_headlines(
             datetime.now() - timedelta(days=_NEWS_LOOKBACK_DAYS)
         ).isoformat()
 
-        with store._use_conn() as conn:
+        with db_conn() as conn:
             rows = conn.execute(
                 """
                 SELECT title, ticker_sentiment_score
                 FROM news_sentiment
-                WHERE ticker = ? AND time_published >= ?
+                WHERE ticker = %s AND time_published >= %s
                 ORDER BY time_published DESC
-                LIMIT ?
+                LIMIT %s
             """,
                 [symbol, cutoff_date, _MAX_HEADLINES],
             ).fetchall()
@@ -137,35 +136,35 @@ def _fetch_alphavantage_headlines(
 
         return (headlines, scores) if headlines else None
     except Exception as exc:
-        logger.debug(f"[sentiment_av] headline fetch failed for {symbol}: {exc}")
+        logger.warning(f"[sentiment_av] headline fetch failed for {symbol}: {exc}")
         return None
 
 
-def _gather_context(symbol: str, store: DataStore) -> dict[str, Any]:
+def _gather_context(symbol: str) -> dict[str, Any]:
     """
     Gather technical, fundamental, macro context from database.
 
     Returns dict with relevant signals for reasoning.
     """
     context = {
-        "technical": _get_technical_context(symbol, store),
-        "fundamental": _get_fundamental_context(symbol, store),
-        "macro": _get_macro_context(store),
-        "flow": _get_flow_context(symbol, store),
+        "technical": _get_technical_context(symbol),
+        "fundamental": _get_fundamental_context(symbol),
+        "macro": _get_macro_context(),
+        "flow": _get_flow_context(symbol),
     }
     return context
 
 
-def _get_technical_context(symbol: str, store: DataStore) -> dict[str, Any]:
+def _get_technical_context(symbol: str) -> dict[str, Any]:
     """Extract recent price action, trend, volatility."""
     try:
-        with store._use_conn() as conn:
+        with db_conn() as conn:
             # Get last 20 daily bars
             bars = conn.execute(
                 """
                 SELECT timestamp, close, volume
                 FROM ohlcv
-                WHERE symbol = ? AND timeframe = 'D1'
+                WHERE symbol = %s AND timeframe = 'D1'
                 ORDER BY timestamp DESC
                 LIMIT 20
             """,
@@ -193,19 +192,19 @@ def _get_technical_context(symbol: str, store: DataStore) -> dict[str, Any]:
             "trend": "uptrend" if price_change_pct > 2 else "downtrend" if price_change_pct < -2 else "sideways",
         }
     except Exception as exc:
-        logger.debug(f"[sentiment_av] technical context failed: {exc}")
+        logger.warning(f"[sentiment_av] technical context failed: {exc}")
         return {}
 
 
-def _get_fundamental_context(symbol: str, store: DataStore) -> dict[str, Any]:
+def _get_fundamental_context(symbol: str) -> dict[str, Any]:
     """Extract latest fundamental metrics."""
     try:
-        with store._use_conn() as conn:
+        with db_conn() as conn:
             overview = conn.execute(
                 """
                 SELECT market_cap, dividend_yield, beta, sector
                 FROM company_overview
-                WHERE symbol = ?
+                WHERE symbol = %s
             """,
                 [symbol],
             ).fetchone()
@@ -221,19 +220,19 @@ def _get_fundamental_context(symbol: str, store: DataStore) -> dict[str, Any]:
             "beta": round(beta, 2) if beta else None,
         }
     except Exception as exc:
-        logger.debug(f"[sentiment_av] fundamental context failed: {exc}")
+        logger.warning(f"[sentiment_av] fundamental context failed: {exc}")
         return {}
 
 
-def _get_macro_context(store: DataStore) -> dict[str, Any]:
+def _get_macro_context() -> dict[str, Any]:
     """Extract macro regime context."""
     try:
-        with store._use_conn() as conn:
+        with db_conn() as conn:
             # VIX proxy (or use market_indicators if available)
             vix = conn.execute(
                 """
                 SELECT value FROM macro_indicators
-                WHERE indicator LIKE '%VIX%' OR indicator = 'VOLATILITY_INDEX'
+                WHERE indicator LIKE '%%VIX%%' OR indicator = 'VOLATILITY_INDEX'
                 ORDER BY date DESC LIMIT 1
             """
             ).fetchone()
@@ -243,20 +242,21 @@ def _get_macro_context(store: DataStore) -> dict[str, Any]:
             "risk_environment": "high" if vix and vix[0] > 25 else "normal" if vix and vix[0] > 15 else "low",
         }
     except Exception as exc:
-        logger.debug(f"[sentiment_av] macro context failed: {exc}")
+        logger.warning(f"[sentiment_av] macro context failed: {exc}")
         return {}
 
 
-def _get_flow_context(symbol: str, store: DataStore) -> dict[str, Any]:
+def _get_flow_context(symbol: str) -> dict[str, Any]:
     """Extract institutional/insider flow context."""
     try:
-        with store._use_conn() as conn:
+        with db_conn() as conn:
             # Recent insider activity
             insider = conn.execute(
                 """
                 SELECT transaction_type, COUNT(*) as count
                 FROM insider_trades
-                WHERE ticker = ? AND (julianday('now') - julianday(transaction_date)) < 30
+                WHERE ticker = %s
+                  AND transaction_date >= (CURRENT_DATE - INTERVAL '30 days')
                 GROUP BY transaction_type
             """,
                 [symbol],
@@ -271,7 +271,7 @@ def _get_flow_context(symbol: str, store: DataStore) -> dict[str, Any]:
             "insider_signal": "bullish" if buys > sells else "bearish" if sells > buys else "neutral",
         }
     except Exception as exc:
-        logger.debug(f"[sentiment_av] flow context failed: {exc}")
+        logger.warning(f"[sentiment_av] flow context failed: {exc}")
         return {}
 
 
@@ -389,7 +389,7 @@ def _parse_reasoning_response(
             "source": "alphavantage_groq",
         }
     except Exception as exc:
-        logger.debug(f"[sentiment_av] parse failed: {exc} — raw: {raw[:100]}")
+        logger.warning(f"[sentiment_av] parse failed: {exc} — raw: {raw[:100]}")
         return _safe_defaults()
 
 

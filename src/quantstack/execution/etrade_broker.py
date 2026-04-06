@@ -26,8 +26,8 @@ Startup reconciliation:
 
 Environment variables:
   USE_REAL_TRADING       = false (default) — set true to route here
-  ETRADE_CONSUMER_KEY    = required
-  ETRADE_CONSUMER_SECRET = required
+  ETRADE_CONSUMER_KEY    (required)
+  ETRADE_CONSUMER_SECRET (required)
   ETRADE_SANDBOX         = true (default) — set false for live account
   ETRADE_ACCOUNT_ID_KEY  = optional — auto-selects first account if not set
   ETRADE_FILL_TIMEOUT    = 30 (seconds to wait for a fill before giving up)
@@ -63,7 +63,7 @@ from quantstack.execution.portfolio_state import Position, get_portfolio_state
 
 class EtradeBroker:
     """
-    Live broker adapter wrapping the eTrade MCP client.
+    Live broker adapter wrapping the eTrade API client.
 
     Implements the same execute(OrderRequest) -> Fill interface as PaperBroker.
     The trading flow and risk gate call this without knowing it's real.
@@ -323,8 +323,8 @@ class EtradeBroker:
             for o in orders:
                 if str(o.order_id) == str(order_id):
                     return o
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[ETRADE] Final poll for %s failed: %s", order_id, exc)
         return None
 
     def _to_fill(

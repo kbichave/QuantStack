@@ -162,7 +162,7 @@ class ModelRegistry:
 
     def delete(self, model_id: str) -> None:
         """Delete a model record."""
-        self.db.execute("DELETE FROM finrl_models WHERE model_id = ?", [model_id])
+        self.db.execute("DELETE FROM finrl_models WHERE model_id = %s", [model_id])
 
     def _row_to_dict(self, row: tuple) -> dict[str, Any]:
         """Convert a database row to dict."""

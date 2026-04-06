@@ -268,7 +268,7 @@ class ReflexionMemory:
                     params + [k],
                 ).fetchall()
         except Exception as exc:
-            logger.debug(f"[ReflexionMemory] get_relevant query failed: {exc}")
+            logger.warning(f"[ReflexionMemory] get_relevant query failed: {exc}")
             rows = []
 
         # Fallback: relax to regime-only if specific filters returned nothing
@@ -284,7 +284,7 @@ class ReflexionMemory:
                         [regime, k],
                     ).fetchall()
             except Exception as exc:
-                logger.debug(f"[ReflexionMemory] get_relevant fallback failed: {exc}")
+                logger.warning(f"[ReflexionMemory] get_relevant fallback failed: {exc}")
                 rows = []
 
         return [self._row_to_episode(row) for row in rows]
@@ -388,7 +388,8 @@ class ReflexionMemory:
                 count = conn.execute(
                     f"SELECT COUNT(*) FROM {EPISODES_TABLE}"
                 ).fetchone()[0]
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"[ReflexionMemory] Failed to count episodes for pruning: {exc}")
             return
 
         if count <= MAX_EPISODES:

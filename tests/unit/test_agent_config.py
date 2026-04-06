@@ -1,9 +1,10 @@
-"""Tests for agent configuration system (Section 03)."""
+"""Tests for agent configuration system."""
 import os
 import signal
 import tempfile
 import threading
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -221,6 +222,152 @@ class TestConfigWatcher:
         assert watcher.apply_pending_reload() is True
         assert watcher.get_config("quant_researcher").role == "SIGHUP Updated"
         watcher.stop()
+
+
+YAML_WITH_ALWAYS_LOADED = """
+test_agent:
+  role: "Test Agent"
+  goal: "Test things"
+  backstory: "Expert tester"
+  llm_tier: heavy
+  tools:
+    - signal_brief
+    - fetch_market_data
+    - fetch_portfolio
+  always_loaded_tools:
+    - signal_brief
+    - fetch_portfolio
+"""
+
+
+class TestAlwaysLoadedTools:
+    """Tests for always_loaded_tools field on AgentConfig."""
+
+    def test_parses_always_loaded_tools_from_yaml(self, tmp_path):
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text(YAML_WITH_ALWAYS_LOADED)
+        from quantstack.graphs.config import load_agent_configs
+        configs = load_agent_configs(yaml_file)
+        cfg = configs["test_agent"]
+        assert cfg.always_loaded_tools == ("signal_brief", "fetch_portfolio")
+
+    def test_defaults_to_empty_tuple_when_missing(self, tmp_path):
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text(VALID_YAML)
+        from quantstack.graphs.config import load_agent_configs
+        configs = load_agent_configs(yaml_file)
+        assert configs["quant_researcher"].always_loaded_tools == ()
+
+    def test_rejects_always_loaded_tool_not_in_tools(self, tmp_path):
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text("""
+agent:
+  role: "Test"
+  goal: "Test"
+  backstory: "Test"
+  llm_tier: heavy
+  tools:
+    - signal_brief
+  always_loaded_tools:
+    - fetch_portfolio
+""")
+        from quantstack.graphs.config import load_agent_configs
+        with pytest.raises(ValueError, match="fetch_portfolio.*not in.*tools"):
+            load_agent_configs(yaml_file)
+
+    def test_rejects_risk_check_not_in_always_loaded(self, tmp_path):
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text("""
+agent:
+  role: "Test"
+  goal: "Test"
+  backstory: "Test"
+  llm_tier: heavy
+  tools:
+    - signal_brief
+    - risk_check
+  always_loaded_tools:
+    - signal_brief
+""")
+        from quantstack.graphs.config import load_agent_configs
+        with pytest.raises(ValueError, match="risk_check.*never be deferred"):
+            load_agent_configs(yaml_file)
+
+    def test_risk_check_in_both_passes(self, tmp_path):
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text("""
+agent:
+  role: "Test"
+  goal: "Test"
+  backstory: "Test"
+  llm_tier: heavy
+  tools:
+    - signal_brief
+    - risk_check
+  always_loaded_tools:
+    - signal_brief
+    - risk_check
+""")
+        from quantstack.graphs.config import load_agent_configs
+        configs = load_agent_configs(yaml_file)
+        assert "risk_check" in configs["agent"].always_loaded_tools
+
+    def test_warns_when_more_than_10_always_loaded(self, tmp_path):
+        tools_list = [f"tool_{i}" for i in range(12)]
+        tools_yaml = "\n".join(f"    - {t}" for t in tools_list)
+        yaml_content = (
+            "agent:\n"
+            "  role: \"Test\"\n"
+            "  goal: \"Test\"\n"
+            "  backstory: \"Test\"\n"
+            "  llm_tier: heavy\n"
+            "  tools:\n"
+            f"{tools_yaml}\n"
+            "  always_loaded_tools:\n"
+            f"{tools_yaml}\n"
+        )
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text(yaml_content)
+        from quantstack.graphs.config import load_agent_configs
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            configs = load_agent_configs(yaml_file)
+            user_warnings = [x for x in w if issubclass(x.category, UserWarning)]
+            assert len(user_warnings) >= 1
+            assert "12" in str(user_warnings[0].message)
+
+    def test_empty_always_loaded_is_valid(self, tmp_path):
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text("""
+agent:
+  role: "Test"
+  goal: "Test"
+  backstory: "Test"
+  llm_tier: heavy
+  tools:
+    - signal_brief
+  always_loaded_tools: []
+""")
+        from quantstack.graphs.config import load_agent_configs
+        configs = load_agent_configs(yaml_file)
+        assert configs["agent"].always_loaded_tools == ()
+
+    def test_omitted_always_loaded_is_valid(self, tmp_path):
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text(VALID_YAML)
+        from quantstack.graphs.config import load_agent_configs
+        configs = load_agent_configs(yaml_file)
+        # No error, default empty tuple
+        for cfg in configs.values():
+            assert cfg.always_loaded_tools == ()
+
+    def test_always_loaded_tools_is_frozen(self, tmp_path):
+        yaml_file = tmp_path / "agents.yaml"
+        yaml_file.write_text(YAML_WITH_ALWAYS_LOADED)
+        from quantstack.graphs.config import load_agent_configs
+        configs = load_agent_configs(yaml_file)
+        with pytest.raises(AttributeError):
+            configs["test_agent"].always_loaded_tools = ("changed",)
 
 
 class TestProductionYamlFiles:

@@ -17,6 +17,8 @@ health_monitor:
     - check_broker_connection
     - get_intraday_status
     - list_stored_symbols
+    # AV expansion (1)
+    - check_listing_status
 
 self_healer:
   role: "Self-Healing Engineer"
@@ -32,7 +34,7 @@ self_healer:
     activate kill switch.
 
     You have read-only access to execution data for diagnostics but cannot execute trades.
-  llm_tier: light
+  llm_tier: medium
   max_iterations: 10
   timeout_seconds: 120
   tools:
@@ -42,6 +44,48 @@ self_healer:
     - get_audit_trail
     - acquire_historical_data
     - register_ticker
+  always_loaded_tools:
+    - check_system_status
+    - search_knowledge_base
+    - get_recent_decisions
+
+portfolio_risk_monitor:
+  role: "Portfolio Risk Monitor"
+  goal: "Detect portfolio-level concentration risk, correlation clustering, and drawdown velocity. Publish RISK_ALERT events for unacceptable conditions."
+  backstory: |
+    You run weekly (Saturday) and when a RISK_ALERT event is unacknowledged for > 24 hours.
+
+    Analysis:
+    1. Factor concentration — fraction of portfolio variance in each factor.
+       Flag if any single factor > 40%.
+    2. Sector concentration — fraction in each sector.
+       Flag if any sector > 30%.
+    3. Correlation clustering — identify 3+ positions with pairwise correlation > 0.7.
+       Correlated clusters amplify drawdown risk — each cluster counts as one effective position.
+    4. Drawdown velocity — rate of equity decline per day.
+       If velocity > 0.5%/day over 5 consecutive days, critical alert.
+
+    For each flag, publish a RISK_ALERT event to the EventBus with payload:
+    {alert_type, severity (warning/critical), details, recommended_action}.
+
+    The plan_day node reads recent (< 48h) unacknowledged RISK_ALERT events as context for
+    the next trading session. You do not execute trades — only publish alerts.
+  llm_tier: medium
+  max_iterations: 10
+  timeout_seconds: 180
+  tools:
+    - fetch_portfolio
+    - compute_risk_metrics
+    - get_daily_equity
+    - get_strategy_performance
+    - stress_test_portfolio
+    - compute_var
+    - compute_max_drawdown
+    - search_knowledge_base
+  always_loaded_tools:
+    - fetch_portfolio
+    - compute_risk_metrics
+    - get_daily_equity
 
 strategy_promoter:
   role: "Strategy Lifecycle Manager"
@@ -76,3 +120,8 @@ strategy_promoter:
     - get_regime_strategies
     - validate_strategy
     - check_strategy_rules
+  always_loaded_tools:
+    - fetch_strategy_registry
+    - get_strategy
+    - get_strategy_performance
+    - search_knowledge_base

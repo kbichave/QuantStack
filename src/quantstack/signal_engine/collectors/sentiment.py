@@ -57,7 +57,7 @@ async def collect_sentiment(symbol: str, _store: Any) -> dict[str, Any]:
             timeout=_SENTIMENT_TIMEOUT,
         )
     except (asyncio.TimeoutError, Exception) as exc:
-        logger.debug(
+        logger.warning(
             f"[sentiment] {symbol}: {type(exc).__name__} — returning safe defaults"
         )
         return _safe_defaults()
@@ -83,7 +83,7 @@ def _collect_sentiment_sync(symbol: str) -> dict[str, Any]:
         raw = response.choices[0].message.content.strip()
         return _parse_response(raw, len(truncated))
     except Exception as exc:
-        logger.debug(f"[sentiment] {symbol}: LiteLLM call failed: {exc}")
+        logger.warning(f"[sentiment] {symbol}: LiteLLM call failed: {exc}")
         return _safe_defaults()
 
 
@@ -110,7 +110,7 @@ def _fetch_headlines(symbol: str) -> list[str]:
             if item.get("title") or item.get("headline")
         ]
     except Exception as exc:
-        logger.debug(f"[sentiment] headline fetch failed for {symbol}: {exc}")
+        logger.warning(f"[sentiment] headline fetch failed for {symbol}: {exc}")
         return []
 
 
@@ -149,7 +149,7 @@ def _parse_response(raw: str, n_headlines: int) -> dict[str, Any]:
             "source": "groq",
         }
     except Exception as exc:
-        logger.debug(f"[sentiment] response parse failed: {exc} — raw: {raw[:100]}")
+        logger.warning(f"[sentiment] response parse failed: {exc} — raw: {raw[:100]}")
         return _safe_defaults()
 
 

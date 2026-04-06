@@ -556,7 +556,8 @@ def _add_earnings_surprise_signals(symbol: str, store: DataStore, result: dict) 
                    LIMIT 20""",
                 [symbol],
             ).fetchdf()
-        except Exception:
+        except Exception as exc:
+            logger.debug("[fundamentals] %s: earnings_calendar query failed: %s", symbol, exc)
             return
 
         if earnings_df is None or earnings_df.empty or len(earnings_df) < 4:
@@ -613,6 +614,9 @@ def _add_composite_signals(symbol: str, store: DataStore, result: dict) -> None:
         if df is None or df.empty or len(df) < 2:
             return
         df = _expand_json_blob(df)
+        # DB stores 'report_period'; feature classes expect 'period_end'
+        if "report_period" in df.columns and "period_end" not in df.columns:
+            df = df.rename(columns={"report_period": "period_end"})
 
         price_df = store.load_ohlcv(symbol, Timeframe.D1)
         if price_df is None or price_df.empty:
@@ -694,8 +698,8 @@ def _expand_json_blob(df: pd.DataFrame) -> pd.DataFrame:
         if not extra.empty:
             extra_df = pd.DataFrame(list(extra), index=extra.index)
             df = pd.concat([df.drop(columns=["data"]), extra_df], axis=1)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("[fundamentals] JSON blob expansion failed: %s", exc)
     return df
 
 

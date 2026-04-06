@@ -1,37 +1,17 @@
 """Capitulation detection tools for LangGraph agents."""
 
 import json
+from typing import Annotated
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 
 @tool
 async def get_capitulation_score(
-    symbol: str,
-    lookback_days: int = 20,
+    symbol: Annotated[str, Field(description="Stock ticker symbol to analyze for capitulation, e.g. 'RDDT', 'SPY', 'AAPL'")],
+    lookback_days: Annotated[int, Field(description="Lookback window in trading days for volume exhaustion and consecutive-down normalization")] = 20,
 ) -> str:
-    """Compute institutional-grade capitulation score for a symbol.
-
-    Uses ONLY tier_2_smart_money and tier_3_institutional signals -- no retail
-    indicators (RSI/MACD/BB). Designed for buy-the-bottom strategies.
-
-    Components:
-    - Volume exhaustion (0.25): down-day volume declining = sellers running out
-    - Support integrity (0.25): 52-week low zone tested 3+ times without breaking
-    - Williams VIX Fix extreme (0.20): synthetic fear gauge at Bollinger extreme
-    - PercentR dual exhaustion (0.20): both short+long lookback simultaneously at bottom
-    - Consecutive down bars (0.10): normalized run-length vs historical distribution
-
-    Score > 0.65: high-conviction capitulation
-    Score 0.40-0.65: partial washout -- watch, not yet actionable
-    Score < 0.40: no capitulation signal
-
-    Args:
-        symbol: Stock ticker (e.g., "RDDT", "SPY").
-        lookback_days: Window for volume exhaustion and consecutive-down normalization.
-
-    Returns JSON with capitulation_score (0-1), component scores, support level,
-    support_test_count, and recommendation.
-    """
+    """Compute an institutional-grade capitulation score for a stock symbol using smart-money and institutional signals only. Use when screening for buy-the-bottom opportunities or detecting seller exhaustion at support levels. Calculates a composite 0-1 score from volume exhaustion, support integrity, Williams VIX Fix extremes, PercentR dual exhaustion, and consecutive down-bar analysis. Returns JSON with capitulation_score, component breakdowns, support level, support_test_count, and actionable recommendation. Score above 0.65 indicates high-conviction capitulation. Synonyms: bottom detection, seller exhaustion, washout signal, panic selling, fear gauge, support test, buy the dip."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)

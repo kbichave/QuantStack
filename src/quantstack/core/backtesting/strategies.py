@@ -4,6 +4,7 @@ Trading strategy implementations for backtesting.
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 from quantstack.core.backtesting.engine import calculate_metrics, run_backtest_with_params
 from quantstack.core.utils.formatting import (
@@ -353,9 +354,10 @@ def backtest_hmm_strategy(
             regime_result = hmm_model.predict(window)
             is_bullish = regime_result.state.name in ["LOW_VOL_BULL", "HIGH_VOL_BULL"]
             is_stable = regime_result.regime_stability > 0.6
-        except Exception:
-            is_bullish = True
-            is_stable = True
+        except Exception as exc:
+            logger.warning("[Backtest] HMM predict failed at bar %d, defaulting to neutral: %s", i, exc)
+            is_bullish = False
+            is_stable = False
 
         # Only trade in stable regimes
         if position == 0 and is_stable:
@@ -422,7 +424,8 @@ def backtest_changepoint_strategy(
             window_df = cp_data.iloc[i - 60 : i]
             cp_result = changepoint_model.detect(window_df, feature="returns")
             high_change_prob = cp_result.regime_change_probability > 0.3
-        except Exception:
+        except Exception as exc:
+            logger.debug("[Backtest] Changepoint detection failed at bar %d: %s", i, exc)
             high_change_prob = False
 
         # Determine effective size for NEW entries only
@@ -503,7 +506,8 @@ def backtest_tft_strategy(
             is_trending_up = tft_result.predicted_regime.name == "TRENDING_UP"
             is_trending_down = tft_result.predicted_regime.name == "TRENDING_DOWN"
             confidence = tft_result.confidence
-        except Exception:
+        except Exception as exc:
+            logger.debug("[Backtest] TFT predict failed at bar %d: %s", i, exc)
             is_trending_up = False
             is_trending_down = False
             confidence = 0.5
@@ -589,8 +593,8 @@ def backtest_ensemble_strategy(
                     votes_long += 1
                 else:
                     votes_short += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[Backtest] Ensemble HMM vote failed at bar %d: %s", i, exc)
 
         # Changepoint vote
         if "changepoint" in models:
@@ -602,8 +606,8 @@ def backtest_ensemble_strategy(
                         votes_long += 1
                     elif zscore > 2:
                         votes_short += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[Backtest] Ensemble changepoint vote failed at bar %d: %s", i, exc)
 
         # TFT vote
         if "tft" in models:
@@ -614,8 +618,8 @@ def backtest_ensemble_strategy(
                     votes_long += 1
                 elif result.predicted_regime.name == "TRENDING_DOWN":
                     votes_short += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[Backtest] Ensemble TFT vote failed at bar %d: %s", i, exc)
 
         # Make decision based on votes
         threshold = len(models) // 2 + 1

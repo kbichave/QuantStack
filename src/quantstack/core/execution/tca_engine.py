@@ -36,6 +36,17 @@ import pandas as pd
 from loguru import logger
 
 from quantstack.core.execution.almgren_chriss import almgren_chriss_expected_cost_bps
+from quantstack.db import db_conn
+
+# ---------------------------------------------------------------------------
+# Default coefficients (Almgren et al. 2005 literature values)
+# ---------------------------------------------------------------------------
+
+DEFAULT_ETA: float = 0.142       # Temporary impact coefficient
+DEFAULT_GAMMA: float = 0.314     # Permanent impact coefficient
+DEFAULT_BETA: float = 0.60       # Impact exponent (3/5 power law, not square-root)
+
+ADV_LARGE_CAP_THRESHOLD: float = 10_000_000  # $10M ADV separates large/small cap
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -132,12 +143,11 @@ def pre_trade_forecast(
     # --- Spread cost (half-spread, one-way) ---
     spread_cost = spread_bps / 2.0
 
-    # --- Market impact (square-root law, Almgren-Chriss) ---
-    # Impact (bps) = σ × √η  where η = participation rate
-    # σ in bps = daily_vol_pct * 100 bps/% * daily_vol
+    # --- Market impact (3/5 power law, Almgren et al. 2005) ---
+    # Impact (bps) = η × participation_rate^β × σ_bps
     sigma_bps = daily_volatility_pct * 100.0  # vol in bps
-    impact_coef = 0.5  # Calibrated to empirical US equity data
-    market_impact_bps = impact_coef * sigma_bps * np.sqrt(participation_rate)
+    eta, _gamma, beta = _get_coefficients_for_adv(adv, arrival_price)
+    market_impact_bps = eta * (participation_rate ** beta) * sigma_bps
 
     # --- Timing uncertainty cost ---
     # If we spread execution over time we face market moves; scale with participation
@@ -332,8 +342,8 @@ def post_trade_tca(
                 daily_volume=record.daily_volume,
                 daily_volatility=record.daily_volatility,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[TCA] Almgren-Chriss cost estimation failed: %s", exc)
 
     # Enhanced TCA: spread cost from bid-ask at arrival
     spread_cost = None
@@ -397,6 +407,72 @@ def classify_time_bucket(timestamp: pd.Timestamp) -> str:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Coefficient loading from tca_coefficients table
+# ---------------------------------------------------------------------------
+
+# Module-level cache: {symbol_group: (eta, gamma, beta)}
+_loaded_coefficients: dict[str, tuple[float, float, float]] = {}
+_coefficients_loaded: bool = False
+
+
+def _load_coefficients_from_db() -> dict[str, tuple[float, float, float]]:
+    """Load calibrated coefficients from tca_coefficients table.
+
+    Returns mapping of symbol_group -> (eta, gamma, beta).
+    Falls back to empty dict on any failure.
+    """
+    try:
+        with db_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT ON (symbol_group)
+                    symbol_group, eta, gamma, beta
+                FROM tca_coefficients
+                ORDER BY symbol_group, updated_at DESC
+                """
+            ).fetchall()
+        result = {}
+        for row in rows:
+            group, eta, gamma, beta = row
+            if eta is not None and gamma is not None and beta is not None:
+                result[group] = (float(eta), float(gamma), float(beta))
+        return result
+    except Exception as exc:
+        logger.debug("[TCA] Could not load coefficients from DB: %s", exc)
+        return {}
+
+
+def _ensure_coefficients_loaded() -> None:
+    """Load coefficients once (lazy init)."""
+    global _loaded_coefficients, _coefficients_loaded
+    if not _coefficients_loaded:
+        _loaded_coefficients = _load_coefficients_from_db()
+        _coefficients_loaded = True
+
+
+def _get_coefficients_for_adv(
+    adv: float, price: float
+) -> tuple[float, float, float]:
+    """Return (eta, gamma, beta) for the given ADV level.
+
+    Lookup order:
+    1. symbol_group-specific ('large_cap' or 'small_cap')
+    2. 'market_wide' fallback
+    3. Module-level defaults
+    """
+    _ensure_coefficients_loaded()
+
+    adv_dollars = adv * price if adv > 0 and price > 0 else 0
+    group = "large_cap" if adv_dollars > ADV_LARGE_CAP_THRESHOLD else "small_cap"
+
+    if group in _loaded_coefficients:
+        return _loaded_coefficients[group]
+    if "market_wide" in _loaded_coefficients:
+        return _loaded_coefficients["market_wide"]
+    return (DEFAULT_ETA, DEFAULT_GAMMA, DEFAULT_BETA)
+
+
 class TCAEngine:
     """
     Persistent TCA tracker for a live trading session.
@@ -429,6 +505,8 @@ class TCAEngine:
         self._arrivals: dict[str, TradeRecord] = {}
         self._results: list[TradeTCAResult] = []
         self._forecasts: dict[str, PreTradeForecast] = {}
+        # Trigger lazy coefficient loading
+        _ensure_coefficients_loaded()
 
     def record_arrival(
         self,

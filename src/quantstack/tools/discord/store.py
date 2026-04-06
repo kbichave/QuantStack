@@ -110,14 +110,14 @@ class DiscordStore:
         limit: int = 100,
     ) -> list[dict]:
         """Query stored messages for a label, optionally bounded by date."""
-        clauses = ["channel_label = ?"]
+        clauses = ["channel_label = %s"]
         params: list = [label]
 
         if date_from:
-            clauses.append("timestamp >= ?")
+            clauses.append("timestamp >= %s")
             params.append(date_from)
         if date_to:
-            clauses.append("timestamp <= ?")
+            clauses.append("timestamp <= %s")
             params.append(date_to)
 
         params.append(min(limit, 1000))

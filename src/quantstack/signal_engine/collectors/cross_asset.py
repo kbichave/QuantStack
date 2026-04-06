@@ -34,7 +34,7 @@ async def collect_cross_asset(symbol: str, store: DataStore) -> dict[str, Any]:
     try:
         return await asyncio.to_thread(_collect_cross_asset_sync, symbol, store)
     except Exception as exc:
-        logger.debug(f"[cross_asset] {symbol}: {exc} — returning empty")
+        logger.warning(f"[cross_asset] {symbol}: {exc} — returning empty")
         return {}
 
 
@@ -89,7 +89,7 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["es_basis_zscore"] = _safe_float(fb_df["basis_zscore"].iloc[-1])
             result["es_contango"] = int(fb_df["contango"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[cross_asset] {symbol}: FuturesBasis (ES) failed: {exc}")
+        logger.warning(f"[cross_asset] {symbol}: FuturesBasis (ES) failed: {exc}")
 
     # --- VVIX: volatility-of-VIX as fear amplifier ---
     try:
@@ -100,7 +100,7 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["vvix"] = _safe_float(vvix_close)
             result["vvix_above_sma20"] = int(float(vvix_close) > vvix_sma20)
     except Exception as exc:
-        logger.debug(f"[cross_asset] {symbol}: VVIX failed: {exc}")
+        logger.warning(f"[cross_asset] {symbol}: VVIX failed: {exc}")
 
     # --- SMT Divergence: symbol vs SPY (or SPY vs QQQ when symbol IS SPY) ---
     try:
@@ -122,7 +122,7 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["smt_bullish"] = int(smt_df["bullish_smt"].iloc[-1])
             result["smt_strength"] = _safe_float(smt_df["smt_strength"].iloc[-1])
     except Exception as exc:
-        logger.debug(f"[cross_asset] {symbol}: SMTDivergence failed: {exc}")
+        logger.warning(f"[cross_asset] {symbol}: SMTDivergence failed: {exc}")
 
     # --- RRG (Relative Rotation Graph): symbol's relative strength vs SPY ---
     try:
@@ -149,7 +149,7 @@ def _collect_cross_asset_sync(symbol: str, store: DataStore) -> dict[str, Any]:
             result["rrg_rs_ratio"] = _safe_float(last_rrg.get("rs_ratio"))
             result["rrg_rs_momentum"] = _safe_float(last_rrg.get("rs_momentum"))
     except Exception as exc:
-        logger.debug(f"[cross_asset] {symbol}: RRGFeatures failed: {exc}")
+        logger.warning(f"[cross_asset] {symbol}: RRGFeatures failed: {exc}")
 
     return result
 

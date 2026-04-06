@@ -147,8 +147,8 @@ def compute_portfolio_stats_ffn(
             stats["positive_months_pct"] = float(
                 (monthly_returns > 0).sum() / len(monthly_returns) * 100
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("[ffn] Monthly return stats computation failed: %s", exc)
 
     # Add drawdown details
     dd_info = _drawdown_details(equity)

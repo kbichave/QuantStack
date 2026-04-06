@@ -12,6 +12,7 @@ from pathlib import Path
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from quantstack.config.focus import get_focus_symbols
 from quantstack.universe import INITIAL_LIQUID_UNIVERSE
 
 # =============================================================================
@@ -162,11 +163,12 @@ class Settings(BaseSettings):
         default="", description="PostgreSQL DSN (overridden by TRADER_PG_URL env var)"
     )
 
-    # Symbol Universe — defaults to the full INITIAL_LIQUID_UNIVERSE.
+    # Active symbols — defaults to focus.yaml (research/trading subset).
     # Override via env: QUANTSTACK_SYMBOLS="SPY,QQQ,AAPL"
+    # Full universe (all data symbols) remains in universe.py.
     symbols: list[str] = Field(
-        default_factory=lambda: list(INITIAL_LIQUID_UNIVERSE.keys()),
-        description="Trading universe symbols",
+        default_factory=lambda: list(get_focus_symbols()) or list(INITIAL_LIQUID_UNIVERSE.keys()),
+        description="Active research/trading symbols (from focus.yaml)",
     )
     benchmark_symbol: str = Field(
         default="SPY", description="Benchmark symbol for relative strength calculations"

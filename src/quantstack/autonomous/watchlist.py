@@ -28,9 +28,10 @@ from typing import Sequence
 from loguru import logger
 
 from quantstack.db import open_db, open_db_readonly
+from quantstack.config.focus import get_focus_symbols
 from quantstack.universe import WATCHLIST_DEFAULT
 
-DEFAULT_SYMBOLS = list(WATCHLIST_DEFAULT)
+DEFAULT_SYMBOLS = list(get_focus_symbols()) or list(WATCHLIST_DEFAULT)
 
 # Tier sizes
 _MAX_TIER_1 = 15
@@ -46,8 +47,8 @@ def _get_db_connection():
     try:
         # Prefer a write connection; fall back to read-only if unavailable.
         return open_db()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[WatchlistLoader] Write DB unavailable, falling back to read-only: %s", exc)
     return open_db_readonly()
 
 

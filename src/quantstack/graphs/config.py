@@ -1,6 +1,7 @@
 """AgentConfig dataclass and YAML config loader."""
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 import yaml
 
 _VALID_TIERS = frozenset({"heavy", "medium", "light"})
+_ALWAYS_LOADED_WARN_THRESHOLD = 10
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,8 @@ class AgentConfig:
     max_iterations: int = 20
     timeout_seconds: int = 600
     tools: tuple[str, ...] = ()
+    always_loaded_tools: tuple[str, ...] = ()
+    thinking: dict | None = None
 
     def __post_init__(self) -> None:
         if self.llm_tier not in _VALID_TIERS:
@@ -33,6 +37,35 @@ class AgentConfig:
             raise ValueError(f"Agent '{self.name}' missing required field: role")
         if not self.goal:
             raise ValueError(f"Agent '{self.name}' missing required field: goal")
+
+        # always_loaded_tools must be a subset of tools
+        tools_set = set(self.tools)
+        for tool_name in self.always_loaded_tools:
+            if tool_name not in tools_set:
+                raise ValueError(
+                    f"Agent '{self.name}': always_loaded_tools contains '{tool_name}' "
+                    f"which is not in the agent's tools list"
+                )
+
+        # risk_check must never be deferred — if it's in tools and deferred loading
+        # is active (always_loaded_tools is non-empty), risk_check must be always-loaded
+        if (
+            self.always_loaded_tools
+            and "risk_check" in tools_set
+            and "risk_check" not in self.always_loaded_tools
+        ):
+            raise ValueError(
+                f"Agent '{self.name}': risk_check is in tools but not in "
+                f"always_loaded_tools. The risk gate must never be deferred."
+            )
+
+        if len(self.always_loaded_tools) > _ALWAYS_LOADED_WARN_THRESHOLD:
+            warnings.warn(
+                f"Agent '{self.name}' has {len(self.always_loaded_tools)} "
+                f"always_loaded_tools; consider reducing to benefit from deferred loading",
+                UserWarning,
+                stacklevel=2,
+            )
 
 
 class _DuplicateKeyLoader(yaml.SafeLoader):
@@ -78,6 +111,9 @@ def load_agent_configs(yaml_path: Path) -> dict[str, AgentConfig]:
         tools_raw = fields.get("tools", [])
         tools = tuple(tools_raw) if isinstance(tools_raw, list) else ()
 
+        always_loaded_raw = fields.get("always_loaded_tools", [])
+        always_loaded = tuple(always_loaded_raw) if isinstance(always_loaded_raw, list) else ()
+
         configs[name] = AgentConfig(
             name=name,
             role=fields.get("role", ""),
@@ -87,6 +123,8 @@ def load_agent_configs(yaml_path: Path) -> dict[str, AgentConfig]:
             max_iterations=fields.get("max_iterations", 20),
             timeout_seconds=fields.get("timeout_seconds", 600),
             tools=tools,
+            always_loaded_tools=always_loaded,
+            thinking=fields.get("thinking"),
         )
 
     return configs

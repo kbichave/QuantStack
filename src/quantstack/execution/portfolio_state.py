@@ -482,10 +482,10 @@ class PortfolioState:
 
             remaining = abs(pos.quantity) - close_qty
             if remaining <= 0:
-                self.conn.execute("DELETE FROM positions WHERE symbol = ?", [symbol])
+                self.conn.execute("DELETE FROM positions WHERE symbol = %s", [symbol])
             else:
                 self.conn.execute(
-                    "UPDATE positions SET quantity = ?, last_updated = ? WHERE symbol = ?",
+                    "UPDATE positions SET quantity = %s, last_updated = %s WHERE symbol = %s",
                     [
                         remaining * (1 if pos.side == "long" else -1),
                         datetime.now(),

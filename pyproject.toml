@@ -59,6 +59,11 @@ dependencies = [
     "websockets>=12.0",
     # DB
     "exchange-calendars>=4.5.0",
+    "langgraph-bigtool>=0.0.3",
+    "langgraph>=0.4.11",
+    "openevals>=0.1.0",
+    # TUI
+    "textual>=0.50",
 ]
 
 [project.optional-dependencies]
@@ -67,6 +72,8 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
     "hypothesis>=6.90.0",
+    "agentevals>=0.0.9",
+    "textual-dev>=1.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
     "types-PyYAML>=6.0.0",
@@ -125,13 +132,17 @@ api = [
     "uvicorn[standard]>=0.27.0",
     "apscheduler>=3.10.0",
 ]
+scraping = [
+    # Browser automation for EWF chart fetcher and other member-portal scrapers
+    "playwright>=1.40.0",
+]
 langgraph = [
     "langgraph>=0.4.0",
     "langchain>=0.3.0",
     "langchain-core>=0.3.0",
     "fastapi>=0.109.0",
     "uvicorn[standard]>=0.27.0",
-    "langchain-anthropic>=0.3.0",
+    "langchain-anthropic>=0.3.22",  # minimum version with defer_loading pass-through support
     "langchain-aws>=0.2.0",
     "langgraph-checkpoint-postgres>=3.0.0",
     "psycopg[binary]>=3.1.0",
@@ -142,7 +153,7 @@ langgraph = [
     "ollama>=0.4.0",
 ]
 all = [
-    "quantstack[dev,langgraph,ml,rl,data,viz,api]",
+    "quantstack[dev,langgraph,ml,rl,data,viz,api,scraping]",
 ]
 
 [project.scripts]
@@ -210,6 +221,7 @@ dev = [
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
     "hypothesis>=6.90.0",
+    "agentevals>=0.0.9",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
     "types-PyYAML>=6.0.0",
@@ -325,6 +337,10 @@ omit = [
 pythonpath = ["src"]
 testpaths = ["tests", "src/quantstack/core/tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: requires real DB and external mocks",
+    "regression: locks specific behavioral contracts",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

@@ -125,7 +125,7 @@ class OutcomeTracker:
                     ],
                 )
         except Exception as exc:
-            logger.debug(f"[OutcomeTracker] record_entry failed (non-critical): {exc}")
+            logger.warning(f"[OutcomeTracker] record_entry failed (non-critical): {exc}")
 
     def record_exit(
         self,
@@ -185,7 +185,7 @@ class OutcomeTracker:
                     ],
                 )
         except Exception as exc:
-            logger.debug(f"[OutcomeTracker] record_exit failed (non-critical): {exc}")
+            logger.warning(f"[OutcomeTracker] record_exit failed (non-critical): {exc}")
 
     def apply_learning(self, strategy_id: str) -> bool:
         """
@@ -287,7 +287,7 @@ class OutcomeTracker:
                 for r in rows
             ]
         except Exception as exc:
-            logger.debug(f"[OutcomeTracker] _load_outcomes failed: {exc}")
+            logger.warning(f"[OutcomeTracker] _load_outcomes failed: {exc}")
             return []
 
     def _load_affinity(self, strategy_id: str) -> dict[str, float] | None:
@@ -306,7 +306,7 @@ class OutcomeTracker:
                 return {}
             return json.loads(raw) if isinstance(raw, str) else raw
         except Exception as exc:
-            logger.debug(f"[OutcomeTracker] _load_affinity failed: {exc}")
+            logger.warning(f"[OutcomeTracker] _load_affinity failed: {exc}")
             return None
 
     def _write_affinity(self, strategy_id: str, affinity: dict[str, float]) -> None:

@@ -1,0 +1,37 @@
+# Focus configuration — symbols actively researched and traded.
+#
+# Universe (universe.py) = everything we have data for.
+# Focus (this file) = what agents spend cycles on right now.
+#
+# Edit this file to change what the system researches and trades.
+# No code changes needed — just add/remove symbols and restart.
+
+stocks:
+  - AAL
+  - AAPL
+  - AMD
+  - AMZN
+  - BA
+  - BABA
+  - BAC
+  - GOOGL
+  - META
+  - MSFT
+  - NFLX
+  - NKE
+  - NVDA
+  - TSLA
+  - XOM
+
+etfs:
+  - GDX
+  - IWM
+  - QQQ
+  - SPY
+  - XLE
+  - XLF
+  - XLI
+  - XLP
+  - XLV
+  - XLY
+  - XME

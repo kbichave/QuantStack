@@ -1,54 +1,30 @@
 """P&L attribution tools for LangGraph agents."""
 
 import json
+from typing import Annotated
 
 from langchain_core.tools import tool
+from pydantic import Field
 
 
 @tool
 async def get_daily_equity(
-    start_date: str = "",
-    end_date: str = "",
-    include_summary: bool = True,
+    start_date: Annotated[str, Field(description="Start date in ISO format (YYYY-MM-DD). Defaults to 30 days ago if empty")] = "",
+    end_date: Annotated[str, Field(description="End date in ISO format (YYYY-MM-DD). Defaults to today if empty")] = "",
+    include_summary: Annotated[bool, Field(description="Whether to include headline stats like Sharpe ratio, Sortino ratio, and max drawdown")] = True,
 ) -> str:
-    """Query the daily equity curve and headline performance stats.
-
-    Returns daily NAV, return, drawdown from the daily_equity table.
-    Optionally includes summary stats (total return, Sharpe, Sortino,
-    max drawdown, benchmark comparison).
-
-    Args:
-        start_date: ISO date string (YYYY-MM-DD). Default: last 30 days.
-        end_date: ISO date string (YYYY-MM-DD). Default: today.
-        include_summary: Include headline stats (Sharpe, Sortino, etc).
-
-    Returns JSON with equity_curve list and optional summary dict.
-    """
+    """Retrieve the daily equity curve, NAV, returns, and drawdown from the portfolio performance table. Use when analyzing portfolio performance, generating equity charts, or computing risk-adjusted return metrics over a date range. Returns JSON with equity_curve list containing daily NAV and return values, plus optional summary dict with total return, Sharpe ratio, Sortino ratio, max drawdown, and benchmark comparison. Synonyms: portfolio performance, NAV history, equity curve, return series, drawdown analysis, performance attribution."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)
 
 
 @tool
 async def get_strategy_pnl(
-    strategy_id: str = "",
-    start_date: str = "",
-    end_date: str = "",
-    include_credits: bool = False,
+    strategy_id: Annotated[str, Field(description="Filter to a single strategy by its ID. Empty string returns all strategies")] = "",
+    start_date: Annotated[str, Field(description="Start date in ISO format (YYYY-MM-DD). Defaults to 30 days ago if empty")] = "",
+    end_date: Annotated[str, Field(description="End date in ISO format (YYYY-MM-DD). Defaults to today if empty")] = "",
+    include_credits: Annotated[bool, Field(description="Whether to include step-level credit breakdown showing which decision steps contribute to P&L")] = False,
 ) -> str:
-    """Query per-strategy P&L attribution with optional step credit breakdown.
-
-    Shows realized/unrealized P&L, trade counts, and win/loss per strategy.
-    When include_credits=True, also aggregates step_credits to show which
-    decision steps (signal, regime, strategy_selection, sizing, debate)
-    contribute most to losses for the given strategy.
-
-    Args:
-        strategy_id: Filter to a single strategy. Empty = all strategies.
-        start_date: ISO date string. Default: last 30 days.
-        end_date: ISO date string. Default: today.
-        include_credits: Include step-level credit breakdown.
-
-    Returns JSON with strategy_pnl list and optional credit_breakdown.
-    """
+    """Retrieve per-strategy profit-and-loss attribution with realized/unrealized P&L, trade counts, and win/loss ratios. Use when evaluating strategy effectiveness, identifying losing strategies, or performing post-trade analysis and blame attribution. Returns JSON with strategy_pnl list and optional credit_breakdown showing contribution from signal, regime, sizing, and debate decision steps. Synonyms: strategy performance, PnL breakdown, trade attribution, win rate, strategy report, loss analysis, decision credit."""
     result = {"error": "Tool pending implementation", "status": "not_available"}
     return json.dumps(result, default=str)

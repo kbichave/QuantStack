@@ -121,6 +121,12 @@ def _instantiate_chat_model(config: ModelConfig):
     """
     provider = config.provider
 
+    if config.thinking and provider not in ("anthropic",):
+        logger.debug(
+            "Provider '%s' does not support extended thinking; ignoring thinking config",
+            provider,
+        )
+
     if provider == "bedrock":
         try:
             from langchain_aws import ChatBedrock
@@ -143,11 +149,17 @@ def _instantiate_chat_model(config: ModelConfig):
                 "Provider 'anthropic' requires langchain-anthropic. "
                 "Install it with: pip install langchain-anthropic"
             )
-        return ChatAnthropic(
-            model=config.model_id,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-        )
+        kwargs = {
+            "model": config.model_id,
+            "temperature": config.temperature,
+            "max_tokens": config.max_tokens,
+        }
+        if config.thinking:
+            thinking_config = {**config.thinking}
+            if "budget_tokens" not in thinking_config:
+                thinking_config["budget_tokens"] = 5000
+            kwargs["thinking"] = thinking_config
+        return ChatAnthropic(**kwargs)
 
     if provider == "openai":
         try:
@@ -193,11 +205,16 @@ def _instantiate_chat_model(config: ModelConfig):
     raise ValueError(f"Unsupported provider '{provider}' for chat model instantiation")
 
 
-def get_chat_model(tier: str):
+def get_chat_model(tier: str, thinking: dict | None = None):
     """Return a configured LangChain ChatModel for the given tier.
 
     Uses the same provider resolution and fallback logic as get_model_with_fallback().
     Parses the provider prefix from the model string to select the ChatModel class.
+
+    Args:
+        tier: LLM tier ("heavy", "medium", "light").
+        thinking: Optional thinking config, e.g. {"type": "adaptive"}.
+            Only supported for Anthropic provider. Silently ignored for others.
 
     Raises:
         ValueError: If tier is 'embedding' or unrecognized.
@@ -219,9 +236,12 @@ def get_chat_model(tier: str):
         provider = os.environ.get("LLM_PROVIDER", "bedrock")
         model_id = model_string
 
+    max_tokens = 8192 if thinking else 4096
     config = ModelConfig(
         provider=provider,
         model_id=model_id,
         tier=tier,
+        max_tokens=max_tokens,
+        thinking=thinking,
     )
     return _instantiate_chat_model(config)

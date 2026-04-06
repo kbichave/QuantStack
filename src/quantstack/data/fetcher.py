@@ -2086,3 +2086,404 @@ class AlphaVantageClient:
         except Exception as e:
             logger.error(f"Failed to fetch stock splits for {symbol}: {e}")
             return pd.DataFrame()
+
+    # ========================================
+    # Commodities, Forex, and Listing Status (AV Data Expansion)
+    # ========================================
+
+    def fetch_precious_metals_history(
+        self,
+        interval: str = "monthly",
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Fetch gold and silver price history.
+
+        Makes separate GOLD and SILVER API calls.  Each returns a time series
+        with date index and 'value' column (USD per troy ounce).
+
+        Args:
+            interval: daily, weekly, or monthly
+
+        Returns:
+            Tuple of (gold_df, silver_df).  Each is a DataFrame with datetime
+            index (name='timestamp') and a float 'value' column.
+            Returns (empty, empty) on total failure.
+        """
+        logger.info(f"Fetching precious metals history ({interval})")
+
+        gold_df = self._fetch_metal("GOLD", interval)
+        silver_df = self._fetch_metal("SILVER", interval)
+
+        return gold_df, silver_df
+
+    def _fetch_metal(self, metal: str, interval: str) -> pd.DataFrame:
+        """Fetch a single precious metal time series (GOLD or SILVER)."""
+        self._wait_for_rate_limit()
+        params = {
+            "function": metal,
+            "interval": interval,
+            "apikey": self.api_key,
+        }
+        try:
+            response = requests.get(
+                self.base_url, params=params, timeout=30, verify=CA_BUNDLE
+            )
+            response.raise_for_status()
+            self._call_count += 1
+            self._increment_daily_count()
+            data = response.json()
+
+            if "Error Message" in data:
+                raise ValueError(f"API Error: {data['Error Message']}")
+            if "Note" in data:
+                logger.warning(f"API Note: {data['Note']}")
+
+            if "data" not in data:
+                logger.warning(f"No data found for {metal}")
+                return pd.DataFrame()
+
+            df = pd.DataFrame(data["data"])
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            df = df.sort_index()
+            df["value"] = pd.to_numeric(df["value"], errors="coerce")
+            df = df.dropna()
+            df.index.name = "timestamp"
+            return df[["value"]]
+
+        except Exception as e:
+            logger.error(f"Failed to fetch {metal}: {e}")
+            return pd.DataFrame()
+
+    def fetch_commodity_history(
+        self,
+        commodity: str,
+        interval: str = "daily",
+    ) -> pd.DataFrame:
+        """
+        Fetch commodity price data for COPPER, ALL_COMMODITIES, etc.
+
+        Same pattern as ``fetch_economic_indicator()`` — global endpoint,
+        parse the 'data' key.  For WTI/BRENT/NATURAL_GAS use the existing
+        ``fetch_commodity()`` method instead.
+
+        Args:
+            commodity: AV function name (COPPER, ALL_COMMODITIES, ALUMINUM,
+                       WHEAT, CORN, COTTON, SUGAR, COFFEE)
+            interval: daily, weekly, or monthly
+
+        Returns:
+            DataFrame with datetime index (name='timestamp') and float 'value'
+            column.  Returns empty DataFrame on failure.
+        """
+        logger.info(f"Fetching {commodity} commodity history ({interval})")
+
+        self._wait_for_rate_limit()
+
+        params = {
+            "function": commodity,
+            "interval": interval,
+            "apikey": self.api_key,
+        }
+
+        try:
+            response = requests.get(
+                self.base_url, params=params, timeout=30, verify=CA_BUNDLE
+            )
+            response.raise_for_status()
+            self._call_count += 1
+            self._increment_daily_count()
+            data = response.json()
+
+            if "Error Message" in data:
+                raise ValueError(f"API Error: {data['Error Message']}")
+            if "Note" in data:
+                logger.warning(f"API Note: {data['Note']}")
+
+            if "data" not in data:
+                logger.warning(f"No data found for {commodity}")
+                return pd.DataFrame()
+
+            df = pd.DataFrame(data["data"])
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            df = df.sort_index()
+            df["value"] = pd.to_numeric(df["value"], errors="coerce")
+            df = df.dropna()
+            df.index.name = "timestamp"
+            return df[["value"]]
+
+        except Exception as e:
+            logger.error(f"Failed to fetch {commodity}: {e}")
+            return pd.DataFrame()
+
+    def fetch_forex_daily(
+        self,
+        from_symbol: str,
+        to_symbol: str,
+        outputsize: str = "full",
+    ) -> pd.DataFrame:
+        """
+        Fetch daily foreign-exchange rates via FX_DAILY.
+
+        Args:
+            from_symbol: Source currency (e.g. 'EUR')
+            to_symbol: Destination currency (e.g. 'USD')
+            outputsize: 'compact' (100 points) or 'full' (20+ years)
+
+        Returns:
+            DataFrame with datetime index (name='timestamp') and OHLC columns
+            (open, high, low, close) as floats.  Returns empty DataFrame on
+            failure.
+        """
+        logger.info(f"Fetching FX daily {from_symbol}/{to_symbol}")
+
+        self._wait_for_rate_limit()
+
+        params = {
+            "function": "FX_DAILY",
+            "from_symbol": from_symbol,
+            "to_symbol": to_symbol,
+            "outputsize": outputsize,
+            "apikey": self.api_key,
+        }
+
+        try:
+            response = requests.get(
+                self.base_url, params=params, timeout=30, verify=CA_BUNDLE
+            )
+            response.raise_for_status()
+            self._call_count += 1
+            self._increment_daily_count()
+            data = response.json()
+
+            if "Error Message" in data:
+                raise ValueError(f"API Error: {data['Error Message']}")
+            if "Note" in data:
+                logger.warning(f"API Note: {data['Note']}")
+
+            ts_key = "Time Series FX (Daily)"
+            if ts_key not in data:
+                logger.warning(f"No FX data found for {from_symbol}/{to_symbol}")
+                return pd.DataFrame()
+
+            df = pd.DataFrame.from_dict(data[ts_key], orient="index")
+            df.index = pd.to_datetime(df.index)
+            df = df.sort_index()
+
+            df = df.rename(
+                columns={
+                    "1. open": "open",
+                    "2. high": "high",
+                    "3. low": "low",
+                    "4. close": "close",
+                }
+            )
+
+            for col in ["open", "high", "low", "close"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            df.index.name = "timestamp"
+            return df[["open", "high", "low", "close"]]
+
+        except Exception as e:
+            logger.error(
+                f"Failed to fetch FX daily {from_symbol}/{to_symbol}: {e}"
+            )
+            return pd.DataFrame()
+
+    def fetch_listing_status(
+        self,
+        state: str = "active",
+    ) -> pd.DataFrame:
+        """
+        Fetch listing status for US-listed equities (CSV endpoint).
+
+        Args:
+            state: 'active' or 'delisted'
+
+        Returns:
+            DataFrame with columns including symbol, name, exchange,
+            assetType, ipoDate, status.  Returns empty DataFrame on failure.
+        """
+        logger.info(f"Fetching listing status (state={state})")
+
+        self._wait_for_rate_limit()
+
+        params = {
+            "function": "LISTING_STATUS",
+            "state": state,
+            "apikey": self.api_key,
+        }
+
+        try:
+            response = requests.get(
+                self.base_url, params=params, timeout=30, verify=CA_BUNDLE
+            )
+            response.raise_for_status()
+            self._call_count += 1
+            self._increment_daily_count()
+
+            # Check if AV returned a JSON error instead of CSV
+            try:
+                data = response.json()
+                if "Error Message" in data:
+                    raise ValueError(f"API Error: {data['Error Message']}")
+                if "Note" in data:
+                    logger.warning(f"API Note: {data['Note']}")
+                    return pd.DataFrame()
+            except (ValueError, KeyError):
+                pass  # Not JSON — continue with CSV parsing
+
+            if not response.text or not response.text.strip():
+                logger.warning("Empty listing status response")
+                return pd.DataFrame()
+
+            df = pd.read_csv(StringIO(response.text))
+
+            if df.empty:
+                logger.warning("No listing data found")
+                return pd.DataFrame()
+
+            # Standardize column names
+            df.columns = df.columns.str.lower().str.replace(" ", "_")
+
+            # Convert date columns
+            for col in ["ipodate", "delistingdate"]:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], errors="coerce")
+
+            logger.info(f"Fetched {len(df)} listings (state={state})")
+            return df
+
+        except Exception as e:
+            logger.error(f"Failed to fetch listing status: {e}")
+            return pd.DataFrame()
+
+    def fetch_realtime_pcr(
+        self,
+        symbol: str,
+    ) -> dict | None:
+        """
+        Fetch realtime put/call ratio for a symbol.
+
+        This endpoint may be blocked or return demo data on some plans.
+        Returns None if the data is unavailable or blocked.
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            Dictionary with PCR data, or None if blocked/unavailable.
+        """
+        logger.info(f"Fetching realtime PCR for {symbol}")
+
+        self._wait_for_rate_limit()
+
+        params = {
+            "function": "REALTIME_PUT_CALL_RATIO",
+            "symbol": symbol,
+            "apikey": self.api_key,
+        }
+
+        try:
+            response = requests.get(
+                self.base_url, params=params, timeout=30, verify=CA_BUNDLE
+            )
+            response.raise_for_status()
+            self._call_count += 1
+            self._increment_daily_count()
+            data = response.json()
+
+            if "Error Message" in data:
+                logger.warning(f"PCR endpoint error for {symbol}: {data['Error Message']}")
+                return None
+            if "Information" in data:
+                logger.info(f"PCR endpoint blocked/demo for {symbol}")
+                return None
+            if "Note" in data:
+                logger.warning(f"API Note: {data['Note']}")
+                return None
+
+            if not data:
+                return None
+
+            logger.info(f"Fetched realtime PCR for {symbol}")
+            return data
+
+        except Exception as e:
+            logger.error(f"Failed to fetch realtime PCR for {symbol}: {e}")
+            return None
+
+    def fetch_historical_pcr(
+        self,
+        symbol: str,
+    ) -> pd.DataFrame:
+        """
+        Fetch historical put/call ratio time series.
+
+        This endpoint may be blocked or return demo data on some plans.
+        Returns empty DataFrame if unavailable.
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            DataFrame with datetime index and 'put_call_ratio' column.
+            Empty DataFrame if blocked or on failure.
+        """
+        logger.info(f"Fetching historical PCR for {symbol}")
+
+        self._wait_for_rate_limit()
+
+        params = {
+            "function": "HISTORICAL_PUT_CALL_RATIO",
+            "symbol": symbol,
+            "apikey": self.api_key,
+        }
+
+        try:
+            response = requests.get(
+                self.base_url, params=params, timeout=30, verify=CA_BUNDLE
+            )
+            response.raise_for_status()
+            self._call_count += 1
+            self._increment_daily_count()
+            data = response.json()
+
+            if "Error Message" in data:
+                logger.warning(
+                    f"Historical PCR error for {symbol}: {data['Error Message']}"
+                )
+                return pd.DataFrame()
+            if "Information" in data:
+                logger.info(f"Historical PCR blocked/demo for {symbol}")
+                return pd.DataFrame()
+            if "Note" in data:
+                logger.warning(f"API Note: {data['Note']}")
+                return pd.DataFrame()
+
+            records = data.get("data", [])
+            if not records:
+                logger.warning(f"No historical PCR data for {symbol}")
+                return pd.DataFrame()
+
+            df = pd.DataFrame(records)
+            if "date" in df.columns:
+                df["date"] = pd.to_datetime(df["date"])
+                df = df.set_index("date")
+                df = df.sort_index()
+            if "put_call_ratio" in df.columns:
+                df["put_call_ratio"] = pd.to_numeric(
+                    df["put_call_ratio"], errors="coerce"
+                )
+            df = df.dropna()
+            df.index.name = "timestamp"
+
+            logger.info(f"Fetched {len(df)} historical PCR records for {symbol}")
+            return df
+
+        except Exception as e:
+            logger.error(f"Failed to fetch historical PCR for {symbol}: {e}")
+            return pd.DataFrame()

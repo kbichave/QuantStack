@@ -19,11 +19,14 @@ Design invariants:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from datetime import date
 from typing import Any
 
 from loguru import logger
+
+from quantstack.db import db_conn
 
 from quantstack.data.storage import DataStore
 from quantstack.learning.drift_detector import DriftDetector
@@ -49,10 +52,16 @@ from quantstack.signal_engine.collectors.sentiment_alphavantage import (
 )
 from quantstack.signal_engine.collectors.insider_signals import collect_insider_signals
 from quantstack.signal_engine.collectors.short_interest import collect_short_interest
+from quantstack.signal_engine.collectors.put_call_ratio import collect_put_call_ratio
+from quantstack.signal_engine.collectors.earnings_momentum import (
+    collect_earnings_momentum,
+)
+from quantstack.signal_engine.collectors.commodity import collect_commodity_signals
 from quantstack.signal_engine.collectors.social_sentiment import collect_social_sentiment
 from quantstack.signal_engine.collectors.statarb import collect_statarb
 from quantstack.signal_engine.collectors.technical import collect_technical
 from quantstack.signal_engine.collectors.volume import collect_volume
+from quantstack.signal_engine.collectors.ewf_collector import collect_ewf
 from quantstack.signal_engine.synthesis import (
     RuleBasedSynthesizer,
     map_to_market_bias,
@@ -95,6 +104,18 @@ class SignalEngine:
         """
         t0 = time.monotonic()
         symbol = symbol.upper().strip()
+
+        # Check TTL cache before running collectors.
+        from quantstack.signal_engine.cache import get as _cache_get, put as _cache_put
+
+        cached = _cache_get(symbol)
+        if cached is not None:
+            logger.debug(
+                f"[SignalEngine] {symbol} served from cache "
+                f"(original duration={cached.collection_duration_ms}ms)"
+            )
+            return cached
+
         logger.info(f"[SignalEngine] Starting analysis for {symbol}")
 
         outputs, failures = await self._run_collectors(symbol)
@@ -124,8 +145,6 @@ class SignalEngine:
                 # Queue an ML architecture search — AutoResearchClaw will investigate
                 # whether the current model needs retraining or feature engineering.
                 try:
-                    import json as _json
-                    from quantstack.db import db_conn
                     with db_conn() as _conn:
                         _conn.execute(
                             """
@@ -136,7 +155,7 @@ class SignalEngine:
                             """,
                             [
                                 8,
-                                _json.dumps({
+                                json.dumps({
                                     "symbol": symbol,
                                     "psi": drift_report.overall_psi,
                                     "drifted_features": drift_report.drifted_features,
@@ -156,6 +175,8 @@ class SignalEngine:
             f"| bias={brief.market_bias} confidence={brief.overall_confidence:.2f}"
             f"{' | failures: ' + str(failures) if failures else ''}"
         )
+
+        _cache_put(symbol, brief)
         return brief
 
     async def run_multi(
@@ -216,6 +237,12 @@ class SignalEngine:
             # Phase 6 collectors (v1.3) — alternative data signals
             "insider": collect_insider_signals(symbol, self._store),
             "short_interest": collect_short_interest(symbol, self._store),
+            # Phase 7 collectors (v2.0) — AV data expansion
+            "put_call_ratio": collect_put_call_ratio(symbol, self._store),
+            "earnings_momentum": collect_earnings_momentum(symbol, self._store),
+            "commodity": collect_commodity_signals(symbol, self._store),
+            # EWF Elliott Wave Forecast — non-critical, returns {} when no fresh analysis
+            "ewf": collect_ewf(symbol, self._store),
         }
 
         names = list(collector_map.keys())
@@ -231,7 +258,10 @@ class SignalEngine:
 
         for name, result in zip(names, raw_results):
             if isinstance(result, (Exception, BaseException)):
-                logger.warning(f"[SignalEngine] collector '{name}' failed: {result}")
+                logger.warning(
+                    f"[SignalEngine] collector '{name}' failed: "
+                    f"{type(result).__name__}: {result}"
+                )
                 failures.append(name)
                 outputs[name] = {}
             else:
@@ -262,6 +292,10 @@ class SignalEngine:
         statarb = outputs.get("statarb", {})
         options_flow = outputs.get("options_flow", {})
         social = outputs.get("social", {})
+        put_call_ratio = outputs.get("put_call_ratio", {})
+        earnings_momentum = outputs.get("earnings_momentum", {})
+        commodity = outputs.get("commodity", {})
+        ewf = outputs.get("ewf", {})
 
         # Inject strategy context from memory (same as run_analysis).
         strategy_context = _read_strategy_context()
@@ -279,6 +313,8 @@ class SignalEngine:
             strategy_context=strategy_context,
             ml_signal=ml_signal,
             flow=flow,
+            put_call_ratio=put_call_ratio,
+            earnings_momentum=earnings_momentum,
         )
 
         market_bias, market_conviction = map_to_market_bias([symbol_brief])
@@ -294,9 +330,11 @@ class SignalEngine:
         )
 
         # overall_confidence is the symbol brief conviction, adjusted for failures.
+        # EWF is excluded: returning {} is expected when no fresh analysis exists.
         base_confidence = symbol_brief.consensus_conviction
-        if failures:
-            base_confidence = max(0.1, base_confidence - 0.05 * len(failures))
+        _penalized_failures = [f for f in failures if f != "ewf"]
+        if _penalized_failures:
+            base_confidence = max(0.1, base_confidence - 0.05 * len(_penalized_failures))
 
         return SignalBrief(
             date=date.today(),
@@ -344,6 +382,38 @@ class SignalEngine:
             opt_ehd=options_flow.get("opt_ehd"),
             # Community sentiment (16th collector)
             social=social,
+            # Phase 7 — AV data expansion
+            pcr_signal=put_call_ratio.get("pcr_signal"),
+            pcr_10d_sma=put_call_ratio.get("pcr_10d_sma"),
+            earnings_momentum_score=earnings_momentum.get("earnings_momentum_score"),
+            consecutive_beats=earnings_momentum.get("consecutive_beats"),
+            drift_active=earnings_momentum.get("drift_active", False),
+            commodity_regime=commodity.get("commodity_regime", "unknown"),
+            sector_rotation_signal_commodity=commodity.get(
+                "sector_rotation_signal", "unknown"
+            ),
+            risk_off_score=commodity.get("risk_off_score"),
+            gold_silver_ratio=commodity.get("gold_silver_ratio"),
+            copper_gold_ratio=commodity.get("copper_gold_ratio"),
+            usd_strength_proxy=commodity.get("usd_strength_proxy"),
+            # EWF Elliott Wave fields
+            ewf_bias=ewf.get("ewf_bias"),
+            ewf_turning_signal=ewf.get("ewf_turning_signal"),
+            ewf_wave_position=ewf.get("ewf_wave_position"),
+            ewf_wave_degree=ewf.get("ewf_wave_degree"),
+            ewf_current_wave_label=ewf.get("ewf_current_wave_label"),
+            ewf_confidence=ewf.get("ewf_confidence"),
+            ewf_key_support=ewf.get("ewf_key_support", []),
+            ewf_key_resistance=ewf.get("ewf_key_resistance", []),
+            ewf_invalidation_level=ewf.get("ewf_invalidation_level"),
+            ewf_target=ewf.get("ewf_target"),
+            ewf_blue_box_active=ewf.get("ewf_blue_box_active", False),
+            ewf_blue_box_low=ewf.get("ewf_blue_box_low"),
+            ewf_blue_box_high=ewf.get("ewf_blue_box_high"),
+            ewf_summary=ewf.get("ewf_summary"),
+            ewf_projected_path=ewf.get("ewf_projected_path"),
+            ewf_timeframe_used=ewf.get("ewf_timeframe_used"),
+            ewf_age_hours=ewf.get("ewf_age_hours"),
         )
 
 
@@ -377,6 +447,12 @@ _ALL_COLLECTORS = (
     "statarb",
     "options_flow",
     "social",
+    "insider",
+    "short_interest",
+    "put_call_ratio",
+    "earnings_momentum",
+    "commodity",
+    "ewf",
 )
 
 

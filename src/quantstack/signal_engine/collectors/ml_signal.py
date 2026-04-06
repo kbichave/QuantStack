@@ -44,7 +44,7 @@ async def collect_ml_signal(symbol: str, store: DataStore) -> dict[str, Any]:
     try:
         return await asyncio.to_thread(_collect_ml_signal_sync, symbol, store)
     except Exception as exc:
-        logger.debug(f"[ml_signal] {symbol}: {exc} — returning empty")
+        logger.warning(f"[ml_signal] {symbol}: {exc} — returning empty")
         return {}
 
 
@@ -54,7 +54,8 @@ def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     # --- Load trained model ---
     try:
         training_result = _load_latest_training_result(symbol)
-    except Exception:
+    except Exception as exc:
+        logger.debug("[ml_signal] %s: model load failed: %s", symbol, exc)
         return {}  # No trained model — expected and normal
 
     if training_result is None:
@@ -76,7 +77,7 @@ def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         features_df = mf.compute(features_df)
         features_df = vf.compute(features_df)
     except Exception as exc:
-        logger.debug(f"[ml_signal] {symbol}: feature computation failed: {exc}")
+        logger.warning(f"[ml_signal] {symbol}: feature computation failed: {exc}")
         return {}
 
     if features_df.empty:
@@ -86,7 +87,7 @@ def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
     try:
         prob = float(predictor.predict_proba(features_df.iloc[[-1]])[0])
     except Exception as exc:
-        logger.debug(f"[ml_signal] {symbol}: prediction failed: {exc}")
+        logger.warning(f"[ml_signal] {symbol}: prediction failed: {exc}")
         return {}
 
     # --- SHAP feature importance (optional, best-effort) ---
@@ -181,8 +182,8 @@ def _get_top_features(
         importance = explainer.global_importance()
         if importance is not None and hasattr(importance, "head"):
             return list(importance.head(3).index)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("[ml_signal] SHAP explainer failed: %s", exc)
 
     # Fallback: use built-in feature_importance from training result
     try:
@@ -190,7 +191,7 @@ def _get_top_features(
         if fi:
             sorted_feats = sorted(fi, key=fi.get, reverse=True)  # type: ignore[arg-type]
             return sorted_feats[:3]
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("[ml_signal] feature_importance fallback failed: %s", exc)
 
     return []

@@ -241,7 +241,8 @@ class IVSurface:
 
             return np.clip(iv, 0.01, 3.0)
 
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"IV interpolation failed for strike={strike} dte={dte}: {exc}")
             return self._get_nearest_iv(strike, dte)
 
     def _get_nearest_iv(self, strike: float, dte: int) -> float | None:

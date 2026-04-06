@@ -190,7 +190,7 @@ class SkillTracker:
             for skill in self._skills.values():
                 skill.ic_observations.reverse()
         except Exception as e:
-            logger.debug(f"[SKILL] Could not load IC observations: {e}")
+            logger.warning(f"[SKILL] Could not load IC observations: {e}")
 
     def _persist(self, skill: AgentSkill) -> None:
         """Upsert a skill record to the database."""
@@ -317,7 +317,7 @@ class SkillTracker:
                 [agent_id, ic_value, datetime.now()],
             )
         except Exception as e:
-            logger.debug(f"[SKILL] Could not persist IC for {agent_id}: {e}")
+            logger.warning(f"[SKILL] Could not persist IC for {agent_id}: {e}")
 
     def get_confidence_adjustment(self, agent_id: str) -> float:
         """

@@ -20,6 +20,8 @@ Vantage except FOMC dates (generated from macro_calendar.py).
 | options            | 50                  | Daily         |
 | news               | ~10 batches         | Daily         |
 | fundamentals       | 50                  | Weekly        |
+| commodities        | 6 (global)          | Monthly       |
+| put_call_ratio     | 50 (conditional)    | Weekly        |
 
 ## Rate limits
 
@@ -76,6 +78,12 @@ MACRO_SERIES: list[tuple[str, str, str | None]] = [
     ("VIX", "daily", None),
 ]
 
+COMMODITY_INDICATORS: list[str] = ["GOLD", "SILVER", "COPPER", "ALL_COMMODITIES"]
+FOREX_PAIRS: list[tuple[str, str, str]] = [
+    ("EUR", "USD", "EURUSD"),
+    ("USD", "JPY", "USDJPY"),
+]
+
 ALL_PHASES = [
     "ohlcv_5min",
     "ohlcv_1h",
@@ -89,6 +97,8 @@ ALL_PHASES = [
     "options",
     "news",
     "fundamentals",
+    "commodities",       # Phase 13 — gold, silver, copper, all_commodities, forex
+    "put_call_ratio",    # Phase 14 — conditional on endpoint availability
 ]
 
 
@@ -193,6 +203,10 @@ class AcquisitionPipeline:
             return await self.run_news(symbols)
         if phase == "fundamentals":
             return await self.run_fundamentals(symbols)
+        if phase == "commodities":
+            return await self.run_commodities()
+        if phase == "put_call_ratio":
+            return await self.run_put_call_ratio(symbols)
         logger.warning(f"Unknown phase '{phase}', skipping")
         return None
 
@@ -834,6 +848,190 @@ class AcquisitionPipeline:
         return True
 
     # -----------------------------------------------------------------------
+    # Phase: commodities (gold, silver, copper, all_commodities, forex)
+    # -----------------------------------------------------------------------
+
+    async def run_commodities(self) -> PhaseReport:
+        """
+        Fetch commodity and forex macro data: gold, silver, copper,
+        all-commodities index, EUR/USD, and USD/JPY.
+
+        6 AV calls total regardless of universe size.
+        Skips indicators whose last cached date is less than 28 days ago.
+        """
+        start = _now()
+        total_indicators = len(COMMODITY_INDICATORS) + len(FOREX_PAIRS)
+        report = PhaseReport(phase="commodities", total=total_indicators)
+
+        # --- Precious metals (GOLD + SILVER in one call) ---
+        try:
+            if self._commodity_is_fresh("GOLD") and self._commodity_is_fresh("SILVER"):
+                report.skipped += 2
+            else:
+                gold_df, silver_df = await asyncio.to_thread(
+                    self._av.fetch_precious_metals_history
+                )
+                for indicator, df in [("GOLD", gold_df), ("SILVER", silver_df)]:
+                    try:
+                        if self._commodity_is_fresh(indicator):
+                            report.skipped += 1
+                            continue
+                        if df.empty:
+                            report.skipped += 1
+                            continue
+                        self._store.save_macro_indicators(indicator, df)
+                        report.succeeded += 1
+                        logger.debug(f"[commodities] {indicator}: saved")
+                    except Exception as exc:
+                        report.failed += 1
+                        report.errors.append(f"{indicator}: {exc}")
+                        logger.warning(f"[commodities] {indicator} failed: {exc}")
+        except Exception as exc:
+            report.failed += 2
+            report.errors.append(f"precious_metals: {exc}")
+            logger.warning(f"[commodities] precious_metals failed: {exc}")
+
+        # --- Other commodities (COPPER, ALL_COMMODITIES) ---
+        for indicator in ("COPPER", "ALL_COMMODITIES"):
+            try:
+                if self._commodity_is_fresh(indicator):
+                    report.skipped += 1
+                    continue
+                df = await asyncio.to_thread(
+                    self._av.fetch_commodity_history, indicator
+                )
+                if df.empty:
+                    report.skipped += 1
+                    continue
+                self._store.save_macro_indicators(indicator, df)
+                report.succeeded += 1
+                logger.debug(f"[commodities] {indicator}: saved")
+            except Exception as exc:
+                report.failed += 1
+                report.errors.append(f"{indicator}: {exc}")
+                logger.warning(f"[commodities] {indicator} failed: {exc}")
+
+        # --- Forex pairs ---
+        for from_sym, to_sym, label in FOREX_PAIRS:
+            try:
+                if self._commodity_is_fresh(label):
+                    report.skipped += 1
+                    continue
+                df = await asyncio.to_thread(
+                    self._av.fetch_forex_daily, from_sym, to_sym
+                )
+                if df.empty:
+                    report.skipped += 1
+                    continue
+                # Rename 'close' to 'value' for macro_indicators schema
+                fx_df = df[["close"]].rename(columns={"close": "value"})
+                self._store.save_macro_indicators(label, fx_df)
+                report.succeeded += 1
+                logger.debug(f"[commodities] {label}: saved")
+            except Exception as exc:
+                report.failed += 1
+                report.errors.append(f"{label}: {exc}")
+                logger.warning(f"[commodities] {label} failed: {exc}")
+
+        report.elapsed_seconds = _elapsed(start)
+        return report
+
+    def _commodity_is_fresh(self, indicator: str) -> bool:
+        """Return True if the indicator was refreshed in the last 28 days."""
+        try:
+            with pg_conn() as conn:
+                row = conn.execute(
+                    "SELECT MAX(date) FROM macro_indicators WHERE indicator = ?",
+                    [indicator],
+                ).fetchone()
+                if row and row[0]:
+                    last = row[0]
+                    if isinstance(last, str):
+                        last = date.fromisoformat(last)
+                    if (date.today() - last).days < 28:
+                        return True
+        except Exception:
+            pass
+        return False
+
+    # -----------------------------------------------------------------------
+    # Phase: put/call ratio (conditional on endpoint availability)
+    # -----------------------------------------------------------------------
+
+    async def run_put_call_ratio(self, symbols: list[str]) -> PhaseReport:
+        """
+        Fetch historical put/call ratio per symbol.
+
+        On first run, tests endpoint availability with SPY.  If the endpoint
+        is blocked (returns None), sets a system_state flag and skips all
+        future runs until the flag is cleared.
+        """
+        start = _now()
+        report = PhaseReport(phase="put_call_ratio", total=len(symbols))
+
+        # Check or set the endpoint availability flag
+        pcr_enabled = self._pcr_check_or_probe()
+        if not pcr_enabled:
+            report.skipped = len(symbols)
+            report.elapsed_seconds = _elapsed(start)
+            return report
+
+        for symbol in symbols:
+            try:
+                df = await asyncio.to_thread(
+                    self._av.fetch_historical_pcr, symbol
+                )
+                if df.empty:
+                    report.skipped += 1
+                    continue
+                self._store.save_put_call_ratio(symbol, df)
+                report.succeeded += 1
+                logger.debug(f"[pcr] {symbol}: saved")
+            except Exception as exc:
+                report.failed += 1
+                report.errors.append(f"{symbol}: {exc}")
+                logger.warning(f"[pcr] {symbol} failed: {exc}")
+
+        report.elapsed_seconds = _elapsed(start)
+        return report
+
+    def _pcr_check_or_probe(self) -> bool:
+        """Check system_state for PCR endpoint flag; probe if absent.
+
+        Returns True if the endpoint is available, False if blocked.
+        """
+        try:
+            with pg_conn() as conn:
+                row = conn.execute(
+                    "SELECT value FROM system_state WHERE key = ?",
+                    ["pcr_endpoint_available"],
+                ).fetchone()
+                if row is not None:
+                    return row[0] == "true"
+        except Exception:
+            pass
+
+        # Flag absent — probe with SPY
+        result = self._av.fetch_realtime_pcr("SPY")
+        available = result is not None
+
+        try:
+            with pg_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO system_state (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE
+                        SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+                    """,
+                    ["pcr_endpoint_available", "true" if available else "false"],
+                )
+        except Exception as exc:
+            logger.warning(f"[pcr] Failed to persist endpoint flag: {exc}")
+
+        return available
+
+    # -----------------------------------------------------------------------
     # Helpers: last cached timestamp
     # -----------------------------------------------------------------------
 
@@ -853,6 +1051,50 @@ class AcquisitionPipeline:
         except Exception:
             pass
         return None
+
+
+# ---------------------------------------------------------------------------
+# Standalone: listing status check (weekly, not a pipeline phase)
+# ---------------------------------------------------------------------------
+
+
+async def run_listing_status_check(
+    av_client: AlphaVantageClient,
+    store: DataStore,
+    universe_symbols: list[str],
+) -> list[str]:
+    """Cross-reference AV delisted list with the active universe.
+
+    Calls ``av_client.fetch_listing_status(state="delisted")``, finds symbols
+    that appear in both the delisted list and ``universe_symbols``, and marks
+    them via ``store.update_delisting_status(symbol)``.
+
+    Does NOT auto-remove symbols from the universe — that decision requires
+    human or supervisor review.
+
+    Returns:
+        List of universe symbols that are flagged as delisted.
+    """
+    df = await asyncio.to_thread(av_client.fetch_listing_status, "delisted")
+    if df.empty:
+        return []
+
+    delisted_symbols = set(df["symbol"].tolist()) if "symbol" in df.columns else set()
+    universe_set = set(universe_symbols)
+    matches = sorted(delisted_symbols & universe_set)
+
+    for symbol in matches:
+        try:
+            store.update_delisting_status(symbol)
+            logger.info(f"[listing_status] {symbol}: marked delisted_at")
+        except Exception as exc:
+            logger.warning(f"[listing_status] {symbol}: failed to update: {exc}")
+
+    if matches:
+        logger.warning(
+            f"[listing_status] {len(matches)} universe symbols are delisted: {matches}"
+        )
+    return matches
 
 
 # ---------------------------------------------------------------------------

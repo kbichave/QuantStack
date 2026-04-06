@@ -39,7 +39,7 @@ async def collect_quality(symbol: str, store: DataStore) -> dict[str, Any]:
     try:
         return await asyncio.to_thread(_collect_quality_sync, symbol, store)
     except Exception as exc:
-        logger.debug(f"[quality] {symbol}: {exc} — returning empty")
+        logger.warning(f"[quality] {symbol}: {exc} — returning empty")
         return {}
 
 

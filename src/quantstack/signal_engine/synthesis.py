@@ -196,6 +196,8 @@ class RuleBasedSynthesizer:
         sentiment: dict[str, Any] | None = None,
         ml_signal: dict[str, Any] | None = None,
         flow: dict[str, Any] | None = None,
+        put_call_ratio: dict[str, Any] | None = None,
+        earnings_momentum: dict[str, Any] | None = None,
     ) -> SymbolBrief:
         """Build a SymbolBrief from collector outputs."""
 
@@ -206,6 +208,8 @@ class RuleBasedSynthesizer:
             sentiment=sentiment or {},
             ml_signal=ml_signal or {},
             flow=flow or {},
+            put_call_ratio=put_call_ratio or {},
+            earnings_momentum=earnings_momentum or {},
         )
         pod_agreement = self._compute_pod_agreement(
             technical,
@@ -254,6 +258,8 @@ class RuleBasedSynthesizer:
         sentiment: dict | None = None,
         ml_signal: dict | None = None,
         flow: dict | None = None,
+        put_call_ratio: dict | None = None,
+        earnings_momentum: dict | None = None,
     ) -> tuple[_Bias, float]:
 
         scores: dict[str, float] = {}
@@ -347,6 +353,19 @@ class RuleBasedSynthesizer:
         weights = _get_weights(trend, has_ml=has_ml, has_flow=has_flow)
 
         score = sum(scores.get(key, 0.0) * w for key, w in weights.items())
+
+        # --- Minor adjustments from Phase 7 collectors ---
+        # PCR: contrarian signal nudges sentiment component (+/- 0.1)
+        pcr = put_call_ratio or {}
+        pcr_sig = pcr.get("pcr_signal")
+        if pcr_sig is not None and pcr_sig != 0:
+            score += 0.05 * pcr_sig  # small nudge, same direction as contrarian
+
+        # Earnings momentum: nudges score by up to +/- 0.05
+        em = earnings_momentum or {}
+        em_score = em.get("earnings_momentum_score")
+        if em_score is not None:
+            score += 0.05 * em_score
 
         # Map score to bias label
         if score >= self.SCORE_STRONG:

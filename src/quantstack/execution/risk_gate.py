@@ -50,6 +50,7 @@ from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
 from quantstack.db import PgConnection, pg_conn
 from quantstack.execution.portfolio_state import get_portfolio_state
+from quantstack.holding_period import HoldingType
 
 # =============================================================================
 # LIMITS CONFIG
@@ -300,6 +301,7 @@ class RiskGate:
         premium_at_risk: float = 0.0,
         dte: int = 0,
         strategy_status: str = "live",
+        holding_type: HoldingType | None = None,
     ) -> RiskVerdict:
         """
         Run all risk checks. Returns RiskVerdict (approved / rejected / scaled).
@@ -352,6 +354,53 @@ class RiskGate:
                 )
             )
             return RiskVerdict(approved=False, violations=violations)
+
+        # -- 1b. Holding period check (fast rejection before expensive DB lookups)
+        if holding_type is not None:
+            from quantstack.holding_period import HoldingPeriodManager
+
+            if not HoldingPeriodManager().is_allowed(holding_type, "trading"):
+                violations.append(
+                    RiskViolation(
+                        rule="holding_period",
+                        limit=0,
+                        actual=0,
+                        description=(
+                            f"holding_period_not_allowed: {holding_type.value} "
+                            f"not in TRADING_WINDOW"
+                        ),
+                    )
+                )
+                return RiskVerdict(approved=False, violations=violations)
+
+        # -- 1c. Trading window check — instrument type + DTE/hold-days gating
+        try:
+            from quantstack.config.settings import get_trading_window_settings
+            from quantstack.trading_window import is_trade_allowed
+
+            tw_settings = get_trading_window_settings()
+            trading_windows = tw_settings.trading_windows
+
+            if not is_trade_allowed(
+                instrument_type,
+                trading_windows,
+                dte=dte if instrument_type == "options" else None,
+            ):
+                violations.append(
+                    RiskViolation(
+                        rule="trading_window",
+                        limit=0,
+                        actual=0,
+                        description=(
+                            f"trading_window_rejected: {instrument_type}"
+                            f"{f' DTE={dte}' if instrument_type == 'options' else ''}"
+                            f" not permitted by TRADING_WINDOW"
+                        ),
+                    )
+                )
+                return RiskVerdict(approved=False, violations=violations)
+        except Exception as e:
+            logger.warning(f"[RISK] Trading window check failed: {e} — allowing trade")
 
         # -- 2. Restricted symbol
         if symbol.upper() in self.limits.restricted_symbols:
@@ -472,28 +521,42 @@ class RiskGate:
             #    Equity notional checks (steps 7-8) are skipped for options.
             equity = snapshot.total_equity or 100_000.0
 
-            # -- 7a. DTE bounds
-            if dte > 0:
-                if dte < self.limits.min_dte_entry:
+            # -- 7a. DTE bounds — window-derived bounds widen the static defaults,
+            #    but static RiskLimits still act as an absolute backstop.
+            effective_min_dte = self.limits.min_dte_entry
+            effective_max_dte = self.limits.max_dte_entry
+            try:
+                from quantstack.config.settings import get_trading_window_settings
+                from quantstack.trading_window import get_dte_bounds
+
+                dte_bounds = get_dte_bounds(get_trading_window_settings().trading_windows)
+                if dte_bounds is not None:
+                    effective_min_dte = min(effective_min_dte, dte_bounds[0])
+                    effective_max_dte = max(effective_max_dte, dte_bounds[1])
+            except Exception:
+                pass  # fall back to static limits
+
+            if dte >= 0:
+                if dte < effective_min_dte:
                     violations.append(
                         RiskViolation(
                             rule="options_min_dte",
-                            limit=self.limits.min_dte_entry,
+                            limit=effective_min_dte,
                             actual=dte,
                             description=(
-                                f"{symbol} option DTE {dte} < minimum {self.limits.min_dte_entry} "
+                                f"{symbol} option DTE {dte} < minimum {effective_min_dte} "
                                 "— gamma risk too high near expiry"
                             ),
                         )
                     )
-                elif dte > self.limits.max_dte_entry:
+                elif dte > effective_max_dte:
                     violations.append(
                         RiskViolation(
                             rule="options_max_dte",
-                            limit=self.limits.max_dte_entry,
+                            limit=effective_max_dte,
                             actual=dte,
                             description=(
-                                f"{symbol} option DTE {dte} > maximum {self.limits.max_dte_entry} "
+                                f"{symbol} option DTE {dte} > maximum {effective_max_dte} "
                                 "— no far-dated speculative entries"
                             ),
                         )

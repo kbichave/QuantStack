@@ -59,7 +59,7 @@ class Position(BaseModel):
     # v2 — strategy context + exit levels for autonomous trading loop
     strategy_id: str = ""
     regime_at_entry: str = "unknown"
-    instrument_type: str = "equity"  # "equity", "options", "multi_leg"
+    instrument_type: str = "equity"  # "equity" or "options" (see InstrumentType enum)
     time_horizon: str = "swing"  # "intraday", "swing", "position", "investment"
     stop_price: float | None = None
     target_price: float | None = None
@@ -68,6 +68,16 @@ class Position(BaseModel):
     option_expiry: str | None = None
     option_strike: float | None = None
     option_type: str | None = None  # "call" or "put"
+    # v3 — execution monitor bookkeeping
+    monitor_last_check: datetime | None = None
+    monitor_hwm: float | None = None
+
+    @property
+    def instrument_type_enum(self) -> "InstrumentType":
+        """Validated instrument type. Import kept lazy to avoid circular deps."""
+        from quantstack.trading_window import InstrumentType
+
+        return InstrumentType(self.instrument_type)
 
     @property
     def notional_value(self) -> float:
@@ -95,6 +105,13 @@ class ClosedTrade(BaseModel):
     regime_at_exit: str = "unknown"
     exit_reason: str = ""
     instrument_type: str = "equity"
+
+    @property
+    def instrument_type_enum(self) -> "InstrumentType":
+        """Validated instrument type. Import kept lazy to avoid circular deps."""
+        from quantstack.trading_window import InstrumentType
+
+        return InstrumentType(self.instrument_type)
 
 
 class PortfolioSnapshot(BaseModel):
@@ -181,7 +198,8 @@ class PortfolioState:
         "unrealized_pnl, current_price, "
         "strategy_id, regime_at_entry, instrument_type, time_horizon, "
         "stop_price, target_price, trailing_stop, entry_atr, "
-        "option_expiry, option_strike, option_type"
+        "option_expiry, option_strike, option_type, "
+        "monitor_last_check, monitor_hwm"
     )
 
     @staticmethod
@@ -206,6 +224,8 @@ class PortfolioState:
             option_expiry=r[16],
             option_strike=r[17],
             option_type=r[18],
+            monitor_last_check=r[19] if len(r) > 19 else None,
+            monitor_hwm=r[20] if len(r) > 20 else None,
         )
 
     def get_positions(self) -> list[Position]:
@@ -556,6 +576,26 @@ class PortfolioState:
             logger.info(
                 f"[PORTFOLIO] Updated stops for {symbol}: "
                 f"stop={stop_price} target={target_price} trail={trailing_stop}"
+            )
+            return True
+
+    def update_monitor_state(
+        self, symbol: str, hwm: float, last_check: datetime
+    ) -> bool:
+        """Update execution monitor bookkeeping fields for a position.
+
+        Called by ExecutionMonitor on each evaluation cycle.  These fields
+        aid debugging and reconciliation — they are not business-critical.
+        Returns True if position existed.
+        """
+        with self._lock:
+            pos = self.get_position(symbol)
+            if pos is None:
+                return False
+            self.conn.execute(
+                "UPDATE positions SET monitor_hwm = ?, monitor_last_check = ?, "
+                "last_updated = ? WHERE symbol = ?",
+                [hwm, last_check, datetime.now(), symbol],
             )
             return True
 

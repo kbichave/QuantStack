@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
 
@@ -346,6 +346,34 @@ class HoldingPeriodManager:
             parts.append("Scale-out enabled")
 
         return " | ".join(parts)
+
+    def is_allowed(
+        self,
+        holding_type: HoldingType,
+        context: Literal["research", "trading"],
+    ) -> bool:
+        """Check if a holding type is allowed for the given context.
+
+        Delegates to :class:`~quantstack.trading_window.TradingWindow` settings.
+        The resolved windows are expanded to leaf values, then the union of their
+        compatible HoldingTypes is checked for membership.
+
+        Raises ValueError if context is not 'research' or 'trading'.
+        """
+        if context not in ("research", "trading"):
+            raise ValueError(
+                f"Invalid context '{context}': must be 'research' or 'trading'"
+            )
+        from quantstack.config.settings import get_trading_window_settings
+        from quantstack.trading_window import allowed_holding_types
+
+        settings = get_trading_window_settings()
+        windows = (
+            settings.trading_windows
+            if context == "trading"
+            else settings.research_windows
+        )
+        return holding_type in allowed_holding_types(windows)
 
     def get_holding(self, symbol: str) -> HoldingDecision | None:
         """Get active holding decision for a symbol."""

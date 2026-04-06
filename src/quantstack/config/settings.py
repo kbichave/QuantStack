@@ -13,6 +13,7 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from quantstack.config.focus import get_focus_symbols
+from quantstack.holding_period import HoldingType
 from quantstack.universe import INITIAL_LIQUID_UNIVERSE
 
 # =============================================================================
@@ -257,3 +258,181 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached settings instance."""
     return Settings()
+
+
+# =============================================================================
+# Holding period settings — separate from main Settings to avoid env prefix
+# collisions and keep the HoldingType dependency isolated.
+# =============================================================================
+
+_ALL_HOLDING_TYPES = {ht for ht in HoldingType}
+
+
+def _parse_holding_periods(raw: str | None) -> set[HoldingType]:
+    """Parse a comma-separated holding period string into a set of HoldingType.
+
+    Returns all four types when the input is empty, None, or unset.
+    Raises ValueError for unrecognised type names.
+    """
+    if not raw or not raw.strip():
+        return set(_ALL_HOLDING_TYPES)
+
+    valid_names = {ht.value: ht for ht in HoldingType}
+    result: set[HoldingType] = set()
+    for token in raw.split(","):
+        name = token.strip().lower()
+        if not name:
+            continue
+        if name not in valid_names:
+            raise ValueError(
+                f"Invalid holding period type: '{name}'. "
+                f"Valid values: {', '.join(sorted(valid_names))}"
+            )
+        result.add(valid_names[name])
+    return result or set(_ALL_HOLDING_TYPES)
+
+
+class HoldingPeriodSettings(BaseSettings):
+    """Holding period configuration for research and trading contexts.
+
+    Environment variables:
+      RESEARCH_HOLDING_PERIODS — comma-separated list (default: all four types)
+      TRADING_HOLDING_PERIODS  — comma-separated list (default: all four types)
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # Stored as raw strings so pydantic-settings doesn't try to JSON-parse
+    # the env var. Converted to set[HoldingType] via properties.
+    research_holding_periods_raw: str = Field(
+        default="",
+        alias="research_holding_periods",
+    )
+    trading_holding_periods_raw: str = Field(
+        default="",
+        alias="trading_holding_periods",
+    )
+
+    @property
+    def research_holding_periods(self) -> set[HoldingType]:
+        return _parse_holding_periods(self.research_holding_periods_raw)
+
+    @property
+    def trading_holding_periods(self) -> set[HoldingType]:
+        return _parse_holding_periods(self.trading_holding_periods_raw)
+
+
+@lru_cache
+def get_holding_period_settings() -> HoldingPeriodSettings:
+    """Get cached holding period settings instance.
+
+    .. deprecated::
+        Use :func:`get_trading_window_settings` instead. This function is
+        retained for backward compatibility with callers that only need the
+        ``set[HoldingType]`` view.
+    """
+    return HoldingPeriodSettings()
+
+
+# =============================================================================
+# Trading window settings — replaces HoldingPeriodSettings with instrument-
+# aware, DTE-aware gating.  See ``quantstack.trading_window`` for the enum
+# definitions and expansion logic.
+# =============================================================================
+
+
+class TradingWindowSettings(BaseSettings):
+    """Trading window configuration for research and trading contexts.
+
+    Environment variables:
+      RESEARCH_WINDOW — comma-separated TradingWindow values (default: all)
+      TRADING_WINDOW  — comma-separated TradingWindow values (default: all)
+
+    Legacy env vars (deprecated — mapped automatically with a warning):
+      RESEARCH_HOLDING_PERIODS
+      TRADING_HOLDING_PERIODS
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    research_window_raw: str = Field(default="", alias="research_window")
+    trading_window_raw: str = Field(default="", alias="trading_window")
+
+    # Legacy fields — read only to detect deprecation and bridge
+    research_holding_periods_raw: str = Field(
+        default="",
+        alias="research_holding_periods",
+    )
+    trading_holding_periods_raw: str = Field(
+        default="",
+        alias="trading_holding_periods",
+    )
+
+    @property
+    def research_windows(self) -> set["TradingWindow"]:
+        from quantstack.trading_window import TradingWindow, parse_window_env
+
+        if self.research_window_raw.strip():
+            return parse_window_env(self.research_window_raw)
+        if self.research_holding_periods_raw.strip():
+            logging.getLogger(__name__).warning(
+                "RESEARCH_HOLDING_PERIODS is deprecated — use RESEARCH_WINDOW instead. "
+                "Mapping legacy values automatically."
+            )
+            return _bridge_legacy_holding_periods(self.research_holding_periods_raw)
+        return parse_window_env("")  # ALL
+
+    @property
+    def trading_windows(self) -> set["TradingWindow"]:
+        from quantstack.trading_window import TradingWindow, parse_window_env
+
+        if self.trading_window_raw.strip():
+            return parse_window_env(self.trading_window_raw)
+        if self.trading_holding_periods_raw.strip():
+            logging.getLogger(__name__).warning(
+                "TRADING_HOLDING_PERIODS is deprecated — use TRADING_WINDOW instead. "
+                "Mapping legacy values automatically."
+            )
+            return _bridge_legacy_holding_periods(self.trading_holding_periods_raw)
+        return parse_window_env("")  # ALL
+
+
+def _bridge_legacy_holding_periods(raw: str) -> set["TradingWindow"]:
+    """Map old HOLDING_PERIODS values to equivalent TradingWindow leaves."""
+    from quantstack.trading_window import TradingWindow, expand_windows
+
+    mapping: dict[str, set[TradingWindow]] = {
+        "intraday": {TradingWindow.EQUITY_SCALP, TradingWindow.EQUITY_DAY_TRADE, TradingWindow.OPTIONS_0DTE},
+        "short_swing": {TradingWindow.EQUITY_SWING, TradingWindow.OPTIONS_WEEKLY, TradingWindow.OPTIONS_BIWEEKLY},
+        "swing": {TradingWindow.EQUITY_SWING, TradingWindow.EQUITY_POSITION, TradingWindow.OPTIONS_MONTHLY},
+        "position": {TradingWindow.EQUITY_POSITION, TradingWindow.EQUITY_INVESTMENT, TradingWindow.OPTIONS_ALL},
+    }
+
+    result: set[TradingWindow] = set()
+    for token in raw.split(","):
+        name = token.strip().lower()
+        if not name:
+            continue
+        if name in mapping:
+            result.update(mapping[name])
+        else:
+            logging.getLogger(__name__).warning(
+                f"Unknown legacy holding period '{name}' — skipping"
+            )
+    return expand_windows(result) if result else expand_windows({TradingWindow.ALL})
+
+
+@lru_cache
+def get_trading_window_settings() -> TradingWindowSettings:
+    """Get cached trading window settings instance."""
+    return TradingWindowSettings()

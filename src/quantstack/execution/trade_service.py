@@ -25,7 +25,41 @@ from quantstack.db import db_conn
 from quantstack.execution.broker_factory import get_broker_mode
 from quantstack.execution.hook_registry import fire as _fire_hook
 from quantstack.execution.paper_broker import OrderRequest
+from quantstack.holding_period import HoldingType
 from quantstack.shared.serializers import serialize_for_json
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_TIME_HORIZON_TO_HOLDING: dict[str, HoldingType] = {
+    "intraday": HoldingType.INTRADAY,
+    "short_swing": HoldingType.SHORT_SWING,
+    "swing": HoldingType.SWING,
+    "position": HoldingType.POSITION,
+    "investment": HoldingType.POSITION,
+}
+
+
+def _compute_dte(option_expiry: str | None) -> int:
+    """Compute days-to-expiration from an option expiry date string.
+
+    Accepts ISO-8601 date (``YYYY-MM-DD``) or datetime strings.
+    Returns 0 when *option_expiry* is None or unparseable.
+    """
+    if not option_expiry:
+        return 0
+    try:
+        from datetime import date, datetime
+
+        if "T" in option_expiry:
+            exp = datetime.fromisoformat(option_expiry).date()
+        else:
+            exp = date.fromisoformat(option_expiry)
+        return max(0, (exp - date.today()).days)
+    except (ValueError, TypeError):
+        return 0
 
 
 def calc_quantity_from_size(
@@ -118,12 +152,19 @@ async def execute_trade(
 
         # 5. Risk gate check — SACRED, NEVER BYPASSED
         daily_volume = 1_000_000  # Default for paper mode
+        dte = _compute_dte(option_expiry)
+        holding_type = _TIME_HORIZON_TO_HOLDING.get(
+            time_horizon.lower(), HoldingType.SWING
+        )
         verdict = risk_gate.check(
             symbol=symbol,
             side=action,
             quantity=quantity,
             current_price=current_price,
             daily_volume=daily_volume,
+            instrument_type=instrument_type,
+            dte=dte,
+            holding_type=holding_type,
         )
 
         if not verdict.approved:
@@ -168,7 +209,18 @@ async def execute_trade(
             daily_volume=daily_volume,
         )
 
-        fill = broker.execute(order)
+        # Use bracket orders when broker supports it and both SL/TP are set
+        if (
+            stop_price is not None
+            and target_price is not None
+            and getattr(broker, "supports_bracket_orders", lambda: False)()
+            and hasattr(broker, "execute_bracket")
+        ):
+            fill = broker.execute_bracket(
+                order, stop_price=stop_price, take_profit_price=target_price
+            )
+        else:
+            fill = broker.execute(order)
 
         # 6b. Persist position metadata (strategy context + exit levels)
         # The broker's execute() already calls portfolio.upsert_position() with basic

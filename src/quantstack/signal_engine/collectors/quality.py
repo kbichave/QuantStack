@@ -19,6 +19,7 @@ from loguru import logger
 
 from quantstack.data.adapters.financial_datasets_client import FinancialDatasetsClient
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 
 async def collect_quality(symbol: str, store: DataStore) -> dict[str, Any]:
@@ -36,6 +37,8 @@ async def collect_quality(symbol: str, store: DataStore) -> dict[str, Any]:
 
     Returns {} if API key is missing or data cannot be fetched.
     """
+    if not check_freshness(symbol, "company_overview", max_days=90):
+        return {}
     try:
         return await asyncio.to_thread(_collect_quality_sync, symbol, store)
     except Exception as exc:

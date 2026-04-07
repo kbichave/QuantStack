@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import litellm
-import psycopg2
+import psycopg
 from loguru import logger
 
 from quantstack.db import pg_conn

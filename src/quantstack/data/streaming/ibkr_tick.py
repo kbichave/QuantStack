@@ -38,7 +38,11 @@ from loguru import logger
 from quantstack.data.streaming.tick_base import TickStreamingAdapter
 from quantstack.data.streaming.tick_models import L2Update, QuoteTick, TradeTick
 
-import ib_insync as ib
+try:
+    import ib_insync as ib
+    _IBKR_AVAILABLE = True
+except ImportError:
+    _IBKR_AVAILABLE = False
 
 
 class IBKRTickAdapter(TickStreamingAdapter):
@@ -60,6 +64,11 @@ class IBKRTickAdapter(TickStreamingAdapter):
         depth_rows: int = 10,
         **kwargs,
     ) -> None:
+        if not _IBKR_AVAILABLE:
+            raise ImportError(
+                "IBKRTickAdapter requires 'ib_insync'. "
+                "Install with: uv pip install ib_insync"
+            )
         super().__init__(**kwargs)
         self._host = host
         self._port = port

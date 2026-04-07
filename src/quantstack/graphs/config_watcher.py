@@ -6,7 +6,7 @@ import signal
 import threading
 from pathlib import Path
 
-from quantstack.graphs.config import AgentConfig, load_agent_configs
+from quantstack.graphs.config import AgentConfig, load_agent_configs, load_blocked_tools
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,9 @@ class ConfigWatcher:
         self._yaml_path = yaml_path
         self._lock = threading.Lock()
         self._configs = load_agent_configs(yaml_path)
+        self._blocked_tools = load_blocked_tools(yaml_path)
         self._pending_configs: dict[str, AgentConfig] | None = None
+        self._pending_blocked_tools: frozenset[str] | None = None
         self._observer = None
 
         if watch:
@@ -42,6 +44,11 @@ class ConfigWatcher:
         with self._lock:
             return dict(self._configs)
 
+    def get_blocked_tools(self) -> frozenset[str]:
+        """Return the current graph-level blocked tools set. Thread-safe."""
+        with self._lock:
+            return self._blocked_tools
+
     def apply_pending_reload(self) -> bool:
         """If a reload is pending, atomically swap configs.
 
@@ -53,6 +60,9 @@ class ConfigWatcher:
                 return False
             self._configs = self._pending_configs
             self._pending_configs = None
+            if self._pending_blocked_tools is not None:
+                self._blocked_tools = self._pending_blocked_tools
+                self._pending_blocked_tools = None
             logger.info("Agent configs reloaded from %s", self._yaml_path)
             return True
 
@@ -60,8 +70,10 @@ class ConfigWatcher:
         """Parse YAML and stage new configs (does NOT apply them yet)."""
         try:
             new_configs = load_agent_configs(self._yaml_path)
+            new_blocked = load_blocked_tools(self._yaml_path)
             with self._lock:
                 self._pending_configs = new_configs
+                self._pending_blocked_tools = new_blocked
             logger.debug("Staged config reload from %s", self._yaml_path)
         except Exception:
             logger.exception("Failed to reload configs from %s — keeping current config", self._yaml_path)

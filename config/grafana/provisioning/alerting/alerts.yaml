@@ -1,0 +1,197 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: QuantStack Alerts
+    folder: QuantStack
+    interval: 1m
+    rules:
+      - uid: critical-log-detected
+        title: CRITICAL log detected
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: 'rate({job=~".*-graph"} |= "CRITICAL" [5m]) > 0'
+              instant: true
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CRITICAL level log detected in graph services"
+
+      - uid: error-spike
+        title: Error spike
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: 'rate({job=~".*-graph"} |= "ERROR" [5m]) > 5'
+              instant: true
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Error rate spike: >5 errors/5min in graph services"
+
+      - uid: kill-switch-active
+        title: Kill switch active
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: 'quantstack_kill_switch_active == 1'
+              instant: true
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kill switch is active — all trading halted"
+
+      - uid: container-restart
+        title: Container restart detected
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: 'changes(container_start_time_seconds[5m]) > 0'
+              instant: true
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container restart detected in the last 5 minutes"
+
+      - uid: memory-warning
+        title: Container Memory warning (>80%)
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: >
+                container_memory_working_set_bytes{name=~"quantstack-.*-graph"}
+                / container_spec_memory_limit_bytes{name=~"quantstack-.*-graph"}
+                > 0.80
+              instant: true
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container memory usage exceeds 80% of limit"
+
+      - uid: memory-critical
+        title: Container Memory critical (>90%)
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: >
+                container_memory_working_set_bytes{name=~"quantstack-.*-graph"}
+                / container_spec_memory_limit_bytes{name=~"quantstack-.*-graph"}
+                > 0.90
+              instant: true
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container memory usage exceeds 90% of limit — OOM risk"
+
+      - uid: oom-killed
+        title: OOMKilled
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: >
+                increase(container_oom_events_total{name=~"quantstack-.*"}[5m]) > 0
+              instant: true
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container OOM kill detected"
+
+      - uid: low-cycle-success-rate
+        title: Low cycle success rate
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: 'quantstack_cycle_success_rate < 0.70'
+              instant: true
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Graph {{ $labels.graph_name }} cycle success rate below 70%"
+
+      - uid: high-cycle-error-count
+        title: High cycle error count
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: 'quantstack_cycle_error_count > 3'
+              instant: true
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Graph {{ $labels.graph_name }} has {{ $value }} errors in latest cycle"
+
+      - uid: no-strategies-7d
+        title: No strategies generated (7d)
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: 'quantstack_strategy_generation_7d == 0'
+              instant: true
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "No new strategies generated in the last 7 days"
+
+      - uid: research-queue-backlog
+        title: Research queue backlog
+        condition: A
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            model:
+              expr: 'quantstack_research_queue_depth > 50'
+              instant: true
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Research queue depth is {{ $value }} (threshold: 50)"
+
+contactPoints:
+  - orgId: 1
+    name: Discord
+    receivers:
+      - uid: discord-webhook
+        type: discord
+        settings:
+          url: ${DISCORD_WEBHOOK_URL}
+        disableResolveMessage: false
+    # TODO: Add Google mail bot SMTP contact point for email escalation (4h+)
+
+policies:
+  - orgId: 1
+    receiver: Discord
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

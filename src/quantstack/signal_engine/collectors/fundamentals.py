@@ -43,6 +43,7 @@ from quantstack.core.features.fundamental import (
 from quantstack.core.features.insider_signals import InsiderSignals
 from quantstack.core.features.institutional_signals import LSVHerding
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 
 async def collect_fundamentals(symbol: str, store: DataStore) -> dict[str, Any]:
@@ -80,6 +81,8 @@ async def collect_fundamentals(symbol: str, store: DataStore) -> dict[str, Any]:
         sue_negative            : int | None — 1 when sue < -1 (strong miss)
         beat_streak             : int | None — consecutive quarters beating consensus
     """
+    if not check_freshness(symbol, "company_overview", max_days=90):
+        return {}
     try:
         return await asyncio.to_thread(_collect_fundamentals_sync, symbol, store)
     except Exception as exc:

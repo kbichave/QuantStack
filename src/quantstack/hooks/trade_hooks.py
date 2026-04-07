@@ -68,6 +68,25 @@ def _get_credit_assigner() -> CreditAssigner | None:
     return _credit_assigner
 
 
+def _update_skill_tracker(
+    agent_name: str,
+    prediction_correct: bool,
+    realized_pnl: float,
+) -> None:
+    """Fire-and-forget SkillTracker update (Wire 4, Section 03).
+
+    Never raises — tracking side-effects must not break trade hooks.
+    """
+    try:
+        from quantstack.knowledge.store import KnowledgeStore
+        from quantstack.learning.skill_tracker import SkillTracker
+        store = KnowledgeStore()
+        tracker = SkillTracker(store)
+        tracker.update_agent_skill(agent_name, prediction_correct, signal_pnl=realized_pnl)
+    except Exception as exc:
+        logger.warning(f"[hooks] SkillTracker update failed for {agent_name}: {exc}")
+
+
 def on_trade_close(
     symbol: str,
     strategy_id: str,
@@ -170,6 +189,13 @@ def on_trade_close(
                 mem.record_episode(ref)
         except Exception as exc:
             logger.warning(f"[hooks] on_trade_close reflexion episode failed: {exc}")
+
+    # 4. SkillTracker — record per-agent outcome (Wire 4, Section 03)
+    _update_skill_tracker(
+        agent_name=debate_verdict or "unknown_agent",
+        prediction_correct=realized_pnl_pct > 0,
+        realized_pnl=realized_pnl_pct,
+    )
 
     # 3. Step-level credit assignment (every trade)
     try:

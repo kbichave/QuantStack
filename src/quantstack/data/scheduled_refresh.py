@@ -14,6 +14,7 @@ Rate limits are enforced by AlphaVantageClient's built-in sliding window.
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -22,6 +23,9 @@ from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.db import pg_conn
+from quantstack.signal_engine import cache as signal_cache
+
+OPTIONS_REFRESH_TOP_N = int(os.environ.get("OPTIONS_REFRESH_TOP_N", "30"))
 
 
 @dataclass
@@ -96,11 +100,15 @@ async def run_intraday_refresh() -> RefreshReport:
             report.api_calls += 1
             if not quotes_df.empty:
                 # Store as latest quotes in ohlcv table with 1-min timeframe
+                refreshed_symbols = []
                 for _, row in quotes_df.iterrows():
                     sym = row.get("symbol", "")
                     if not sym:
                         continue
                     report.symbols_refreshed += 1
+                    refreshed_symbols.append(sym)
+                for sym in refreshed_symbols:
+                    signal_cache.invalidate(sym)
                 logger.info(
                     "[data_refresh] Bulk quotes: %d symbols refreshed",
                     report.symbols_refreshed,
@@ -120,6 +128,7 @@ async def run_intraday_refresh() -> RefreshReport:
                     await asyncio.to_thread(
                         store.save_ohlcv, df, sym, Timeframe.M5
                     )
+                    signal_cache.invalidate(sym)
                     logger.debug("[data_refresh] 5min OHLCV: %s (%d bars)", sym, len(df))
             except Exception as exc:
                 report.errors.append(f"intraday_{sym}: {exc}")
@@ -142,6 +151,8 @@ async def run_intraday_refresh() -> RefreshReport:
                 report.api_calls += 1
                 if news_df is not None and not news_df.empty:
                     await asyncio.to_thread(store.save_news_sentiment, news_df)
+                    for sym in batch:
+                        signal_cache.invalidate(sym)
                     logger.debug(
                         "[data_refresh] News: %s (%d articles)",
                         tickers_str, len(news_df),
@@ -158,6 +169,7 @@ async def run_intraday_refresh() -> RefreshReport:
         logger.error("[data_refresh] Unexpected error: %s", exc)
 
     report.elapsed_seconds = time.monotonic() - t0
+    logger.info("[data_refresh] Cache stats after invalidation: %s", signal_cache.stats())
     logger.info(
         "[data_refresh] Intraday complete: %d symbols, %d API calls, %.1fs, %d errors",
         report.symbols_refreshed, report.api_calls,
@@ -211,9 +223,12 @@ async def run_eod_refresh() -> RefreshReport:
                 report.errors.append(f"daily_{sym}: {exc}")
                 logger.warning("[eod_refresh] Daily %s failed: %s", sym, exc)
 
-        # --- 2. Options chains for watched + top universe symbols ---
-        options_symbols = list(dict.fromkeys(watched + all_symbols[:30]))  # Dedup, preserve order
-        for sym in options_symbols[:30]:  # Cap at 30 to respect rate limits
+        # --- 2. Options chains for watched + strategy-aware + top universe symbols ---
+        options_strat_syms = _get_options_strategy_symbols()
+        options_symbols = list(dict.fromkeys(
+            watched + options_strat_syms + all_symbols[:OPTIONS_REFRESH_TOP_N]
+        ))
+        for sym in options_symbols[:OPTIONS_REFRESH_TOP_N]:  # Cap to respect rate limits
             try:
                 opts_df = await asyncio.to_thread(
                     client.fetch_realtime_options, sym
@@ -264,12 +279,77 @@ async def run_eod_refresh() -> RefreshReport:
         report.errors.append(f"unexpected: {exc}")
         logger.error("[eod_refresh] Unexpected error: %s", exc)
 
+    signal_cache.clear()
+    logger.info("[eod_refresh] Cache cleared. Stats: %s", signal_cache.stats())
+
+    # --- 5. Daily loss analysis — error-driven research task generation ---
+    try:
+        from quantstack.learning.loss_analyzer import run_daily_loss_analysis
+
+        loss_summary = run_daily_loss_analysis()
+        logger.info("[eod_refresh] Loss analysis: %s", loss_summary)
+    except Exception as exc:
+        report.errors.append(f"loss_analysis: {exc}")
+        logger.warning("[eod_refresh] Loss analysis failed: %s", exc)
+
     report.elapsed_seconds = time.monotonic() - t0
     logger.info(
         "[eod_refresh] EOD complete: %d symbols, %d API calls, %.1fs, %d errors",
         report.symbols_refreshed, report.api_calls,
         report.elapsed_seconds, len(report.errors),
     )
+    return report
+
+
+def _get_options_strategy_symbols() -> list[str]:
+    """Return symbols from active strategies that depend on options signals."""
+    try:
+        with pg_conn() as conn:
+            rows = conn.execute(
+                """SELECT DISTINCT symbol FROM strategies
+                   WHERE status IN ('paper_ready', 'forward_testing', 'live')
+                     AND symbol IS NOT NULL
+                     AND (
+                         signals::text LIKE '%options_flow%'
+                         OR signals::text LIKE '%put_call_ratio%'
+                     )"""
+            ).fetchall()
+        return [r[0] for r in rows]
+    except Exception:
+        return []
+
+
+async def run_corporate_actions_refresh() -> RefreshReport:
+    """Daily corporate actions check — dividends, splits, M&A events.
+
+    Called once after EOD refresh by the supervisor graph's scheduled_tasks node.
+    Delegates to :func:`quantstack.data.corporate_actions.refresh_corporate_actions`.
+    """
+    report = RefreshReport(mode="corporate_actions")
+    t0 = time.monotonic()
+
+    try:
+        from quantstack.data.corporate_actions import refresh_corporate_actions
+
+        symbols = _get_watched_symbols() or _get_active_symbols()
+        if not symbols:
+            logger.warning("[corp_actions_refresh] No symbols to check")
+            report.elapsed_seconds = time.monotonic() - t0
+            return report
+
+        summary = await refresh_corporate_actions(symbols)
+        report.symbols_refreshed = len(symbols)
+        report.errors = summary.get("errors", [])
+        logger.info("[corp_actions_refresh] Summary: %s", summary)
+
+    except ImportError as exc:
+        report.errors.append(f"import: {exc}")
+        logger.error("[corp_actions_refresh] Import failed: %s", exc)
+    except Exception as exc:
+        report.errors.append(f"unexpected: {exc}")
+        logger.error("[corp_actions_refresh] Failed: %s", exc)
+
+    report.elapsed_seconds = time.monotonic() - t0
     return report
 
 

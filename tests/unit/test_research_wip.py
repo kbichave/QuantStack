@@ -6,7 +6,7 @@ Tests for research_wip table — distributed work locks for parallel research ag
 """
 
 import pytest
-import psycopg2
+import psycopg
 from quantstack.db import db_conn, run_migrations
 
 
@@ -29,7 +29,7 @@ def test_lock_acquisition(db):
     )
 
     # Agent 2 tries same lock → should fail
-    with pytest.raises(psycopg2.IntegrityError):
+    with pytest.raises(psycopg.IntegrityError):
         db.execute(
             "INSERT INTO research_wip (symbol, domain, agent_id) VALUES (%s, %s, %s)",
             ("TEST_AAPL", "investment", "agent2")
@@ -184,7 +184,7 @@ def test_domain_constraint(db):
         )
 
     # Invalid domain should fail
-    with pytest.raises(psycopg2.IntegrityError):
+    with pytest.raises(psycopg.IntegrityError):
         db.execute(
             "INSERT INTO research_wip (symbol, domain, agent_id) VALUES (%s, %s, %s)",
             ("TEST_INVALID", "futures", "agent8")

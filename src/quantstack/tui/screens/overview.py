@@ -2,6 +2,7 @@
 from textual.app import ComposeResult
 from textual.containers import ScrollableContainer
 
+from quantstack.tui.widgets.alerts_widget import AlertsCompact
 from quantstack.tui.widgets.overview import (
     AgentActivityLine,
     DataHealthCompact,
@@ -21,6 +22,7 @@ class OverviewTab(ScrollableContainer):
     """Overview tab — compact summaries from all subsystems."""
 
     def compose(self) -> ComposeResult:
+        yield AlertsCompact(classes="full-width")
         yield ServicesCompact(classes="overview-cell")
         yield RiskCompact(classes="overview-cell")
         yield PortfolioCompact(classes="overview-cell")

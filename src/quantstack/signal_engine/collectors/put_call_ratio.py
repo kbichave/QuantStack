@@ -25,6 +25,7 @@ from typing import Any
 from loguru import logger
 
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 _MIN_VOLUME_THRESHOLD = 500
 _LOOKBACK_DAYS = 90
@@ -33,6 +34,8 @@ _MIN_HISTORY_DAYS = 20
 
 async def collect_put_call_ratio(symbol: str, store: DataStore) -> dict[str, Any]:
     """Compute put-call ratio signal from options chain volume data."""
+    if not check_freshness(symbol, "options_chains", max_days=3):
+        return {}
     try:
         return await asyncio.to_thread(
             _collect_put_call_ratio_sync, symbol, store

@@ -27,6 +27,16 @@ if [[ ! -f .env ]]; then
 fi
 set -a; source .env; set +a
 
+# Check .env file permissions (should not be world-readable)
+if [[ "$(uname)" == "Darwin" ]]; then
+    PERMS=$(stat -f "%Lp" .env)
+else
+    PERMS=$(stat -c "%a" .env)
+fi
+if [[ "${PERMS: -1}" != "0" ]]; then
+    echo "WARNING: .env is world-readable (permissions: $PERMS). Run: chmod 600 .env" >&2
+fi
+
 # ---------------------------------------------------------------------------
 # 2. Check prerequisites
 # ---------------------------------------------------------------------------
@@ -54,6 +64,39 @@ done
 if [[ -n "$MISSING" ]]; then
     echo "ERROR: Missing required environment variables:" >&2
     echo -e "$MISSING" >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 3b. Validate passwords (no defaults, no weak values)
+# ---------------------------------------------------------------------------
+validate_password() {
+    local var_name="$1"
+    local default_value="$2"
+    local value="${!var_name:-}"
+
+    if [[ -z "$value" ]]; then
+        echo "ERROR: ${var_name} is not set. Set a strong password (12+ characters) in .env" >&2
+        return 1
+    fi
+    if [[ "$value" == "$default_value" ]]; then
+        echo "ERROR: ${var_name} is using the insecure default value '${default_value}'. Change it in .env" >&2
+        return 1
+    fi
+    if [[ ${#value} -lt 12 ]]; then
+        echo "ERROR: ${var_name} is too short (${#value} chars). Use 12+ characters." >&2
+        return 1
+    fi
+    return 0
+}
+
+PW_ERRORS=0
+validate_password "POSTGRES_PASSWORD" "quantstack" || ((PW_ERRORS++))
+validate_password "LANGFUSE_DB_PASSWORD" "langfuse" || ((PW_ERRORS++))
+validate_password "LANGFUSE_INIT_USER_PASSWORD" "quantstack123" || ((PW_ERRORS++))
+
+if [[ $PW_ERRORS -gt 0 ]]; then
+    echo "ERROR: Fix the ${PW_ERRORS} password issue(s) above before starting." >&2
     exit 1
 fi
 
@@ -234,6 +277,33 @@ except: print('unknown')
         sleep 5
     done
 done
+
+# ---------------------------------------------------------------------------
+# 14b. Post-deployment smoke test (hard gate)
+# ---------------------------------------------------------------------------
+echo "[start.sh] Running post-deployment smoke test..."
+SMOKE_OK=true
+for svc in postgres trading-graph research-graph supervisor-graph; do
+    HEALTH=$(docker compose ps --format json "$svc" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    if isinstance(data, list): data = data[0]
+    print(data.get('Health', data.get('health', 'unknown')))
+except: print('unknown')
+" 2>/dev/null || echo "unknown")
+    if [[ "$HEALTH" != *"healthy"* ]]; then
+        echo "  FAIL: $svc is not healthy (status: $HEALTH)"
+        SMOKE_OK=false
+    fi
+done
+
+if [[ "$SMOKE_OK" != "true" ]]; then
+    echo "ERROR: Post-deployment smoke test failed. Diagnostic logs:" >&2
+    docker compose logs --tail=50 >&2
+    exit 1
+fi
+echo "[start.sh] Smoke test passed — all critical services healthy."
 
 # ---------------------------------------------------------------------------
 # 15. Print status summary

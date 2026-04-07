@@ -214,6 +214,52 @@ def test_quant_researcher_has_ewf(research_agents):
     assert "get_ewf_analysis" in tools
     assert "get_ewf_analysis" in always
 
+# --- Section 04: Tier reclassification ---
+
+VALID_AGENT_TIERS = {"heavy", "medium", "light"}
+
+
+@pytest.mark.parametrize("yaml_path", [TRADING_YAML, RESEARCH_YAML, SUPERVISOR_YAML])
+def test_all_agents_have_explicit_llm_tier(yaml_path):
+    """Every agent in every agents.yaml must have an explicit llm_tier field."""
+    config = yaml.safe_load(yaml_path.read_text())
+    for agent_name, agent_cfg in config.items():
+        assert "llm_tier" in agent_cfg, (
+            f"{yaml_path.name}: agent '{agent_name}' is missing llm_tier"
+        )
+
+
+@pytest.mark.parametrize("yaml_path", [TRADING_YAML, RESEARCH_YAML, SUPERVISOR_YAML])
+def test_all_tier_values_valid(yaml_path):
+    """All llm_tier values must be in {heavy, medium, light}."""
+    config = yaml.safe_load(yaml_path.read_text())
+    for agent_name, agent_cfg in config.items():
+        tier = agent_cfg.get("llm_tier")
+        if tier is not None:
+            assert tier in VALID_AGENT_TIERS, (
+                f"{yaml_path.name}: agent '{agent_name}' has invalid tier '{tier}'. "
+                f"Expected one of {VALID_AGENT_TIERS}"
+            )
+
+
+def test_get_chat_model_rejects_unrecognized_tier(monkeypatch):
+    """get_chat_model raises ValueError on unrecognized tier."""
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from quantstack.llm.provider import get_chat_model
+    with pytest.raises(ValueError, match="Unknown tier"):
+        get_chat_model("nonexistent_tier")
+
+
+def test_get_model_rejects_unrecognized_tier(monkeypatch):
+    """get_model raises ValueError on unrecognized tier."""
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    from quantstack.llm.provider import get_model
+    with pytest.raises(ValueError, match="Unknown tier"):
+        get_model("nonexistent_tier")
+
+
 def test_ewf_tool_names_resolve_in_registry():
     from quantstack.tools.registry import TOOL_REGISTRY
     for yaml_path in [TRADING_YAML, RESEARCH_YAML]:

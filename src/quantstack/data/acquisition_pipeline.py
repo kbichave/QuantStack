@@ -51,6 +51,7 @@ from quantstack.db import pg_conn
 if TYPE_CHECKING:
     from quantstack.data.adapters.alpaca import AlpacaAdapter
     from quantstack.data.fetcher import AlphaVantageClient
+    from quantstack.data.providers.registry import ProviderRegistry
     from quantstack.data.storage import DataStore
 
 
@@ -99,6 +100,8 @@ ALL_PHASES = [
     "fundamentals",
     "commodities",       # Phase 13 — gold, silver, copper, all_commodities, forex
     "put_call_ratio",    # Phase 14 — conditional on endpoint availability
+    "sec_filings",       # Phase 15 — SEC filing metadata via EDGAR
+    "sec_edgar_insider", # Phase 16 — EDGAR insider + institutional data
 ]
 
 
@@ -139,6 +142,10 @@ class AcquisitionPipeline:
         av_client: AlphaVantageClient (rate-limited AV wrapper).
         store:     DataStore (PostgreSQL persistence).
         alpaca:    Optional AlpacaAdapter (fallback OHLCV when AV returns empty).
+        registry:  Optional ProviderRegistry for multi-provider routing with
+                   fallback and circuit breaking. When provided, phases that
+                   benefit from multi-provider support (macro, insider,
+                   institutional, fundamentals) route through the registry.
     """
 
     def __init__(
@@ -146,10 +153,12 @@ class AcquisitionPipeline:
         av_client: AlphaVantageClient,
         store: DataStore,
         alpaca: AlpacaAdapter | None = None,
+        registry: ProviderRegistry | None = None,
     ) -> None:
         self._av = av_client
         self._store = store
         self._alpaca = alpaca
+        self._registry = registry
 
     # -----------------------------------------------------------------------
     # Entry point
@@ -207,6 +216,10 @@ class AcquisitionPipeline:
             return await self.run_commodities()
         if phase == "put_call_ratio":
             return await self.run_put_call_ratio(symbols)
+        if phase == "sec_filings":
+            return await self.run_sec_filings(symbols)
+        if phase == "sec_edgar_insider":
+            return await self.run_sec_edgar_insider(symbols)
         logger.warning(f"Unknown phase '{phase}', skipping")
         return None
 
@@ -400,6 +413,8 @@ class AcquisitionPipeline:
                     total += self._store.save_financial_statements(df)
             except Exception as exc:
                 logger.debug(f"[financials] {symbol} {stmt_type}: {exc}")
+        if total > 0:
+            self._upsert_metadata(symbol, "financial_statements", datetime.now(UTC))
         return total
 
     # -----------------------------------------------------------------------
@@ -455,7 +470,10 @@ class AcquisitionPipeline:
         # AV sometimes returns duplicate entries for the same period; deduplicate
         # before upsert to avoid "ON CONFLICT DO UPDATE cannot affect row twice".
         df = df.drop_duplicates(subset=["symbol", "report_date"], keep="last")
-        return self._store.save_earnings_calendar(df)
+        rows = self._store.save_earnings_calendar(df)
+        if rows > 0:
+            self._upsert_metadata(symbol, "earnings_history", datetime.now(UTC))
+        return rows
 
     # -----------------------------------------------------------------------
     # Phase: macro indicators (global — not per symbol)
@@ -510,10 +528,18 @@ class AcquisitionPipeline:
         kwargs: dict = {"interval": interval}
         if maturity:
             kwargs["maturity"] = maturity
-        df = self._av.fetch_economic_indicator(function, **kwargs)
-        if df.empty:
+
+        df = None
+        if self._registry:
+            df = self._registry.fetch("macro_indicator", function, indicator=function)
+        if df is None or (hasattr(df, "empty") and df.empty):
+            df = self._av.fetch_economic_indicator(function, **kwargs)
+        if df is None or (hasattr(df, "empty") and df.empty):
             return 0
-        return self._store.save_macro_indicators(function, df)
+        rows = self._store.save_macro_indicators(function, df)
+        if rows > 0:
+            self._upsert_metadata(function, "macro_indicators", datetime.now(UTC))
+        return rows
 
     # -----------------------------------------------------------------------
     # Phase: insider transactions
@@ -557,12 +583,17 @@ class AcquisitionPipeline:
         except Exception:
             pass
 
-        df = self._av.fetch_insider_transactions(symbol)
-        if df.empty:
+        df = None
+        if self._registry:
+            df = self._registry.fetch("insider_transactions", symbol)
+        if df is None or (hasattr(df, "empty") and df.empty):
+            df = self._av.fetch_insider_transactions(symbol)
+        if df is None or (hasattr(df, "empty") and df.empty):
             return 0
 
         df = df.copy()
-        df["ticker"] = symbol
+        if "ticker" not in df.columns:
+            df["ticker"] = symbol
         # Map AV column names → schema column names
         rename = {
             "share_price": "price_per_share",
@@ -577,7 +608,10 @@ class AcquisitionPipeline:
         dedup_cols = [c for c in conflict_cols if c in df.columns]
         if dedup_cols:
             df = df.drop_duplicates(subset=dedup_cols, keep="last")
-        return self._store.save_insider_trades(df)
+        rows = self._store.save_insider_trades(df)
+        if rows > 0:
+            self._upsert_metadata(symbol, "insider_trades", datetime.now(UTC))
+        return rows
 
     # -----------------------------------------------------------------------
     # Phase: institutional holdings (13F)
@@ -623,12 +657,17 @@ class AcquisitionPipeline:
         except Exception:
             pass
 
-        df = self._av.fetch_institutional_holdings(symbol)
-        if df.empty:
+        df = None
+        if self._registry:
+            df = self._registry.fetch("institutional_holdings", symbol)
+        if df is None or (hasattr(df, "empty") and df.empty):
+            df = self._av.fetch_institutional_holdings(symbol)
+        if df is None or (hasattr(df, "empty") and df.empty):
             return 0
 
         df = df.copy()
-        df["ticker"] = symbol
+        if "ticker" not in df.columns:
+            df["ticker"] = symbol
         # Map AV column names → schema column names
         rename = {
             "investor": "investor_name",
@@ -641,7 +680,10 @@ class AcquisitionPipeline:
         df.rename(
             columns={k: v for k, v in rename.items() if k in df.columns}, inplace=True
         )
-        return self._store.save_institutional_ownership(df)
+        rows = self._store.save_institutional_ownership(df)
+        if rows > 0:
+            self._upsert_metadata(symbol, "institutional_ownership", datetime.now(UTC))
+        return rows
 
     # -----------------------------------------------------------------------
     # Phase: corporate actions (dividends + splits)
@@ -741,6 +783,7 @@ class AcquisitionPipeline:
         if df.empty:
             return 0
         self._store.save_options_chain(df, symbol, datetime.fromisoformat(date_str))
+        self._upsert_metadata(symbol, "options_chains", datetime.fromisoformat(date_str))
         return len(df)
 
     # -----------------------------------------------------------------------
@@ -796,7 +839,12 @@ class AcquisitionPipeline:
             if col not in df.columns:
                 df[col] = None
 
-        return self._store.save_news_sentiment(df)
+        rows = self._store.save_news_sentiment(df)
+        if rows > 0:
+            now = datetime.now(UTC)
+            for sym in symbols:
+                self._upsert_metadata(sym, "news_sentiment", now)
+        return rows
 
     # -----------------------------------------------------------------------
     # Phase: company overview + fundamentals
@@ -839,11 +887,16 @@ class AcquisitionPipeline:
         except Exception:
             pass
 
-        overview = self._av.fetch_company_overview(symbol)
-        if not overview or "Symbol" not in overview:
+        overview = None
+        if self._registry:
+            overview = self._registry.fetch("fundamentals", symbol)
+        if not overview:
+            overview = self._av.fetch_company_overview(symbol)
+        if not overview or (isinstance(overview, dict) and "Symbol" not in overview):
             return False
 
         self._store.save_company_overview(overview)
+        self._upsert_metadata(symbol, "company_overview", datetime.now(UTC))
         logger.debug(f"[fundamentals] {symbol}: overview saved")
         return True
 
@@ -880,6 +933,7 @@ class AcquisitionPipeline:
                             report.skipped += 1
                             continue
                         self._store.save_macro_indicators(indicator, df)
+                        self._upsert_metadata(indicator, "commodity", datetime.now(UTC))
                         report.succeeded += 1
                         logger.debug(f"[commodities] {indicator}: saved")
                     except Exception as exc:
@@ -904,6 +958,7 @@ class AcquisitionPipeline:
                     report.skipped += 1
                     continue
                 self._store.save_macro_indicators(indicator, df)
+                self._upsert_metadata(indicator, "commodity", datetime.now(UTC))
                 report.succeeded += 1
                 logger.debug(f"[commodities] {indicator}: saved")
             except Exception as exc:
@@ -926,6 +981,7 @@ class AcquisitionPipeline:
                 # Rename 'close' to 'value' for macro_indicators schema
                 fx_df = df[["close"]].rename(columns={"close": "value"})
                 self._store.save_macro_indicators(label, fx_df)
+                self._upsert_metadata(label, "commodity", datetime.now(UTC))
                 report.succeeded += 1
                 logger.debug(f"[commodities] {label}: saved")
             except Exception as exc:
@@ -1032,8 +1088,173 @@ class AcquisitionPipeline:
         return available
 
     # -----------------------------------------------------------------------
-    # Helpers: last cached timestamp
+    # Phase 15: SEC filing metadata (via EDGAR provider)
     # -----------------------------------------------------------------------
+
+    async def run_sec_filings(self, symbols: list[str]) -> PhaseReport:
+        """Fetch 10-K, 10-Q, 8-K filing metadata from EDGAR for universe symbols."""
+        start = _now()
+        report = PhaseReport(phase="sec_filings", total=len(symbols))
+        for symbol in symbols:
+            try:
+                rows = await asyncio.to_thread(self._fetch_and_store_sec_filings, symbol)
+                if rows > 0:
+                    report.succeeded += 1
+                    logger.debug(f"[sec_filings] {symbol}: {rows} filings")
+                else:
+                    report.skipped += 1
+            except Exception as exc:
+                report.failed += 1
+                report.errors.append(f"{symbol}: {exc}")
+                logger.warning(f"[sec_filings] {symbol} failed: {exc}")
+        report.elapsed_seconds = _elapsed(start)
+        return report
+
+    def _fetch_and_store_sec_filings(self, symbol: str) -> int:
+        # Skip if any filing within last 90 days
+        try:
+            with pg_conn() as conn:
+                row = conn.execute(
+                    "SELECT MAX(filing_date) FROM sec_filings WHERE symbol = ?",
+                    [symbol],
+                ).fetchone()
+                if row and row[0]:
+                    last = row[0]
+                    if isinstance(last, str):
+                        last = date.fromisoformat(last)
+                    if (date.today() - last).days < 90:
+                        return 0
+        except Exception:
+            pass  # Table may not exist yet
+
+        df = None
+        if self._registry:
+            df = self._registry.fetch("sec_filings", symbol, form_types=["10-K", "10-Q", "8-K"])
+        if df is None or (hasattr(df, "empty") and df.empty):
+            return 0
+
+        total = 0
+        for _, row in df.iterrows():
+            try:
+                with pg_conn() as conn:
+                    conn.execute(
+                        """INSERT INTO sec_filings
+                               (accession_number, symbol, form_type, filing_date,
+                                period_of_report, primary_doc_url, fetched_at)
+                           VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                           ON CONFLICT (accession_number) DO UPDATE SET
+                               fetched_at = CURRENT_TIMESTAMP""",
+                        [
+                            row.get("accession_number", ""),
+                            symbol,
+                            row.get("form_type", ""),
+                            row.get("filing_date"),
+                            row.get("period_of_report"),
+                            row.get("primary_doc_url", ""),
+                        ],
+                    )
+                    total += 1
+            except Exception as exc:
+                logger.debug(f"[sec_filings] {symbol} upsert failed: {exc}")
+
+        if total > 0:
+            self._upsert_metadata(symbol, "sec_filings", datetime.now(UTC))
+        return total
+
+    # -----------------------------------------------------------------------
+    # Phase 16: EDGAR insider + institutional data
+    # -----------------------------------------------------------------------
+
+    async def run_sec_edgar_insider(self, symbols: list[str]) -> PhaseReport:
+        """Fetch Form 4 insider transactions from EDGAR for universe symbols."""
+        start = _now()
+        report = PhaseReport(phase="sec_edgar_insider", total=len(symbols))
+        if not self._registry:
+            logger.info("[sec_edgar_insider] No registry — skipping EDGAR phases")
+            report.skipped = len(symbols)
+            report.elapsed_seconds = _elapsed(start)
+            return report
+
+        for symbol in symbols:
+            try:
+                rows = await asyncio.to_thread(
+                    self._fetch_and_store_edgar_insider, symbol
+                )
+                if rows > 0:
+                    report.succeeded += 1
+                    logger.debug(f"[sec_edgar_insider] {symbol}: {rows} transactions")
+                else:
+                    report.skipped += 1
+            except Exception as exc:
+                report.failed += 1
+                report.errors.append(f"{symbol}: {exc}")
+                logger.warning(f"[sec_edgar_insider] {symbol} failed: {exc}")
+        report.elapsed_seconds = _elapsed(start)
+        return report
+
+    def _fetch_and_store_edgar_insider(self, symbol: str) -> int:
+        # Skip if refreshed in the last 7 days
+        try:
+            with pg_conn() as conn:
+                row = conn.execute(
+                    """SELECT last_timestamp FROM data_metadata
+                       WHERE symbol = ? AND timeframe = 'edgar_insider_trades'""",
+                    [symbol],
+                ).fetchone()
+                if row and row[0]:
+                    last = row[0]
+                    if isinstance(last, datetime):
+                        last = last.replace(tzinfo=UTC)
+                    if (datetime.now(UTC) - last).days < 7:
+                        return 0
+        except Exception:
+            pass
+
+        df = self._registry.fetch("insider_transactions", symbol)
+        if df is None or (hasattr(df, "empty") and df.empty):
+            return 0
+
+        df = df.copy()
+        if "ticker" not in df.columns:
+            df["ticker"] = symbol
+
+        # Deduplicate before upsert
+        conflict_cols = ["ticker", "transaction_date", "owner_name", "shares"]
+        dedup_cols = [c for c in conflict_cols if c in df.columns]
+        if dedup_cols:
+            df = df.drop_duplicates(subset=dedup_cols, keep="last")
+
+        rows = self._store.save_insider_trades(df)
+        if rows > 0:
+            self._upsert_metadata(symbol, "edgar_insider_trades", datetime.now(UTC))
+        return rows
+
+    # -----------------------------------------------------------------------
+    # Helpers: metadata upsert + last cached timestamp
+    # -----------------------------------------------------------------------
+
+    def _upsert_metadata(
+        self, symbol: str, timeframe: str, last_ts: datetime
+    ) -> None:
+        """Upsert data_metadata to record the last successful fetch timestamp.
+
+        Used by non-OHLCV phases so the staleness helper in
+        signal_engine.staleness can check freshness for all data sources.
+        """
+        try:
+            with pg_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO data_metadata (symbol, timeframe, last_timestamp, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT (symbol, timeframe)
+                    DO UPDATE SET last_timestamp = EXCLUDED.last_timestamp,
+                                 updated_at = CURRENT_TIMESTAMP
+                    """,
+                    [symbol, timeframe, last_ts],
+                )
+        except Exception as exc:
+            logger.warning(f"[metadata] Failed to upsert {symbol}/{timeframe}: {exc}")
 
     def _last_ohlcv_ts(self, symbol: str, tf: Timeframe) -> datetime | None:
         try:

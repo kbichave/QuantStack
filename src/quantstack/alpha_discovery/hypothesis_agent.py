@@ -36,6 +36,8 @@ from typing import Any
 import litellm
 from loguru import logger
 
+from quantstack.llm.provider import get_model_for_role
+
 
 _TIMEOUT = 20.0  # seconds — generous for nightly batch
 _MAX_HYPOTHESES = 5  # cap regardless of LLM response length
@@ -118,7 +120,7 @@ class HypothesisAgent:
 
         try:
             response = litellm.completion(
-                model="groq/llama-3.3-70b-versatile",
+                model=get_model_for_role("bulk"),
                 messages=[
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},

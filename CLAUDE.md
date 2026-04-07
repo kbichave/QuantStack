@@ -61,7 +61,7 @@ Before modifying a subsystem, read its reference doc:
 
 ## Hard Rules
 
-- **Risk gate is LAW.** Every trade passes through `src/quantstack/execution/risk_gate.py`. Never bypass. Never modify. Never auto-patch.
+- **Risk gate is LAW.** Every trade passes through `src/quantstack/execution/risk_gate.py`. Never weaken or bypass. Never auto-patch. Strengthening checks (adding new rejection criteria, lowering thresholds) is permitted and encouraged.
 - **Kill switch halts everything.** Check system status via `from quantstack.tools._state import require_ctx` before any session. If halted, STOP.
 - **Paper mode is default.** Live requires `USE_REAL_TRADING=true`.
 - **Audit trail is mandatory.** Every decision logged with reasoning.

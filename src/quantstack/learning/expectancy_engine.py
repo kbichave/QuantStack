@@ -1,4 +1,9 @@
-"""Expectancy calculations for trades."""
+"""Expectancy calculations for trades.
+
+DEPRECATED: This module duplicates core/kelly_sizing.py::regime_kelly_fraction().
+The Kelly sizing in core/ is more principled (regime-conditioned, IC-aware).
+Scheduled for removal after all callers migrate. See Phase 7 plan, Section 2.
+"""
 
 from __future__ import annotations
 

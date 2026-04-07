@@ -4,8 +4,13 @@
 tool access to gather real data before making decisions.
 """
 
+import asyncio
 import logging
 from typing import Any
+
+# Fan-out concurrency limit: bounds parallel validation workers to prevent
+# memory/connection exhaustion. Each worker holds DB connections and LLM sessions.
+_FANOUT_SEMAPHORE = asyncio.Semaphore(10)
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
@@ -741,64 +746,91 @@ def make_validate_symbol(
         domain = hyp.get("domain", "swing")
         t0 = time.monotonic()
 
-        try:
-            # Signal validation
-            val_prompt = (
-                f"Validate hypothesis for {symbol}:\n{hypothesis}\n"
-                f"Domain: {domain}\n"
-                "Fetch data, compute features, check signal confluence.\n"
-                'Return JSON: {{"passed": true/false, "signals": [...], "reason": "..."}}'
-            )
-            val_text = await run_agent(quant_llm, quant_tools, quant_cfg, val_prompt)
-            val_result = parse_json_response(val_text, {"passed": False, "reason": "parse failed"})
+        # Dual throttle: semaphore (concurrency) + AV rate check (quota)
+        async with _FANOUT_SEMAPHORE:
+            try:
+                # Soft throttle: if AV calls near limit, back off
+                try:
+                    from quantstack.data.fetcher import AlphaVantageClient
+                    av = AlphaVantageClient()
+                    if av.get_calls_this_minute() > 60:
+                        import asyncio
+                        await asyncio.sleep(1.0)
+                except Exception:
+                    pass  # throttle check is best-effort
 
-            if not val_result.get("passed", False):
-                return {"validation_results": [{"symbol": symbol, "passed": False, "reason": val_result.get("reason", "signal failed")}]}
-
-            # Backtest
-            bt_prompt = (
-                f"Run backtest for {symbol} with hypothesis:\n{hypothesis}\n"
-                'Return JSON: {{"backtest_id": "...", "sharpe": ..., "passed": true/false}}'
-            )
-            bt_text = await run_agent(quant_llm, quant_tools, quant_cfg, bt_prompt)
-            bt_result = parse_json_response(bt_text, {"passed": False})
-
-            # ML experiment
-            ml_prompt = (
-                f"Run ML experiment for {symbol} with hypothesis:\n{hypothesis}\n"
-                'Return JSON: {{"experiment_id": "...", "ic": ..., "passed": true/false}}'
-            )
-            ml_text = await run_agent(ml_llm, ml_tools, ml_cfg, ml_prompt)
-            ml_result = parse_json_response(ml_text, {"passed": False})
-
-            duration = time.monotonic() - t0
-            from quantstack.observability.tracing import trace_fanout_worker
-            trace_fanout_worker(symbol=symbol, worker_index=0, duration_seconds=duration, success=True)
-            return {
-                "validation_results": [{
-                    "symbol": symbol,
-                    "passed": True,
-                    "validation_details": val_result,
-                    "backtest_results": bt_result,
-                    "ml_results": ml_result,
-                    "duration_seconds": duration,
-                }]
-            }
-        except Exception as exc:
-            duration = time.monotonic() - t0
-            from quantstack.observability.tracing import trace_fanout_worker
-            trace_fanout_worker(symbol=symbol, worker_index=0, duration_seconds=duration, success=False, error=str(exc))
-            logger.error("validate_symbol failed for %s: %s", symbol, exc)
-            return {
-                "validation_results": [{
-                    "symbol": symbol,
-                    "passed": False,
-                    "error": str(exc),
-                    "duration_seconds": duration,
-                }]
-            }
+                return await _validate_symbol_inner(
+                    quant_llm, quant_tools, quant_cfg,
+                    ml_llm, ml_tools, ml_cfg,
+                    symbol, hypothesis, domain, t0,
+                )
+            except Exception as exc:
+                duration = time.monotonic() - t0
+                from quantstack.observability.tracing import trace_fanout_worker
+                trace_fanout_worker(symbol=symbol, worker_index=0, duration_seconds=duration, success=False, error=str(exc))
+                logger.error("validate_symbol failed for %s: %s", symbol, exc)
+                return {
+                    "validation_results": [{
+                        "symbol": symbol,
+                        "passed": False,
+                        "error": str(exc),
+                        "duration_seconds": duration,
+                    }]
+                }
 
     return validate_symbol
+
+
+async def _validate_symbol_inner(
+    quant_llm, quant_tools, quant_cfg,
+    ml_llm, ml_tools, ml_cfg,
+    symbol, hypothesis, domain, t0,
+) -> dict:
+    """Core validation logic extracted for readability."""
+    import time
+
+    # Signal validation
+    val_prompt = (
+        f"Validate hypothesis for {symbol}:\n{hypothesis}\n"
+        f"Domain: {domain}\n"
+        "Fetch data, compute features, check signal confluence.\n"
+        'Return JSON: {{"passed": true/false, "signals": [...], "reason": "..."}}'
+    )
+    val_text = await run_agent(quant_llm, quant_tools, quant_cfg, val_prompt)
+    val_result = parse_json_response(val_text, {"passed": False, "reason": "parse failed"})
+
+    if not val_result.get("passed", False):
+        return {"validation_results": [{"symbol": symbol, "passed": False, "reason": val_result.get("reason", "signal failed")}]}
+
+    # Backtest
+    bt_prompt = (
+        f"Run backtest for {symbol} with hypothesis:\n{hypothesis}\n"
+        'Return JSON: {{"backtest_id": "...", "sharpe": ..., "passed": true/false}}'
+    )
+    bt_text = await run_agent(quant_llm, quant_tools, quant_cfg, bt_prompt)
+    bt_result = parse_json_response(bt_text, {"passed": False})
+
+    # ML experiment
+    ml_prompt = (
+        f"Run ML experiment for {symbol} with hypothesis:\n{hypothesis}\n"
+        'Return JSON: {{"experiment_id": "...", "ic": ..., "passed": true/false}}'
+    )
+    ml_text = await run_agent(ml_llm, ml_tools, ml_cfg, ml_prompt)
+    ml_result = parse_json_response(ml_text, {"passed": False})
+
+    duration = time.monotonic() - t0
+    from quantstack.observability.tracing import trace_fanout_worker
+    trace_fanout_worker(symbol=symbol, worker_index=0, duration_seconds=duration, success=True)
+    return {
+        "validation_results": [{
+            "symbol": symbol,
+            "passed": True,
+            "validation_details": val_result,
+            "backtest_results": bt_result,
+            "ml_results": ml_result,
+            "duration_seconds": duration,
+        }]
+    }
 
 
 def make_filter_results():
@@ -833,3 +865,44 @@ def make_filter_results():
         }
 
     return filter_results
+
+
+# ---------------------------------------------------------------------------
+# Budget discipline (AR-9)
+# ---------------------------------------------------------------------------
+
+# Default cost estimate for the next node when complexity is unknown
+_DEFAULT_TOKEN_ESTIMATE = 5_000
+_DEFAULT_COST_ESTIMATE = 0.005  # ~5K tokens at Haiku rate
+
+
+def budget_check(state: ResearchState) -> str:
+    """Route to 'continue' or 'synthesize' based on remaining budget.
+
+    Deterministic — no LLM call. Compares remaining budget against
+    the estimated cost of the next node.
+    """
+    if state.token_budget_remaining < _DEFAULT_TOKEN_ESTIMATE:
+        return "synthesize"
+    if state.cost_budget_remaining < _DEFAULT_COST_ESTIMATE:
+        return "synthesize"
+    return "continue"
+
+
+def synthesize_partial_results(state: ResearchState) -> dict:
+    """Terminal node that summarizes partial results when budget is exhausted.
+
+    Deterministic (no LLM call) to avoid spending more tokens.
+    Deferred work is logged in decisions for research_queue pickup.
+    """
+    summary = {
+        "reason": "budget_exhausted",
+        "hypothesis": state.hypothesis or "(none)",
+        "tokens_consumed": state.tokens_consumed,
+        "cost_consumed": state.cost_consumed,
+        "partial_validation": state.validation_result or {},
+        "deferred": True,
+    }
+    return {
+        "decisions": [summary],
+    }

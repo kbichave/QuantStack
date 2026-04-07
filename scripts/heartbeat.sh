@@ -13,9 +13,9 @@ LOOP_NAME="${1:?Usage: heartbeat.sh <loop_name> <status>}"
 STATUS="${2:?Usage: heartbeat.sh <loop_name> <status>}"
 
 python3 -c "
-import psycopg2, os, sys
+import psycopg, os, sys
 
-conn = psycopg2.connect(os.environ['TRADER_PG_URL'])
+conn = psycopg.connect(os.environ['TRADER_PG_URL'])
 conn.autocommit = True
 cur = conn.cursor()
 

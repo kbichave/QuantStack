@@ -41,6 +41,87 @@ from quantstack.db import PgConnection, open_db, run_migrations
 from quantstack.execution.hook_registry import fire as _fire_hook
 
 # =============================================================================
+# ROW-LEVEL LOCKING FOR POSITION MUTATIONS
+# =============================================================================
+
+_LOCK_TIMEOUT_S = 5
+_LOCK_RETRY_DELAY_S = 0.5
+
+
+def update_position_with_lock(conn: PgConnection, symbol: str, updates: dict) -> bool:
+    """Update a position row with exclusive row-level lock.
+
+    Uses SELECT FOR UPDATE to prevent concurrent modifications from the
+    execution monitor and trading graph. The lock is held only for the
+    duration of the transaction.
+
+    Single-row constraint: each call locks exactly one row. This eliminates
+    deadlock risk entirely — there is no lock ordering problem.
+
+    Args:
+        conn: PgConnection instance (psycopg3-based)
+        symbol: The ticker symbol identifying the position row
+        updates: dict of column_name -> new_value to apply
+
+    Returns:
+        True if the update succeeded, False if the lock could not be acquired
+        after retries (stale data path — position keeps its prior state).
+    """
+    import time
+    import psycopg
+
+    if not updates:
+        return True
+
+    for attempt in range(2):
+        try:
+            conn.execute(f"SET lock_timeout = '{_LOCK_TIMEOUT_S}s'")
+            with conn._raw.transaction():
+                row = conn.execute(
+                    "SELECT * FROM positions WHERE symbol = %s FOR UPDATE",
+                    [symbol],
+                ).fetchone()
+                if row is None:
+                    conn.execute("SET lock_timeout = '0'")
+                    return False
+
+                set_clause = ", ".join(f"{col} = %s" for col in updates)
+                values = list(updates.values()) + [symbol]
+                conn.execute(
+                    f"UPDATE positions SET {set_clause} WHERE symbol = %s",
+                    values,
+                )
+            conn.execute("SET lock_timeout = '0'")
+            return True
+
+        except psycopg.OperationalError as exc:
+            if "lock timeout" in str(exc).lower() or "lock_timeout" in str(exc).lower():
+                if attempt == 0:
+                    logger.warning(
+                        "[LOCK] Timeout acquiring lock on %s, retrying in %ss",
+                        symbol, _LOCK_RETRY_DELAY_S,
+                    )
+                    time.sleep(_LOCK_RETRY_DELAY_S)
+                    continue
+                else:
+                    logger.critical(
+                        "[LOCK] Failed to acquire lock on %s after 2 attempts — "
+                        "proceeding with stale data",
+                        symbol,
+                    )
+                    conn.execute("SET lock_timeout = '0'")
+                    return False
+            raise
+        finally:
+            try:
+                conn.execute("SET lock_timeout = '0'")
+            except Exception:
+                pass
+
+    return False
+
+
+# =============================================================================
 # DATA MODELS
 # =============================================================================
 
@@ -71,6 +152,9 @@ class Position(BaseModel):
     # v3 — execution monitor bookkeeping
     monitor_last_check: datetime | None = None
     monitor_hwm: float | None = None
+    # v4 — funding cost tracking
+    margin_used: float = 0.0
+    cumulative_funding_cost: float = 0.0
 
     @property
     def instrument_type_enum(self) -> "InstrumentType":
@@ -199,7 +283,8 @@ class PortfolioState:
         "strategy_id, regime_at_entry, instrument_type, time_horizon, "
         "stop_price, target_price, trailing_stop, entry_atr, "
         "option_expiry, option_strike, option_type, "
-        "monitor_last_check, monitor_hwm"
+        "monitor_last_check, monitor_hwm, "
+        "margin_used, cumulative_funding_cost"
     )
 
     @staticmethod
@@ -226,6 +311,8 @@ class PortfolioState:
             option_type=r[18],
             monitor_last_check=r[19] if len(r) > 19 else None,
             monitor_hwm=r[20] if len(r) > 20 else None,
+            margin_used=r[21] if len(r) > 21 else 0.0,
+            cumulative_funding_cost=r[22] if len(r) > 22 else 0.0,
         )
 
     def get_positions(self) -> list[Position]:
@@ -266,8 +353,9 @@ class PortfolioState:
                          unrealized_pnl, current_price,
                          strategy_id, regime_at_entry, instrument_type, time_horizon,
                          stop_price, target_price, trailing_stop, entry_atr,
-                         option_expiry, option_strike, option_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         option_expiry, option_strike, option_type,
+                         margin_used, cumulative_funding_cost)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         pos.symbol,
@@ -289,6 +377,8 @@ class PortfolioState:
                         pos.option_expiry,
                         pos.option_strike,
                         pos.option_type,
+                        pos.margin_used,
+                        pos.cumulative_funding_cost,
                     ],
                 )
             elif existing.side == pos.side:
@@ -362,8 +452,9 @@ class PortfolioState:
                          unrealized_pnl, current_price,
                          strategy_id, regime_at_entry, instrument_type, time_horizon,
                          stop_price, target_price, trailing_stop, entry_atr,
-                         option_expiry, option_strike, option_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         option_expiry, option_strike, option_type,
+                         margin_used, cumulative_funding_cost)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         pos.symbol,
@@ -385,6 +476,8 @@ class PortfolioState:
                         pos.option_expiry,
                         pos.option_strike,
                         pos.option_type,
+                        pos.margin_used,
+                        pos.cumulative_funding_cost,
                     ],
                 )
                 logger.info(
@@ -598,6 +691,42 @@ class PortfolioState:
                 [hwm, last_check, datetime.now(), symbol],
             )
             return True
+
+    # -------------------------------------------------------------------------
+    # Funding cost accrual
+    # -------------------------------------------------------------------------
+
+    def accrue_daily_funding(
+        self, calculator: "FundingCostCalculator | None" = None,
+    ) -> list[tuple[str, float]]:
+        """Run daily funding cost accrual for all positions with margin.
+
+        For each position whose ``margin_used > 0`` this method computes one
+        day's interest charge and adds it to ``cumulative_funding_cost`` in the
+        database.
+
+        Args:
+            calculator: Optional pre-configured calculator.  If *None* a
+                default ``FundingCostCalculator`` is created (reads env var).
+
+        Returns:
+            List of ``(symbol, daily_cost)`` tuples that were accrued.
+        """
+        from quantstack.execution.funding import FundingCostCalculator as _FCC
+
+        calc = calculator or _FCC()
+        with self._lock:
+            positions = self.get_positions()
+            accruals = calc.accrue_funding_costs(positions)
+            for symbol, daily_cost in accruals:
+                self.conn.execute(
+                    "UPDATE positions "
+                    "SET cumulative_funding_cost = cumulative_funding_cost + ?, "
+                    "    last_updated = ? "
+                    "WHERE symbol = ?",
+                    [daily_cost, datetime.now(), symbol],
+                )
+            return accruals
 
     # -------------------------------------------------------------------------
     # Cash

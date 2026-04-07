@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# WARNING: Do NOT use 'docker compose down -v' — this destroys log history (loki-data),
+# Grafana state (grafana-data), and database data. Use 'docker compose down' to preserve volumes.
+#
 # QuantStack — graceful shutdown via Docker Compose.
 # Usage: ./stop.sh
 #
@@ -39,11 +42,11 @@ now = datetime.now()
 
 # Layer A: DB
 try:
-    import psycopg2
+    import psycopg
     pg_url = os.environ.get("TRADER_PG_URL")
     if not pg_url:
         raise RuntimeError("TRADER_PG_URL not set")
-    conn = psycopg2.connect(pg_url)
+    conn = psycopg.connect(pg_url)
     conn.autocommit = True
     cur = conn.cursor()
     cur.execute("""

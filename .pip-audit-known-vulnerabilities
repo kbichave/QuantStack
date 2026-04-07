@@ -1,0 +1,10 @@
+# Known vulnerabilities suppressed from pip-audit CI checks.
+# Each line: CVE-ID  # reason, revisit date
+#
+# Before adding an entry:
+#   1. Confirm no fix is available upstream
+#   2. Document the transitive dependency path
+#   3. Set a revisit date (max 90 days)
+#
+# Example:
+# CVE-2024-XXXXX  # transitive via somelib, no fix available as of 2026-04-06

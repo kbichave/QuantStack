@@ -24,7 +24,7 @@ x-graph-volumes: &graph-volumes
   - ./data:/app/data                              # Market data cache, DuckDB files
   - ./logs:/app/logs                              # Application logs (trader.log)
   - ./.claude/memory:/app/.claude/memory           # Trade journal, workshop lessons
-  - ~/.quantstack:/root/.quantstack               # Kill switch, drift baselines, FinRL, Qdrant, structured logs
+  - ~/.quantstack:/home/quantstack/.quantstack      # Kill switch, drift baselines, FinRL, Qdrant, structured logs
 
 services:
   # ── Infrastructure ──────────────────────────────────────────────────────────
@@ -33,13 +33,15 @@ services:
     image: pgvector/pgvector:pg16
     container_name: quantstack-postgres
     ports:
-      - "5434:5432"
+      - "127.0.0.1:5434:5432"
     environment:
       POSTGRES_DB: quantstack
       POSTGRES_USER: quantstack
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantstack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - quantstack-backups:/data/quantstack/backups
+      - quantstack-wal-archive:/data/quantstack/wal_archive
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U quantstack"]
       interval: 10s
@@ -63,7 +65,7 @@ services:
     environment:
       POSTGRES_DB: langfuse
       POSTGRES_USER: langfuse
-      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:-langfuse}
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD}
     volumes:
       - langfuse-db-data:/var/lib/postgresql/data
     healthcheck:
@@ -87,7 +89,7 @@ services:
     image: ollama/ollama
     container_name: quantstack-ollama
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama-data:/root/.ollama
     healthcheck:
@@ -111,12 +113,12 @@ services:
     image: langfuse/langfuse:2
     container_name: quantstack-langfuse
     ports:
-      - "3100:3000"
+      - "127.0.0.1:3100:3000"
     depends_on:
       langfuse-db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD:-langfuse}@langfuse-db:5432/langfuse
+      DATABASE_URL: postgresql://langfuse:${LANGFUSE_DB_PASSWORD}@langfuse-db:5432/langfuse
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me-random-secret}
       SALT: ${SALT:-change-me-random-salt}
       NEXTAUTH_URL: http://localhost:3000
@@ -128,7 +130,7 @@ services:
       LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-quantstack-local}
       LANGFUSE_INIT_USER_EMAIL: admin@quantstack.local
       LANGFUSE_INIT_USER_NAME: quantstack
-      LANGFUSE_INIT_USER_PASSWORD: quantstack123
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://$(hostname -i):3000/api/public/health || exit 1"]
       interval: 15s
@@ -146,6 +148,44 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # ── LiteLLM Proxy ────────────────────────────────────────────────────────────
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: quantstack-litellm
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - ./litellm_config.yaml:/app/config.yaml:ro
+      - ~/.zscaler_certifi_bundle.pem:/etc/ssl/certs/zscaler.pem:ro
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SSL_CERT_FILE: /etc/ssl/certs/zscaler.pem
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/zscaler.pem
+      OLLAMA_API_BASE: http://ollama:11434
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    mem_limit: 512m
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
   # ── Graph Services ───────────────────────────────────────────────────────────
 
   trading-graph:
@@ -153,6 +193,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: quantstack-trading-graph
+    init: true
     command: ["python", "-m", "quantstack.runners.trading_runner"]
     depends_on:
       ollama:
@@ -170,6 +211,7 @@ services:
       EXEC_MONITOR_RECONCILE_INTERVAL: ${EXEC_MONITOR_RECONCILE_INTERVAL:-60}
       EXEC_MONITOR_QUOTE_FEED: ${EXEC_MONITOR_QUOTE_FEED:-auto}
       EXEC_MONITOR_SHADOW_MODE: ${EXEC_MONITOR_SHADOW_MODE:-true}
+      LITELLM_PROXY_URL: ${LITELLM_PROXY_URL:-}
     volumes: *graph-volumes
     healthcheck:
       test: ["CMD", "python", "-c", "from quantstack.health.heartbeat import check_health; check_health('trading')"]
@@ -194,6 +236,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: quantstack-research-graph
+    init: true
     command: ["python", "-m", "quantstack.runners.research_runner"]
     depends_on:
       ollama:
@@ -207,6 +250,7 @@ services:
         required: false
     environment:
       TRADER_PG_URL: ${TRADER_PG_URL:-postgresql://${USER}@host.docker.internal:5432/quantstack}
+      LITELLM_PROXY_URL: ${LITELLM_PROXY_URL:-}
     volumes: *graph-volumes
     healthcheck:
       test: ["CMD", "python", "-c", "from quantstack.health.heartbeat import check_health; check_health('research')"]
@@ -231,6 +275,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: quantstack-supervisor-graph
+    init: true
     command: ["python", "-m", "quantstack.runners.supervisor_runner"]
     depends_on:
       ollama:
@@ -244,6 +289,7 @@ services:
         required: false
     environment:
       TRADER_PG_URL: ${TRADER_PG_URL:-postgresql://${USER}@host.docker.internal:5432/quantstack}
+      LITELLM_PROXY_URL: ${LITELLM_PROXY_URL:-}
     volumes: *graph-volumes
     healthcheck:
       test: ["CMD", "python", "-c", "from quantstack.health.heartbeat import check_health; check_health('supervisor')"]
@@ -270,6 +316,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: quantstack-dashboard
+    init: true
     command: ["python", "-m", "quantstack.dashboard.app"]
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -279,7 +326,7 @@ services:
     environment:
       TRADER_PG_URL: ${TRADER_PG_URL:-postgresql://${USER}@host.docker.internal:5432/quantstack}
     ports:
-      - "8421:8421"
+      - "127.0.0.1:8421:8421"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8421/api/status')\" 2>/dev/null || exit 1"]
       interval: 30s
@@ -297,6 +344,46 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # ── Scheduler (deterministic cron jobs, no LLM) ─────────────────────────────
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quantstack-scheduler
+    init: true
+    command: ["python", "scripts/scheduler.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TRADER_PG_URL: ${TRADER_PG_URL:-postgresql://${USER}@host.docker.internal:5432/quantstack}
+    ports:
+      - "127.0.0.1:8422:8422"
+    volumes: *graph-volumes
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8422/health')\" 2>/dev/null || exit 1"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    mem_limit: 512m
+    memswap_limit: 512m
+    stop_grace_period: 120s
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   # ── FinRL Worker (torch + RL, separate image to avoid 4GB bloat) ────────────
 
   finrl-worker:
@@ -304,6 +391,7 @@ services:
       context: .
       dockerfile: Dockerfile.finrl
     container_name: quantstack-finrl-worker
+    init: true
     command: ["python", "-m", "quantstack.finrl.server"]
     depends_on:
       langfuse:
@@ -318,7 +406,7 @@ services:
       FINRL_TRANSPORT: sse
       FINRL_PORT: "8090"
     ports:
-      - "8090:8090"
+      - "127.0.0.1:8090:8090"
     volumes: *graph-volumes
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8090/sse')\" 2>/dev/null || exit 0"]
@@ -337,12 +425,126 @@ services:
         max-size: "50m"
         max-file: "5"
 
+  # =========================================================================
+  # Observability: Log Aggregation + Monitoring
+  # =========================================================================
+
+  loki:
+    image: grafana/loki:3.1.0
+    volumes:
+      - ./config/loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/loki-config.yaml
+    ports:
+      - "3101:3100"
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+
+  fluent-bit:
+    image: fluent/fluent-bit:3.1
+    volumes:
+      # On macOS (Docker Desktop), /var/lib/docker/containers is inside the VM
+      # and is accessible from containers. On native Linux, it maps directly.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./config/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - ./config/fluent-bit/parsers.conf:/fluent-bit/etc/parsers.conf:ro
+    depends_on:
+      - loki
+    mem_limit: 64m
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_ALERTING_ENABLED=true
+      - DISCORD_WEBHOOK_URL  # injected from host env
+    ports:
+      - "3000:3000"
+    depends_on:
+      - loki
+    mem_limit: 256m
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+
+  # cAdvisor: container CPU, memory, OOM metrics.
+  # On macOS Docker Desktop, some CPU metrics may differ from native Linux.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: quantstack-cadvisor
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    mem_limit: 128m
+    memswap_limit: 128m
+    restart: unless-stopped
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: quantstack-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    mem_limit: 256m
+    memswap_limit: 256m
+    restart: unless-stopped
+    depends_on:
+      cadvisor:
+        condition: service_started
+    networks:
+      - quantstack-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   postgres-data:
     driver: local
   langfuse-db-data:
     driver: local
   ollama-data:
+    driver: local
+  loki-data:
+    driver: local
+  grafana-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  quantstack-backups:
+    driver: local
+  quantstack-wal-archive:
     driver: local
 
 networks:

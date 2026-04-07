@@ -8,6 +8,9 @@ parsing, and serialization utilities.
 Tool modules import from here rather than defining their own helpers.
 """
 
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -123,3 +126,59 @@ def _serialize_result(obj: Any) -> Any:
         return obj.to_dict()
     # Fall through to the generic serializer for everything else
     return serialize_for_json(obj)
+
+
+# ---------------------------------------------------------------------------
+# Tool health tracking
+# ---------------------------------------------------------------------------
+
+
+def track_tool_health(
+    tool_name: str,
+    success: bool,
+    latency_ms: float,
+    error: str | None = None,
+) -> None:
+    """Record a tool invocation result in the tool_health table.
+
+    Fire-and-forget: errors are logged but never propagated so that health
+    tracking never breaks the tool call itself.
+
+    Uses an upsert (ON CONFLICT) to atomically increment counters and update
+    the running average latency without a separate SELECT.
+    """
+    try:
+        from quantstack.db import pg_conn
+
+        now = datetime.now(timezone.utc)
+        success_inc = 1 if success else 0
+        failure_inc = 0 if success else 1
+        status = "active" if success else "error"
+        last_error = error if not success else None
+
+        with pg_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO tool_health
+                    (tool_name, invocation_count, success_count, failure_count,
+                     avg_latency_ms, last_invoked, last_error, status, updated_at)
+                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (tool_name) DO UPDATE SET
+                    invocation_count = tool_health.invocation_count + 1,
+                    success_count    = tool_health.success_count + EXCLUDED.success_count,
+                    failure_count    = tool_health.failure_count + EXCLUDED.failure_count,
+                    avg_latency_ms   = (tool_health.avg_latency_ms * tool_health.invocation_count + %s)
+                                       / (tool_health.invocation_count + 1),
+                    last_invoked     = EXCLUDED.last_invoked,
+                    last_error       = COALESCE(EXCLUDED.last_error, tool_health.last_error),
+                    status           = EXCLUDED.status,
+                    updated_at       = EXCLUDED.updated_at
+                """,
+                [
+                    tool_name, success_inc, failure_inc, latency_ms,
+                    now, last_error, status, now,
+                    latency_ms,
+                ],
+            )
+    except Exception as exc:
+        logger.warning("[ToolHealth] Failed to record health for %s: %s", tool_name, exc)

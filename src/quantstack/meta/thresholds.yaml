@@ -1,0 +1,12 @@
+hypothesis_critique:
+  value: 0.7
+  floor: 0.4
+  ceiling: 0.9
+backtest_sharpe:
+  value: 0.5
+  floor: 0.2
+  ceiling: 1.0
+oos_ic:
+  value: 0.02
+  floor: 0.005
+  ceiling: 0.05

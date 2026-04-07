@@ -242,6 +242,23 @@ def mock_settings():
 # Re-exported here under original names for backward compatibility.
 # =============================================================================
 
+# =============================================================================
+# FaultyBroker Fixture — chaos/failure injection for broker tests
+# =============================================================================
+
+
+@pytest.fixture
+def faulty_broker(paper_broker):
+    """FaultyBroker wrapping the paper broker — configure failures per test."""
+    from tests.helpers.faulty_broker import FaultyBroker
+
+    return FaultyBroker(paper_broker)
+
+
+# =============================================================================
+# OHLCV Generators (re-exported for backward compatibility)
+# =============================================================================
+
 from tests._fixtures.ohlcv_generators import (  # noqa: F401
     add_atr_column,
     make_flat_market,

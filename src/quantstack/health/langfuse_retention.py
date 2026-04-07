@@ -11,13 +11,13 @@ logger = logging.getLogger(__name__)
 
 
 def _get_langfuse_conn():
-    """Get a psycopg2 connection to the Langfuse database."""
-    import psycopg2
+    """Get a psycopg3 connection to the Langfuse database."""
+    import psycopg
     url = os.environ.get(
         "LANGFUSE_DATABASE_URL",
         "postgresql://langfuse:langfuse@langfuse-db:5432/langfuse",
     )
-    return psycopg2.connect(url)
+    return psycopg.connect(url)
 
 
 def cleanup_langfuse_traces(retention_days: int = 30) -> int:

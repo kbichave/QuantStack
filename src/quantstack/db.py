@@ -15,9 +15,21 @@ Analytics tables: ML experiments, research programs, reflexion episodes, etc.
 
 ## Connection Model
 
-``pg_conn()`` gets a connection from a thread-safe pool (psycopg2
-ThreadedConnectionPool, default size 2–10).  Multiple processes and threads
+``pg_conn()`` gets a connection from a thread-safe pool (psycopg3
+ConnectionPool, default size 4–20).  Multiple processes and threads
 can hold connections simultaneously — no file locks, no contention.
+
+## Connection Budget
+
+| Consumer           | Connections |
+|--------------------|-------------|
+| Main app pool      | 4–20        |
+| Checkpointer pool  | 2–6         |
+| Scheduler          | 1–2         |
+| Backup jobs        | 1           |
+| **Total max**      | **~29**     |
+
+PostgreSQL default max_connections is 100 — well within limits.
 
 ``db_conn()`` is an alias for ``pg_conn()``.
 
@@ -41,25 +53,70 @@ from threading import Lock, RLock
 from typing import Iterator
 
 import pandas as pd
-import psycopg2
-import psycopg2.extensions
-import psycopg2.extras
-import psycopg2.pool
+import psycopg
+from psycopg.types.json import set_json_loads
+from psycopg_pool import ConnectionPool
 from loguru import logger
 
+
 # ---------------------------------------------------------------------------
-# psycopg2 JSON behaviour — keep JSON/JSONB columns as raw strings
+# Backward-compatible row factory (dict access + tuple unpacking)
+# ---------------------------------------------------------------------------
+
+
+class _DictRow(dict):
+    """Row supporting both ``row["col"]`` and positional unpacking.
+
+    psycopg2's ``RealDictRow`` supported dict access **and** ``row[0]``,
+    integer indexing, and tuple unpacking.  psycopg3's built-in ``dict_row``
+    returns plain dicts which break tuple unpacking (``for a, b in rows``
+    iterates over *keys*, not values).
+
+    ``_DictRow`` bridges the gap: dict methods work normally, but iteration
+    yields **values** (in column order) so that existing tuple-unpacking and
+    ``row[0]`` patterns continue to work.
+    """
+
+    __slots__ = ("_values",)
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self._values[key]
+        return super().__getitem__(key)
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return super().__len__()
+
+
+def _compat_row(cursor: psycopg.Cursor):
+    """Row factory producing ``_DictRow`` instances (dict + positional)."""
+    if cursor.description is None:
+        return None
+    columns = [desc[0] for desc in cursor.description]
+
+    def make_row(values):
+        row = _DictRow.__new__(_DictRow)
+        dict.__init__(row, zip(columns, values))
+        object.__setattr__(row, "_values", tuple(values))
+        return row
+
+    return make_row
+
+# ---------------------------------------------------------------------------
+# psycopg3 JSON behaviour — keep JSON/JSONB columns as raw strings
 # ---------------------------------------------------------------------------
 # Legacy: DuckDB-era code calls json.loads() explicitly on JSON fields.
-# psycopg2 by default parses JSON/JSONB into Python objects, which causes
+# psycopg3 by default parses JSON/JSONB into Python objects, which causes
 # json.loads(list) → TypeError in those code paths.
 #
 # Migration path: new code should use coerce_json() from
 # quantstack.tools._shared instead of calling json.loads() directly.
-# Once all explicit json.loads() calls on DB columns are removed, delete
-# these two lines and let psycopg2 parse JSON normally.
-psycopg2.extras.register_default_json(loads=lambda x: x)
-psycopg2.extras.register_default_jsonb(loads=lambda x: x)
+# Once all explicit json.loads() calls on DB columns are removed, remove
+# this line and let psycopg3 parse JSON normally.
+set_json_loads(lambda x: x.decode("utf-8") if isinstance(x, (bytes, bytearray)) else x)
 
 # ---------------------------------------------------------------------------
 # Path / URL resolution
@@ -74,20 +131,27 @@ def _resolve_pg_url() -> str:
 # PostgreSQL connection pool
 # ---------------------------------------------------------------------------
 
-_pg_pool: psycopg2.pool.ThreadedConnectionPool | None = None
+_pg_pool: ConnectionPool | None = None
 _pg_pool_lock = Lock()
 
 
-def _get_pg_pool() -> psycopg2.pool.ThreadedConnectionPool:
+def _get_pg_pool() -> ConnectionPool:
     global _pg_pool
     with _pg_pool_lock:
-        if _pg_pool is None or _pg_pool.closed:
+        if _pg_pool is None:
             url = _resolve_pg_url()
             # Pool size: 20 default handles concurrent data acquisition,
             # trading loop, research loop, and scheduler.  Override with
             # PG_POOL_MAX env var if running multiple processes.
-            maxconn = int(os.getenv("PG_POOL_MAX", "20"))
-            _pg_pool = psycopg2.pool.ThreadedConnectionPool(minconn=1, maxconn=maxconn, dsn=url)
+            max_size = int(os.getenv("PG_POOL_MAX", "20"))
+            min_size = min(4, max_size)
+            _pg_pool = ConnectionPool(
+                conninfo=url,
+                min_size=min_size,
+                max_size=max_size,
+                max_lifetime=3600,  # recycle connections after 1 hour
+                max_idle=600,       # close idle connections after 10 min
+            )
             logger.debug(f"[DB] PostgreSQL pool created → {url}")
     return _pg_pool
 
@@ -96,51 +160,51 @@ def reset_pg_pool() -> None:
     """Close and discard the pool.  Used by tests and graceful shutdown."""
     global _pg_pool
     with _pg_pool_lock:
-        if _pg_pool is not None and not _pg_pool.closed:
-            _pg_pool.closeall()
+        if _pg_pool is not None:
+            _pg_pool.close()
             _pg_pool = None
             logger.debug("[DB] PostgreSQL pool closed")
 
 
 # ---------------------------------------------------------------------------
-# PgConnection — psycopg2 wrapper
+# PgConnection — psycopg3 wrapper
 # ---------------------------------------------------------------------------
 
 
 class PgConnection:
-    """Thread-safe psycopg2 connection wrapper.
+    """Thread-safe psycopg3 connection wrapper.
 
     Provides ``.execute()``, ``.fetchone()``, ``.fetchall()``, ``.fetchdf()``
-    on top of a pooled psycopg2 connection, so all services share a consistent
-    call surface.
+    on top of a pooled psycopg3 connection, so all services share a consistent
+    call surface.  ``fetchone()`` returns ``dict``, ``fetchall()`` returns
+    ``list[dict]`` — key-based access only (no integer indexing).
 
     Lifecycle:
         The pool connection is lazily acquired on first ``execute()`` and
-        returned to the pool on ``release()``.  Unlike the old
-        ``ManagedConnection`` design, there is no exclusive file lock to release
-        between tool calls — the pool manages allocation transparently.
+        returned to the pool on ``release()``.  The pool manages allocation
+        transparently — no file locks, no contention.
     """
 
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
 
-    def __init__(self, pool: psycopg2.pool.ThreadedConnectionPool):
+    def __init__(self, pool: ConnectionPool):
         """Create a pool-backed PgConnection.
 
         Args:
-            pool: PostgreSQL connection pool.
+            pool: psycopg3 ConnectionPool.
         """
         self._pool = pool
-        self._raw: psycopg2.extensions.connection | None = None
-        self._cur: psycopg2.extensions.cursor | None = None
+        self._raw: psycopg.Connection | None = None
+        self._cur: psycopg.Cursor | None = None
         self._lock = RLock()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _ensure_raw(self) -> psycopg2.extensions.connection:
+    def _ensure_raw(self) -> psycopg.Connection:
         """Lazily acquire a connection from the pool."""
         if self._raw is None or self._raw.closed:
             self._raw = self._pool.getconn()
@@ -158,7 +222,7 @@ class PgConnection:
 
     @staticmethod
     def _translate(query: str) -> str:
-        """Translate ``?`` placeholders → psycopg2 ``%s``."""
+        """Translate ``?`` placeholders → ``%s``."""
         return query.replace("?", "%s")
 
     # ------------------------------------------------------------------
@@ -169,10 +233,9 @@ class PgConnection:
         with self._lock:
             q_upper = query.strip().upper()
 
-            # Map explicit transaction keywords to psycopg2 Python API
+            # Map explicit transaction keywords to Python API
             if q_upper == "BEGIN":
-                # psycopg2 is already in a transaction (autocommit=False).
-                # No-op — a transaction is implicitly open on the first statement.
+                # autocommit=False means a transaction is implicitly open.
                 return self
             if q_upper == "COMMIT":
                 raw = self._ensure_raw()
@@ -185,14 +248,14 @@ class PgConnection:
 
             raw = self._ensure_raw()
             if self._cur is None or self._cur.closed:
-                self._cur = raw.cursor()
+                self._cur = raw.cursor(row_factory=_compat_row)
             translated = self._translate(query)
             try:
                 if params is not None:
                     self._cur.execute(translated, params)
                 else:
                     self._cur.execute(translated)
-            except psycopg2.OperationalError as op_err:
+            except psycopg.OperationalError as op_err:
                 # The server may have killed an idle connection (TCP timeout,
                 # idle_in_transaction_session_timeout, admin terminate, etc.).
                 # Discard the broken connection, acquire a fresh one, and retry
@@ -201,13 +264,17 @@ class PgConnection:
                 is_broken = (
                     "server closed" in err_msg
                     or "connection" in err_msg
-                    or raw.closed != 0
+                    or raw.closed
                 )
                 if is_broken:
                     try:
-                        self._pool.putconn(self._raw, close=True)
+                        self._raw.close()
+                    except Exception:
+                        pass
+                    try:
+                        self._pool.putconn(self._raw)
                     except Exception as exc:
-                        logger.debug("[DB] putconn(close=True) for broken conn failed: %s", exc)
+                        logger.debug("[DB] putconn for broken conn failed: %s", exc)
                     self._raw = None
                     self._cur = None
                     logger.warning(
@@ -215,7 +282,7 @@ class PgConnection:
                     )
                     try:
                         raw = self._ensure_raw()
-                        self._cur = raw.cursor()
+                        self._cur = raw.cursor(row_factory=_compat_row)
                         if params is not None:
                             self._cur.execute(translated, params)
                         else:
@@ -235,7 +302,7 @@ class PgConnection:
             except Exception:
                 # Roll back immediately so the connection is clean for the next
                 # caller.  ctx.db is a long-lived shared connection — without
-                # this, any failed statement leaves psycopg2 in "aborted
+                # this, any failed statement leaves psycopg3 in "aborted
                 # transaction" state and every subsequent query on the same
                 # connection fails with "current transaction is aborted".
                 try:
@@ -249,7 +316,7 @@ class PgConnection:
         with self._lock:
             raw = self._ensure_raw()
             if self._cur is None or self._cur.closed:
-                self._cur = raw.cursor()
+                self._cur = raw.cursor(row_factory=_compat_row)
             try:
                 self._cur.executemany(self._translate(query), params)
             except Exception:
@@ -294,22 +361,13 @@ class PgConnection:
     # ------------------------------------------------------------------
 
     def commit(self) -> None:
-        """Explicitly commit the current transaction.
-
-        Provided for compatibility with DuckDB-era code that called
-        ``conn.commit()`` directly.  Prefer letting ``release()`` commit
-        automatically, but explicit commits are safe here too.
-        """
+        """Explicitly commit the current transaction."""
         with self._lock:
             if self._raw is not None and not self._raw.closed:
                 self._raw.commit()
 
     def rollback(self) -> None:
-        """Explicitly roll back the current transaction.
-
-        Provided for compatibility with DuckDB-era code that called
-        ``conn.rollback()`` directly.
-        """
+        """Explicitly roll back the current transaction."""
         with self._lock:
             if self._raw is not None and not self._raw.closed:
                 self._raw.rollback()
@@ -389,6 +447,54 @@ def pg_conn() -> Iterator[PgConnection]:
 
 # db_conn is the canonical alias used throughout the codebase.
 db_conn = pg_conn
+
+
+def ensure_ohlcv_partitions() -> None:
+    """Create OHLCV monthly partitions for the next 4 months if missing.
+
+    Idempotent. Skips silently if the ohlcv table is not partitioned.
+    Called during application startup.
+    """
+    from datetime import date as _date
+
+    try:
+        with pg_conn() as conn:
+            # Check if ohlcv is a partitioned table (relkind = 'p')
+            row = conn.execute(
+                "SELECT relkind FROM pg_class WHERE relname = 'ohlcv'"
+            ).fetchone()
+            if row is None or row[0] != "p":
+                return  # Not partitioned — skip
+
+            today = _date.today()
+            created = 0
+            for offset in range(1, 5):
+                month = today.month + offset
+                year = today.year
+                while month > 12:
+                    month -= 12
+                    year += 1
+                next_month = month + 1
+                next_year = year
+                if next_month > 12:
+                    next_month = 1
+                    next_year += 1
+
+                start = _date(year, month, 1)
+                end = _date(next_year, next_month, 1)
+                part_name = f"ohlcv_{year}_{month:02d}"
+
+                conn.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {part_name}
+                    PARTITION OF ohlcv
+                    FOR VALUES FROM ('{start.isoformat()}') TO ('{end.isoformat()}')
+                """)
+                created += 1
+
+            if created > 0:
+                logger.info(f"[DB] Ensured {created} future OHLCV partitions")
+    except Exception as exc:
+        logger.debug(f"[DB] ensure_ohlcv_partitions: {exc}")
 
 
 def open_db(path: str = "") -> PgConnection:
@@ -534,6 +640,22 @@ def run_migrations_pg(conn: PgConnection) -> None:
             _migrate_regime_state_pg(conn)
             _migrate_institutional_gaps_pg(conn)
             _migrate_ewf_pg(conn)
+            _migrate_hnsw_index_pg(conn)
+            _migrate_phase4_coordination_pg(conn)
+            _migrate_execution_layer_pg(conn)
+            _migrate_strategy_breaker_pg(conn)
+            _migrate_ic_attribution_pg(conn)
+            _migrate_model_registry_pg(conn)
+            _migrate_loss_aggregation_pg(conn)
+            # Phase 9: Missing Roles & Scale
+            _migrate_corporate_actions_pg(conn)
+            _migrate_system_alerts_pg(conn)
+            _migrate_eventbus_ack_pg(conn)
+            _migrate_factor_exposure_pg(conn)
+            _migrate_cycle_attribution_pg(conn)
+            _migrate_llm_config_pg(conn)
+            # Phase 10: Advanced Research
+            _migrate_phase10_pg(conn)
 
             logger.info("[DB] PostgreSQL migrations complete")
             _migrations_done = True
@@ -634,6 +756,22 @@ def _migrate_broker_pg(conn: PgConnection) -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS fills_symbol_idx ON fills (symbol, filled_at)
     """)
+    # Ensure fills.order_id has a unique constraint for UPSERT support.
+    # Older migrations may have created the table without a PK.
+    conn.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'fills'::regclass AND contype IN ('p', 'u')
+                AND array_to_string(conkey, ',') = (
+                    SELECT attnum::text FROM pg_attribute
+                    WHERE attrelid = 'fills'::regclass AND attname = 'order_id'
+                )
+            ) THEN
+                ALTER TABLE fills ADD CONSTRAINT fills_order_id_pk UNIQUE (order_id);
+            END IF;
+        END $$;
+    """)
 
 
 def _migrate_audit_pg(conn: PgConnection) -> None:
@@ -717,6 +855,34 @@ def _migrate_memory_pg(conn: PgConnection) -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS memory_session_idx
         ON agent_memory (session_id, created_at DESC)
+    """)
+
+    # -- Temporal decay columns (Section 09) --
+    conn.execute("""
+        ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ DEFAULT NOW()
+    """)
+    conn.execute("""
+        ALTER TABLE agent_memory ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ DEFAULT NULL
+    """)
+
+    # Archive table — identical schema, receives rows past their TTL
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS agent_memory_archive (
+            id              BIGINT PRIMARY KEY,
+            session_id      TEXT NOT NULL,
+            sim_date        DATE,
+            agent           TEXT NOT NULL,
+            symbol          TEXT DEFAULT '',
+            category        TEXT DEFAULT 'general',
+            content_json    TEXT NOT NULL,
+            created_at      TIMESTAMPTZ,
+            last_accessed_at TIMESTAMPTZ,
+            archived_at     TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS memory_archive_category_idx
+        ON agent_memory_archive (category, archived_at DESC)
     """)
 
 
@@ -812,6 +978,10 @@ def _migrate_strategies_pg(conn: PgConnection) -> None:
         )
         WHERE symbol IS NULL
     """)
+    # Add backtest_sharpe column for Sharpe demotion checks (Section 12)
+    conn.execute("""
+        ALTER TABLE strategies ADD COLUMN IF NOT EXISTS backtest_sharpe DOUBLE PRECISION
+    """)
 
 
 def _migrate_regime_matrix_pg(conn: PgConnection) -> None:
@@ -854,6 +1024,9 @@ def _migrate_strategy_outcomes_pg(conn: PgConnection) -> None:
     conn.execute("""
         CREATE INDEX IF NOT EXISTS so_open_idx
         ON strategy_outcomes (strategy_id, symbol, closed_at)
+    """)
+    conn.execute("""
+        ALTER TABLE strategy_outcomes ADD COLUMN IF NOT EXISTS failure_mode TEXT DEFAULT 'unclassified'
     """)
     conn.execute(_to_pg("""
         CREATE TABLE IF NOT EXISTS strategy_daily_pnl (
@@ -2382,9 +2555,913 @@ def _migrate_ewf_pg(conn: PgConnection) -> None:
     logger.debug("[DB] ewf_chart_analyses table migrated")
 
 
+def _migrate_hnsw_index_pg(conn: PgConnection) -> None:
+    """Add HNSW vector index on embeddings.embedding for cosine similarity search.
+
+    Without this index, every semantic search does a full sequential scan.
+    HNSW provides approximate nearest neighbor search in O(log n) time.
+
+    Parameters: m=16 (default, sufficient for <10k rows),
+    ef_construction=100 (above default 64 for better recall at negligible build cost).
+    Operator class vector_cosine_ops matches the <=> operator used in rag/query.py.
+    """
+    conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
+            ON embeddings USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 100)
+    """)
+    logger.debug("[DB] HNSW index on embeddings.embedding migrated")
+
+
+def _migrate_phase4_coordination_pg(conn: PgConnection) -> None:
+    """Phase 4: circuit breaker state + agent dead letter queue.
+
+    Additive only — no destructive DDL. Tables used by:
+    - circuit_breaker_state: node circuit breaker (Phase 4.4)
+    - agent_dlq: dead letter queue for parse failures (Phase 4.7)
+    """
+    # circuit_breaker_state — persistent node-level breaker state
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS circuit_breaker_state (
+            breaker_key       TEXT PRIMARY KEY,
+            state             TEXT DEFAULT 'closed',
+            failure_count     INTEGER DEFAULT 0,
+            last_failure_at   TIMESTAMPTZ,
+            opened_at         TIMESTAMPTZ,
+            cooldown_seconds  INTEGER DEFAULT 300,
+            last_success_at   TIMESTAMPTZ
+        )
+    """))
+
+    # agent_dlq — dead letter queue for agent parse/validation failures
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS agent_dlq_seq START 1")
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS agent_dlq (
+            id              BIGINT PRIMARY KEY DEFAULT nextval('agent_dlq_seq'),
+            agent_name      TEXT NOT NULL,
+            graph_name      TEXT NOT NULL,
+            run_id          TEXT NOT NULL,
+            input_summary   TEXT,
+            raw_output      TEXT,
+            error_type      TEXT,
+            error_detail    TEXT,
+            prompt_hash     TEXT,
+            model_used      TEXT,
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            resolved_at     TIMESTAMPTZ,
+            resolution      TEXT
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_agent_dlq_agent_created
+        ON agent_dlq (agent_name, created_at)
+    """)
+    # bracket_legs — persisted bracket order leg state for crash recovery
+    conn.execute("CREATE SEQUENCE IF NOT EXISTS bracket_legs_seq START 1")
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS bracket_legs (
+            id                BIGINT PRIMARY KEY DEFAULT nextval('bracket_legs_seq'),
+            parent_order_id   TEXT NOT NULL,
+            leg_type          TEXT NOT NULL,
+            broker_order_id   TEXT,
+            status            TEXT NOT NULL DEFAULT 'pending',
+            price             DOUBLE PRECISION,
+            quantity           INTEGER,
+            symbol            TEXT NOT NULL,
+            strategy_id       TEXT,
+            created_at        TIMESTAMPTZ DEFAULT NOW(),
+            updated_at        TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_bracket_legs_parent
+        ON bracket_legs (parent_order_id)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS ix_bracket_legs_symbol
+        ON bracket_legs (symbol, status)
+    """)
+
+    logger.debug("[DB] Phase 4 coordination tables migrated")
+
+
+def _run_alembic_migrations() -> None:
+    """Run Alembic upgrade head programmatically."""
+    global _migrations_done
+    if _migrations_done:
+        logger.debug("[DB] Migrations already run this process — skipping")
+        return
+
+    from alembic import command
+    from alembic.config import Config
+
+    alembic_cfg = Config("alembic.ini")
+    alembic_cfg.set_main_option("sqlalchemy.url", os.environ.get("TRADER_PG_URL", ""))
+    command.upgrade(alembic_cfg, "head")
+    _migrations_done = True
+    logger.info("[DB] Alembic migrations complete")
+
+
 def run_migrations(conn: PgConnection) -> None:
-    """Run all migrations.  Called once at startup.  Idempotent."""
-    run_migrations_pg(conn)
+    """Run all migrations.  Called once at startup.  Idempotent.
+
+    If USE_ALEMBIC=true, delegates to Alembic's upgrade head.
+    Otherwise falls back to the legacy _migrate_*_pg() path.
+    """
+    if os.getenv("USE_ALEMBIC", "false").lower() == "true":
+        _run_alembic_migrations()
+    else:
+        run_migrations_pg(conn)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Execution Layer tables
+# ---------------------------------------------------------------------------
+
+
+def _migrate_execution_layer_pg(conn: PgConnection) -> None:
+    """Phase 6 execution layer tables: fill_legs, tca_parameters,
+    day_trades, pending_wash_losses, wash_sale_flags, tax_lots,
+    algo_parent_orders, algo_child_orders, algo_performance,
+    execution_audit, slippage_accuracy. Plus positions columns."""
+
+    # -- fill_legs: partial fill tracking (section 02) --
+    conn.execute(_to_pg("""
+        CREATE SEQUENCE IF NOT EXISTS fill_legs_seq START 1
+    """))
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS fill_legs (
+            leg_id          BIGINT PRIMARY KEY DEFAULT nextval('fill_legs_seq'),
+            order_id        TEXT NOT NULL,
+            leg_sequence    INTEGER NOT NULL,
+            quantity        INTEGER NOT NULL,
+            price           DOUBLE PRECISION NOT NULL,
+            filled_at       TIMESTAMPTZ DEFAULT NOW(),
+            venue           TEXT,
+            UNIQUE (order_id, leg_sequence)
+        )
+    """))
+    conn.execute("CREATE INDEX IF NOT EXISTS fill_legs_order_idx ON fill_legs (order_id)")
+
+    # -- tca_parameters: EWMA cost model (section 06) --
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS tca_parameters (
+            symbol          TEXT NOT NULL,
+            time_bucket     TEXT NOT NULL,
+            ewma_spread_bps DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            ewma_impact_bps DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            ewma_total_bps  DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            sample_count    INTEGER NOT NULL DEFAULT 0,
+            last_updated    TIMESTAMPTZ DEFAULT NOW(),
+            PRIMARY KEY (symbol, time_bucket)
+        )
+    """))
+
+    # -- day_trades: PDT enforcement (section 04) --
+    conn.execute(_to_pg("""
+        CREATE SEQUENCE IF NOT EXISTS day_trades_seq START 1
+    """))
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS day_trades (
+            id              BIGINT PRIMARY KEY DEFAULT nextval('day_trades_seq'),
+            symbol          TEXT NOT NULL,
+            open_order_id   TEXT NOT NULL,
+            close_order_id  TEXT NOT NULL,
+            trade_date      DATE NOT NULL,
+            quantity        INTEGER NOT NULL,
+            account_equity  DOUBLE PRECISION NOT NULL
+        )
+    """))
+    conn.execute("CREATE INDEX IF NOT EXISTS day_trades_date_idx ON day_trades (trade_date)")
+
+    # -- pending_wash_losses: wash sale phase-1 tracking (section 04) --
+    conn.execute(_to_pg("""
+        CREATE SEQUENCE IF NOT EXISTS pending_wash_losses_seq START 1
+    """))
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS pending_wash_losses (
+            id                  BIGINT PRIMARY KEY DEFAULT nextval('pending_wash_losses_seq'),
+            symbol              TEXT NOT NULL,
+            loss_amount         DOUBLE PRECISION NOT NULL,
+            sell_order_id       TEXT NOT NULL,
+            sell_date           DATE NOT NULL,
+            window_end          DATE NOT NULL,
+            resolved            BOOLEAN DEFAULT FALSE,
+            resolved_by_order_id TEXT
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS pending_wash_symbol_idx "
+        "ON pending_wash_losses (symbol, window_end)"
+    )
+
+    # -- wash_sale_flags: confirmed wash sales (section 04) --
+    conn.execute(_to_pg("""
+        CREATE SEQUENCE IF NOT EXISTS wash_sale_flags_seq START 1
+    """))
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS wash_sale_flags (
+            id                      BIGINT PRIMARY KEY DEFAULT nextval('wash_sale_flags_seq'),
+            loss_trade_id           BIGINT NOT NULL,
+            replacement_order_id    TEXT NOT NULL,
+            disallowed_loss         DOUBLE PRECISION NOT NULL,
+            adjusted_cost_basis     DOUBLE PRECISION NOT NULL,
+            wash_window_start       DATE NOT NULL,
+            wash_window_end         DATE NOT NULL,
+            flagged_at              TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+
+    # -- tax_lots: FIFO lot tracking (section 04) --
+    conn.execute(_to_pg("""
+        CREATE SEQUENCE IF NOT EXISTS tax_lots_seq START 1
+    """))
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS tax_lots (
+            lot_id              BIGINT PRIMARY KEY DEFAULT nextval('tax_lots_seq'),
+            symbol              TEXT NOT NULL,
+            quantity            INTEGER NOT NULL,
+            original_quantity   INTEGER NOT NULL,
+            cost_basis          DOUBLE PRECISION NOT NULL,
+            acquired_date       DATE NOT NULL,
+            order_id            TEXT NOT NULL,
+            closed_date         DATE,
+            exit_price          DOUBLE PRECISION,
+            realized_pnl        DOUBLE PRECISION,
+            wash_sale_adjustment DOUBLE PRECISION DEFAULT 0.0,
+            status              TEXT NOT NULL DEFAULT 'open'
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS tax_lots_symbol_status_idx "
+        "ON tax_lots (symbol, status)"
+    )
+
+    # -- algo_parent_orders: TWAP/VWAP parent lifecycle (section 07) --
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS algo_parent_orders (
+            parent_order_id         TEXT PRIMARY KEY,
+            symbol                  TEXT NOT NULL,
+            side                    TEXT NOT NULL,
+            total_quantity          INTEGER NOT NULL,
+            algo_type               TEXT NOT NULL,
+            start_time              TIMESTAMPTZ NOT NULL,
+            end_time                TIMESTAMPTZ NOT NULL,
+            arrival_price           DOUBLE PRECISION NOT NULL,
+            max_participation_rate  DOUBLE PRECISION DEFAULT 0.02,
+            status                  TEXT NOT NULL DEFAULT 'pending',
+            filled_quantity         INTEGER DEFAULT 0,
+            avg_fill_price          DOUBLE PRECISION DEFAULT 0.0,
+            created_at              TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+
+    # -- algo_child_orders: child slices (section 07) --
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS algo_child_orders (
+            child_id            TEXT PRIMARY KEY,
+            parent_id           TEXT NOT NULL REFERENCES algo_parent_orders(parent_order_id),
+            scheduled_time      TIMESTAMPTZ NOT NULL,
+            target_quantity     INTEGER NOT NULL,
+            filled_quantity     INTEGER DEFAULT 0,
+            fill_price          DOUBLE PRECISION DEFAULT 0.0,
+            status              TEXT NOT NULL DEFAULT 'pending',
+            attempts            INTEGER DEFAULT 0,
+            broker_order_id     TEXT,
+            created_at          TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS algo_child_parent_idx "
+        "ON algo_child_orders (parent_id)"
+    )
+
+    # -- algo_performance: post-completion metrics (section 08) --
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS algo_performance (
+            parent_order_id             TEXT PRIMARY KEY,
+            symbol                      TEXT NOT NULL,
+            side                        TEXT NOT NULL,
+            algo_type                   TEXT NOT NULL,
+            total_qty                   INTEGER NOT NULL,
+            filled_qty                  INTEGER NOT NULL,
+            arrival_price               DOUBLE PRECISION NOT NULL,
+            avg_fill_price              DOUBLE PRECISION NOT NULL,
+            benchmark_vwap              DOUBLE PRECISION,
+            implementation_shortfall_bps DOUBLE PRECISION NOT NULL,
+            vwap_slippage_bps           DOUBLE PRECISION,
+            delay_cost_bps              DOUBLE PRECISION DEFAULT 0.0,
+            market_impact_bps           DOUBLE PRECISION DEFAULT 0.0,
+            num_children                INTEGER NOT NULL,
+            num_children_filled         INTEGER NOT NULL,
+            num_children_failed         INTEGER DEFAULT 0,
+            max_participation_rate      DOUBLE PRECISION,
+            actual_participation_rate   DOUBLE PRECISION,
+            decision_time               TIMESTAMPTZ NOT NULL,
+            first_fill_time             TIMESTAMPTZ,
+            last_fill_time              TIMESTAMPTZ,
+            scheduled_end_time          TIMESTAMPTZ NOT NULL
+        )
+    """))
+
+    # -- execution_audit: best execution trail (section 05) --
+    conn.execute(_to_pg("""
+        CREATE SEQUENCE IF NOT EXISTS execution_audit_seq START 1
+    """))
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS execution_audit (
+            audit_id                BIGINT PRIMARY KEY DEFAULT nextval('execution_audit_seq'),
+            order_id                TEXT NOT NULL,
+            fill_leg_id             BIGINT,
+            nbbo_bid                DOUBLE PRECISION,
+            nbbo_ask                DOUBLE PRECISION,
+            nbbo_midpoint           DOUBLE PRECISION,
+            fill_price              DOUBLE PRECISION NOT NULL,
+            fill_venue              TEXT,
+            price_improvement_bps   DOUBLE PRECISION,
+            algo_selected           TEXT NOT NULL,
+            algo_rationale          TEXT DEFAULT '',
+            timestamp_ns            BIGINT NOT NULL,
+            created_at              TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS execution_audit_order_idx "
+        "ON execution_audit (order_id)"
+    )
+
+    # -- slippage_accuracy: model tracking (section 11) --
+    conn.execute(_to_pg("""
+        CREATE SEQUENCE IF NOT EXISTS slippage_accuracy_seq START 1
+    """))
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS slippage_accuracy (
+            id                  BIGINT PRIMARY KEY DEFAULT nextval('slippage_accuracy_seq'),
+            order_id            TEXT NOT NULL,
+            symbol              TEXT NOT NULL,
+            time_bucket         TEXT NOT NULL DEFAULT '',
+            predicted_bps       DOUBLE PRECISION NOT NULL,
+            realized_bps        DOUBLE PRECISION NOT NULL,
+            ratio               DOUBLE PRECISION,
+            fill_timestamp      TIMESTAMPTZ DEFAULT NOW(),
+            created_at          TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    # Evolve pre-existing tables: add missing columns, relax ratio NOT NULL.
+    # Each ALTER wrapped in a savepoint to avoid deadlocks when multiple
+    # connections run migrations concurrently (e.g. test fixtures).
+    conn._ensure_raw()
+    raw = conn._raw
+    for stmt in [
+        "ALTER TABLE slippage_accuracy ADD COLUMN IF NOT EXISTS time_bucket TEXT DEFAULT ''",
+        "ALTER TABLE slippage_accuracy ADD COLUMN IF NOT EXISTS fill_timestamp TIMESTAMPTZ DEFAULT NOW()",
+        "ALTER TABLE slippage_accuracy ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
+        "ALTER TABLE slippage_accuracy ALTER COLUMN ratio DROP NOT NULL",
+    ]:
+        sp_name = f"slip_evolve_{hash(stmt) & 0xFFFF:04x}"
+        raw.execute(f"SAVEPOINT {sp_name}")
+        try:
+            cur = raw.cursor()
+            cur.execute(stmt)
+            cur.close()
+        except Exception:
+            raw.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+        else:
+            raw.execute(f"RELEASE SAVEPOINT {sp_name}")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS slippage_accuracy_symbol_created_idx "
+        "ON slippage_accuracy (symbol, created_at)"
+    )
+
+    # -- positions: new columns for funding costs (section 13) --
+    _alter_safe(conn, "positions", "margin_used", "DOUBLE PRECISION DEFAULT 0.0")
+    _alter_safe(conn, "positions", "cumulative_funding_cost", "DOUBLE PRECISION DEFAULT 0.0")
+
+    # -- fills: ensure PK exists for ON CONFLICT upsert (section 02) --
+    # The fills table may pre-date the PRIMARY KEY in the migration DDL.
+    # Adding it idempotently so dual-write upsert works.
+    # Uses raw connection + savepoint to avoid PgConnection's auto-rollback
+    # on duplicate constraint error destroying the outer transaction.
+    conn._ensure_raw()
+    raw = conn._raw
+    raw.execute("SAVEPOINT fills_pk_check")
+    try:
+        cur = raw.cursor()
+        cur.execute(
+            "ALTER TABLE fills ADD CONSTRAINT fills_pkey PRIMARY KEY (order_id)"
+        )
+        cur.close()
+    except Exception:
+        raw.execute("ROLLBACK TO SAVEPOINT fills_pk_check")
+    else:
+        raw.execute("RELEASE SAVEPOINT fills_pk_check")
+
+    logger.debug("[DB] execution_layer tables migrated")
+
+
+# ---------------------------------------------------------------------------
+# Compat aliases (old names used by tests)
+# ---------------------------------------------------------------------------
+
+def _migrate_strategy_breaker_pg(conn: PgConnection) -> None:
+    """Phase 7 strategy breaker persistence — replaces JSON file storage."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS strategy_breaker_states (
+            strategy_id     TEXT PRIMARY KEY,
+            status          TEXT NOT NULL DEFAULT 'ACTIVE',
+            scale_factor    DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+            consecutive_losses INTEGER NOT NULL DEFAULT 0,
+            peak_equity     DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            current_equity  DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            drawdown_pct    DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+            tripped_at      TIMESTAMPTZ,
+            reason          TEXT NOT NULL DEFAULT '',
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    logger.debug("[DB] strategy_breaker_states table migrated")
+
+
+def _migrate_ic_attribution_pg(conn: PgConnection) -> None:
+    """Phase 7 IC attribution persistence — replaces JSON file storage."""
+    conn.execute(_to_pg("""
+        CREATE SEQUENCE IF NOT EXISTS ic_attribution_data_seq START 1
+    """))
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS ic_attribution_data (
+            id              BIGINT PRIMARY KEY DEFAULT nextval('ic_attribution_data_seq'),
+            collector       TEXT NOT NULL,
+            signal_value    DOUBLE PRECISION NOT NULL,
+            forward_return  DOUBLE PRECISION NOT NULL,
+            recorded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ic_attribution_collector "
+        "ON ic_attribution_data (collector, recorded_at DESC)"
+    )
+    logger.debug("[DB] ic_attribution_data table migrated")
+
+
+def _migrate_model_registry_pg(conn: PgConnection) -> None:
+    """Phase 7 model versioning — champion/challenger lifecycle."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS model_registry (
+            model_id        TEXT PRIMARY KEY,
+            strategy_id     TEXT NOT NULL,
+            version         INTEGER NOT NULL,
+            train_date      DATE NOT NULL,
+            train_data_range TEXT,
+            features_hash   TEXT,
+            hyperparams     JSONB DEFAULT '{}',
+            backtest_sharpe DOUBLE PRECISION,
+            backtest_ic     DOUBLE PRECISION,
+            backtest_max_dd DOUBLE PRECISION,
+            model_path      TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'challenger',
+            promoted_at     TIMESTAMPTZ,
+            retired_at      TIMESTAMPTZ,
+            shadow_start    DATE,
+            shadow_ic       DOUBLE PRECISION,
+            shadow_sharpe   DOUBLE PRECISION,
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (strategy_id, version)
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_model_registry_strategy_status "
+        "ON model_registry (strategy_id, status)"
+    )
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS model_shadow_predictions (
+            id              SERIAL PRIMARY KEY,
+            model_id        TEXT NOT NULL,
+            symbol          TEXT NOT NULL,
+            prediction_date DATE NOT NULL,
+            prediction      DOUBLE PRECISION NOT NULL,
+            realized_return DOUBLE PRECISION,
+            created_at      TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_shadow_preds_model_date "
+        "ON model_shadow_predictions (model_id, prediction_date)"
+    )
+    logger.debug("[DB] model_registry + model_shadow_predictions tables migrated")
+
+
+def _migrate_loss_aggregation_pg(conn: PgConnection) -> None:
+    """Loss aggregation snapshots — grouped by failure_mode/strategy/symbol."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS loss_aggregation (
+            id              SERIAL PRIMARY KEY,
+            date            DATE NOT NULL,
+            failure_mode    TEXT NOT NULL,
+            strategy_id     TEXT NOT NULL,
+            symbol          TEXT DEFAULT '',
+            trade_count     INTEGER NOT NULL,
+            cumulative_pnl  DOUBLE PRECISION NOT NULL,
+            avg_loss_pct    DOUBLE PRECISION NOT NULL,
+            rank            INTEGER,
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (date, failure_mode, strategy_id, symbol)
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_loss_agg_date "
+        "ON loss_aggregation (date)"
+    )
+    logger.debug("[DB] loss_aggregation table migrated")
+
+
+# ---------------------------------------------------------------------------
+# Phase 9: Missing Roles & Scale — new tables
+# ---------------------------------------------------------------------------
+
+
+def _migrate_corporate_actions_pg(conn: PgConnection) -> None:
+    """Corporate actions events from Alpha Vantage and EDGAR."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS corporate_actions (
+            symbol          TEXT NOT NULL,
+            event_type      TEXT NOT NULL,
+            source          TEXT NOT NULL,
+            effective_date  DATE NOT NULL,
+            announcement_date DATE,
+            raw_payload     JSONB,
+            processed       BOOLEAN DEFAULT FALSE,
+            created_at      TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (symbol, event_type, effective_date, source)
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_corp_actions_symbol_date "
+        "ON corporate_actions (symbol, effective_date)"
+    )
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS split_adjustments (
+            symbol          TEXT NOT NULL,
+            effective_date  DATE NOT NULL,
+            event_type      TEXT NOT NULL DEFAULT 'split',
+            split_ratio     DOUBLE PRECISION NOT NULL,
+            old_quantity    DOUBLE PRECISION NOT NULL,
+            new_quantity    DOUBLE PRECISION NOT NULL,
+            old_cost_basis  DOUBLE PRECISION NOT NULL,
+            new_cost_basis  DOUBLE PRECISION NOT NULL,
+            applied_at      TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (symbol, effective_date, event_type)
+        )
+    """))
+    logger.debug("[DB] corporate_actions + split_adjustments tables migrated")
+
+
+def _migrate_system_alerts_pg(conn: PgConnection) -> None:
+    """System-level operational alerts (separate from equity alerts)."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS system_alerts (
+            id              BIGSERIAL PRIMARY KEY,
+            category        TEXT NOT NULL,
+            severity        TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'open',
+            source          TEXT NOT NULL,
+            title           TEXT NOT NULL,
+            detail          TEXT,
+            metadata        JSONB,
+            acknowledged_by TEXT,
+            acknowledged_at TIMESTAMPTZ,
+            escalated_at    TIMESTAMPTZ,
+            resolved_at     TIMESTAMPTZ,
+            resolution      TEXT,
+            created_at      TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_system_alerts_status_severity "
+        "ON system_alerts (status, severity, created_at DESC)"
+    )
+    logger.debug("[DB] system_alerts table migrated")
+
+
+def _migrate_eventbus_ack_pg(conn: PgConnection) -> None:
+    """ACK columns on loop_events + dead_letter_events table."""
+    # Add ACK columns to existing loop_events table
+    for col_def in [
+        "requires_ack BOOLEAN DEFAULT FALSE",
+        "expected_ack_by TIMESTAMPTZ",
+        "acked_at TIMESTAMPTZ",
+        "acked_by TEXT",
+    ]:
+        col_name = col_def.split()[0]
+        conn.execute(
+            f"ALTER TABLE loop_events ADD COLUMN IF NOT EXISTS {col_def}"
+        )
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS dead_letter_events (
+            original_event_id TEXT NOT NULL,
+            event_type        TEXT NOT NULL,
+            source_loop       TEXT NOT NULL,
+            payload           JSONB,
+            published_at      TIMESTAMPTZ NOT NULL,
+            expected_ack_by   TIMESTAMPTZ NOT NULL,
+            retry_count       INTEGER DEFAULT 0,
+            dead_lettered_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dead_letter_events_date "
+        "ON dead_letter_events (dead_lettered_at DESC)"
+    )
+    logger.debug("[DB] eventbus ACK columns + dead_letter_events migrated")
+
+
+def _migrate_factor_exposure_pg(conn: PgConnection) -> None:
+    """Factor config and exposure history tables."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS factor_config (
+            config_key  TEXT PRIMARY KEY,
+            value       TEXT NOT NULL,
+            updated_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    # Insert default rows (idempotent via ON CONFLICT DO NOTHING)
+    for key, val in [
+        ("beta_drift_threshold", "0.3"),
+        ("sector_max_pct", "40"),
+        ("momentum_crowding_pct", "70"),
+        ("benchmark_symbol", "SPY"),
+    ]:
+        conn.execute(
+            "INSERT INTO factor_config (config_key, value) VALUES (%s, %s) "
+            "ON CONFLICT (config_key) DO NOTHING",
+            [key, val],
+        )
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS factor_exposure_history (
+            portfolio_beta        DOUBLE PRECISION,
+            sector_weights        JSONB,
+            style_scores          JSONB,
+            momentum_crowding_pct DOUBLE PRECISION,
+            benchmark_symbol      TEXT,
+            alerts_triggered      INTEGER DEFAULT 0,
+            computed_at           TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_factor_exposure_history_date "
+        "ON factor_exposure_history (computed_at DESC)"
+    )
+    logger.debug("[DB] factor_config + factor_exposure_history tables migrated")
+
+
+def _migrate_cycle_attribution_pg(conn: PgConnection) -> None:
+    """Per-cycle P&L decomposition."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS cycle_attribution (
+            cycle_id              TEXT NOT NULL UNIQUE,
+            graph_cycle_number    INTEGER NOT NULL,
+            total_pnl             DOUBLE PRECISION,
+            factor_contribution   DOUBLE PRECISION,
+            timing_contribution   DOUBLE PRECISION,
+            selection_contribution DOUBLE PRECISION,
+            cost_contribution     DOUBLE PRECISION,
+            per_position          JSONB,
+            computed_at           TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cycle_attribution_date "
+        "ON cycle_attribution (computed_at DESC)"
+    )
+    logger.debug("[DB] cycle_attribution table migrated")
+
+
+def _migrate_llm_config_pg(conn: PgConnection) -> None:
+    """Runtime-changeable LLM tier configuration."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS llm_config (
+            tier            TEXT PRIMARY KEY,
+            provider        TEXT NOT NULL,
+            model           TEXT NOT NULL,
+            fallback_order  JSONB,
+            updated_at      TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    logger.debug("[DB] llm_config table migrated")
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 — Advanced Research tables
+# ---------------------------------------------------------------------------
+
+
+def _migrate_phase10_pg(conn: PgConnection) -> None:
+    """Phase 10: Advanced Research tables.
+
+    10 new tables for tool lifecycle, overnight autoresearch, feature factory,
+    knowledge graph, consensus validation, governance, and meta-agents.
+    Additive only — no destructive DDL.
+    """
+    # 1. tool_health — per-tool invocation metrics
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS tool_health (
+            tool_name        TEXT PRIMARY KEY,
+            invocation_count INTEGER DEFAULT 0,
+            success_count    INTEGER DEFAULT 0,
+            failure_count    INTEGER DEFAULT 0,
+            avg_latency_ms   DOUBLE PRECISION DEFAULT 0.0,
+            last_invoked     TIMESTAMPTZ,
+            last_error       TEXT,
+            status           TEXT DEFAULT 'active',
+            updated_at       TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+
+    # 2. tool_demand_signals — agent search queries for planned tools
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS tool_demand_signals (
+            id               TEXT PRIMARY KEY,
+            search_query     TEXT NOT NULL,
+            requesting_agent TEXT NOT NULL,
+            matched_tool     TEXT NOT NULL,
+            created_at       TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+
+    # 3. autoresearch_experiments — overnight experiment log
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS autoresearch_experiments (
+            experiment_id    TEXT PRIMARY KEY,
+            night_date       TEXT NOT NULL,
+            hypothesis       JSONB NOT NULL,
+            hypothesis_source TEXT NOT NULL,
+            oos_ic           DOUBLE PRECISION,
+            sharpe           DOUBLE PRECISION,
+            cost_tokens      INTEGER DEFAULT 0,
+            cost_usd         DOUBLE PRECISION DEFAULT 0.0,
+            duration_seconds INTEGER DEFAULT 0,
+            status           TEXT DEFAULT 'tested',
+            rejection_reason TEXT,
+            created_at       TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_autoresearch_night_status
+            ON autoresearch_experiments (night_date, status)
+    """)
+
+    # 4. feature_candidates — autonomous feature factory
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS feature_candidates (
+            feature_id        TEXT PRIMARY KEY,
+            feature_name      TEXT NOT NULL,
+            definition        TEXT NOT NULL,
+            source            TEXT NOT NULL,
+            ic                DOUBLE PRECISION,
+            ic_stability      DOUBLE PRECISION,
+            correlation_group TEXT,
+            status            TEXT DEFAULT 'candidate',
+            screening_date    TEXT,
+            decay_date        TEXT,
+            created_at        TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_feature_candidates_status
+            ON feature_candidates (status)
+    """)
+
+    # 5. failure_mode_stats — rolling 30-day failure aggregation
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS failure_mode_stats (
+            id                    TEXT PRIMARY KEY,
+            failure_mode          TEXT NOT NULL,
+            window_start          TEXT NOT NULL,
+            window_end            TEXT NOT NULL,
+            frequency             INTEGER DEFAULT 0,
+            cumulative_pnl_impact DOUBLE PRECISION DEFAULT 0.0,
+            avg_loss_size         DOUBLE PRECISION DEFAULT 0.0,
+            affected_strategies   JSONB DEFAULT '[]'::jsonb,
+            updated_at            TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+
+    # 6. kg_nodes — knowledge graph nodes with vector embeddings
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS kg_nodes (
+            node_id     TEXT PRIMARY KEY,
+            node_type   TEXT NOT NULL,
+            name        TEXT NOT NULL,
+            properties  JSONB DEFAULT '{}'::jsonb,
+            embedding   vector(1536),
+            created_at  TIMESTAMPTZ DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_kg_nodes_embedding_hnsw
+            ON kg_nodes USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 100)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_kg_nodes_type
+            ON kg_nodes (node_type)
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_nodes_type_name
+            ON kg_nodes (node_type, name)
+    """)
+
+    # 7. kg_edges — knowledge graph edges with temporal validity
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS kg_edges (
+            edge_id     TEXT PRIMARY KEY,
+            source_id   TEXT NOT NULL REFERENCES kg_nodes(node_id),
+            target_id   TEXT NOT NULL REFERENCES kg_nodes(node_id),
+            edge_type   TEXT NOT NULL,
+            weight       DOUBLE PRECISION DEFAULT 1.0,
+            properties  JSONB DEFAULT '{}'::jsonb,
+            valid_from  TIMESTAMPTZ DEFAULT NOW(),
+            valid_to    TIMESTAMPTZ,
+            created_at  TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_kg_edges_source
+            ON kg_edges (source_id, edge_type)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_kg_edges_target
+            ON kg_edges (target_id, edge_type)
+    """)
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_kg_edges_valid
+            ON kg_edges (valid_from, valid_to)
+            WHERE valid_to IS NULL OR valid_to > NOW()
+    """)
+
+    # 8. consensus_log — 3-agent consensus decisions
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS consensus_log (
+            decision_id        TEXT PRIMARY KEY,
+            signal_id          TEXT NOT NULL,
+            symbol             TEXT NOT NULL,
+            notional           DOUBLE PRECISION NOT NULL,
+            bull_vote          TEXT NOT NULL,
+            bull_confidence    DOUBLE PRECISION,
+            bull_reasoning     TEXT,
+            bear_vote          TEXT NOT NULL,
+            bear_confidence    DOUBLE PRECISION,
+            bear_reasoning     TEXT,
+            arbiter_vote       TEXT NOT NULL,
+            arbiter_confidence DOUBLE PRECISION,
+            arbiter_reasoning  TEXT,
+            consensus_level    TEXT NOT NULL,
+            final_sizing_pct   DOUBLE PRECISION NOT NULL,
+            created_at         TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+
+    # 9. daily_mandates — CIO agent daily directives
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS daily_mandates (
+            mandate_id          TEXT PRIMARY KEY,
+            date                TEXT NOT NULL UNIQUE,
+            regime_assessment   TEXT,
+            allowed_sectors     JSONB DEFAULT '[]'::jsonb,
+            blocked_sectors     JSONB DEFAULT '[]'::jsonb,
+            max_new_positions   INTEGER DEFAULT 0,
+            max_daily_notional  DOUBLE PRECISION DEFAULT 0.0,
+            strategy_directives JSONB DEFAULT '{}'::jsonb,
+            risk_overrides      JSONB DEFAULT '{}'::jsonb,
+            focus_areas         JSONB DEFAULT '[]'::jsonb,
+            reasoning           TEXT,
+            created_at          TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+
+    # 10. meta_optimizations — metacognitive agent audit trail
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS meta_optimizations (
+            optimization_id TEXT PRIMARY KEY,
+            agent_id        TEXT NOT NULL,
+            change_type     TEXT NOT NULL,
+            change_summary  TEXT,
+            before_metrics  JSONB DEFAULT '{}'::jsonb,
+            after_metrics   JSONB DEFAULT '{}'::jsonb,
+            status          TEXT DEFAULT 'applied',
+            reverted_at     TIMESTAMPTZ,
+            created_at      TIMESTAMPTZ DEFAULT NOW()
+        )
+    """))
+    conn.execute("""
+        CREATE INDEX IF NOT EXISTS idx_meta_optimizations_agent
+            ON meta_optimizations (agent_id, created_at DESC)
+    """)
+
+    logger.debug("[DB] Phase 10 tables migrated (10 tables)")
 
 
 # ---------------------------------------------------------------------------

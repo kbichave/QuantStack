@@ -19,6 +19,9 @@ health_monitor:
     - list_stored_symbols
     # AV expansion (1)
     - check_listing_status
+    # System alerts (Phase 9)
+    - query_system_alerts
+    - create_system_alert
 
 self_healer:
   role: "Self-Healing Engineer"
@@ -44,10 +47,17 @@ self_healer:
     - get_audit_trail
     - acquire_historical_data
     - register_ticker
+    # System alerts (Phase 9)
+    - query_system_alerts
+    - acknowledge_alert
+    - escalate_alert
+    - resolve_alert
   always_loaded_tools:
     - check_system_status
     - search_knowledge_base
     - get_recent_decisions
+    - query_system_alerts
+    - acknowledge_alert
 
 portfolio_risk_monitor:
   role: "Portfolio Risk Monitor"

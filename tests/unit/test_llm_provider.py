@@ -130,6 +130,7 @@ class TestFallbackChain:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+        monkeypatch.delenv("GROQ_API_KEY", raising=False)
         monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
         from quantstack.llm.provider import get_model_with_fallback, AllProvidersFailedError
         with pytest.raises(AllProvidersFailedError):
@@ -255,3 +256,48 @@ class TestGetChatModel:
         from quantstack.llm.provider import get_model
         result = get_model("heavy")
         assert isinstance(result, str)
+
+
+class TestLiteLLMProxy:
+    """Tests for LiteLLM proxy routing in get_chat_model()."""
+
+    def test_proxy_returns_chat_openai(self, monkeypatch):
+        """When LITELLM_PROXY_URL is set, get_chat_model returns ChatOpenAI."""
+        monkeypatch.setenv("LITELLM_PROXY_URL", "http://litellm:4000")
+        from quantstack.llm.provider import get_chat_model
+        model = get_chat_model("heavy")
+        assert type(model).__name__ == "ChatOpenAI"
+
+    def test_proxy_base_url(self, monkeypatch):
+        """ChatOpenAI instance points to the proxy's /v1 endpoint."""
+        monkeypatch.setenv("LITELLM_PROXY_URL", "http://litellm:4000")
+        from quantstack.llm.provider import get_chat_model
+        model = get_chat_model("heavy")
+        # ChatOpenAI stores the base URL in openai_api_base or client config
+        base = getattr(model, "openai_api_base", None)
+        assert base is not None
+        assert "litellm:4000" in base
+
+    def test_proxy_model_name_is_tier(self, monkeypatch):
+        """Model name passed to proxy is the tier name directly."""
+        monkeypatch.setenv("LITELLM_PROXY_URL", "http://litellm:4000")
+        from quantstack.llm.provider import get_chat_model
+        for tier in ("heavy", "medium", "light", "bulk"):
+            model = get_chat_model(tier)
+            assert model.model_name == tier
+
+    def test_proxy_temperature_forwarded(self, monkeypatch):
+        """Temperature parameter is forwarded through the proxy path."""
+        monkeypatch.setenv("LITELLM_PROXY_URL", "http://litellm:4000")
+        from quantstack.llm.provider import get_chat_model
+        model = get_chat_model("heavy", temperature=0.7)
+        assert model.temperature == 0.7
+
+    def test_no_proxy_falls_back_to_direct(self, monkeypatch):
+        """Without LITELLM_PROXY_URL, get_chat_model uses direct provider."""
+        monkeypatch.delenv("LITELLM_PROXY_URL", raising=False)
+        monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        from quantstack.llm.provider import get_chat_model
+        model = get_chat_model("heavy")
+        assert type(model).__name__ != "ChatOpenAI"

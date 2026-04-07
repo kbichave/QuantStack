@@ -63,6 +63,7 @@ inject:
 from __future__ import annotations
 
 import os
+import warnings
 from functools import lru_cache
 from typing import Any
 
@@ -71,6 +72,15 @@ import requests
 from loguru import logger
 
 import boto3
+
+# Emit deprecation warning on import — callers should migrate to quantstack.llm.provider
+warnings.warn(
+    "quantstack.llm_config is deprecated. "
+    "Use quantstack.llm.provider (get_model_for_role, get_chat_model) instead. "
+    "This module will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 try:
     import google.auth  # noqa: F401 — optional, only needed for Vertex AI

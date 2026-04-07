@@ -59,12 +59,19 @@ COPY scripts/ ./scripts/
 # Create data directories
 RUN mkdir -p /data/quantstack
 
+# Create non-root runtime user
+RUN useradd -r -m -s /bin/false quantstack
+RUN chown -R quantstack:quantstack /app /data
+
 # Set data dir to /data so it can be volume-mounted
 ENV KILL_SWITCH_SENTINEL=/data/quantstack/KILL_SWITCH_ACTIVE
 
 # Copy entrypoint
 COPY scripts/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+# Drop to non-root for all runtime operations
+USER quantstack
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["api"]

@@ -33,14 +33,36 @@ Convenience module-level functions (backward-compatible):
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from threading import RLock
 from typing import Any
 
 from loguru import logger
 
 from quantstack.db import PgConnection, open_db, run_migrations
+
+# ---------------------------------------------------------------------------
+# Temporal decay configuration (Section 09)
+# ---------------------------------------------------------------------------
+
+CATEGORY_HALF_LIFE_DAYS: dict[str, int] = {
+    "trade_outcome": 14,
+    "strategy_param": 30,
+    "market_regime": 7,
+    "research_finding": 90,
+    "general": 30,
+}
+
+DEFAULT_HALF_LIFE_DAYS = 30
+
+
+def decay_weight(age_days: float, half_life_days: int | float) -> float:
+    """Compute temporal decay weight: pow(0.5, age / half_life)."""
+    if half_life_days <= 0:
+        return 0.0
+    return math.pow(0.5, age_days / half_life_days)
 
 # ---------------------------------------------------------------------------
 # Data model — same interface as the old BlackboardEntry
@@ -163,13 +185,17 @@ class Blackboard:
         category: str | None = None,
         session_id: str | None = None,
         limit: int = 20,
+        use_decay: bool = False,
     ) -> list[BlackboardEntry]:
         """
         Return recent entries, most recent first.
 
         All filters are optional and combined with AND.
+        When *use_decay* is True, results are ordered by temporal decay
+        weight (POW(0.5, age / half_life)) instead of raw created_at,
+        and last_accessed_at is updated for the returned rows.
         """
-        conditions = []
+        conditions = ["archived_at IS NULL"]
         params: list[Any] = []
 
         if symbol:
@@ -185,9 +211,68 @@ class Blackboard:
             conditions.append("session_id = ?")
             params.append(session_id)
 
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        params.append(limit)
+        where = "WHERE " + " AND ".join(conditions)
 
+        if use_decay:
+            # SQLite-compatible decay weight: julianday('now') - julianday(created_at) gives age in days.
+            # For PostgreSQL, the query would use EXTRACT(EPOCH FROM ...) / 86400.
+            # We use a Python-side sort to stay DB-agnostic.
+            select_sql = f"""
+                SELECT id, agent, symbol, category, content_json, created_at, session_id
+                FROM agent_memory
+                {where}
+            """
+            with self._lock:
+                rows = self._conn.execute(select_sql, params).fetchall()
+
+            now = datetime.now()
+            weighted: list[tuple[float, tuple]] = []
+            for row in rows:
+                row_id, agent_name, sym, cat, content_json, created_at, sid = row
+                if isinstance(created_at, str):
+                    created_dt = datetime.fromisoformat(created_at)
+                else:
+                    created_dt = created_at
+                age_days = max((now - created_dt).total_seconds() / 86400.0, 0.0)
+                hl = CATEGORY_HALF_LIFE_DAYS.get(cat, DEFAULT_HALF_LIFE_DAYS)
+                w = decay_weight(age_days, hl)
+                weighted.append((w, (row_id, agent_name, sym, cat, content_json, created_at, sid)))
+
+            weighted.sort(key=lambda x: x[0], reverse=True)
+            top_rows = weighted[:limit]
+
+            # Update last_accessed_at for returned rows
+            if top_rows:
+                ids = [r[1][0] for r in top_rows]
+                placeholders = ",".join("?" for _ in ids)
+                now_str = now.isoformat()
+                with self._lock:
+                    self._conn.execute(
+                        f"UPDATE agent_memory SET last_accessed_at = ? WHERE id IN ({placeholders})",
+                        [now_str] + ids,
+                    )
+
+            entries = []
+            for _w, (row_id, agent_name, sym, cat, content_json, created_at, sid) in top_rows:
+                try:
+                    payload = json.loads(content_json)
+                    message = payload.get("message", content_json)
+                except (json.JSONDecodeError, TypeError):
+                    message = str(content_json)
+                entries.append(
+                    BlackboardEntry(
+                        timestamp=str(created_at),
+                        agent=agent_name,
+                        symbol=sym,
+                        message=message,
+                        category=cat,
+                        session_id=sid,
+                    )
+                )
+            return entries
+
+        # Default path: order by created_at DESC (backward compatible)
+        params.append(limit)
         with self._lock:
             rows = self._conn.execute(
                 f"""
@@ -266,6 +351,88 @@ class Blackboard:
             lines.append(entry.to_markdown())
 
         return "\n".join(lines)
+
+    # -----------------------------------------------------------------------
+    # Temporal decay — archival
+    # -----------------------------------------------------------------------
+
+    def archive_stale(self) -> dict[str, int]:
+        """Archive entries past their TTL (3x half_life) or not accessed in 60+ days.
+
+        Moves qualifying rows from agent_memory → agent_memory_archive.
+        Returns ``{category: count_archived}`` for logging.
+        """
+        now = datetime.now()
+        archived_counts: dict[str, int] = {}
+
+        with self._lock:
+            # Build per-category thresholds
+            thresholds: list[tuple[str, datetime]] = []
+            for cat, hl in CATEGORY_HALF_LIFE_DAYS.items():
+                cutoff = now - timedelta(days=hl * 3)
+                thresholds.append((cat, cutoff))
+
+            access_cutoff = now - timedelta(days=60)
+
+            # Find qualifying rows
+            rows = self._conn.execute(
+                "SELECT id, category FROM agent_memory WHERE archived_at IS NULL"
+            ).fetchall()
+
+            to_archive: list[int] = []
+            for row_id, cat in rows:
+                # Check created_at threshold for this category
+                cat_cutoff = None
+                for tcat, tcutoff in thresholds:
+                    if tcat == cat:
+                        cat_cutoff = tcutoff
+                        break
+                if cat_cutoff is None:
+                    # Unknown category: use default half-life
+                    cat_cutoff = now - timedelta(days=DEFAULT_HALF_LIFE_DAYS * 3)
+
+                # Check if row qualifies
+                created_row = self._conn.execute(
+                    "SELECT created_at, last_accessed_at FROM agent_memory WHERE id = ?",
+                    (row_id,),
+                ).fetchone()
+                if created_row is None:
+                    continue
+                created_at_raw, last_accessed_raw = created_row
+                created_dt = (
+                    datetime.fromisoformat(created_at_raw)
+                    if isinstance(created_at_raw, str) else created_at_raw
+                )
+                last_accessed_dt = (
+                    datetime.fromisoformat(last_accessed_raw)
+                    if isinstance(last_accessed_raw, str) and last_accessed_raw
+                    else last_accessed_raw
+                )
+
+                if created_dt < cat_cutoff or (
+                    last_accessed_dt and last_accessed_dt < access_cutoff
+                ):
+                    to_archive.append(row_id)
+                    archived_counts[cat] = archived_counts.get(cat, 0) + 1
+
+            # Move rows: copy to archive, then delete from active
+            now_str = now.isoformat()
+            for row_id in to_archive:
+                self._conn.execute(
+                    "INSERT INTO agent_memory_archive "
+                    "(id, session_id, sim_date, agent, symbol, category, "
+                    " content_json, created_at, last_accessed_at, archived_at) "
+                    "SELECT id, session_id, sim_date, agent, symbol, category, "
+                    "       content_json, created_at, last_accessed_at, ? "
+                    "FROM agent_memory WHERE id = ?",
+                    (now_str, row_id),
+                )
+                self._conn.execute("DELETE FROM agent_memory WHERE id = ?", (row_id,))
+
+        total = sum(archived_counts.values())
+        if total:
+            logger.info("Archived %d stale memory entries: %s", total, archived_counts)
+        return archived_counts
 
     # -----------------------------------------------------------------------
     # Maintenance

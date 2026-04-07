@@ -116,6 +116,14 @@ async def execute_trade(
         # 1. Kill switch guard
         kill_switch.guard()
 
+        # 1b. Stop-loss enforcement — entry orders MUST have a stop_price.
+        # Exit/close orders are exempt (they ARE the risk reduction).
+        if action in ("buy", "long") and stop_price is None:
+            raise ValueError(
+                f"stop_price is required for all entry orders. "
+                f"Symbol: {symbol}, strategy: {strategy_id}"
+            )
+
         # 2. Paper/live mode check
         if not paper_mode:
             use_real = os.getenv("USE_REAL_TRADING", "false").strip().lower()

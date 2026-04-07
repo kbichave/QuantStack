@@ -67,6 +67,19 @@ async def run_loop(
             await asyncio.sleep(60)
             continue
 
+        # Poll EventBus for kill switch (best-effort, non-blocking)
+        try:
+            from quantstack.db import db_conn
+            from quantstack.coordination.event_bus import EventBus, EventType
+            with db_conn() as conn:
+                bus = EventBus(conn)
+                events = bus.poll(f"{graph_name}-runner", event_types=[EventType.KILL_SWITCH_TRIGGERED])
+                if events:
+                    logger.critical("[%s] Kill switch event received via EventBus — halting", graph_name)
+                    break
+        except Exception:
+            logger.warning("[%s] EventBus poll failed at cycle start (non-blocking)", graph_name, exc_info=True)
+
         cycle_number += 1
         start = time.monotonic()
         status = "success"
@@ -158,13 +171,13 @@ async def async_main() -> None:
     shutdown = GracefulShutdown()
     shutdown.install_async(asyncio.get_running_loop())
 
-    from langgraph.checkpoint.memory import MemorySaver
+    from quantstack.checkpointing import create_checkpointer
     from quantstack.graphs.config_watcher import ConfigWatcher
     from quantstack.graphs.trading import build_trading_graph
 
     yaml_path = Path(__file__).resolve().parent.parent / "graphs" / "trading" / "config" / "agents.yaml"
     config_watcher = ConfigWatcher(yaml_path)
-    checkpointer = MemorySaver()
+    checkpointer = create_checkpointer()
 
     def graph_builder():
         return build_trading_graph(config_watcher, checkpointer)
@@ -223,6 +236,9 @@ async def async_main() -> None:
 
 def main() -> None:
     """Entry point: python -m quantstack.runners.trading_runner"""
+    from quantstack.config.validation import validate_environment
+
+    validate_environment()
     asyncio.run(async_main())
 
 

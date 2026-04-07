@@ -531,22 +531,40 @@ class TestStrategyStatusLockEdgeCases:
 
 
 class TestStrategyBreakerExtensions:
-    def test_force_trip(self, tmp_path):
-        state_file = tmp_path / "breakers.json"
-        breaker = StrategyBreaker(state_path=str(state_file))
+
+    @staticmethod
+    def _mock_db_conn():
+        """Return a context-manager factory yielding a mock PgConnection."""
+        from contextlib import contextmanager
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value = mock_conn
+        mock_conn.fetchall.return_value = []
+
+        @contextmanager
+        def _ctx():
+            yield mock_conn
+        return _ctx, mock_conn
+
+    @patch("quantstack.execution.strategy_breaker.db_conn")
+    def test_force_trip(self, mock_db_conn):
+        _ctx, mock_conn = self._mock_db_conn()
+        mock_db_conn.side_effect = _ctx
+        breaker = StrategyBreaker()
 
         result = breaker.force_trip("strat_1", reason="Degradation CRITICAL")
         assert result.status == "TRIPPED"
         assert result.scale_factor == 0.0
         assert result.tripped_at is not None
 
-        # Verify persisted
+        # Verify in-memory state
         factor = breaker.get_scale_factor("strat_1")
         assert factor == 0.0
 
-    def test_force_scale(self, tmp_path):
-        state_file = tmp_path / "breakers.json"
-        breaker = StrategyBreaker(state_path=str(state_file))
+    @patch("quantstack.execution.strategy_breaker.db_conn")
+    def test_force_scale(self, mock_db_conn):
+        _ctx, _ = self._mock_db_conn()
+        mock_db_conn.side_effect = _ctx
+        breaker = StrategyBreaker()
 
         result = breaker.force_scale(
             "strat_1", scale_factor=0.25, reason="IS/OOS ratio > 2"
@@ -554,9 +572,11 @@ class TestStrategyBreakerExtensions:
         assert result.status == "SCALED"
         assert result.scale_factor == 0.25
 
-    def test_force_scale_does_not_escalate_past_tripped(self, tmp_path):
-        state_file = tmp_path / "breakers.json"
-        breaker = StrategyBreaker(state_path=str(state_file))
+    @patch("quantstack.execution.strategy_breaker.db_conn")
+    def test_force_scale_does_not_escalate_past_tripped(self, mock_db_conn):
+        _ctx, _ = self._mock_db_conn()
+        mock_db_conn.side_effect = _ctx
+        breaker = StrategyBreaker()
 
         breaker.force_trip("strat_1", reason="tripped first")
         result = breaker.force_scale("strat_1", scale_factor=0.5, reason="warning")
@@ -564,22 +584,40 @@ class TestStrategyBreakerExtensions:
         assert result.status == "TRIPPED"
         assert result.scale_factor == 0.0
 
-    def test_force_scale_keeps_lower_factor(self, tmp_path):
-        state_file = tmp_path / "breakers.json"
-        breaker = StrategyBreaker(state_path=str(state_file))
+    @patch("quantstack.execution.strategy_breaker.db_conn")
+    def test_force_scale_keeps_lower_factor(self, mock_db_conn):
+        _ctx, _ = self._mock_db_conn()
+        mock_db_conn.side_effect = _ctx
+        breaker = StrategyBreaker()
 
         breaker.force_scale("strat_1", scale_factor=0.25, reason="severe warning")
         result = breaker.force_scale("strat_1", scale_factor=0.5, reason="mild warning")
         # 0.5 > 0.25, so the more restrictive factor (0.25) should stay
         assert result.scale_factor == 0.25
 
-    def test_force_trip_survives_reload(self, tmp_path):
-        state_file = tmp_path / "breakers.json"
-        breaker1 = StrategyBreaker(state_path=str(state_file))
-        breaker1.force_trip("strat_1", reason="test persistence")
+    @patch("quantstack.execution.strategy_breaker.db_conn")
+    def test_force_trip_survives_reload(self, mock_db_conn):
+        _ctx, mock_conn = self._mock_db_conn()
+        mock_db_conn.side_effect = _ctx
+        breaker1 = StrategyBreaker()
+        result = breaker1.force_trip("strat_1", reason="test persistence")
 
-        # Create a new breaker instance — should reload from JSON
-        breaker2 = StrategyBreaker(state_path=str(state_file))
+        # Simulate reload: mock DB returns the tripped state
+        mock_conn.fetchall.return_value = [
+            {
+                "strategy_id": "strat_1",
+                "status": "TRIPPED",
+                "scale_factor": 0.0,
+                "consecutive_losses": result.consecutive_losses,
+                "peak_equity": result.peak_equity,
+                "current_equity": result.current_equity,
+                "drawdown_pct": result.drawdown_pct,
+                "tripped_at": result.tripped_at,
+                "reason": "test persistence",
+            }
+        ]
+
+        breaker2 = StrategyBreaker()
         assert breaker2.get_scale_factor("strat_1") == 0.0
         state = breaker2.check("strat_1")
         assert state.status == "TRIPPED"

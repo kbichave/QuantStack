@@ -101,6 +101,49 @@ def _fetch_recent_events(
     return results
 
 
+def _fetch_alerts(
+    status: str = "open",
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Fetch system alerts for dashboard display."""
+    from quantstack.db import db_conn
+
+    with db_conn() as conn:
+        rows = conn.execute(
+            """SELECT id, category, severity, status, source, title, detail,
+                      metadata, created_at, acknowledged_at, resolved_at
+               FROM system_alerts
+               WHERE status = %s
+               ORDER BY
+                   CASE severity
+                       WHEN 'emergency' THEN 1
+                       WHEN 'critical' THEN 2
+                       WHEN 'warning' THEN 3
+                       WHEN 'info' THEN 4
+                   END,
+                   created_at DESC
+               LIMIT %s""",
+            [status, limit],
+        ).fetchall()
+
+    return [
+        {
+            "id": r[0],
+            "category": r[1],
+            "severity": r[2],
+            "status": r[3],
+            "source": r[4],
+            "title": r[5],
+            "detail": r[6],
+            "metadata": r[7] if isinstance(r[7], dict) else {},
+            "created_at": r[8].isoformat() if r[8] else "",
+            "acknowledged_at": r[9].isoformat() if r[9] else None,
+            "resolved_at": r[10].isoformat() if r[10] else None,
+        }
+        for r in rows
+    ]
+
+
 def _fetch_graph_status() -> list[dict[str, Any]]:
     """Fetch latest checkpoint per graph."""
     from quantstack.db import db_conn
@@ -147,6 +190,15 @@ def get_status() -> dict[str, Any]:
         "graphs": _fetch_graph_status(),
         "as_of": datetime.now().isoformat(),
     }
+
+
+@app.get("/api/alerts")
+def get_alerts(
+    status: str = "open",
+    limit: int = Query(default=20, le=100),
+) -> list[dict[str, Any]]:
+    """Return recent system alerts for dashboard display."""
+    return _fetch_alerts(status=status, limit=limit)
 
 
 @app.get("/api/stream")
@@ -264,6 +316,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .msg.tool_call { border-left-color: var(--yellow); }
   .msg.node_complete { border-left-color: var(--purple); background: rgba(188,140,255,0.04); }
   .msg.error { border-left-color: var(--red); background: rgba(248,81,73,0.04); }
+  .msg.system_alert { border-left-color: var(--red); background: rgba(248,81,73,0.06); }
 
   .empty { color: var(--dim); font-size: 12px; text-align: center; padding: 60px 20px; }
   .empty .icon { font-size: 24px; margin-bottom: 8px; }
@@ -361,6 +414,7 @@ const TYPE_CONFIG = {
   tool_call:      { icon: '⚙', label: 'tool' },
   node_complete:  { icon: '◆', label: 'done' },
   error:          { icon: '✗', label: 'error' },
+  system_alert:   { icon: '!', label: 'ALERT' },
 };
 
 function formatContent(event) {

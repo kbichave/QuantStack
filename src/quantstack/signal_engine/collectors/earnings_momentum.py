@@ -28,6 +28,7 @@ import pandas as pd
 from loguru import logger
 
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 _DRIFT_SURPRISE_THRESHOLD = 5.0  # |surprise_pct| > 5% triggers drift
 _DRIFT_WINDOW_DAYS = 30  # drift active for 30 days after report
@@ -38,6 +39,8 @@ async def collect_earnings_momentum(
     symbol: str, store: DataStore
 ) -> dict[str, Any]:
     """Compute earnings momentum signal from earnings calendar data."""
+    if not check_freshness(symbol, "earnings_history", max_days=90):
+        return {}
     try:
         return await asyncio.to_thread(
             _collect_earnings_momentum_sync, symbol, store

@@ -9,7 +9,7 @@ then adjusts regime_affinity weights based on accumulated outcomes.
 
 This is the non-parametric RLHF described in the architecture:
   - No gradient, no model training
-  - Simple Bayesian momentum: each outcome nudges weights by step=0.05
+  - Simple Bayesian momentum: each outcome nudges weights by step=0.15
   - Clipped to [0.1, 1.0] so no regime affinity ever reaches zero
   - 20+ trades needed to move affinity from 0.5 to its asymptote
 
@@ -59,23 +59,29 @@ from quantstack.db import db_conn, open_db_readonly
 # Learning hyperparameters — documented with reasoning
 # =============================================================================
 
-_STEP = 0.05
-# Conservative learning rate. At 20 consistent wins (+5%), affinity moves from
-# 0.5 → ~0.76. At 20 consistent losses (-5%), 0.5 → ~0.24. This ensures
-# the system requires a meaningful sample before changing routing decisions.
+_STEP = 0.15
+# Learning rate. A -2% loss produces tanh(-1.0) ~ -0.76, step = 0.15 * -0.76 ~ -0.11.
+# Reaching meaningful reduction from 1.0 takes ~8 consecutive losses instead of ~47
+# with the previous step of 0.05.
 
 _CLIP_MIN = 0.1
 _CLIP_MAX = 1.0
 # Never drive affinity to 0 — a losing streak in the current regime doesn't
 # mean the strategy will never work in that regime again.
 
-_PNL_SCALE = 5.0
-# tanh(pnl_pct / _PNL_SCALE): at ±5%, weight = ±0.76. At ±1%, weight = ±0.20.
-# Keeps small P&L moves from over-influencing weights.
+_PNL_SCALE = 2.0
+# tanh(pnl_pct / _PNL_SCALE): at ±2%, weight = ±0.76. At ±1%, weight = ±0.46.
+# More responsive than the previous divisor of 5.0, appropriate for swing-trading
+# where a few percentage points of P&L is meaningful.
 
-_MIN_OUTCOMES_FOR_UPDATE = 3
-# Don't update weights until at least 3 outcomes are recorded.
-# Prevents a single lucky/unlucky trade from immediately routing strategy away.
+_MIN_OUTCOMES_FOR_UPDATE = 5
+# Don't update weights until at least 5 outcomes are recorded.
+# Prevents a handful of lucky/unlucky trades from routing strategy away.
+
+_HALFLIFE_TRADES = 20
+# Exponential decay halflife: an outcome from 20 trades ago contributes 50%
+# as much as the most recent. Prevents stale outcomes from anchoring affinity
+# while smoothing single-trade noise.
 
 
 # =============================================================================
@@ -193,10 +199,11 @@ class OutcomeTracker:
 
         Returns True if any weights were updated, False otherwise.
 
-        Update formula (Bayesian momentum):
+        Update formula (recency-weighted Bayesian momentum):
             outcome_weight = tanh(realized_pnl_pct / _PNL_SCALE)
-            current = regime_affinity.get(regime, 0.5)
-            new = clip(current + _STEP * outcome_weight, _CLIP_MIN, _CLIP_MAX)
+            decay = 0.5^(trades_since_most_recent / _HALFLIFE_TRADES)
+            weighted_mean = sum(outcome_weight * decay) / sum(decay)
+            new = clip(current + _STEP * weighted_mean, _CLIP_MIN, _CLIP_MAX)
 
         Also updates regime_strategy_matrix.confidence for the same strategy+regime.
         """
@@ -231,8 +238,16 @@ class OutcomeTracker:
                 if len(pnls) < _MIN_OUTCOMES_FOR_UPDATE:
                     continue
 
-                # Aggregate: mean outcome weight across all trades in this regime
-                mean_weight = sum(math.tanh(p / _PNL_SCALE) for p in pnls) / len(pnls)
+                # Recency-weighted aggregate: most recent outcome is index 0
+                # (outcomes loaded ORDER BY closed_at DESC)
+                weighted_sum = 0.0
+                decay_sum = 0.0
+                for i, p in enumerate(pnls):
+                    decay = 0.5 ** (i / _HALFLIFE_TRADES)
+                    weighted_sum += math.tanh(p / _PNL_SCALE) * decay
+                    decay_sum += decay
+                mean_weight = weighted_sum / decay_sum if decay_sum > 0 else 0.0
+
                 current_val = current_affinity.get(regime, 0.5)
                 new_val = max(
                     _CLIP_MIN, min(_CLIP_MAX, current_val + _STEP * mean_weight)

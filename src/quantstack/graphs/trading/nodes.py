@@ -36,10 +36,23 @@ from quantstack.db import db_conn
 from quantstack.graphs.agent_executor import parse_json_response, run_agent
 from quantstack.graphs.config import AgentConfig
 from quantstack.graphs.state import TradingState
+from quantstack.llm.provider import get_model_for_role
 from quantstack.performance.trade_evaluator import create_trade_evaluator
-from quantstack.runners import is_market_hours
+from quantstack.runners import OperatingMode, get_operating_mode, is_market_hours
 
 logger = logging.getLogger(__name__)
+
+
+def _poll_eventbus(consumer_id: str, event_types: list) -> list:
+    """Poll EventBus for specified event types. Best-effort: returns [] on failure."""
+    try:
+        from quantstack.coordination.event_bus import EventBus, EventType
+        with db_conn() as conn:
+            bus = EventBus(conn)
+            return bus.poll(consumer_id, event_types=event_types)
+    except Exception:
+        logger.warning("[TRADING] EventBus poll failed (non-blocking)", exc_info=True)
+        return []
 
 
 def make_market_intel(llm: BaseChatModel, config: AgentConfig, tools: list[BaseTool] | None = None):
@@ -160,9 +173,13 @@ def make_data_refresh():
     """
 
     async def data_refresh(state: TradingState) -> dict[str, Any]:
-        if not is_market_hours():
+        mode = get_operating_mode()
+        base = {"operating_mode": mode.value}
+
+        if mode != OperatingMode.MARKET:
             return {
-                "data_refresh_summary": {"skipped": True, "reason": "outside_market_hours"},
+                **base,
+                "data_refresh_summary": {"skipped": True, "reason": f"{mode.value}_hours"},
             }
 
         try:
@@ -178,13 +195,15 @@ def make_data_refresh():
             }
             if report.errors:
                 return {
+                    **base,
                     "data_refresh_summary": summary,
                     "errors": [f"data_refresh: {len(report.errors)} errors"],
                 }
-            return {"data_refresh_summary": summary}
+            return {**base, "data_refresh_summary": summary}
         except Exception as exc:
             logger.error("data_refresh failed: %s", exc)
             return {
+                **base,
                 "data_refresh_summary": {"error": str(exc)},
                 "errors": [f"data_refresh: {exc}"],
             }
@@ -208,7 +227,7 @@ def make_safety_check(llm: BaseChatModel, config: AgentConfig):
                     'Return JSON: {"halted": true/false, "reason": "..."}'
                 )),
             ])
-            parsed = parse_json_response(response.content, {"halted": False})
+            parsed = parse_json_response(response.content, {"halted": True, "reason": "parse_failure"})
             halted = parsed.get("halted", False)
             update: dict[str, Any] = {
                 "decisions": [{"node": "safety_check", "halted": halted}],
@@ -444,6 +463,64 @@ def merge_parallel(state: TradingState) -> dict[str, Any]:
 def merge_pre_execution(state: TradingState) -> dict[str, Any]:
     """No-op join node. Convergence for parallel portfolio_review + analyze_options."""
     return {}
+
+
+async def resolve_symbol_conflicts(state: TradingState) -> dict[str, Any]:
+    """Remove entry candidates that conflict with pending exit orders.
+
+    Exits always take priority (risk-off bias). On failure, drops ALL
+    entries as a conservative safe default.
+    """
+    exit_orders = state.get("exit_orders", []) if isinstance(state, dict) else state.exit_orders
+    entry_candidates = state.get("entry_candidates", []) if isinstance(state, dict) else state.entry_candidates
+
+    if not exit_orders or not entry_candidates:
+        return {"entry_candidates": entry_candidates, "decisions": []}
+
+    try:
+        exit_symbols = {
+            o.get("symbol", "") for o in exit_orders if isinstance(o, dict)
+        }
+        conflicts = []
+        filtered = []
+        for candidate in entry_candidates:
+            sym = candidate.get("symbol", "") if isinstance(candidate, dict) else ""
+            if sym in exit_symbols:
+                exit_reason = next(
+                    (o.get("reason", "unknown") for o in exit_orders
+                     if isinstance(o, dict) and o.get("symbol") == sym),
+                    "unknown",
+                )
+                conflicts.append({
+                    "symbol": sym,
+                    "exit_reason": exit_reason,
+                    "entry_reason": candidate.get("verdict", candidate.get("reason", "unknown")),
+                    "resolution": "exit_priority",
+                })
+            else:
+                filtered.append(candidate)
+
+        decision = {
+            "node": "resolve_symbol_conflicts",
+            "conflicts": conflicts,
+            "entries_before": len(entry_candidates),
+            "entries_after": len(filtered),
+        }
+        if conflicts:
+            logger.info(
+                "Resolved %d symbol conflicts (exits take priority): %s",
+                len(conflicts),
+                [c["symbol"] for c in conflicts],
+            )
+        return {"entry_candidates": filtered, "decisions": [decision]}
+
+    except Exception as exc:
+        logger.error("resolve_symbol_conflicts failed: %s — dropping all entries", exc)
+        return {
+            "entry_candidates": [],
+            "decisions": [{"node": "resolve_symbol_conflicts", "error": str(exc)}],
+            "errors": [f"[resolve_symbol_conflicts] {exc}"],
+        }
 
 
 _MIN_ANNUALIZED_VOL = 0.05  # 5% floor — prevents divide-by-zero in kelly_sizing
@@ -1148,7 +1225,7 @@ def make_reflection(llm: BaseChatModel, config: AgentConfig, tools: list[BaseToo
                     _persist_quality_scores(
                         trade_quality_scores,
                         state.get("cycle_number", 0),
-                        model_used="anthropic/claude-sonnet-4-20250514",
+                        model_used=get_model_for_role("medium"),
                     )
                 except Exception as exc:
                     logger.error("trade quality evaluation failed: %s", exc)
@@ -1182,3 +1259,46 @@ def make_reflection(llm: BaseChatModel, config: AgentConfig, tools: list[BaseToo
             }
 
     return reflection
+
+
+def make_attribution():
+    """Create the attribution node (deterministic, no LLM).
+
+    Runs after reflect. Decomposes cycle P&L into factor, timing,
+    selection, and cost components. Persists to cycle_attribution table.
+    """
+
+    async def attribution_node(state: TradingState) -> dict[str, Any]:
+        """Decompose cycle P&L and persist attribution."""
+        try:
+            from quantstack.performance.attribution import (
+                compute_cycle_attribution,
+                persist_cycle_attribution,
+            )
+
+            # Extract positions from reviews (upstream node output)
+            positions = state.get("position_reviews", [])
+            fills = state.get("exit_orders", []) + state.get("entry_orders", [])
+
+            # Benchmark return from market context
+            market_ctx = state.get("market_context", {})
+            benchmark_return = market_ctx.get("benchmark_return", 0.0)
+            sector_returns = market_ctx.get("sector_returns", {})
+
+            attribution = await compute_cycle_attribution(
+                positions=positions,
+                fills=fills,
+                benchmark_return=benchmark_return,
+                sector_returns=sector_returns,
+            )
+
+            # Persist to DB
+            cycle_number = state.get("cycle_number", 0)
+            persist_cycle_attribution(attribution, cycle_number)
+
+            return {"cycle_attribution": attribution.to_dict()}
+        except Exception as exc:
+            logger.error("attribution_node failed: %s", exc)
+            return {"cycle_attribution": {}, "errors": [f"attribution: {exc}"]}
+
+    return attribution_node

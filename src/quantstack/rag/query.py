@@ -6,8 +6,9 @@ import os
 import time
 from typing import Any
 
-import psycopg2
-import psycopg2.extras
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ _conn = None
 
 
 def _get_connection():
-    """Return a psycopg2 connection. Lazy-initialized singleton."""
+    """Return a psycopg3 connection. Lazy-initialized singleton."""
     global _conn
     if _conn is not None and not _conn.closed:
         return _conn
@@ -45,8 +46,7 @@ def _get_connection():
     pg_url = os.environ.get(
         "TRADER_PG_URL", "postgresql://quantstack:quantstack@localhost:5432/quantstack"
     )
-    _conn = psycopg2.connect(pg_url)
-    _conn.autocommit = True
+    _conn = psycopg.connect(pg_url, autocommit=True)
     return _conn
 
 
@@ -86,7 +86,7 @@ def store_embedding(
            SET content = EXCLUDED.content,
                embedding = EXCLUDED.embedding,
                metadata = EXCLUDED.metadata""",
-        [doc_id, collection, content, str(embedding), psycopg2.extras.Json(metadata or {})],
+        [doc_id, collection, content, str(embedding), Jsonb(metadata or {})],
     )
     cur.close()
 
@@ -126,7 +126,7 @@ def search_similar(
         LIMIT %s
     """
 
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur = conn.cursor(row_factory=dict_row)
     cur.execute(sql, params)
     rows = cur.fetchall()
     cur.close()
@@ -168,7 +168,7 @@ def search_knowledge_base(
         collection: Restrict to one collection. None searches all.
         ticker: Optional metadata filter.
         n_results: Maximum results to return.
-        conn: Optional psycopg2 connection (for testing).
+        conn: Optional psycopg connection (for testing).
         embedding_fn: Optional embedding function (for testing).
 
     Returns:

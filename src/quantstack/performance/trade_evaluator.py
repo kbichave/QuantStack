@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from quantstack.llm.provider import get_model_for_role
 from quantstack.performance.models import TradeQualityScore
 
 _TRADE_QUALITY_PROMPT = """\
@@ -33,9 +34,9 @@ explaining your rationale across all dimensions. Be specific about what
 went well and what could improve.
 """
 
-# Model tier for trade evaluation — medium keeps costs manageable
-# since the evaluator runs on every closed trade.
-_DEFAULT_MODEL = "anthropic/claude-sonnet-4-20250514"
+def _default_model() -> str:
+    """Resolve the model for trade evaluation via the tier system."""
+    return get_model_for_role("medium")
 
 
 def create_trade_evaluator(
@@ -50,7 +51,7 @@ def create_trade_evaluator(
 
     evaluator = create_llm_as_judge(
         prompt=_TRADE_QUALITY_PROMPT,
-        model=model or _DEFAULT_MODEL,
+        model=model or _default_model(),
         output_schema=TradeQualityScore,
         continuous=True,
         use_reasoning=True,

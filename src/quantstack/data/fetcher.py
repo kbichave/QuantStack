@@ -66,30 +66,65 @@ class AlphaVantageClient:
         self.base_url = settings.alpha_vantage_base_url
         self.rate_limit = settings.alpha_vantage_rate_limit
         self._last_call_time: float = 0
-        self._call_count: int = 0
-        self._minute_start: float = time.time()
+        # Fallback in-memory limiter (used when DB is unreachable)
+        self._fallback_call_count: int = 0
+        self._fallback_minute_start: float = time.time()
+        self._using_fallback: bool = False
         # Daily quota guard — prevents runaway loops from exhausting AV credits.
         # Premium plan ($49.99): 75 req/min, no hard daily cap. Default 25,000
         # is ~5.5h of continuous 75/min usage — effectively unlimited for normal ops.
         self._daily_limit: int = int(os.getenv("AV_DAILY_CALL_LIMIT", "25000"))
 
     def _wait_for_rate_limit(self) -> None:
-        """Wait if necessary to respect rate limits."""
+        """Wait if necessary to respect rate limits.
+
+        Primary path: PostgreSQL-backed token bucket (shared across containers).
+        Fallback path: per-process in-memory limiter (if DB is unreachable).
+        """
+        self._using_fallback = False
+        for attempt in range(60):
+            try:
+                from quantstack.db import pg_conn
+
+                with pg_conn() as conn:
+                    row = conn.execute(
+                        "SELECT consume_token('alpha_vantage')"
+                    ).fetchone()
+                    got_token = row[0] if row else False
+                if got_token:
+                    return
+                logger.debug("Rate limit: waiting for token (bucket: alpha_vantage)")
+                time.sleep(1)
+            except Exception:
+                logger.warning("Rate limiter DB error — falling back to per-process limiter")
+                self._using_fallback = True
+                self._wait_for_rate_limit_fallback()
+                return
+        logger.warning("Rate limiter: exhausted 60 retries, skipping call")
+
+    def _wait_for_rate_limit_fallback(self) -> None:
+        """Fallback per-process in-memory rate limiter (no DB coordination)."""
         current_time = time.time()
-
-        # Reset counter every minute
-        if current_time - self._minute_start >= 60:
-            self._call_count = 0
-            self._minute_start = current_time
-
-        # Wait if we've hit the rate limit
-        if self._call_count >= self.rate_limit:
-            wait_time = 60 - (current_time - self._minute_start) + 1
+        if current_time - self._fallback_minute_start >= 60:
+            self._fallback_call_count = 0
+            self._fallback_minute_start = current_time
+        if self._fallback_call_count >= self.rate_limit:
+            wait_time = 60 - (current_time - self._fallback_minute_start) + 1
             if wait_time > 0:
-                logger.info(f"Rate limit reached, waiting {wait_time:.1f}s")
+                logger.info(f"Rate limit reached (fallback), waiting {wait_time:.1f}s")
                 time.sleep(wait_time)
-                self._call_count = 0
-                self._minute_start = time.time()
+                self._fallback_call_count = 0
+                self._fallback_minute_start = time.time()
+
+    def get_calls_this_minute(self) -> int:
+        """Return the fallback call count for the current minute window.
+
+        Exposed for fan-out throttle logic to check quota pressure.
+        """
+        current_time = time.time()
+        if current_time - self._fallback_minute_start >= 60:
+            return 0
+        return self._fallback_call_count
 
     def _get_daily_count(self) -> int:
         """Read today's AV call count from system_state. Returns 0 if not set."""
@@ -175,7 +210,7 @@ class AlphaVantageClient:
                     self.base_url, params=params, timeout=30, verify=CA_BUNDLE
                 )
                 response.raise_for_status()
-                self._call_count += 1
+                self._fallback_call_count += 1
                 self._increment_daily_count()
 
                 data = response.json()
@@ -548,7 +583,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -622,7 +657,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -686,7 +721,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -757,7 +792,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -879,7 +914,7 @@ class AlphaVantageClient:
                     self.base_url, params=params, timeout=60, verify=CA_BUNDLE
                 )
                 response.raise_for_status()
-                self._call_count += 1
+                self._fallback_call_count += 1
                 data = response.json()
 
                 if "Error Message" in data:
@@ -1036,7 +1071,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=60, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1152,7 +1187,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=60, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1270,7 +1305,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
 
             # Check if it's an error response (JSON)
             try:
@@ -1354,7 +1389,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1466,7 +1501,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1566,7 +1601,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1622,7 +1657,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1684,7 +1719,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1758,7 +1793,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1810,7 +1845,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1878,7 +1913,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
 
             if "Error Message" in data:
@@ -1929,7 +1964,7 @@ class AlphaVantageClient:
             self.base_url, params=params, timeout=30, verify=CA_BUNDLE
         )
         response.raise_for_status()
-        self._call_count += 1
+        self._fallback_call_count += 1
         data = response.json()
         if "Error Message" in data:
             raise ValueError(f"API Error: {data['Error Message']}")
@@ -1985,7 +2020,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
             if "Error Message" in data:
                 raise ValueError(f"API Error: {data['Error Message']}")
@@ -2017,7 +2052,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
             if "Error Message" in data:
                 raise ValueError(f"API Error: {data['Error Message']}")
@@ -2062,7 +2097,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             data = response.json()
             if "Error Message" in data:
                 raise ValueError(f"API Error: {data['Error Message']}")
@@ -2129,7 +2164,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             self._increment_daily_count()
             data = response.json()
 
@@ -2191,7 +2226,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             self._increment_daily_count()
             data = response.json()
 
@@ -2253,7 +2288,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             self._increment_daily_count()
             data = response.json()
 
@@ -2322,7 +2357,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             self._increment_daily_count()
 
             # Check if AV returned a JSON error instead of CSV
@@ -2392,7 +2427,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             self._increment_daily_count()
             data = response.json()
 
@@ -2448,7 +2483,7 @@ class AlphaVantageClient:
                 self.base_url, params=params, timeout=30, verify=CA_BUNDLE
             )
             response.raise_for_status()
-            self._call_count += 1
+            self._fallback_call_count += 1
             self._increment_daily_count()
             data = response.json()
 

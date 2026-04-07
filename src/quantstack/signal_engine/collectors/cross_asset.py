@@ -23,6 +23,7 @@ from quantstack.universe import CROSS_ASSET_ETFS
 from quantstack.core.features.carry import FuturesBasis
 from quantstack.core.features.rrg import RRGFeatures
 from quantstack.core.features.smart_money import SMTDivergence
+from quantstack.signal_engine.staleness import check_freshness
 
 
 _MIN_BARS = 10  # need at least 5 + buffer for return computation
@@ -31,6 +32,8 @@ _CROSS_ASSET_SYMBOLS = CROSS_ASSET_ETFS
 
 async def collect_cross_asset(symbol: str, store: DataStore) -> dict[str, Any]:
     """Compute cross-asset risk regime signals. Returns {} on failure."""
+    if not check_freshness(symbol, "macro_indicators", max_days=45):
+        return {}
     try:
         return await asyncio.to_thread(_collect_cross_asset_sync, symbol, store)
     except Exception as exc:

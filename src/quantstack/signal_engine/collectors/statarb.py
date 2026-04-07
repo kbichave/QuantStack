@@ -19,6 +19,7 @@ from statsmodels.tsa.stattools import adfuller
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 # Known pairs for stat-arb analysis. Includes sector ETF pairs, broad market
 # pairs, and commodity/equity pairs (GLD/GDX). Key can appear on either side —
@@ -57,6 +58,8 @@ async def collect_statarb(symbol: str, store: DataStore) -> dict[str, Any]:
 
     Returns {} if symbol is not in a known pair or data is insufficient.
     """
+    if not check_freshness(symbol, "1d", max_days=4):
+        return {}
     try:
         return await asyncio.to_thread(_collect_statarb_sync, symbol, store)
     except Exception as exc:

@@ -31,7 +31,11 @@ from quantstack.config.timeframes import Timeframe
 from quantstack.data.provider_enum import DataProvider
 from quantstack.data.streaming.base import BarEvent, StreamingAdapter
 
-import ib_insync as ib
+try:
+    import ib_insync as ib
+    _IBKR_AVAILABLE = True
+except ImportError:
+    _IBKR_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +128,11 @@ class IBKRStreamingAdapter(StreamingAdapter):
         client_id: int = 2,  # Use a different ID from IBKRDataAdapter (1)
         **kwargs,
     ) -> None:
+        if not _IBKR_AVAILABLE:
+            raise ImportError(
+                "IBKRStreamingAdapter requires 'ib_insync'. "
+                "Install with: uv pip install ib_insync"
+            )
         super().__init__(**kwargs)
         self._host = host
         self._port = port

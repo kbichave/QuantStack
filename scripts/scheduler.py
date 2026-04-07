@@ -32,12 +32,17 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
+import signal
 import subprocess
 import sys
+import time as _time
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from threading import Thread
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -49,6 +54,52 @@ logger = logging.getLogger("quantstack.scheduler")
 
 WORKDIR = Path(os.getenv("QUANTSTACK_WORKDIR", Path(__file__).parent.parent))
 TIMEZONE = "US/Eastern"
+
+# ---------------------------------------------------------------------------
+# Health endpoint (HTTP /health on port 8422)
+# ---------------------------------------------------------------------------
+
+_scheduler_ref = None
+_start_time = None
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != "/health":
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        try:
+            jobs = _scheduler_ref.get_jobs() if _scheduler_ref else []
+            body = {
+                "status": "running" if _scheduler_ref and _scheduler_ref.running else "degraded",
+                "uptime_seconds": int(_time.time() - _start_time) if _start_time else 0,
+                "jobs": [
+                    {"id": j.id, "next_run": str(j.next_run_time)}
+                    for j in jobs
+                ],
+                "job_count": len(jobs),
+            }
+            status_code = 200 if body["status"] == "running" else 503
+        except Exception:
+            body = {"status": "error"}
+            status_code = 503
+
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+
+    def log_message(self, format, *args):
+        pass  # Suppress access logs
+
+
+def _start_health_server(port: int = 8422):
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    logger.info(f"Health endpoint listening on 0.0.0.0:{port}/health")
 
 
 # ---------------------------------------------------------------------------
@@ -192,8 +243,8 @@ def run_credit_regime_revalidation(dry_run: bool = False) -> None:
         logger.error(f"'{label}' failed: {exc}")
 
 
-def run_autoresclaw_weekly(dry_run: bool = False) -> None:
-    """AutoResearchClaw weekly deep research (Sunday 20:00 ET).
+def run_autoresclaw_nightly(dry_run: bool = False) -> None:
+    """AutoResearchClaw nightly deep research (20:00 ET daily).
 
     Reads top 3 pending tasks from research_queue and launches AutoResearchClaw
     sequentially. Requires Docker. Output artifacts land in reports/autoresclaw/YYYY-MM-DD/.
@@ -202,9 +253,11 @@ def run_autoresclaw_weekly(dry_run: bool = False) -> None:
       - trade-reflector (loss > 1%)       → task_type=bug_fix
       - DriftDetector (CRITICAL severity) → task_type=ml_arch_search
       - Research loop (coverage gap)      → task_type=strategy_hypothesis
+      - Gap detection (failure mode)      → task_type=gap_detection
+      - Tool manifest (planned tools)     → task_type=tool_implement
       - Human (manual insert)             → any task_type
     """
-    label = "autoresclaw_weekly"
+    label = "autoresclaw_nightly"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     logger.info(f"[{timestamp}] Triggering {label}")
 
@@ -772,6 +825,32 @@ def run_listing_status_check(dry_run: bool = False) -> None:
         logger.error(f"'{label}' failed: {exc}")
 
 
+def run_langfuse_retention_cleanup(dry_run: bool = False) -> None:
+    """Langfuse trace retention stub -- config wiring only.
+
+    When LANGFUSE_RETENTION_ENABLED=true, logs what it would delete.
+    Actual deletion logic is deferred until the owner opts in and
+    the Langfuse cleanup API or direct DB pruning is implemented.
+
+    Schedule: Sunday 02:00 ET (weekly).
+    """
+    label = "langfuse_retention_cleanup"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would run at {timestamp}: {label}")
+        return
+
+    enabled = os.environ.get("LANGFUSE_RETENTION_ENABLED", "false")
+    if enabled != "true":
+        logger.info("Langfuse retention cleanup is disabled. Set LANGFUSE_RETENTION_ENABLED=true to enable.")
+        return
+
+    days = int(os.environ.get("LANGFUSE_RETENTION_DAYS", "30"))
+    logger.info(f"Langfuse retention cleanup: would delete traces older than {days} days (implementation pending)")
+
+
 # ---------------------------------------------------------------------------
 # Schedule
 # ---------------------------------------------------------------------------
@@ -889,9 +968,11 @@ JOBS = [
     {"trigger": {"hour": 18, "minute": 0, "day_of_week": "sun"}, "func": run_strategy_lifecycle_weekly, "label": "strategy_lifecycle_weekly_sun18:00"},
     # Community intelligence scan — discovers new quant techniques from Reddit/GitHub/arXiv.
     {"trigger": {"hour": 19, "minute": 0, "day_of_week": "sun"}, "func": run_community_intel_weekly, "label": "community_intel_weekly_sun19:00"},
-    # AutoResearchClaw deep research — processes research_queue (requires Docker).
-    {"trigger": {"hour": 20, "minute": 0, "day_of_week": "sun"}, "func": run_autoresclaw_weekly, "label": "autoresclaw_weekly_sun20:00"},
+    # AutoResearchClaw deep research — nightly, processes research_queue (requires Docker).
+    {"trigger": {"hour": 20, "minute": 0}, "func": run_autoresclaw_nightly, "label": "autoresclaw_nightly_20:00"},
 
+    # Langfuse trace retention stub — wiring only, cleanup logic deferred.
+    {"trigger": {"hour": 2, "minute": 0, "day_of_week": "sun"}, "func": run_langfuse_retention_cleanup, "label": "langfuse_retention_cleanup_sun02:00"},
     # Listing status check — flags delisted symbols (1 AV call).
     {"trigger": {"hour": 7, "minute": 0, "day_of_week": "mon"}, "func": run_listing_status_check, "label": "listing_status_check_mon07:00"},
 
@@ -963,10 +1044,23 @@ def _check_data_freshness_and_sync(dry_run: bool = False) -> None:
 
 def start_scheduler(dry_run: bool = False) -> None:
     """Start the APScheduler daemon."""
+    global _scheduler_ref, _start_time
+
     # Startup freshness check — covers missed 08:00 job
     _check_data_freshness_and_sync(dry_run=dry_run)
 
     scheduler = BlockingScheduler(timezone=TIMEZONE)
+
+    # Wire up health endpoint and SIGTERM handler before starting jobs
+    _scheduler_ref = scheduler
+    _start_time = _time.time()
+    _start_health_server()
+
+    def _handle_sigterm(signum, frame):
+        logger.info("Received SIGTERM — shutting down scheduler")
+        scheduler.shutdown(wait=False)
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
 
     for job in JOBS:
         trigger = CronTrigger(**job["trigger"], timezone=TIMEZONE)
@@ -992,7 +1086,7 @@ def start_scheduler(dry_run: bool = False) -> None:
         f"  */10  always       — Strategy pipeline (backtest draft→backtested)\n"
         f"  18:00 Sun          — Strategy lifecycle weekly (gap analysis, promote)\n"
         f"  19:00 Sun          — Community intel weekly (Reddit/GitHub/arXiv)\n"
-        f"  20:00 Sun          — AutoResearchClaw deep research (research_queue)\n"
+        f"  20:00 daily        — AutoResearchClaw deep research (research_queue)\n"
         f"  09:00 1st/mo       — Strategy lifecycle monthly (validate, retire)\n"
         f"\n"
         f"  Note: Trading execution handled by tmux trading loop\n"
@@ -1063,10 +1157,11 @@ def main() -> None:
             "av_intraday_5min": run_av_intraday_5min,
             "strategy_lifecycle_weekly": run_strategy_lifecycle_weekly,
             "strategy_lifecycle_monthly": run_strategy_lifecycle_monthly,
-            "autoresclaw_weekly": run_autoresclaw_weekly,
+            "autoresclaw_nightly": run_autoresclaw_nightly,
             "community_intel_weekly": run_community_intel_weekly,
             "strategy_pipeline": run_strategy_pipeline,
             "listing_status_check": run_listing_status_check,
+            "langfuse_retention_cleanup": run_langfuse_retention_cleanup,
             "ewf_market_overview": lambda dry=False: run_ewf_fetch("market_overview", dry),
             "ewf_1h_premarket": lambda dry=False: run_ewf_fetch("1h_premarket", dry),
             "ewf_1h_midday": lambda dry=False: run_ewf_fetch("1h_midday", dry),

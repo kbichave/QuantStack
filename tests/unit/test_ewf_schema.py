@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-import psycopg2.errors
+import psycopg.errors
 import pytest
 
 
@@ -62,7 +62,7 @@ class TestEwfChartAnalysesTable:
         )
         trading_ctx.db.commit()
 
-        with pytest.raises(psycopg2.errors.UniqueViolation):
+        with pytest.raises(psycopg.errors.UniqueViolation):
             trading_ctx.db.execute(
                 "INSERT INTO ewf_chart_analyses (symbol, timeframe, fetched_at) "
                 "VALUES (%s, %s, %s)",

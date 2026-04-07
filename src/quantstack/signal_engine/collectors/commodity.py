@@ -27,6 +27,7 @@ import pandas as pd
 from loguru import logger
 
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 _STALENESS_DAYS = 2
 _LOOKBACK_DAYS = 60
@@ -36,6 +37,8 @@ async def collect_commodity_signals(
     symbol: str, store: DataStore
 ) -> dict[str, Any]:
     """Compute commodity signals from macro indicator data."""
+    if not check_freshness(symbol, "macro_indicators", max_days=45):
+        return {}
     try:
         return await asyncio.to_thread(
             _collect_commodity_sync, symbol, store

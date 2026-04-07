@@ -185,6 +185,50 @@ failure reason — this prevents re-testing the same hypothesis.
 
 ---
 
+## Step 7e: TTL-Based Archival
+
+Move entries past their time-to-live into `*.archive.md` files. This is recoverable —
+archived entries can be moved back from the archive file if needed.
+
+### TTL Rules
+
+| Memory type | TTL | Action |
+|-------------|-----|--------|
+| Market reads (EWF, regime snapshots) | 7 days | Archive to `*.archive.md` |
+| Session handoffs | 30 days | Archive |
+| Strategy states / performance snapshots | Monthly validation | Flag for review, don't auto-archive |
+| Workshop lessons | Permanent | Never archive |
+| Validated principles | Permanent | Never archive |
+
+### How to Apply
+
+1. **Identify dated entries.** For each `.claude/memory/*.md` file, look for entries with:
+   - YAML frontmatter containing `created:` date
+   - Inline date markers like `[2026-04-04]` or `## 2026-04-04`
+   - Filename date patterns like `session_handoff_2026_04_01.md`
+
+2. **Check TTL.** For entries past their TTL based on the table above:
+   - Create `<filename>.archive.md` in the same directory (or append if it exists)
+   - Move the expired entries there, prefixed with `[ARCHIVED <today's date>]`
+   - Remove those entries from the source file
+
+3. **Skip permanent files.** Never archive entries from:
+   - `workshop_lessons.md`
+   - Any file containing "validated principles" in its content
+   - `strategy_registry.md` (already excluded from compaction)
+
+4. **Add dates to undated entries.** For files without date metadata, infer dates from
+   `git log --follow --diff-filter=A -- <file>` (creation date) or file modification time.
+   Add a `created:` field to the entry's frontmatter on first encounter so future runs
+   can apply TTL consistently.
+
+5. **Log archival.** After processing, note in session_handoffs.md:
+   ```
+   [DATE] TTL archival: moved N entries to *.archive.md (N market reads, N handoffs)
+   ```
+
+---
+
 ## Step 8: Commit Compacted State
 
 ```bash

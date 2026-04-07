@@ -14,7 +14,7 @@ Breaker states:
   TRIPPED  — strategy halted (paper mode only) after trip threshold
   RESET    — manually reset via /review session
 
-Persistence: breaker state saved to ~/.quantstack/strategy_breakers.json
+Persistence: breaker state saved to PostgreSQL (strategy_breaker_states table)
 
 Usage:
     from quantstack.execution.strategy_breaker import StrategyBreaker
@@ -35,14 +35,13 @@ Usage:
 
 from __future__ import annotations
 
-import json
-import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from pathlib import Path
 from threading import RLock
 
 from loguru import logger
+
+from quantstack.db import db_conn
 
 # =============================================================================
 # CONFIG + STATE
@@ -101,26 +100,22 @@ class StrategyBreaker:
     Tracks consecutive losses and drawdown per strategy. Automatically scales
     down position sizes or halts a strategy when thresholds are breached.
 
-    State is persisted to JSON so breaker status survives process restarts.
-    A threading Lock guards all state mutations and file I/O.
+    State is persisted to PostgreSQL (strategy_breaker_states table) so breaker
+    status survives container restarts. In-memory dict is the primary data
+    structure for hot-path reads; DB is the persistence layer.
+    A threading RLock guards all state mutations and DB I/O.
     """
-
-    _DEFAULT_STATE_PATH = "~/.quantstack/strategy_breakers.json"
 
     def __init__(
         self,
         config: BreakerConfig | None = None,
-        state_path: str | None = None,
     ):
         self._config = config or BreakerConfig()
-        self._state_path = Path(
-            state_path or os.getenv("STRATEGY_BREAKER_PATH", self._DEFAULT_STATE_PATH)
-        ).expanduser()
         self._lock = RLock()
         self._states: dict[str, BreakerState] = {}
         self._load()
         logger.info(
-            f"StrategyBreaker initialized | path={self._state_path} "
+            f"StrategyBreaker initialized "
             f"| strategies_tracked={len(self._states)} "
             f"| max_dd={self._config.max_drawdown_pct}% "
             f"| consec_loss_limit={self._config.consecutive_loss_limit}"
@@ -437,73 +432,68 @@ class StrategyBreaker:
     # -------------------------------------------------------------------------
 
     def _persist(self) -> None:
-        """Save all breaker states to JSON. Called under the lock."""
+        """Upsert all breaker states to PostgreSQL. Called under the lock."""
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {}
-            for strategy_id, state in self._states.items():
-                entry = asdict(state)
-                # datetime -> ISO string for JSON
-                if state.tripped_at is not None:
-                    entry["tripped_at"] = state.tripped_at.isoformat()
-                else:
-                    entry["tripped_at"] = None
-                payload[strategy_id] = entry
-
-            # Atomic write: write to temp file then rename to avoid partial reads
-            tmp_path = self._state_path.with_suffix(".tmp")
-            with open(tmp_path, "w") as f:
-                json.dump(payload, f, indent=2)
-            tmp_path.rename(self._state_path)
+            with db_conn() as conn:
+                for strategy_id, state in self._states.items():
+                    conn.execute(
+                        """
+                        INSERT INTO strategy_breaker_states
+                            (strategy_id, status, scale_factor, consecutive_losses,
+                             peak_equity, current_equity, drawdown_pct, tripped_at,
+                             reason, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        ON CONFLICT (strategy_id) DO UPDATE SET
+                            status = EXCLUDED.status,
+                            scale_factor = EXCLUDED.scale_factor,
+                            consecutive_losses = EXCLUDED.consecutive_losses,
+                            peak_equity = EXCLUDED.peak_equity,
+                            current_equity = EXCLUDED.current_equity,
+                            drawdown_pct = EXCLUDED.drawdown_pct,
+                            tripped_at = EXCLUDED.tripped_at,
+                            reason = EXCLUDED.reason,
+                            updated_at = NOW()
+                        """,
+                        [strategy_id, state.status, state.scale_factor,
+                         state.consecutive_losses, state.peak_equity,
+                         state.current_equity, state.drawdown_pct,
+                         state.tripped_at, state.reason],
+                    )
         except Exception as exc:
-            # Persistence failure is serious but must not crash the trading process.
-            # Log at error level so monitoring picks it up.
-            logger.error(
-                f"[BREAKER] Failed to persist state to {self._state_path}: {exc}"
-            )
+            logger.error(f"[BREAKER] Failed to persist state to DB: {exc}")
 
     def _load(self) -> None:
-        """Load breaker states from JSON on startup."""
-        if not self._state_path.exists():
-            logger.debug(
-                f"[BREAKER] No state file at {self._state_path} — starting fresh"
-            )
-            return
-
+        """Load breaker states from PostgreSQL on startup."""
         try:
-            with open(self._state_path) as f:
-                payload = json.load(f)
+            with db_conn() as conn:
+                conn.execute("SELECT * FROM strategy_breaker_states")
+                rows = conn.fetchall()
 
-            for strategy_id, entry in payload.items():
-                tripped_at = None
-                if entry.get("tripped_at"):
-                    tripped_at = datetime.fromisoformat(entry["tripped_at"])
-
-                status = entry.get("status", STATUS_ACTIVE)
+            for row in rows:
+                status = row["status"]
                 if status not in _VALID_STATUSES:
                     logger.warning(
-                        f"[BREAKER] Invalid status '{status}' for {strategy_id} "
-                        f"in state file — resetting to ACTIVE"
+                        f"[BREAKER] Invalid status '{status}' for "
+                        f"{row['strategy_id']} in DB — resetting to ACTIVE"
                     )
                     status = STATUS_ACTIVE
 
-                self._states[strategy_id] = BreakerState(
-                    strategy_id=strategy_id,
+                self._states[row["strategy_id"]] = BreakerState(
+                    strategy_id=row["strategy_id"],
                     status=status,
-                    consecutive_losses=entry.get("consecutive_losses", 0),
-                    peak_equity=entry.get("peak_equity", 0.0),
-                    current_equity=entry.get("current_equity", 0.0),
-                    drawdown_pct=entry.get("drawdown_pct", 0.0),
-                    tripped_at=tripped_at,
-                    scale_factor=entry.get("scale_factor", 1.0),
-                    reason=entry.get("reason", ""),
+                    consecutive_losses=row["consecutive_losses"],
+                    peak_equity=row["peak_equity"],
+                    current_equity=row["current_equity"],
+                    drawdown_pct=row["drawdown_pct"],
+                    tripped_at=row["tripped_at"],
+                    scale_factor=row["scale_factor"],
+                    reason=row["reason"],
                 )
 
             logger.info(
-                f"[BREAKER] Loaded {len(self._states)} strategy states from {self._state_path}"
+                f"[BREAKER] Loaded {len(self._states)} strategy states from DB"
             )
 
-            # Log any strategies that are tripped or scaled from a previous session
             for sid, state in self._states.items():
                 if state.status == STATUS_TRIPPED:
                     logger.warning(
@@ -516,15 +506,8 @@ class StrategyBreaker:
                         f"reason={state.reason}"
                     )
 
-        except json.JSONDecodeError as exc:
-            logger.error(
-                f"[BREAKER] Corrupt state file at {self._state_path}: {exc} — "
-                f"starting with empty state. The corrupt file is preserved for debugging."
-            )
         except Exception as exc:
-            logger.error(
-                f"[BREAKER] Failed to load state from {self._state_path}: {exc}"
-            )
+            logger.error(f"[BREAKER] Failed to load state from DB: {exc}")
 
     # -------------------------------------------------------------------------
     # Helpers

@@ -62,16 +62,16 @@ def build_research_graph(
     critic_cfg = config_watcher.get_config("hypothesis_critic")
 
     # Per-agent LLM instances (each agent gets its own tier + thinking config)
-    quant_llm_base = get_chat_model(quant_cfg.llm_tier, thinking=quant_cfg.thinking)
-    ml_llm_base = get_chat_model(ml_cfg.llm_tier, thinking=ml_cfg.thinking)
-    critic_llm_base = get_chat_model(critic_cfg.llm_tier, thinking=critic_cfg.thinking)
+    quant_llm_base = get_chat_model(quant_cfg.llm_tier, thinking=quant_cfg.thinking, temperature=quant_cfg.temperature)
+    ml_llm_base = get_chat_model(ml_cfg.llm_tier, thinking=ml_cfg.thinking, temperature=ml_cfg.temperature)
+    critic_llm_base = get_chat_model(critic_cfg.llm_tier, thinking=critic_cfg.thinking, temperature=critic_cfg.temperature)
 
     # Bind tools per agent
     quant_llm, quant_tools, _ = bind_tools_to_llm(quant_llm_base, quant_cfg)
     ml_bound_llm, ml_tools, _ = bind_tools_to_llm(ml_llm_base, ml_cfg)
     critic_llm, critic_tools, _ = bind_tools_to_llm(critic_llm_base, critic_cfg)
 
-    fan_out_enabled = os.environ.get("RESEARCH_FAN_OUT_ENABLED", "false").lower() == "true"
+    fan_out_enabled = os.environ.get("RESEARCH_FAN_OUT_ENABLED", "true").lower() == "true"
 
     graph = StateGraph(ResearchState)
 

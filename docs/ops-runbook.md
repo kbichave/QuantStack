@@ -486,3 +486,89 @@ rows = conn.execute("SELECT strategy_id, name, symbol FROM strategies WHERE stat
 for r in rows: print(f"  {r[0]:30} | {r[1]:30} | {r[2]}")
 conn.close()
 ```
+
+---
+
+## Credential Rotation
+
+Rotate credentials periodically (quarterly minimum). Steps:
+
+1. **Generate new credentials** at the provider (Alpaca, Alpha Vantage, etc.)
+2. **Update `.env`** with the new values — keep the old values commented above as backup
+3. **Restart services**: `./stop.sh && ./start.sh`
+4. **Verify**: `./status.sh` — all services should be healthy
+5. **Revoke old credentials** at the provider once confirmed working
+
+**Critical order**: update `.env` *before* revoking old keys. If new keys fail validation, you can revert instantly.
+
+**Env var validation**: `start.sh` validates all required env vars on boot. If a rotated key is malformed or missing, the system will refuse to start with a clear error message identifying which variable failed.
+
+| Credential | Provider | Rotation URL |
+|------------|----------|--------------|
+| `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` | Alpaca | alpaca.markets → Paper Trading → API Keys |
+| `ALPHA_VANTAGE_API_KEY` | Alpha Vantage | alphavantage.co → My Account |
+| `POLYGON_API_KEY` | Polygon | polygon.io → Dashboard → API Keys |
+| `GROQ_API_KEY` | Groq | console.groq.com → API Keys |
+
+---
+
+## Database Backup & Restore
+
+### Backup
+
+Automated backups run via `scripts/backup.sh`. The script uses `pg_dump` in custom format (compressed, supports selective restore), verifies dump integrity with `pg_restore --list`, and prunes backups older than 30 days. An `flock`-based lock prevents concurrent runs.
+
+```bash
+# Manual backup
+./scripts/backup.sh
+
+# Scheduled (add to crontab or scheduler)
+# 0 2 * * * /path/to/scripts/backup.sh >> /var/log/quantstack_backup.log 2>&1
+```
+
+Backups are stored in the `quantstack-backups` Docker volume, mounted at `/data/quantstack/backups` inside the postgres container.
+
+### Full Restore from pg_dump
+
+```bash
+# Stop all services
+./stop.sh
+
+# Restore from most recent dump
+pg_restore --dbname=quantstack --clean --if-exists \
+    /data/quantstack/backups/quantstack_YYYY-MM-DD.dump
+
+# Verify key tables
+psql quantstack -c "SELECT 'positions' AS tbl, COUNT(*) FROM positions
+    UNION ALL SELECT 'orders', COUNT(*) FROM orders
+    UNION ALL SELECT 'strategies', COUNT(*) FROM strategies;"
+
+# Restart
+./start.sh
+```
+
+### Point-in-Time Recovery (PITR)
+
+Use PITR when you need to restore to a specific moment (e.g., right before a bad trade or data corruption). Requires WAL archiving to be enabled in `postgresql.conf` (`archive_mode = on`).
+
+```bash
+# Stop postgres only
+docker-compose stop postgres
+
+# Restore base backup
+pg_restore --dbname=quantstack --clean --if-exists \
+    /data/quantstack/backups/quantstack_YYYY-MM-DD.dump
+
+# Create recovery signal and configure recovery target
+touch /var/lib/postgresql/data/recovery.signal
+
+# Set in postgresql.auto.conf:
+# restore_command = 'cp /data/quantstack/wal_archive/%f %p'
+# recovery_target_time = 'YYYY-MM-DD HH:MM:SS UTC'
+# recovery_target_action = 'promote'
+
+# Start postgres — it will replay WAL up to the target time
+docker-compose start postgres
+```
+
+After PITR completes, verify data integrity with the key tables query above, then restart all services with `./start.sh`.

@@ -8,7 +8,7 @@ Reads LITELLM_ROUTER_CONFIG from the environment (set in .env) and builds
 a litellm.Router that maps logical model names ("reasoning", "bulk") to
 actual provider/model strings.
 
-Most call sites should use get_llm_for_role() from llm_config.py directly.
+Most call sites should use get_model_for_role() from llm.provider directly.
 Use this module when you need litellm.Router semantics: load balancing across
 multiple replicas of the same model, per-model rate limits, or retry logic
 that differs by model alias.
@@ -25,7 +25,7 @@ Usage:
 Environment:
     LITELLM_ROUTER_CONFIG  JSON string or path to YAML file defining the
                            model_list and routing_strategy. If unset, falls
-                           back to direct litellm.completion via get_llm_for_role.
+                           back to direct litellm.completion via get_model_for_role.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from typing import Any
 import litellm
 from loguru import logger
 
-from quantstack.llm_config import get_llm_for_role
+from quantstack.llm.provider import get_model_for_role
 
 
 def _load_router_config() -> list[dict] | None:
@@ -111,7 +111,7 @@ def _expand_env_refs(model_list: list[dict]) -> None:
 
 def router_completion(model: str, messages: list[dict], **kwargs: Any) -> Any:
     """
-    Call litellm via the configured Router if available, else via get_llm_for_role.
+    Call litellm via the configured Router if available, else via get_model_for_role.
 
     Args:
         model: Logical model name ("reasoning", "bulk") or a full LiteLLM model
@@ -129,16 +129,16 @@ def router_completion(model: str, messages: list[dict], **kwargs: Any) -> Any:
         # Router is live — use it for load balancing + retry logic
         return router.completion(model=model, messages=messages, **kwargs)
 
-    # Fallback: resolve via get_llm_for_role if model is a logical alias,
+    # Fallback: resolve via get_model_for_role if model is a logical alias,
     # otherwise pass straight to litellm.completion.
     resolved = model
     if model in ("reasoning", "research"):
         try:
-            resolved = get_llm_for_role("research")
+            resolved = get_model_for_role("research")
         except Exception:
-            resolved = get_llm_for_role("bulk")
+            resolved = get_model_for_role("bulk")
     elif model == "bulk":
-        resolved = get_llm_for_role("bulk")
+        resolved = get_model_for_role("bulk")
 
     return litellm.completion(model=resolved, messages=messages, **kwargs)
 

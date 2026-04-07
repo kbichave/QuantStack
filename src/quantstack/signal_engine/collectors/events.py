@@ -19,6 +19,7 @@ from loguru import logger
 from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
 from quantstack.data.earnings import EarningsManager
 from quantstack.data.macro_calendar import MacroCalendarGenerator
+from quantstack.signal_engine.staleness import check_freshness
 
 
 _TIMEOUT_SECONDS = 6.0
@@ -36,6 +37,8 @@ async def collect_events(symbol: str, _store: Any) -> dict[str, Any]:
         next_event_desc   : str  — human-readable description of nearest event
         events_7d         : list[dict] — raw event list for the next 7 days
     """
+    if not check_freshness(symbol, "earnings_calendar", max_days=30):
+        return {}
     try:
         return await asyncio.wait_for(_fetch_events(symbol), timeout=_TIMEOUT_SECONDS)
     except (asyncio.TimeoutError, Exception) as exc:

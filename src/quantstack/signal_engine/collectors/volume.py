@@ -29,6 +29,7 @@ from quantstack.core.features.microstructure import (
     VWAPSessionDeviation,
 )
 from quantstack.core.features.volume import AnchoredVWAP, VolumePointOfControl
+from quantstack.signal_engine.staleness import check_freshness
 
 _LOOKBACK_DAYS = 60  # volume profile window
 _MIN_BARS = 20
@@ -49,6 +50,8 @@ async def collect_volume(symbol: str, store: DataStore) -> dict[str, Any]:
         lvn_levels           : list[float] — top 3 LVN price levels
         vol_confirms_move    : bool — volume > 1.5x ADV on last bar
     """
+    if not check_freshness(symbol, "1d", max_days=4):
+        return {}
     try:
         return await asyncio.to_thread(_collect_volume_sync, symbol, store)
     except Exception as exc:

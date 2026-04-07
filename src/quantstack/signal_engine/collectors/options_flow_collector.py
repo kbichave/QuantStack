@@ -28,6 +28,7 @@ from loguru import logger
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
 from quantstack.signal_engine.collectors.options_flow import collect_options_flow
+from quantstack.signal_engine.staleness import check_freshness
 
 
 async def collect_options_flow_async(symbol: str, store: DataStore) -> dict[str, Any]:
@@ -54,6 +55,8 @@ async def collect_options_flow_async(symbol: str, store: DataStore) -> dict[str,
 
     Returns {} if data unavailable or credentials missing.
     """
+    if not check_freshness(symbol, "options_chains", max_days=3):
+        return {}
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_collect_sync, symbol, store),

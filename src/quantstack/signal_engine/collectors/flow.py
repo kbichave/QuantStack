@@ -18,6 +18,7 @@ from loguru import logger
 
 from quantstack.data.adapters.financial_datasets_client import FinancialDatasetsClient
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 
 _TIMEOUT_SECONDS = 10.0
@@ -28,6 +29,8 @@ _INSTITUTIONAL_LIMIT = 10  # most recent filings
 
 async def collect_flow(symbol: str, store: DataStore) -> dict[str, Any]:
     """Collect insider + institutional ownership flow signals. Returns {} on failure."""
+    if not check_freshness(symbol, "1d", max_days=30):
+        return {}
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_collect_flow_sync, symbol, store),

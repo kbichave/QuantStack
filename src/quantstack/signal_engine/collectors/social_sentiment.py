@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from quantstack.data.storage import DataStore
 
+from quantstack.signal_engine.staleness import check_freshness
+
 logger = logging.getLogger(__name__)
 
 # Keywords for simple title-based sentiment scoring (no LLM needed)
@@ -57,6 +59,8 @@ async def collect_social_sentiment(symbol: str, _store: "DataStore") -> dict:
         source                  str   — "reddit+stocktwits" | "reddit_only" |
                                         "stocktwits_only" | "default"
     """
+    if not check_freshness(symbol, "news_sentiment", max_days=7):
+        return {}
     try:
         reddit_task = asyncio.create_task(_fetch_reddit(symbol))
         stocktwits_task = asyncio.create_task(_fetch_stocktwits(symbol))

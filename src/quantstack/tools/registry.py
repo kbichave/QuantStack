@@ -5,9 +5,19 @@ YAML-driven tool assignment without hardcoded imports in graph code.
 
 Only LLM-facing tools appear here. Node-callable functions are imported
 directly by node implementations.
+
+Tool lifecycle: tools are classified into ACTIVE, PLANNED, and DEGRADED
+registries based on tool_manifest.yaml. TOOL_REGISTRY remains as the
+backward-compatible union of all three.
 """
 
+from __future__ import annotations
+
+from pathlib import Path
+
+import yaml
 from langchain_core.tools import BaseTool
+from loguru import logger
 
 # Signal & analysis
 from quantstack.tools.langchain.signal_tools import signal_brief, multi_signal_brief
@@ -194,6 +204,18 @@ _ewf_tools = _try_import("quantstack.tools.langchain.ewf_tools", [
     "get_ewf_blue_box_setups",
 ])
 
+# System alerts (supervisor graph)
+_system_alert_tools = _try_import("quantstack.tools.langchain.system_alert_tools", [
+    "create_system_alert", "acknowledge_alert", "escalate_alert",
+    "resolve_alert", "query_system_alerts",
+])
+
+# Knowledge Graph (alpha knowledge graph — hypothesis novelty, factor overlap, research history)
+_knowledge_graph_tools = _try_import("quantstack.tools.langchain.knowledge_graph_tools", [
+    "check_hypothesis_novelty", "check_factor_overlap",
+    "get_research_history", "record_experiment",
+])
+
 
 TOOL_REGISTRY: dict[str, BaseTool] = {
     # Signal & analysis
@@ -272,8 +294,100 @@ for _tools_dict in [
     _intraday_tools, _macro_tools, _nlp_tools, _options_exec_tools, _meta_tools,
     _finrl_tools, _qc_acquisition_tools, _qc_backtesting_tools,
     _qc_indicator_tools, _qc_research_tools, _ewf_tools,
+    _system_alert_tools, _knowledge_graph_tools,
 ]:
     TOOL_REGISTRY.update(_tools_dict)
+
+
+# ---------------------------------------------------------------------------
+# Tool lifecycle registries
+# ---------------------------------------------------------------------------
+
+ACTIVE_TOOLS: dict[str, BaseTool] = {}
+PLANNED_TOOLS: dict[str, BaseTool] = {}
+DEGRADED_TOOLS: dict[str, BaseTool] = {}
+
+_MANIFEST_PATH = Path(__file__).parent / "tool_manifest.yaml"
+
+
+def load_tool_manifest() -> dict[str, dict]:
+    """Load tool_manifest.yaml and return the ``tools`` mapping.
+
+    Returns an empty dict if the manifest is missing or malformed, so
+    the system degrades gracefully to treating every tool as active.
+    """
+    if not _MANIFEST_PATH.exists():
+        logger.warning("[ToolLifecycle] Manifest not found at %s — all tools treated as active", _MANIFEST_PATH)
+        return {}
+    try:
+        with open(_MANIFEST_PATH) as fh:
+            data = yaml.safe_load(fh)
+        return data.get("tools", {}) if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.error("[ToolLifecycle] Failed to load manifest: %s", exc)
+        return {}
+
+
+def classify_tools() -> None:
+    """Partition TOOL_REGISTRY into ACTIVE / PLANNED / DEGRADED based on manifest.
+
+    Tools present in TOOL_REGISTRY but absent from the manifest default to active.
+    Manifest entries referencing tools not in TOOL_REGISTRY are silently skipped
+    (they may not have been importable).
+    """
+    manifest = load_tool_manifest()
+
+    ACTIVE_TOOLS.clear()
+    PLANNED_TOOLS.clear()
+    DEGRADED_TOOLS.clear()
+
+    for name, tool in TOOL_REGISTRY.items():
+        entry = manifest.get(name, {})
+        status = entry.get("status", "active") if isinstance(entry, dict) else "active"
+
+        if status == "planned":
+            PLANNED_TOOLS[name] = tool
+        elif status == "degraded":
+            DEGRADED_TOOLS[name] = tool
+        else:
+            ACTIVE_TOOLS[name] = tool
+
+    logger.info(
+        "[ToolLifecycle] Classified %d active, %d planned, %d degraded tools",
+        len(ACTIVE_TOOLS), len(PLANNED_TOOLS), len(DEGRADED_TOOLS),
+    )
+
+
+def move_tool(tool_name: str, from_status: str, to_status: str) -> None:
+    """Move a tool between lifecycle registries.
+
+    Raises KeyError if tool_name is not found in the from_status registry.
+    Valid statuses: ``active``, ``planned``, ``degraded``.
+    """
+    registries = {
+        "active": ACTIVE_TOOLS,
+        "planned": PLANNED_TOOLS,
+        "degraded": DEGRADED_TOOLS,
+    }
+    source = registries.get(from_status)
+    dest = registries.get(to_status)
+    if source is None:
+        raise ValueError(f"Invalid from_status: {from_status!r}")
+    if dest is None:
+        raise ValueError(f"Invalid to_status: {to_status!r}")
+    if tool_name not in source:
+        raise KeyError(
+            f"Tool {tool_name!r} not in {from_status} registry. "
+            f"Available: {sorted(source.keys())}"
+        )
+
+    tool = source.pop(tool_name)
+    dest[tool_name] = tool
+    logger.info("[ToolLifecycle] Moved %s: %s -> %s", tool_name, from_status, to_status)
+
+
+# Classify on import so the registries are populated immediately.
+classify_tools()
 
 
 from quantstack.graphs.tool_search_compat import TOOL_SEARCH_TOOL, tool_to_anthropic_dict
@@ -298,6 +412,9 @@ def search_deferred_tools(
 
     scored: list[tuple[int, str, str]] = []
     for name in deferred_names:
+        # Exclude planned tools from search results — they aren't usable yet
+        if name in PLANNED_TOOLS:
+            continue
         tool = TOOL_REGISTRY.get(name)
         if tool is None:
             continue
@@ -318,20 +435,37 @@ def search_deferred_tools(
 
 
 def get_tools_for_agent(tool_names: list[str] | tuple[str, ...]) -> list[BaseTool]:
-    """Resolve a list of tool name strings to tool objects.
+    """Resolve a list of tool name strings to *active* tool objects, sorted by name.
 
-    Raises KeyError with a clear message if any tool name is not found
-    in the registry.
+    Tools are returned in deterministic alphabetical order by name.
+    This is critical for prompt cache stability — Anthropic's cache key
+    includes tool definitions, so non-deterministic ordering causes
+    cache misses on every call.
+
+    Raises KeyError with a clear message if a tool is planned, degraded,
+    or entirely unknown.
     """
     tools = []
     for name in tool_names:
-        if name not in TOOL_REGISTRY:
+        if name in ACTIVE_TOOLS:
+            tools.append(ACTIVE_TOOLS[name])
+        elif name in PLANNED_TOOLS:
+            raise KeyError(
+                f"Tool '{name}' is PLANNED (not yet active). "
+                f"Move it to active in tool_manifest.yaml before use."
+            )
+        elif name in DEGRADED_TOOLS:
+            raise KeyError(
+                f"Tool '{name}' is DEGRADED (auto-disabled due to failures). "
+                f"Check tool_health table and fix underlying issues."
+            )
+        else:
             available = sorted(TOOL_REGISTRY.keys())
             raise KeyError(
                 f"Tool '{name}' not found in TOOL_REGISTRY. "
                 f"Available tools: {available}"
             )
-        tools.append(TOOL_REGISTRY[name])
+    tools.sort(key=lambda t: t.name)
     return tools
 
 
@@ -364,9 +498,14 @@ def get_tools_for_agent_with_search(
     tool_map = {t.name: t for t in tools_for_execution}
 
     tools_for_api: list[dict] = []
-    for name in tool_names:
+    for name in sorted(tool_names):
         defer = name not in always_loaded_set
         tools_for_api.append(tool_to_anthropic_dict(tool_map[name], defer=defer))
+
+    # Cache breakpoint: mark the last regular tool so Anthropic caches
+    # all tool definitions as one block (90% cost reduction on cache hits).
+    if tools_for_api:
+        tools_for_api[-1]["cache_control"] = {"type": "ephemeral"}
 
     tools_for_api.append(TOOL_SEARCH_TOOL)
 

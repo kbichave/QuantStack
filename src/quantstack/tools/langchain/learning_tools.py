@@ -1,5 +1,6 @@
 """Knowledge base and learning tools for LangGraph agents."""
 
+import hashlib
 import json
 import logging
 from typing import Annotated
@@ -7,43 +8,45 @@ from typing import Annotated
 from langchain_core.tools import tool
 from pydantic import Field
 
+from quantstack.rag.query import search_knowledge_base as rag_search
+
 logger = logging.getLogger(__name__)
 
 
 @tool
 async def search_knowledge_base(
     query: Annotated[str, Field(description="Natural language search query for the knowledge base, e.g. 'AAPL earnings trade lessons', 'momentum strategy drawdown'")],
-    top_k: Annotated[int, Field(description="Maximum number of knowledge entries to return, ranked by recency")] = 5,
+    top_k: Annotated[int, Field(description="Maximum number of knowledge entries to return, ranked by semantic relevance")] = 5,
 ) -> str:
-    """Retrieves past lessons, trade outcomes, and strategy notes from the knowledge base using keyword search. Use when preparing for a new trade to recall historical mistakes, reviewing what worked or failed on a specific ticker, or gathering institutional memory before strategy design. Returns JSON with matching knowledge entries including category, content snippet, metadata, and creation timestamp."""
+    """Retrieves past lessons, trade outcomes, and strategy notes from the knowledge base using semantic search. Use when preparing for a new trade to recall historical mistakes, reviewing what worked or failed on a specific ticker, or gathering institutional memory before strategy design. Returns JSON with matching knowledge entries including category, content snippet, metadata, and relevance distance."""
     try:
-        from quantstack.tools._state import require_ctx
-
-        ctx = require_ctx()
-        db = ctx.db
-
-        rows = db.execute(
-            """SELECT id, category, content, metadata, created_at
-               FROM knowledge_base
-               ORDER BY created_at DESC
-               LIMIT %s""",
-            (top_k,),
-        ).fetchall()
-
-        entries = []
-        for row in rows:
-            entries.append({
-                "id": row[0],
-                "category": row[1],
-                "content": row[2][:500] if row[2] else "",
-                "metadata": row[3],
-                "created_at": str(row[4]),
-            })
-
-        return json.dumps({"query": query, "results": entries, "count": len(entries)}, default=str)
+        results = rag_search(query=query, n_results=top_k)
+    except (ConnectionError, OSError) as e:
+        logger.error("Embedding service unavailable for search_knowledge_base: %s", e)
+        return json.dumps({
+            "query": query,
+            "results": [],
+            "error": "Embedding service unavailable — knowledge base search requires Ollama to be running",
+        })
     except Exception as e:
-        logger.error(f"search_knowledge_base failed: {e}")
+        logger.error("search_knowledge_base failed: %s", e)
         return json.dumps({"query": query, "results": [], "error": str(e)})
+
+    entries = []
+    for r in results:
+        meta = r.get("metadata") or {}
+        text = r.get("text", "")
+        entry_id = meta.get("id") or hashlib.sha256(text.encode()).hexdigest()[:16]
+        entries.append({
+            "id": entry_id,
+            "category": r.get("collection", "unknown"),
+            "content": text[:500],
+            "metadata": meta,
+            "created_at": meta.get("created_at"),
+            "distance": r.get("distance"),
+        })
+
+    return json.dumps({"query": query, "results": entries, "count": len(entries)}, default=str)
 
 
 @tool

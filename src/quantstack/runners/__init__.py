@@ -1,12 +1,15 @@
 """Shared runner utilities: market hours detection and cycle interval selection."""
 
 from datetime import datetime, time as dtime
+from enum import Enum
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
 
 MARKET_OPEN = dtime(9, 30)
 MARKET_CLOSE = dtime(16, 0)
+EXTENDED_OPEN = dtime(4, 0)
+EXTENDED_CLOSE = dtime(20, 0)
 
 # NYSE holidays for 2025-2027 (dates when markets are fully closed)
 NYSE_HOLIDAYS: set[tuple[int, int, int]] = {
@@ -24,20 +27,25 @@ NYSE_HOLIDAYS: set[tuple[int, int, int]] = {
     (2027, 11, 25), (2027, 12, 24),
 }
 
-INTERVALS: dict[str, dict[str, int | None]] = {
-    # Bootstrap phase: aggressive research, trading only during market hours.
-    # After strategy library is built (30+ strategies), scale back research
-    # to after_hours=1800, weekend=3600.
-    "trading":    {"market": 300,  "after_hours": None,  "weekend": None},
-    "research":   {"market": 120,  "after_hours": 180,   "weekend": 300},
-    "supervisor": {"market": 300,  "after_hours": 300,   "weekend": 300},
-}
+
+class OperatingMode(str, Enum):
+    """Four-mode operating system for 24/7 operation."""
+
+    MARKET = "market"           # 9:30-16:00 ET Mon-Fri
+    EXTENDED = "extended"       # 04:00-09:30 ET, 16:00-20:00 ET Mon-Fri
+    OVERNIGHT = "overnight"     # 20:00-04:00 ET Mon-Fri
+    WEEKEND = "weekend"         # Sat-Sun all day, NYSE holidays
 
 
-def is_market_hours(dt: datetime | None = None) -> bool:
-    """Check if the given datetime falls within NYSE regular trading hours.
+def get_operating_mode(dt: datetime | None = None) -> OperatingMode:
+    """Determine current operating mode based on ET time and calendar.
 
-    Naive datetimes are treated as US/Eastern.
+    Args:
+        dt: Datetime to check. If None, uses current time.
+            Naive datetimes are treated as US/Eastern.
+
+    Returns:
+        The current OperatingMode.
     """
     if dt is None:
         dt = datetime.now(ET)
@@ -46,35 +54,60 @@ def is_market_hours(dt: datetime | None = None) -> bool:
     else:
         dt = dt.astimezone(ET)
 
-    # Weekend check
+    # Weekend/holiday check
     if dt.weekday() >= 5:
-        return False
-
-    # Holiday check
+        return OperatingMode.WEEKEND
     if (dt.year, dt.month, dt.day) in NYSE_HOLIDAYS:
-        return False
+        return OperatingMode.WEEKEND
 
-    # Time check: [9:30, 16:00)
     t = dt.time()
-    return MARKET_OPEN <= t < MARKET_CLOSE
+
+    # Market hours: [9:30, 16:00)
+    if MARKET_OPEN <= t < MARKET_CLOSE:
+        return OperatingMode.MARKET
+
+    # Extended hours: [4:00, 9:30) and [16:00, 20:00)
+    if EXTENDED_OPEN <= t < MARKET_OPEN:
+        return OperatingMode.EXTENDED
+    if MARKET_CLOSE <= t < EXTENDED_CLOSE:
+        return OperatingMode.EXTENDED
+
+    # Everything else: overnight
+    return OperatingMode.OVERNIGHT
 
 
-def _is_weekend(dt: datetime | None = None) -> bool:
-    """Check if the given datetime is a weekend day."""
-    if dt is None:
-        dt = datetime.now(ET)
-    elif dt.tzinfo is None:
-        dt = dt.replace(tzinfo=ET)
-    else:
-        dt = dt.astimezone(ET)
-    return dt.weekday() >= 5
+# Mode-aware interval table
+INTERVALS: dict[str, dict[OperatingMode, int | None]] = {
+    "trading": {
+        OperatingMode.MARKET: 300,
+        OperatingMode.EXTENDED: 300,
+        OperatingMode.OVERNIGHT: None,
+        OperatingMode.WEEKEND: None,
+    },
+    "research": {
+        OperatingMode.MARKET: 120,
+        OperatingMode.EXTENDED: 180,
+        OperatingMode.OVERNIGHT: 120,
+        OperatingMode.WEEKEND: 300,
+    },
+    "supervisor": {
+        OperatingMode.MARKET: 300,
+        OperatingMode.EXTENDED: 300,
+        OperatingMode.OVERNIGHT: 300,
+        OperatingMode.WEEKEND: 300,
+    },
+}
+
+
+def is_market_hours(dt: datetime | None = None) -> bool:
+    """Check if the given datetime falls within NYSE regular trading hours.
+
+    Naive datetimes are treated as US/Eastern.
+    """
+    return get_operating_mode(dt) == OperatingMode.MARKET
 
 
 def get_cycle_interval(graph_name: str, dt: datetime | None = None) -> int | None:
     """Return the sleep interval in seconds for the given graph, or None to pause."""
-    config = INTERVALS[graph_name]
-    if is_market_hours(dt):
-        return config["market"]
-    if _is_weekend(dt):
-        return config["weekend"]
-    return config["after_hours"]
+    mode = get_operating_mode(dt)
+    return INTERVALS[graph_name][mode]

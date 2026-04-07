@@ -16,8 +16,10 @@ synthesis weights downstream.
 """
 
 import asyncio
+import os
 from typing import Any
 
+import numpy as np
 from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
@@ -28,6 +30,7 @@ from quantstack.core.hierarchy.regime.hmm_model import (
     HMMRegimeModel,
     HMMRegimeState,
 )
+from quantstack.signal_engine.staleness import check_freshness
 
 _MIN_BARS = 60
 _HMM_MIN_BARS = 120  # HMM needs more history for stable fitting
@@ -52,6 +55,8 @@ async def collect_regime(symbol: str, store: DataStore) -> dict[str, Any]:
         hmm_expected_duration : float — expected bars remaining in regime
         regime_source      : "hmm" | "rule_based" — which model produced the result
     """
+    if not check_freshness(symbol, "1d", max_days=4):
+        return {}
     try:
         return await asyncio.to_thread(_collect_regime_sync, symbol, store)
     except Exception as exc:
@@ -116,6 +121,14 @@ def _try_hmm_regime(df: "pd.DataFrame") -> dict[str, Any] | None:
             for state, prob in result.state_probabilities.items()
         }
 
+        # Transition probability: 1 - max(filtered posteriors)
+        # High value = HMM uncertain about current state = possible regime transition
+        transition_probability = round(1.0 - max(probs.values()), 4)
+
+        # Second most likely state (potential transition target)
+        sorted_states = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+        most_likely_next = sorted_states[1][0] if len(sorted_states) > 1 else None
+
         return {
             "trend_regime": trend_regime,
             "volatility_regime": vol_regime,
@@ -125,6 +138,8 @@ def _try_hmm_regime(df: "pd.DataFrame") -> dict[str, Any] | None:
             "hmm_probabilities": probs,
             "hmm_stability": round(result.regime_stability, 3),
             "hmm_expected_duration": round(result.expected_duration, 1),
+            "transition_probability": transition_probability,
+            "most_likely_next_regime": most_likely_next,
             "regime_source": "hmm",
         }
     except Exception as exc:
@@ -228,3 +243,86 @@ def _map_trend(regime: RegimeType, ema_alignment: int, momentum_score: float) ->
 def _map_vol(vol_regime_int: int) -> str:
     """Map volatility_regime int (-1, 0, 1) to string label."""
     return {-1: "low", 0: "normal", 1: "high"}.get(vol_regime_int, "normal")
+
+
+# ---------------------------------------------------------------------------
+# Transition-based position sizing (Section 15)
+# ---------------------------------------------------------------------------
+
+
+def transition_sizing_factor(transition_probability: float | None) -> float:
+    """Map transition probability to a position sizing multiplier.
+
+    Tiers:
+        P < 0.10  -> 1.0   (no adjustment)
+        0.10-0.30 -> 0.75  (mild reduction)
+        0.30-0.50 -> 0.50  (moderate reduction)
+        P >= 0.50 -> 0.25  (severe reduction, but never zero)
+    """
+    if transition_probability is None:
+        return 1.0
+    if transition_probability < 0.10:
+        return 1.0
+    if transition_probability < 0.30:
+        return 0.75
+    if transition_probability < 0.50:
+        return 0.50
+    return 0.25
+
+
+def transition_sizing_factor_gated(transition_probability: float | None) -> float:
+    """Config-flag-gated wrapper for transition_sizing_factor."""
+    if os.getenv("FEEDBACK_TRANSITION_SIZING", "false").lower() != "true":
+        return 1.0
+    return transition_sizing_factor(transition_probability)
+
+
+# ---------------------------------------------------------------------------
+# Vol-conditioned sub-regimes (Section 15)
+# ---------------------------------------------------------------------------
+
+
+def _vol_sub_regime(df: "pd.DataFrame") -> str:
+    """Classify current vol relative to trailing 252-day distribution.
+
+    Uses 20-day realized vol vs 30th/70th percentile of trailing 252-day
+    realized vol series.
+
+    Returns: 'low_vol' | 'normal_vol' | 'high_vol'
+    """
+    closes = df["close"].values
+    if len(closes) < 40:
+        return "normal_vol"
+
+    # Daily log returns
+    log_returns = np.diff(np.log(closes))
+
+    # Rolling 20-day realized vol (annualized)
+    window = 20
+    if len(log_returns) < window:
+        return "normal_vol"
+
+    # Current 20-day realized vol
+    current_vol = float(np.std(log_returns[-window:])) * np.sqrt(252)
+
+    # Trailing 252-day series of 20-day rolling vols
+    lookback = min(252, len(log_returns) - window + 1)
+    vol_series = []
+    for i in range(lookback):
+        start = len(log_returns) - window - i
+        if start < 0:
+            break
+        chunk = log_returns[start:start + window]
+        vol_series.append(float(np.std(chunk)) * np.sqrt(252))
+
+    if len(vol_series) < 10:
+        return "normal_vol"
+
+    p30 = float(np.percentile(vol_series, 30))
+    p70 = float(np.percentile(vol_series, 70))
+
+    if current_vol < p30:
+        return "low_vol"
+    if current_vol > p70:
+        return "high_vol"
+    return "normal_vol"

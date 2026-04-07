@@ -69,6 +69,47 @@ class SchemaMixin:
             """
             )
 
+            # SEC filing metadata (populated by EDGAR provider)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sec_filings (
+                    accession_number VARCHAR NOT NULL PRIMARY KEY,
+                    symbol VARCHAR NOT NULL,
+                    form_type VARCHAR NOT NULL,
+                    filing_date DATE,
+                    period_of_report DATE,
+                    primary_doc_url TEXT,
+                    fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_sec_filings_symbol_form
+                ON sec_filings (symbol, form_type)
+            """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_sec_filings_date
+                ON sec_filings (filing_date)
+            """
+            )
+
+            # Provider failure tracking (circuit breaker state)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS data_provider_failures (
+                    provider VARCHAR NOT NULL,
+                    data_type VARCHAR NOT NULL,
+                    consecutive_failures INTEGER DEFAULT 0,
+                    last_failure_at TIMESTAMP,
+                    last_error TEXT,
+                    PRIMARY KEY (provider, data_type)
+                )
+            """
+            )
+
             # Initialize sub-schemas (these use self.conn which is now the passed conn)
             self._init_options_schema()
             self._init_news_sentiment_schema()

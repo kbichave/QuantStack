@@ -26,6 +26,8 @@ class AgentConfig:
     tools: tuple[str, ...] = ()
     always_loaded_tools: tuple[str, ...] = ()
     thinking: dict | None = None
+    temperature: float | None = None
+    max_tokens_budget: int | None = None
 
     def __post_init__(self) -> None:
         if self.llm_tier not in _VALID_TIERS:
@@ -106,7 +108,8 @@ def load_agent_configs(yaml_path: Path) -> dict[str, AgentConfig]:
     configs: dict[str, AgentConfig] = {}
     for name, fields in raw.items():
         if not isinstance(fields, dict):
-            raise ValueError(f"Agent '{name}' must be a mapping, got {type(fields).__name__}")
+            # Skip graph-level keys like blocked_tools (list, not agent config)
+            continue
 
         tools_raw = fields.get("tools", [])
         tools = tuple(tools_raw) if isinstance(tools_raw, list) else ()
@@ -125,9 +128,26 @@ def load_agent_configs(yaml_path: Path) -> dict[str, AgentConfig]:
             tools=tools,
             always_loaded_tools=always_loaded,
             thinking=fields.get("thinking"),
+            temperature=fields.get("temperature"),
+            max_tokens_budget=fields.get("max_tokens_budget"),
         )
 
     return configs
+
+
+def load_blocked_tools(yaml_path: Path) -> frozenset[str]:
+    """Load graph-level blocked_tools list from agents.yaml.
+
+    Returns an empty frozenset if the key is not present.
+    """
+    text = yaml_path.read_text()
+    raw = yaml.load(text, Loader=_DuplicateKeyLoader)
+    if not raw or not isinstance(raw, dict):
+        return frozenset()
+    blocked = raw.get("blocked_tools", [])
+    if not isinstance(blocked, list):
+        return frozenset()
+    return frozenset(str(t) for t in blocked)
 
 
 def validate_tool_references(

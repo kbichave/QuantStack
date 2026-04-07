@@ -44,10 +44,10 @@ def get(symbol: str) -> SignalBrief | None:
     return result
 
 
-def put(symbol: str, brief: SignalBrief) -> None:
-    """Store brief with configured TTL."""
+def put(symbol: str, brief: SignalBrief, ttl: int | None = None) -> None:
+    """Store brief with configured TTL, or override with per-entry TTL."""
     if _enabled:
-        _cache.set(symbol.upper(), brief)
+        _cache.set(symbol.upper(), brief, ttl=ttl)
 
 
 def invalidate(symbol: str) -> None:

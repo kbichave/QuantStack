@@ -13,8 +13,8 @@ import pytest
 
 def _local_pg_reachable() -> bool:
     try:
-        import psycopg2
-        conn = psycopg2.connect("postgresql://localhost/quantstack", connect_timeout=2)
+        import psycopg
+        conn = psycopg.connect("postgresql://localhost/quantstack", connect_timeout=2)
         conn.close()
         return True
     except Exception:

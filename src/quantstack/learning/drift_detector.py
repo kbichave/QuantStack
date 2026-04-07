@@ -24,8 +24,10 @@ References:
 from __future__ import annotations
 
 import json
+import math
+import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +79,58 @@ class DriftReport:
             "drifted_features": self.drifted_features,
             "checked_at": self.checked_at.isoformat(),
         }
+
+
+@dataclass
+class ICDriftReport:
+    """Result of IC-based concept drift check."""
+
+    z_scores: dict[str, float]
+    drifted_features: list[str] = field(default_factory=list)
+
+    @staticmethod
+    def no_op() -> ICDriftReport:
+        return ICDriftReport(z_scores={}, drifted_features=[])
+
+
+@dataclass
+class LabelDriftReport:
+    """Result of label drift check (KS test on return distributions)."""
+
+    ks_statistic: float = 0.0
+    p_value: float = 1.0
+    is_drifted: bool = False
+    training_mean: float = 0.0
+    training_std: float = 0.0
+    recent_mean: float = 0.0
+    recent_std: float = 0.0
+
+    @staticmethod
+    def no_op() -> LabelDriftReport:
+        return LabelDriftReport()
+
+
+@dataclass
+class InteractionDriftReport:
+    """Result of adversarial validation for interaction drift."""
+
+    auc: float = 0.5
+    is_drifted: bool = False
+
+    @staticmethod
+    def no_op() -> InteractionDriftReport:
+        return InteractionDriftReport()
+
+
+@dataclass
+class RetrainDecision:
+    """Output of the auto-retrain decision tree."""
+
+    should_retrain: bool
+    reason: str
+    data_window: int | None = None
+    publish_event: bool = False
+    event_payload: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -320,6 +374,171 @@ class DriftDetector:
         features = _extract_features_from_brief(brief)
         return self.check_drift(strategy_id, features)
 
+    # -------------------------------------------------------------------
+    # Layer 1: IC-based concept drift (daily)
+    # -------------------------------------------------------------------
+
+    def check_ic_drift(
+        self,
+        current_ic: dict[str, float],
+        baseline_ic: dict[str, tuple[float, float]],
+        z_threshold: float = 2.0,
+    ) -> ICDriftReport:
+        """Compare rolling IC against baseline IC statistics.
+
+        Args:
+            current_ic: {feature_name: current_rolling_ic}.
+            baseline_ic: {feature_name: (baseline_mean, baseline_std)}.
+            z_threshold: Number of std deviations to flag drift.
+
+        Returns:
+            ICDriftReport with per-feature z-scores and drifted list.
+        """
+        z_scores: dict[str, float] = {}
+        drifted: list[str] = []
+
+        for feature, (mean, std) in baseline_ic.items():
+            if feature not in current_ic or std <= 0:
+                continue
+            z = (mean - current_ic[feature]) / std
+            z_scores[feature] = round(z, 4)
+            if z > z_threshold:
+                drifted.append(feature)
+
+        return ICDriftReport(z_scores=z_scores, drifted_features=drifted)
+
+    def check_ic_drift_gated(
+        self,
+        current_ic: dict[str, float],
+        baseline_ic: dict[str, tuple[float, float]],
+    ) -> ICDriftReport:
+        """Config-flag-gated wrapper for check_ic_drift."""
+        if os.getenv("FEEDBACK_DRIFT_DETECTION", "false").lower() != "true":
+            return ICDriftReport.no_op()
+        return self.check_ic_drift(current_ic, baseline_ic)
+
+    # -------------------------------------------------------------------
+    # Layer 2: Label drift (weekly, KS test)
+    # -------------------------------------------------------------------
+
+    def check_label_drift(
+        self,
+        training_returns: np.ndarray,
+        recent_returns: np.ndarray,
+        p_threshold: float = 0.01,
+    ) -> LabelDriftReport:
+        """Two-sample KS test on return distributions (pure numpy).
+
+        Uses the asymptotic approximation: p ~ 2*exp(-2*n_eff*D^2).
+
+        Args:
+            training_returns: Return distribution from training period.
+            recent_returns: Rolling recent return distribution.
+            p_threshold: p-value below which label drift is flagged.
+
+        Returns:
+            LabelDriftReport.
+        """
+        training = np.asarray(training_returns, dtype=np.float64).ravel()
+        recent = np.asarray(recent_returns, dtype=np.float64).ravel()
+        training = training[np.isfinite(training)]
+        recent = recent[np.isfinite(recent)]
+
+        if len(training) < 10 or len(recent) < 10:
+            return LabelDriftReport()
+
+        # Two-sample KS statistic (same approach as compute_psi)
+        combined = np.concatenate([training, recent])
+        combined.sort()
+        n1, n2 = len(training), len(recent)
+        cdf1 = np.searchsorted(np.sort(training), combined, side="right") / n1
+        cdf2 = np.searchsorted(np.sort(recent), combined, side="right") / n2
+        ks_stat = float(np.max(np.abs(cdf1 - cdf2)))
+
+        # Asymptotic p-value: p ~ 2 * exp(-2 * n_eff * D^2)
+        n_eff = (n1 * n2) / (n1 + n2)
+        p_value = 2.0 * math.exp(-2.0 * n_eff * ks_stat ** 2)
+        p_value = min(1.0, max(0.0, p_value))
+
+        return LabelDriftReport(
+            ks_statistic=round(ks_stat, 6),
+            p_value=round(p_value, 8),
+            is_drifted=p_value < p_threshold,
+            training_mean=float(np.mean(training)),
+            training_std=float(np.std(training)),
+            recent_mean=float(np.mean(recent)),
+            recent_std=float(np.std(recent)),
+        )
+
+    def check_label_drift_gated(
+        self,
+        training_returns: np.ndarray,
+        recent_returns: np.ndarray,
+    ) -> LabelDriftReport:
+        """Config-flag-gated wrapper for check_label_drift."""
+        if os.getenv("FEEDBACK_DRIFT_DETECTION", "false").lower() != "true":
+            return LabelDriftReport.no_op()
+        return self.check_label_drift(training_returns, recent_returns)
+
+    # -------------------------------------------------------------------
+    # Layer 3: Interaction drift (monthly, adversarial validation)
+    # -------------------------------------------------------------------
+
+    def check_interaction_drift(
+        self,
+        training_data: np.ndarray,
+        recent_data: np.ndarray,
+        auc_threshold: float = 0.60,
+    ) -> InteractionDriftReport:
+        """Adversarial validation: can a classifier tell training from recent?
+
+        Uses logistic regression via numpy (no sklearn required).
+        AUC > threshold means the joint feature-target distribution has shifted.
+
+        Args:
+            training_data: Feature-target pairs from training (n_samples, n_cols).
+            recent_data: Feature-target pairs from recent period.
+            auc_threshold: AUC above which drift is flagged.
+
+        Returns:
+            InteractionDriftReport.
+        """
+        training = np.asarray(training_data, dtype=np.float64)
+        recent = np.asarray(recent_data, dtype=np.float64)
+
+        if len(training) < 20 or len(recent) < 20:
+            return InteractionDriftReport()
+
+        # Label: 0 = training, 1 = recent
+        X = np.vstack([training, recent])
+        y = np.concatenate([np.zeros(len(training)), np.ones(len(recent))])
+
+        # Standardize features
+        mu = X.mean(axis=0)
+        sigma = X.std(axis=0)
+        sigma[sigma == 0] = 1.0
+        X = (X - mu) / sigma
+
+        # Add intercept
+        X = np.column_stack([np.ones(len(X)), X])
+
+        # Train/test split (first 70% train, last 30% test)
+        n = len(X)
+        split = int(0.7 * n)
+        # Shuffle with deterministic seed
+        rng = np.random.default_rng(42)
+        idx = rng.permutation(n)
+        X_train, X_test = X[idx[:split]], X[idx[split:]]
+        y_train, y_test = y[idx[:split]], y[idx[split:]]
+
+        # Logistic regression via gradient descent
+        auc = _logistic_auc(X_train, y_train, X_test, y_test)
+
+        return InteractionDriftReport(
+            auc=round(auc, 4),
+            is_drifted=auc > auc_threshold,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Feature extraction from SignalBrief
@@ -440,6 +659,143 @@ class StrategyAction:
             "scale_factor": self.scale_factor,
             "warnings": self.warnings,
         }
+
+
+# ---------------------------------------------------------------------------
+# Feature extraction from SignalBrief
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Auto-retrain decision tree
+# ---------------------------------------------------------------------------
+
+_RETRAIN_COOLDOWN_DAYS = 20
+_IC_HEALTHY_THRESHOLD = 0.01
+_ABRUPT_WINDOW = 5  # days
+
+
+def evaluate_retrain_decision(
+    current_ic: float,
+    ic_history: list[float],
+    last_retrain_date: date | None,
+    ic_drift_report: ICDriftReport | None,
+) -> RetrainDecision:
+    """Decide whether to auto-retrain based on IC trajectory.
+
+    Decision tree:
+      1. Cooldown: if last retrain < 20 trading days ago -> no.
+      2. Benign covariate shift: feature drift but IC healthy (> 0.01) -> no.
+      3. Abrupt IC drop (step change in 5 days) -> no retrain, publish event.
+      4. Gradual IC decline (60+ day negative slope) -> retrain with 252-day window.
+    """
+    # 1. Cooldown check
+    if last_retrain_date is not None:
+        days_since = (date.today() - last_retrain_date).days
+        if days_since < _RETRAIN_COOLDOWN_DAYS:
+            return RetrainDecision(should_retrain=False, reason="cooldown")
+
+    # 2. Benign covariate shift: features drifted but IC still healthy
+    if (
+        ic_drift_report is not None
+        and len(ic_drift_report.drifted_features) > 0
+        and current_ic > _IC_HEALTHY_THRESHOLD
+    ):
+        return RetrainDecision(
+            should_retrain=False, reason="benign_covariate_shift"
+        )
+
+    # Need enough history for slope analysis
+    if len(ic_history) < 60:
+        return RetrainDecision(should_retrain=False, reason="insufficient_history")
+
+    # 3. Abrupt shift detection: check if IC dropped sharply in a 5-day window
+    recent_window = ic_history[-_ABRUPT_WINDOW:]
+    earlier = ic_history[-60:-_ABRUPT_WINDOW]
+    if len(earlier) > 0:
+        earlier_std = float(np.std(earlier)) if len(earlier) > 1 else 0.005
+        # Use a minimum std floor to handle constant-IC histories
+        effective_std = max(earlier_std, 0.005)
+        earlier_mean = float(np.mean(earlier))
+        recent_mean = float(np.mean(recent_window))
+        drop = earlier_mean - recent_mean
+        if drop > 0 and drop / effective_std > 2.0:
+            return RetrainDecision(
+                should_retrain=False,
+                reason="abrupt_shift",
+                publish_event=True,
+                event_payload={
+                    "type": "MODEL_DEGRADATION",
+                    "current_ic": current_ic,
+                    "drop_magnitude": round(earlier_mean - recent_mean, 6),
+                },
+            )
+
+    # 4. Gradual decline: linear regression slope over 60+ days
+    x = np.arange(len(ic_history), dtype=np.float64)
+    y = np.array(ic_history, dtype=np.float64)
+    # Linear regression: slope and R-squared
+    x_mean = x.mean()
+    y_mean = y.mean()
+    ss_xy = float(np.sum((x - x_mean) * (y - y_mean)))
+    ss_xx = float(np.sum((x - x_mean) ** 2))
+    ss_yy = float(np.sum((y - y_mean) ** 2))
+    slope = ss_xy / ss_xx if ss_xx > 0 else 0.0
+    r_squared = (ss_xy ** 2) / (ss_xx * ss_yy) if ss_xx > 0 and ss_yy > 0 else 0.0
+
+    if slope < 0 and r_squared > 0.5 and current_ic < _IC_HEALTHY_THRESHOLD:
+        return RetrainDecision(
+            should_retrain=True,
+            reason="gradual_ic_decline",
+            data_window=252,
+        )
+
+    return RetrainDecision(should_retrain=False, reason="no_action_needed")
+
+
+# ---------------------------------------------------------------------------
+# Logistic regression helper (pure numpy, no sklearn dependency)
+# ---------------------------------------------------------------------------
+
+
+def _logistic_auc(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    lr: float = 0.1,
+    n_iter: int = 200,
+) -> float:
+    """Train logistic regression and compute AUC on test set.
+
+    Uses gradient descent. Returns AUC (0.5 = random, 1.0 = perfect).
+    """
+    n_features = X_train.shape[1]
+    w = np.zeros(n_features)
+
+    for _ in range(n_iter):
+        z = X_train @ w
+        # Clip to avoid overflow
+        z = np.clip(z, -20, 20)
+        pred = 1.0 / (1.0 + np.exp(-z))
+        grad = X_train.T @ (pred - y_train) / len(y_train)
+        w -= lr * grad
+
+    # Predict probabilities on test set
+    z_test = np.clip(X_test @ w, -20, 20)
+    probs = 1.0 / (1.0 + np.exp(-z_test))
+
+    # Compute AUC via rank-sum (Wilcoxon-Mann-Whitney)
+    pos_probs = probs[y_test == 1]
+    neg_probs = probs[y_test == 0]
+    if len(pos_probs) == 0 or len(neg_probs) == 0:
+        return 0.5
+
+    auc = 0.0
+    for p in pos_probs:
+        auc += np.sum(p > neg_probs) + 0.5 * np.sum(p == neg_probs)
+    auc /= len(pos_probs) * len(neg_probs)
+    return float(auc)
 
 
 # ---------------------------------------------------------------------------

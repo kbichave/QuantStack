@@ -23,24 +23,21 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
 from threading import Lock
-from typing import Any
 
 from loguru import logger
-
 from scipy.stats import spearmanr as _spearmanr
+
+from quantstack.db import db_conn
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 _DEFAULT_WINDOW = 30
-_DEFAULT_STATE_PATH = Path.home() / ".quantstack" / "ic_attribution.json"
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +100,9 @@ class ICAttributionTracker:
     Tracks rolling IC (Spearman rank correlation between signal values and
     forward returns) per SignalEngine collector.
 
-    State is persisted to a JSON file at ``state_path``. All public methods
-    are thread-safe via a Lock.
+    State is persisted to PostgreSQL (ic_attribution_data table). All public
+    methods are thread-safe via a Lock. In-memory dict is the primary data
+    structure; DB is the persistence layer.
 
     Requires scipy for Spearman correlation. If scipy is not installed,
     ``get_collector_ic`` returns None and ``get_weights`` returns uniform
@@ -117,10 +115,8 @@ class ICAttributionTracker:
     def __init__(
         self,
         window_size: int = _DEFAULT_WINDOW,
-        state_path: Path | str | None = None,
     ) -> None:
         self._window_size = window_size
-        self._state_path = Path(state_path) if state_path else _DEFAULT_STATE_PATH
         self._collectors: dict[str, _CollectorState] = {}
         self._load()
 
@@ -168,12 +164,14 @@ class ICAttributionTracker:
                 )
             )
 
+            # Persist the single new observation to DB
+            self._persist_observation(collector, signal_value, forward_return, ts)
+
             # Keep bounded — retain 2x window to allow trend comparison
             max_keep = self._window_size * 2
             if len(state.observations) > max_keep:
                 state.observations = state.observations[-max_keep:]
-
-            self._persist()
+                self._truncate_old_observations(collector, max_keep)
 
         logger.debug(
             f"[ICAttribution] Recorded {collector} for {symbol}: "
@@ -307,46 +305,74 @@ class ICAttributionTracker:
     # Persistence
     # ------------------------------------------------------------------
 
-    def _persist(self) -> None:
-        """Write current state to JSON. Called under lock."""
+    def _persist_observation(
+        self, collector: str, signal_value: float, forward_return: float, timestamp: str
+    ) -> None:
+        """Insert a single observation to PostgreSQL. Called under lock."""
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            payload: dict[str, Any] = {}
-            for name, state in self._collectors.items():
-                payload[name] = [
-                    {
-                        "signal_value": o.signal_value,
-                        "forward_return": o.forward_return,
-                        "timestamp": o.timestamp,
-                    }
-                    for o in state.observations
-                ]
-            self._state_path.write_text(json.dumps(payload, indent=2))
+            with db_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO ic_attribution_data
+                        (collector, signal_value, forward_return, recorded_at)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    [collector, signal_value, forward_return, timestamp],
+                )
         except Exception as exc:
-            logger.warning(f"[ICAttribution] Failed to persist state: {exc}")
+            logger.warning(f"[ICAttribution] Failed to persist observation: {exc}")
+
+    def _truncate_old_observations(self, collector: str, max_keep: int) -> None:
+        """Remove observations beyond the retention window for a collector."""
+        try:
+            with db_conn() as conn:
+                conn.execute(
+                    """
+                    DELETE FROM ic_attribution_data
+                    WHERE collector = %s
+                      AND id NOT IN (
+                          SELECT id FROM ic_attribution_data
+                          WHERE collector = %s
+                          ORDER BY recorded_at DESC
+                          LIMIT %s
+                      )
+                    """,
+                    [collector, collector, max_keep],
+                )
+        except Exception as exc:
+            logger.warning(f"[ICAttribution] Failed to truncate old observations: {exc}")
 
     def _load(self) -> None:
-        """Load persisted state from JSON."""
-        if not self._state_path.exists():
-            return
+        """Load persisted observation state from PostgreSQL."""
         try:
-            raw = json.loads(self._state_path.read_text())
-            for name, obs_list in raw.items():
-                observations = [
+            with db_conn() as conn:
+                conn.execute(
+                    """
+                    SELECT collector, signal_value, forward_return, recorded_at
+                    FROM ic_attribution_data
+                    ORDER BY collector, recorded_at ASC
+                    """
+                )
+                rows = conn.fetchall()
+
+            for row in rows:
+                collector = row["collector"]
+                state = self._collectors.setdefault(collector, _CollectorState())
+                state.observations.append(
                     _Observation(
-                        signal_value=o["signal_value"],
-                        forward_return=o["forward_return"],
-                        timestamp=o["timestamp"],
+                        signal_value=row["signal_value"],
+                        forward_return=row["forward_return"],
+                        timestamp=row["recorded_at"].isoformat()
+                            if hasattr(row["recorded_at"], "isoformat")
+                            else str(row["recorded_at"]),
                     )
-                    for o in obs_list
-                ]
-                self._collectors[name] = _CollectorState(observations=observations)
+                )
+
             logger.info(
-                f"[ICAttribution] Loaded state for {len(self._collectors)} collectors "
-                f"from {self._state_path}"
+                f"[ICAttribution] Loaded state for {len(self._collectors)} collectors from DB"
             )
         except Exception as exc:
-            logger.warning(f"[ICAttribution] Failed to load state: {exc}")
+            logger.warning(f"[ICAttribution] Failed to load state from DB: {exc}")
 
     # ------------------------------------------------------------------
     # Internal helpers

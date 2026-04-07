@@ -649,3 +649,36 @@ def trace_tool_search_fallback(
         )
     except Exception:
         _std_logger.debug("Failed to trace tool search fallback for %s", agent_name, exc_info=True)
+
+
+def trace_prompt_cache_metrics(
+    agent_name: str,
+    model_name: str,
+    cache_read_tokens: int,
+    cache_creation_tokens: int,
+    total_input_tokens: int,
+) -> None:
+    """Log prompt cache hit/miss metrics to Langfuse.
+
+    Enables monitoring of cache hit rate per agent, detection of
+    cache regressions, and cost reduction verification.
+    """
+    lf = _get_langfuse()
+    if lf is None:
+        return
+    hit_rate = cache_read_tokens / total_input_tokens if total_input_tokens > 0 else 0.0
+    try:
+        lf.trace(
+            name="prompt_cache:metrics",
+            metadata={
+                "agent": agent_name,
+                "model": model_name,
+                "cache_read_tokens": cache_read_tokens,
+                "cache_creation_tokens": cache_creation_tokens,
+                "total_input_tokens": total_input_tokens,
+                "cache_hit_rate": round(hit_rate, 4),
+            },
+            tags=["prompt_cache", "cost"],
+        )
+    except Exception:
+        _std_logger.debug("Failed to trace prompt cache metrics for %s", agent_name, exc_info=True)

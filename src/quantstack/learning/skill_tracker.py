@@ -345,7 +345,7 @@ class SkillTracker:
         # IC-based adjustment — only when we have enough observations
         if len(skill.ic_observations) >= 10:
             # ICIR > 0.5 → meaningful boost; < 0 → penalise
-            icir_adj = max(-0.2, min(0.3, skill.icir * 0.2))
+            icir_adj = max(-0.2, min(0.3, skill.icir * 0.15))
             adjustment += icir_adj
 
             # Decay penalty — if IC is deteriorating, reduce confidence

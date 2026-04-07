@@ -49,8 +49,25 @@ from loguru import logger
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
 from quantstack.db import PgConnection, pg_conn
+from quantstack.execution.liquidity_model import LiquidityModel, LiquidityVerdict
 from quantstack.execution.portfolio_state import get_portfolio_state
 from quantstack.holding_period import HoldingType
+from quantstack.universe import INITIAL_LIQUID_UNIVERSE, Sector
+
+# Sector-to-ETF mapping for correlation proxy fallback
+SECTOR_ETF_MAP: dict[Sector, str] = {
+    Sector.TECHNOLOGY: "XLK",
+    Sector.HEALTHCARE: "XLV",
+    Sector.FINANCIALS: "XLF",
+    Sector.ENERGY: "XLE",
+    Sector.CONSUMER_DISCRETIONARY: "XLY",
+    Sector.CONSUMER_STAPLES: "XLP",
+    Sector.INDUSTRIALS: "XLI",
+    Sector.MATERIALS: "XLB",
+    Sector.REAL_ESTATE: "XLRE",
+    Sector.UTILITIES: "XLU",
+    Sector.COMMUNICATION: "XLC",
+}
 
 # =============================================================================
 # LIMITS CONFIG
@@ -94,6 +111,11 @@ class RiskLimits:
     min_dte_entry: int = 7  # No entries with < 7 DTE (gamma pins, binary outcomes)
     max_dte_entry: int = 60  # No far-dated speculative entries
 
+    # ── Pre-trade portfolio checks (phase 4) ───────────────────────────────
+    max_pretrade_correlation: float = 0.70
+    max_daily_heat_pct: float = 0.30
+    max_sector_concentration_pct: float = 0.40
+
     # ── Intraday limits (v0.6.0) ─────────────────────────────────────────────
     # TODO(strategy_breaker): enforcement lives in strategy_breaker.py, not check().
     # These fields are loaded from env and read by StrategyBreaker.should_halt().
@@ -127,6 +149,13 @@ class RiskLimits:
             limits.min_dte_entry = int(v)
         if v := os.getenv("RISK_MAX_DTE_ENTRY"):
             limits.max_dte_entry = int(v)
+        # Pre-trade portfolio checks
+        if v := os.getenv("RISK_MAX_PRETRADE_CORRELATION"):
+            limits.max_pretrade_correlation = float(v)
+        if v := os.getenv("RISK_MAX_DAILY_HEAT_PCT"):
+            limits.max_daily_heat_pct = float(v)
+        if v := os.getenv("RISK_MAX_SECTOR_CONCENTRATION_PCT"):
+            limits.max_sector_concentration_pct = float(v)
         # Intraday limits
         if v := os.getenv("RISK_MAX_TRADES_PER_DAY"):
             limits.max_trades_per_day = int(v)
@@ -329,6 +358,12 @@ class RiskGate:
             dte: For options only — days to expiration at entry.
         """
         violations: list[RiskViolation] = []
+
+        # -- 0. Trading window check: reject exposure-increasing orders outside market hours
+        window_verdict = self._check_market_hours(symbol, side)
+        if window_verdict is not None:
+            return window_verdict
+
         snapshot = self._portfolio.get_snapshot()
         if snapshot is None:
             return RiskVerdict(
@@ -463,6 +498,33 @@ class RiskGate:
                 )
             )
 
+        # -- 5b. Pre-trade liquidity model check (depth-based gating).
+        #    Runs after volume validation so we know daily_volume is positive.
+        #    REJECT = hard veto; SCALE_DOWN = reduce quantity before participation cap.
+        if not violations:
+            try:
+                liq_model = LiquidityModel(daily_volumes={symbol: daily_volume})
+                liq_result = liq_model.pre_trade_check(symbol, quantity)
+                if liq_result.verdict == LiquidityVerdict.REJECT:
+                    violations.append(
+                        RiskViolation(
+                            rule="liquidity_depth",
+                            limit=0,
+                            actual=0,
+                            description=liq_result.reason,
+                        )
+                    )
+                    return RiskVerdict(approved=False, violations=violations)
+                if liq_result.verdict == LiquidityVerdict.SCALE_DOWN:
+                    if liq_result.recommended_quantity is not None:
+                        logger.warning(
+                            f"[RISK] {symbol} liquidity scale-down: "
+                            f"{quantity} → {liq_result.recommended_quantity} shares"
+                        )
+                        quantity = liq_result.recommended_quantity
+            except Exception as exc:
+                logger.debug(f"[RISK] liquidity model check failed: {exc}")
+
         # -- 6. Participation rate: cap the order, don't reject.
         #    Market-impact scaling is a quantity adjustment, not a hard veto.
         #    Callers must read approved_quantity — never use the original quantity.
@@ -515,6 +577,40 @@ class RiskGate:
                 f"[RISK] Macro stress scalar {macro_scalar:.2f} "
                 f"(score {stress_score:.2f}): {pre_macro_qty} → {quantity} shares"
             )
+
+        # -- 6d. Pre-trade portfolio-level checks (equity path only, new entries only)
+        if not violations and instrument_type == "equity":
+            # Determine is_reducing early for the guard
+            existing_pos = self._portfolio.get_position(symbol)
+            _is_reducing = False
+            if existing_pos:
+                existing_long = existing_pos.quantity > 0
+                order_is_sell = side.upper() in ("SELL", "SHORT")
+                _is_reducing = (existing_long and order_is_sell) or (
+                    not existing_long and not order_is_sell
+                )
+
+            if not _is_reducing:
+                _order_notional = quantity * current_price
+                _equity = snapshot.total_equity or 100_000.0
+
+                corr_violations = self._check_pretrade_correlation(symbol, current_price)
+                violations.extend(corr_violations)
+
+                heat_violations = self._check_heat_budget(_order_notional, _equity)
+                violations.extend(heat_violations)
+
+                sector_violations = self._check_sector_concentration(
+                    symbol, _order_notional, _equity,
+                )
+                violations.extend(sector_violations)
+
+                if violations:
+                    for v in violations:
+                        logger.warning(
+                            f"[RISK] PRETRADE VIOLATION [{v.rule}]: {v.description}"
+                        )
+                    return RiskVerdict(approved=False, violations=violations)
 
         if not violations and instrument_type == "options":
             # -- Options path: DTE and premium-at-risk checks.
@@ -686,6 +782,217 @@ class RiskGate:
             return RiskVerdict(approved=False, violations=violations)
 
         return RiskVerdict(approved=True, approved_quantity=quantity)
+
+    # -------------------------------------------------------------------------
+    # Pre-trade portfolio checks (phase 4, section 12)
+    # -------------------------------------------------------------------------
+
+    def _check_pretrade_correlation(
+        self, symbol: str, current_price: float,
+    ) -> list[RiskViolation]:
+        """Check correlation of candidate symbol with existing positions.
+
+        Falls back to sector ETF proxy when candidate has <20 days history.
+        Fails closed on data unavailability.
+        """
+        try:
+            positions = self._portfolio.get_positions()
+            if not positions:
+                return []
+
+            store = DataStore()
+            candidate_df = store.load_ohlcv(symbol, Timeframe.D1)
+
+            # Check if we need sector proxy fallback
+            use_proxy = candidate_df is None or len(candidate_df) < 20
+            proxy_symbol = None
+            if use_proxy:
+                uni_sym = INITIAL_LIQUID_UNIVERSE.get(symbol)
+                if uni_sym and uni_sym.sector in SECTOR_ETF_MAP:
+                    proxy_symbol = SECTOR_ETF_MAP[uni_sym.sector]
+                    candidate_df = store.load_ohlcv(proxy_symbol, Timeframe.D1)
+
+            if candidate_df is None or len(candidate_df) < 20:
+                return [RiskViolation(
+                    rule="pretrade_correlation_data_missing",
+                    limit=self.limits.max_pretrade_correlation,
+                    actual=0,
+                    description=(
+                        f"Insufficient price history for {symbol} correlation check "
+                        f"— fail closed"
+                    ),
+                )]
+
+            candidate_returns = candidate_df["close"].pct_change().dropna().tail(30)
+
+            for pos in positions:
+                pos_df = store.load_ohlcv(pos.symbol, Timeframe.D1)
+                if pos_df is None or len(pos_df) < 20:
+                    continue
+                pos_returns = pos_df["close"].pct_change().dropna().tail(30)
+                common_idx = candidate_returns.index.intersection(pos_returns.index)
+                if len(common_idx) < 20:
+                    continue
+                corr = candidate_returns.loc[common_idx].corr(pos_returns.loc[common_idx])
+                if corr >= self.limits.max_pretrade_correlation:
+                    return [RiskViolation(
+                        rule="pretrade_correlation",
+                        limit=self.limits.max_pretrade_correlation,
+                        actual=round(corr, 3),
+                        description=(
+                            f"{symbol} has {corr:.2f} correlation with existing "
+                            f"position {pos.symbol} (limit: "
+                            f"{self.limits.max_pretrade_correlation})"
+                        ),
+                    )]
+            return []
+        except Exception as exc:
+            logger.warning(f"[RISK] pretrade correlation check failed: {exc}")
+            return [RiskViolation(
+                rule="pretrade_correlation_data_missing",
+                limit=self.limits.max_pretrade_correlation,
+                actual=0,
+                description=f"Correlation check failed — fail closed: {exc}",
+            )]
+
+    def _check_heat_budget(
+        self, order_notional: float, equity: float,
+    ) -> list[RiskViolation]:
+        """Check if daily notional deployment would exceed heat budget.
+
+        System-wide query across all graph services sharing the same DB.
+        """
+        try:
+            with pg_conn() as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(SUM(quantity * avg_cost), 0) "
+                    "FROM positions WHERE opened_at::date = CURRENT_DATE",
+                ).fetchone()
+            today_notional = float(row[0]) if row else 0.0
+        except Exception as exc:
+            logger.warning(f"[RISK] heat budget query failed: {exc}")
+            return [RiskViolation(
+                rule="daily_heat_budget",
+                limit=self.limits.max_daily_heat_pct,
+                actual=0,
+                description=f"Heat budget check failed — fail closed: {exc}",
+            )]
+
+        total = today_notional + order_notional
+        heat_pct = total / equity if equity > 0 else 1.0
+        if heat_pct >= self.limits.max_daily_heat_pct:
+            return [RiskViolation(
+                rule="daily_heat_budget",
+                limit=self.limits.max_daily_heat_pct,
+                actual=round(heat_pct, 4),
+                description=(
+                    f"Daily heat {heat_pct:.1%} >= limit "
+                    f"{self.limits.max_daily_heat_pct:.0%} "
+                    f"(today ${today_notional:,.0f} + order ${order_notional:,.0f})"
+                ),
+            )]
+        return []
+
+    def _check_sector_concentration(
+        self, symbol: str, order_notional: float, equity: float,
+    ) -> list[RiskViolation]:
+        """Check if adding position would exceed sector concentration limit."""
+        try:
+            uni_sym = INITIAL_LIQUID_UNIVERSE.get(symbol)
+            if uni_sym is None:
+                return []  # Unknown sector = unique sector, no concentration
+
+            candidate_sector = uni_sym.sector
+            if candidate_sector == Sector.ETF:
+                return []  # ETFs don't contribute to sector concentration
+
+            # Compute notional per sector across existing positions
+            sector_notional: float = order_notional
+            positions = self._portfolio.get_positions()
+            for pos in positions:
+                pos_uni = INITIAL_LIQUID_UNIVERSE.get(pos.symbol)
+                if pos_uni and pos_uni.sector == candidate_sector:
+                    sector_notional += abs(pos.quantity) * pos.current_price
+
+            concentration = sector_notional / equity if equity > 0 else 1.0
+            if concentration >= self.limits.max_sector_concentration_pct:
+                return [RiskViolation(
+                    rule="sector_concentration",
+                    limit=self.limits.max_sector_concentration_pct,
+                    actual=round(concentration, 4),
+                    description=(
+                        f"{candidate_sector.value} sector at {concentration:.1%} "
+                        f">= limit {self.limits.max_sector_concentration_pct:.0%} "
+                        f"after adding {symbol}"
+                    ),
+                )]
+            return []
+        except Exception as exc:
+            logger.warning(f"[RISK] sector concentration check failed: {exc}")
+            return [RiskViolation(
+                rule="sector_concentration",
+                limit=self.limits.max_sector_concentration_pct,
+                actual=0,
+                description=f"Sector concentration check failed — fail closed: {exc}",
+            )]
+
+    # -------------------------------------------------------------------------
+    # Market hours check
+    # -------------------------------------------------------------------------
+
+    def _check_market_hours(self, symbol: str, side: str) -> RiskVerdict | None:
+        """Reject exposure-increasing orders outside market hours.
+
+        Returns None if the order is allowed (caller continues to other checks),
+        or a RiskVerdict rejection if the order would increase exposure.
+
+        Logic:
+        - MARKET mode: all orders allowed (return None).
+        - EXTENDED/OVERNIGHT/WEEKEND: look up current position for the symbol.
+          If abs(new_qty) > abs(current_qty): reject.
+          If abs(new_qty) <= abs(current_qty): allow (it's a closing trade).
+        """
+        from quantstack.runners import OperatingMode, get_operating_mode
+
+        mode = get_operating_mode()
+        if mode == OperatingMode.MARKET:
+            return None
+
+        # Determine whether this order increases or decreases exposure
+        existing_pos = self._portfolio.get_position(symbol)
+        current_qty = existing_pos.quantity if existing_pos else 0
+
+        side_upper = side.upper()
+        # Determine sign of the order
+        if side_upper in ("BUY", "LONG"):
+            # Buy increases qty
+            would_increase = current_qty >= 0  # new long or adding to long
+        elif side_upper in ("SELL", "SHORT"):
+            # Sell decreases qty
+            would_increase = current_qty <= 0  # new short or adding to short
+        else:
+            would_increase = True  # unknown side, fail closed
+
+        if not would_increase:
+            # This is a closing/reducing trade — allow it
+            return None
+
+        reason_map = {
+            OperatingMode.EXTENDED: "Extended hours — no new entries",
+            OperatingMode.OVERNIGHT: "Market closed (overnight)",
+            OperatingMode.WEEKEND: "Market closed (weekend)",
+        }
+        return RiskVerdict(
+            approved=False,
+            violations=[
+                RiskViolation(
+                    rule="market_hours",
+                    limit=0,
+                    actual=0,
+                    description=reason_map.get(mode, f"Market closed ({mode.value})"),
+                )
+            ],
+        )
 
     # -------------------------------------------------------------------------
     # Helpers

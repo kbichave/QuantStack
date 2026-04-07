@@ -47,10 +47,10 @@ def build_supervisor_graph(
     community_cfg = research_configs["community_intel"]
 
     # Per-agent LLM instances (each agent gets its own tier + thinking config)
-    health_llm_base = get_chat_model(health_cfg.llm_tier, thinking=health_cfg.thinking)
-    healer_llm_base = get_chat_model(healer_cfg.llm_tier, thinking=healer_cfg.thinking)
-    promoter_llm_base = get_chat_model(promoter_cfg.llm_tier, thinking=promoter_cfg.thinking)
-    community_llm_base = get_chat_model(community_cfg.llm_tier, thinking=community_cfg.thinking)
+    health_llm_base = get_chat_model(health_cfg.llm_tier, thinking=health_cfg.thinking, temperature=health_cfg.temperature)
+    healer_llm_base = get_chat_model(healer_cfg.llm_tier, thinking=healer_cfg.thinking, temperature=healer_cfg.temperature)
+    promoter_llm_base = get_chat_model(promoter_cfg.llm_tier, thinking=promoter_cfg.thinking, temperature=promoter_cfg.temperature)
+    community_llm_base = get_chat_model(community_cfg.llm_tier, thinking=community_cfg.thinking, temperature=community_cfg.temperature)
 
     # Bind tools per agent
     health_llm, health_tools, _ = bind_tools_to_llm(health_llm_base, health_cfg)

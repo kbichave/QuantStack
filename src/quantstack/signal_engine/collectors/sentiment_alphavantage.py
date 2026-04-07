@@ -25,7 +25,8 @@ import litellm
 
 from quantstack.data.storage import DataStore
 from quantstack.db import db_conn
-from quantstack.llm_config import get_llm_for_role
+from quantstack.llm.provider import get_model_for_role
+from quantstack.signal_engine.staleness import check_freshness
 
 
 _SENTIMENT_TIMEOUT = 10.0  # Slightly longer for context gathering
@@ -49,6 +50,8 @@ async def collect_sentiment_alphavantage(
         context_used        : list[str] (which signals informed decision)
         source              : "alphavantage_groq" | "alphavantage_prescore" | "default"
     """
+    if not check_freshness(symbol, "news_sentiment", max_days=7):
+        return {}
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(
@@ -71,7 +74,7 @@ def _collect_sentiment_alphavantage_sync(
     # Fetch headlines from Alpha Vantage news_sentiment table
     headlines_data = _fetch_alphavantage_headlines(symbol)
     if not headlines_data:
-        return {**_safe_defaults(), "source": "no_headlines"}
+        return {}
 
     headlines, raw_scores = headlines_data
 
@@ -83,7 +86,7 @@ def _collect_sentiment_alphavantage_sync(
 
     # Send to bulk-tier LLM for reasoning (Groq preferred; configurable via LLM_MODEL_BULK).
     try:
-        _model = get_llm_for_role("bulk")
+        _model = get_model_for_role("bulk")
         response = litellm.completion(
             model=_model,
             messages=[{"role": "user", "content": prompt}],
@@ -425,12 +428,8 @@ def _prescore_fallback(
 
 
 def _safe_defaults() -> dict[str, Any]:
-    return {
-        "sentiment_score": 0.5,
-        "dominant_sentiment": "neutral",
-        "n_headlines": 0,
-        "reasoning": "",
-        "confidence": 0.0,
-        "context_used": [],
-        "source": "default",
-    }
+    """Return empty dict when sentiment data is unavailable.
+
+    Callers use .get() with explicit defaults, so {} is safe.
+    """
+    return {}

@@ -25,7 +25,9 @@ from langchain_core.messages import (
 from langchain_core.tools import BaseTool
 
 from quantstack.graphs.config import AgentConfig
+from quantstack.observability.cost_queries import TokenBudgetTracker
 from quantstack.observability.instrumentation import log_llm_call, log_tool_call
+from quantstack.observability.tracing import trace_prompt_cache_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -108,39 +110,131 @@ def _estimate_message_chars(messages: list) -> int:
     return total
 
 
-def _prune_messages(messages: list) -> list:
-    """Drop old tool round pairs (AIMessage + ToolMessages) if messages are too long.
+PRIORITY_P0 = "P0"  # Never pruned or summarized
+PRIORITY_P1 = "P1"  # Summarized when over budget
+PRIORITY_P2 = "P2"  # Pruned first (oldest-first)
+PRIORITY_P3 = "P3"  # Excluded from LLM context entirely
 
-    Keeps: system message (index 0), user message (index 1), and the most recent
-    tool rounds. Drops the oldest tool rounds first.
+# Message type override patterns: always P0 regardless of source agent
+_P0_TYPE_PATTERNS = frozenset({
+    "risk_gate", "kill_switch", "position_state", "portfolio_context",
+    "blocking_node_error",
+})
+
+SUMMARIZE_TRUNCATE_CHARS = 500
+SUMMARIZE_TIMEOUT_S = 2.0
+
+
+def _get_message_priority(msg) -> str:
+    """Read priority tier from message metadata, defaulting to P2."""
+    metadata = getattr(msg, "metadata", None) or {}
+    if isinstance(metadata, dict):
+        return metadata.get("priority_tier", PRIORITY_P2)
+    return PRIORITY_P2
+
+
+def tag_message_priority(
+    msg,
+    agent_priority: str = PRIORITY_P2,
+    message_type: str = "",
+) -> None:
+    """Tag a message with its priority tier in metadata.
+
+    Type overrides (risk gate, kill switch, etc.) take precedence
+    over the agent's configured default.
+    """
+    priority = agent_priority
+    if message_type and any(pat in message_type for pat in _P0_TYPE_PATTERNS):
+        priority = PRIORITY_P0
+    if not hasattr(msg, "metadata") or msg.metadata is None:
+        msg.metadata = {}
+    if isinstance(msg.metadata, dict):
+        msg.metadata["priority_tier"] = priority
+
+
+def _truncate_content(content: str, max_chars: int = SUMMARIZE_TRUNCATE_CHARS) -> str:
+    """Truncate content with a suffix marker."""
+    if len(content) <= max_chars:
+        return content
+    return content[:max_chars] + " [truncated]"
+
+
+async def _summarize_message(content: str) -> str:
+    """Summarize message content using Haiku with 2s timeout, falling back to truncation."""
+    import asyncio
+    try:
+        from quantstack.llm.routing import get_llm
+        llm = get_llm("light")
+        prompt = (
+            "Summarize the following agent output in 2-3 sentences, preserving "
+            "any numerical values, ticker symbols, and directional signals:\n\n"
+            + content
+        )
+        result = await asyncio.wait_for(
+            llm.ainvoke(prompt),
+            timeout=SUMMARIZE_TIMEOUT_S,
+        )
+        return result.content if hasattr(result, "content") else str(result)
+    except Exception:
+        return _truncate_content(content)
+
+
+def _prune_messages(messages: list) -> list:
+    """Priority-aware message pruning.
+
+    Pruning order:
+      1. Remove P3 messages (should already be excluded, safety sweep)
+      2. Remove P2 messages oldest-first
+      3. Truncate P1 messages (sync fallback; async summarization done externally)
+      4. P0 messages are never touched
+
+    Keeps system message (index 0) and user message (index 1) unconditionally.
     """
     if _estimate_message_chars(messages) <= MAX_MESSAGE_CHARS:
         return messages
 
-    # Keep system + user, prune from the middle
-    kept = messages[:2]
-    # Find tool round boundaries (AIMessage with tool_calls followed by ToolMessages)
-    rounds = []
-    current_round = []
-    for msg in messages[2:]:
-        current_round.append(msg)
-        if isinstance(msg, (HumanMessage, AIMessage)) and not getattr(msg, "tool_calls", None):
-            rounds.append(current_round)
-            current_round = []
-        elif isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
-            # Start of a new tool round -- flush previous if it was just tool results
-            pass
-    if current_round:
-        rounds.append(current_round)
+    # Preserve system + user messages
+    header = messages[:2]
+    body = messages[2:]
 
-    # Drop oldest rounds until under budget
-    while rounds and _estimate_message_chars(kept + [m for r in rounds for m in r]) > MAX_MESSAGE_CHARS:
-        dropped = rounds.pop(0)
-        logger.debug("Pruned %d messages from agent context to stay under token limit", len(dropped))
+    # Phase 1: Remove P3 messages
+    body = [m for m in body if _get_message_priority(m) != PRIORITY_P3]
+    if _estimate_message_chars(header + body) <= MAX_MESSAGE_CHARS:
+        return header + body
 
-    for r in rounds:
-        kept.extend(r)
-    return kept
+    # Phase 2: Remove P2 messages oldest-first
+    p2_indices = [i for i, m in enumerate(body) if _get_message_priority(m) == PRIORITY_P2]
+    removed: set[int] = set()
+    for idx in p2_indices:
+        removed.add(idx)
+        remaining = header + [m for i, m in enumerate(body) if i not in removed]
+        if _estimate_message_chars(remaining) <= MAX_MESSAGE_CHARS:
+            break
+
+    if removed:
+        body = [m for i, m in enumerate(body) if i not in removed]
+        logger.debug("Pruned %d P2 messages from agent context", len(removed))
+
+    if _estimate_message_chars(header + body) <= MAX_MESSAGE_CHARS:
+        return header + body
+
+    # Phase 3: Truncate P1 messages (sync fallback — no LLM call in sync path)
+    for i, msg in enumerate(body):
+        if _get_message_priority(msg) == PRIORITY_P1:
+            content = msg.content if hasattr(msg, "content") and isinstance(msg.content, str) else ""
+            if len(content) > SUMMARIZE_TRUNCATE_CHARS:
+                new_msg = type(msg)(
+                    content=_truncate_content(content),
+                    **({"tool_call_id": msg.tool_call_id} if isinstance(msg, ToolMessage) else {}),
+                )
+                if hasattr(msg, "metadata") and isinstance(msg.metadata, dict):
+                    new_msg.metadata = {**msg.metadata, "summarized": True}
+                body[i] = new_msg
+        if _estimate_message_chars(header + body) <= MAX_MESSAGE_CHARS:
+            break
+
+    # P0 messages survive unconditionally
+    return header + body
 
 
 def _is_server_tool_call(tool_call: dict) -> bool:
@@ -149,14 +243,30 @@ def _is_server_tool_call(tool_call: dict) -> bool:
     return name.startswith("tool_search_tool")
 
 
+def _detect_provider(llm) -> str:
+    """Infer provider name from LLM class for cache_control decisions."""
+    cls_name = type(llm).__name__
+    if cls_name == "ChatAnthropic":
+        return "anthropic"
+    if cls_name == "ChatBedrock":
+        return "bedrock"
+    if "openai" in cls_name.lower():
+        return "openai"
+    return "other"
+
+
 def build_system_message(
     config: AgentConfig,
     graph_name: str | None = None,
+    provider: str | None = None,
 ) -> SystemMessage:
     """Build a system message from an agent config.
 
     When tool search is active (config.always_loaded_tools is non-empty),
     appends tool category guidance tailored to the agent's graph.
+
+    For Anthropic/Bedrock providers, returns structured content with
+    cache_control breakpoint to enable prompt caching (90% cost reduction).
     """
     if graph_name is None:
         graph_name = _AGENT_TEAMS.get(config.name, "other")
@@ -175,6 +285,13 @@ def build_system_message(
         if categories:
             base += categories
 
+    if provider in ("anthropic", "bedrock"):
+        return SystemMessage(content=[{
+            "type": "text",
+            "text": base,
+            "cache_control": {"type": "ephemeral"},
+        }])
+
     return SystemMessage(content=base)
 
 
@@ -185,6 +302,7 @@ async def run_agent(
     user_message: str,
     max_rounds: int = MAX_TOOL_ROUNDS,
     _skip_bigtool: bool = False,
+    blocked_tools: frozenset[str] = frozenset(),
 ) -> str:
     """Run a tool-calling agent loop.
 
@@ -208,8 +326,9 @@ async def run_agent(
     from quantstack.dashboard.events import publish_event
 
     tool_map = {t.name: t for t in tools}
+    provider = _detect_provider(llm)
     messages = [
-        build_system_message(config),
+        build_system_message(config, provider=provider),
         HumanMessage(content=user_message),
     ]
 
@@ -224,6 +343,8 @@ async def run_agent(
     )
 
     model_name = getattr(llm, "model_id", "") or getattr(llm, "model_name", "") or type(llm).__name__
+
+    budget_tracker = TokenBudgetTracker(max_tokens=config.max_tokens_budget)
 
     for round_num in range(max_rounds):
         t0 = time.monotonic()
@@ -244,11 +365,31 @@ async def run_agent(
             })
         llm_dur = time.monotonic() - t0
 
-        # Log LLM call to Langfuse
+        # Track token usage for budget enforcement
         usage = {}
         if hasattr(response, "usage_metadata") and response.usage_metadata:
             um = response.usage_metadata
             usage = {"input": um.get("input_tokens", 0), "output": um.get("output_tokens", 0)}
+            budget_tracker.add_usage(
+                input_tokens=um.get("input_tokens", 0),
+                output_tokens=um.get("output_tokens", 0),
+            )
+
+        # Budget enforcement: stop agent if token budget exceeded
+        if budget_tracker.budget_exceeded:
+            logger.warning(
+                "Agent %s budget exceeded: %d tokens > %d limit. Returning partial result.",
+                config.name, budget_tracker.total_tokens, config.max_tokens_budget,
+            )
+            return json.dumps({
+                "budget_exceeded": True,
+                "agent": config.name,
+                "total_tokens": budget_tracker.total_tokens,
+                "max_tokens_budget": config.max_tokens_budget,
+                "partial_content": response.content[:1000] if response.content else "",
+            })
+
+        # Log LLM call to Langfuse
         log_llm_call(
             agent_name=config.name,
             model_name=model_name,
@@ -258,6 +399,20 @@ async def run_agent(
             tool_calls=response.tool_calls if response.tool_calls else None,
             usage=usage,
         )
+
+        # Log prompt cache metrics when available (Anthropic/Bedrock only)
+        if hasattr(response, "usage_metadata") and response.usage_metadata:
+            um = response.usage_metadata
+            cache_read = um.get("cache_read_input_tokens", 0)
+            cache_creation = um.get("cache_creation_input_tokens", 0)
+            if cache_read or cache_creation:
+                trace_prompt_cache_metrics(
+                    agent_name=config.name,
+                    model_name=model_name,
+                    cache_read_tokens=cache_read,
+                    cache_creation_tokens=cache_creation,
+                    total_input_tokens=um.get("input_tokens", 0),
+                )
 
         messages.append(response)
 
@@ -288,6 +443,22 @@ async def run_agent(
 
             tool_t0 = time.monotonic()
             tool_ok = True
+
+            # Tool access control guard (section-08)
+            if tool_name in blocked_tools:
+                result = json.dumps({
+                    "error": "tool_access_denied",
+                    "tool": tool_name,
+                    "message": f"Tool '{tool_name}' is not available in this graph context.",
+                })
+                tool_ok = False
+                logger.warning(
+                    "SECURITY: agent %s attempted blocked tool %s",
+                    config.name, tool_name,
+                )
+                messages.append(ToolMessage(content=result, tool_call_id=tool_id))
+                continue
+
             if tool_name not in tool_map:
                 result = json.dumps({"error": f"Unknown tool: {tool_name}"})
                 tool_ok = False
@@ -434,7 +605,7 @@ async def run_agent_bigtool(
         )
 
         # Build system + user messages
-        sys_msg = build_system_message(config)
+        sys_msg = build_system_message(config, provider=_detect_provider(llm))
         # Explicitly pass store in config — required when this subgraph runs
         # inside another LangGraph node (parent config propagates store=None)
         result = await agent.ainvoke(
@@ -471,7 +642,16 @@ async def run_agent_bigtool(
         return await run_agent(bound_llm, tools, config, user_message, _skip_bigtool=True)
 
 
-def parse_json_response(text: str, fallback: dict | list | None = None) -> dict | list:
+def parse_json_response(
+    text: str,
+    fallback: dict | list | None = None,
+    *,
+    agent_name: str = "",
+    graph_name: str = "",
+    run_id: str = "",
+    model_used: str = "",
+    prompt_text: str = "",
+) -> dict | list:
     """Parse a JSON object or array from LLM response, handling common issues.
 
     When *fallback* is a list, the function accepts JSON arrays as valid results.
@@ -518,4 +698,105 @@ def parse_json_response(text: str, fallback: dict | list | None = None) -> dict 
                     return result
 
     logger.debug("Failed to parse JSON from response: %.200s", text)
+
+    # Write to Dead Letter Queue if context is available
+    if agent_name:
+        try:
+            import hashlib
+            from quantstack.db import db_conn as _dlq_db_conn
+
+            prompt_hash = hashlib.sha256(prompt_text.encode()).hexdigest()[:16] if prompt_text else ""
+            input_summary = prompt_text[:500] if prompt_text else ""
+            with _dlq_db_conn() as conn:
+                conn.execute(
+                    "INSERT INTO agent_dlq "
+                    "(agent_name, graph_name, run_id, input_summary, raw_output, "
+                    "error_type, error_detail, prompt_hash, model_used) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [agent_name, graph_name, run_id, input_summary,
+                     text[:10000], "parse_error", f"Failed to extract JSON from response",
+                     prompt_hash, model_used],
+                )
+        except Exception as dlq_exc:
+            logger.debug("DLQ write failed: %s", dlq_exc)
+
     return fallback if fallback is not None else {}
+
+
+def parse_and_validate(
+    raw_output: str,
+    fallback: dict | list | None = None,
+    *,
+    output_schema: type | None = None,
+    agent_name: str = "",
+    graph_name: str = "",
+    run_id: str = "",
+    model_used: str = "",
+    prompt_text: str = "",
+) -> tuple[dict | list, bool]:
+    """Parse LLM output as JSON and optionally validate against a Pydantic schema.
+
+    Returns (parsed_result, was_retried) tuple. The was_retried flag is always
+    False in this implementation — retry logic requires the LLM conversation
+    context and is handled at the executor level.
+
+    If output_schema is provided:
+      1. Parse JSON via parse_json_response()
+      2. Validate against schema via model_validate()
+      3. On validation failure, return (fallback, False) and log to DLQ
+
+    If output_schema is None, behaves identically to parse_json_response().
+    """
+    parsed = parse_json_response(
+        raw_output,
+        fallback,
+        agent_name=agent_name,
+        graph_name=graph_name,
+        run_id=run_id,
+        model_used=model_used,
+        prompt_text=prompt_text,
+    )
+
+    if output_schema is None or parsed is fallback:
+        return parsed, False
+
+    try:
+        validated = output_schema.model_validate(parsed)
+        return validated.model_dump(), False
+    except Exception as exc:
+        logger.warning(
+            "Schema validation failed for %s: %s", agent_name or "unknown", exc
+        )
+        # Write validation failure to DLQ
+        if agent_name:
+            try:
+                import hashlib
+                from quantstack.db import db_conn as _dlq_db_conn
+
+                prompt_hash = (
+                    hashlib.sha256(prompt_text.encode()).hexdigest()[:16]
+                    if prompt_text
+                    else ""
+                )
+                with _dlq_db_conn() as conn:
+                    conn.execute(
+                        "INSERT INTO agent_dlq "
+                        "(agent_name, graph_name, run_id, input_summary, raw_output, "
+                        "error_type, error_detail, prompt_hash, model_used) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        [
+                            agent_name,
+                            graph_name,
+                            run_id,
+                            prompt_text[:500] if prompt_text else "",
+                            raw_output[:10000],
+                            "schema_validation_error",
+                            str(exc)[:2000],
+                            prompt_hash,
+                            model_used,
+                        ],
+                    )
+            except Exception as dlq_exc:
+                logger.debug("DLQ write failed: %s", dlq_exc)
+
+        return fallback if fallback is not None else {}, False

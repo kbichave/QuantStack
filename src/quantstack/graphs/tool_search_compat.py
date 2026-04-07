@@ -18,8 +18,9 @@ Called at graph initialization before any agent uses tool search.
 
 import logging
 
-from langchain_anthropic import ChatAnthropic
 from langchain_anthropic.chat_models import convert_to_anthropic_tool
+
+from quantstack.llm.provider import get_chat_model
 from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ def validate_tool_search_support() -> None:
         ) from exc
 
     # Step 2: Verify llm.bind() accepts both deferred tools and tool search type
-    llm = ChatAnthropic(model="claude-sonnet-4-20250514")
+    llm = get_chat_model("heavy")
     try:
         llm.bind(tools=[_SAMPLE_DEFERRED_TOOL, TOOL_SEARCH_TOOL])
     except Exception as exc:

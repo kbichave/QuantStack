@@ -112,18 +112,35 @@ class Mem0Client:
             os.environ["POSTHOG_DISABLED"] = "true"
             os.environ["ANONYMIZED_TELEMETRY"] = "false"
 
+            # Resolve LLM and embedding models through the provider layer
+            try:
+                from quantstack.llm.provider import get_llm_config
+                bulk_cfg = get_llm_config("bulk")
+                llm_provider = bulk_cfg["provider"]
+                llm_model = bulk_cfg["model"]
+                embed_cfg = get_llm_config("embedding")
+                embed_provider = embed_cfg["provider"]
+                embed_model = embed_cfg["model"]
+            except Exception:
+                # Fallback if provider layer not available during early init.
+                # Uses OPENAI_API_KEY which Mem0 requires regardless.
+                llm_provider = "openai"
+                llm_model = os.environ.get("MEM0_LLM_MODEL", "gpt-4o-mini")
+                embed_provider = "openai"
+                embed_model = os.environ.get("MEM0_EMBED_MODEL", "text-embedding-3-small")
+
             # Configure Mem0 with local Qdrant - disable graph store to avoid SQLite threading issues
             config = {
                 "llm": {
-                    "provider": "openai",
+                    "provider": llm_provider,
                     "config": {
-                        "model": "gpt-4o-mini",
+                        "model": llm_model,
                     },
                 },
                 "embedder": {
-                    "provider": "openai",
+                    "provider": embed_provider,
                     "config": {
-                        "model": "text-embedding-3-small",
+                        "model": embed_model,
                     },
                 },
                 "vector_store": {

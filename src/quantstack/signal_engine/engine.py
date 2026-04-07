@@ -130,6 +130,7 @@ class SignalEngine:
 
         # Drift detection — best-effort, never blocks brief delivery.
         # Uses symbol as strategy_id proxy for feature distribution tracking.
+        drift_report = None
         try:
             drift_report = DriftDetector().check_drift_from_brief(
                 strategy_id=symbol,
@@ -170,13 +171,41 @@ class SignalEngine:
         except Exception as _drift_exc:
             logger.debug(f"[SignalEngine] drift check failed (non-critical): {_drift_exc}")
 
+        # Apply confidence penalty and determine cache TTL based on drift severity.
+        cache_ttl: int | None = None
+        if drift_report is not None:
+            if drift_report.severity == "WARNING":
+                brief.overall_confidence = max(0.0, brief.overall_confidence - 0.10)
+                cache_ttl = 1800
+            elif drift_report.severity == "CRITICAL":
+                brief.overall_confidence = max(0.0, brief.overall_confidence - 0.30)
+                cache_ttl = 300
+                try:
+                    with db_conn() as _conn:
+                        _conn.execute(
+                            """
+                            INSERT INTO system_events
+                                (event_type, symbol, severity, details, created_at)
+                            VALUES ('DRIFT_CRITICAL', %s, 'critical', %s, NOW())
+                            """,
+                            [
+                                symbol,
+                                json.dumps({
+                                    "psi": drift_report.overall_psi,
+                                    "drifted_features": drift_report.drifted_features,
+                                }),
+                            ],
+                        )
+                except Exception:
+                    logger.debug("[SignalEngine] system_events insert failed (non-critical)")
+
         logger.info(
             f"[SignalEngine] {symbol} done in {duration_ms:.0f}ms "
             f"| bias={brief.market_bias} confidence={brief.overall_confidence:.2f}"
             f"{' | failures: ' + str(failures) if failures else ''}"
         )
 
-        _cache_put(symbol, brief)
+        _cache_put(symbol, brief, ttl=cache_ttl)
         return brief
 
     async def run_multi(

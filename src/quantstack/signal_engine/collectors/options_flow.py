@@ -33,6 +33,7 @@ from alpaca.data.historical.option import OptionHistoricalDataClient
 from alpaca.data.requests import OptionChainRequest
 
 from quantstack.data.adapters.alphavantage import AlphaVantageAdapter
+from quantstack.signal_engine.staleness import check_freshness
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +436,8 @@ def collect_options_flow(
     Returns empty dict on any failure — SignalEngine records the failure
     in collector_failures and continues.
     """
+    if not check_freshness(symbol, "options_chains", max_days=3):
+        return {}
     # Try Alpha Vantage first (richer data — includes rho, full Greeks)
     contracts = _fetch_chain_alphavantage(symbol)
 

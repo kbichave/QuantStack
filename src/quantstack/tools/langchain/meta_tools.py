@@ -4,7 +4,26 @@ import json
 from typing import Annotated, Any
 
 from langchain_core.tools import tool
+from loguru import logger
 from pydantic import Field
+
+from quantstack.db import db_conn
+
+
+def _get_breaker_status(strategy_id: str) -> str:
+    """Get breaker status label for a strategy. Fail-safe."""
+    try:
+        from quantstack.execution.strategy_breaker import StrategyBreaker
+        breaker = StrategyBreaker()
+        factor = breaker.get_scale_factor(strategy_id)
+        if factor == 0.0:
+            return "TRIPPED"
+        if factor < 1.0:
+            return "SCALED"
+        return "ACTIVE"
+    except Exception as exc:
+        logger.warning(f"[meta_tools] Breaker check failed for {strategy_id}: {exc}")
+        return "UNKNOWN"
 
 
 @tool
@@ -12,8 +31,37 @@ async def get_regime_strategies(
     regime: Annotated[str, Field(description="Market regime label such as 'trending_up', 'trending_down', 'ranging', or 'unknown'. Determines which strategy set is returned.")],
 ) -> str:
     """Retrieves strategy allocations for a given market regime from the regime-strategy matrix. Use when you need to look up which trading strategies are active, their allocation percentages, and confidence scores for a specific regime. Returns a JSON list of (strategy_id, allocation_pct, confidence) tuples. Covers regime mapping, strategy selection, portfolio allocation, and market condition routing."""
-    result = {"error": "Tool pending implementation", "status": "not_available"}
-    return json.dumps(result, default=str)
+    try:
+        with db_conn() as conn:
+            rows = conn.fetchall(
+                "SELECT strategy_id, name, status, regime_affinity "
+                "FROM strategies WHERE status != 'retired'"
+            )
+    except Exception as exc:
+        logger.warning(f"[meta_tools] get_regime_strategies DB query failed: {exc}")
+        return json.dumps({"error": "Failed to query strategies", "strategies": []})
+
+    # Filter by regime affinity and sort descending
+    strategies = []
+    for row in rows:
+        affinity_data = row.get("regime_affinity") or {}
+        if isinstance(affinity_data, str):
+            try:
+                affinity_data = json.loads(affinity_data)
+            except (json.JSONDecodeError, TypeError):
+                affinity_data = {}
+        affinity_score = affinity_data.get(regime, 0)
+        if affinity_score <= 0:
+            continue
+        strategies.append({
+            "strategy_id": row["strategy_id"],
+            "name": row.get("name", ""),
+            "affinity": affinity_score,
+            "breaker_status": _get_breaker_status(row["strategy_id"]),
+        })
+
+    strategies.sort(key=lambda s: s["affinity"], reverse=True)
+    return json.dumps({"strategies": strategies}, default=str)
 
 
 @tool

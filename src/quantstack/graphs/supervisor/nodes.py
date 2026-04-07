@@ -60,6 +60,97 @@ def make_health_check(llm: BaseChatModel, config: AgentConfig, tools: list[BaseT
             )
             text = await run_agent(llm, tools, config, prompt)
             health_status = parse_json_response(text, {"overall": "unknown", "raw": text})
+
+            # Collect operational health metrics and update Prometheus gauges
+            try:
+                from quantstack.graphs.supervisor.health_metrics import collect_health_metrics
+                from quantstack.observability.metrics import (
+                    record_cycle_error_count,
+                    record_cycle_success_rate,
+                    record_research_queue_depth,
+                    record_strategy_generation,
+                )
+
+                metrics = await collect_health_metrics()
+                record_cycle_success_rate("trading", metrics["trading_cycle_success_rate"])
+                record_cycle_success_rate("research", metrics["research_cycle_success_rate"])
+                record_cycle_error_count("trading", metrics["trading_cycle_error_count"])
+                record_cycle_error_count("research", metrics["research_cycle_error_count"])
+                record_strategy_generation(metrics["strategy_generation_7d"])
+                record_research_queue_depth(metrics["research_queue_depth"])
+            except Exception as exc:
+                logger.warning("Health metrics collection failed: %s", exc)
+
+            # Kill switch recovery and escalation checks
+            try:
+                from quantstack.execution.kill_switch import get_kill_switch
+                from quantstack.execution.kill_switch_recovery import (
+                    AutoRecoveryManager,
+                    KillSwitchEscalationManager,
+                )
+
+                ks = get_kill_switch()
+                AutoRecoveryManager(ks).check()
+                KillSwitchEscalationManager(ks).check()
+            except Exception as exc:
+                logger.warning("Kill switch recovery/escalation check failed: %s", exc)
+
+            # Factor exposure monitoring (section-04)
+            factor_summary: dict[str, Any] = {}
+            try:
+                from quantstack.risk.factor_exposure import run_factor_exposure_check
+                from quantstack.db import db_conn as _db_conn
+
+                with _db_conn() as _conn:
+                    pos_rows = _conn.execute(
+                        "SELECT symbol, quantity, avg_cost, "
+                        "quantity * avg_cost AS market_value "
+                        "FROM positions"
+                    ).fetchall()
+                positions = [dict(r) for r in pos_rows]
+                factor_summary = await run_factor_exposure_check(positions)
+            except Exception as exc:
+                logger.warning("Factor exposure check failed — continuing: %s", exc)
+                factor_summary = {"error": str(exc)}
+
+            health_status["factor_exposure"] = factor_summary
+
+            # EventBus ACK monitoring (section-07)
+            try:
+                from quantstack.coordination.event_bus import check_missed_acks
+                from quantstack.db import db_conn as _db_conn2
+
+                with _db_conn2() as _ack_conn:
+                    missed_ack_alerts = await check_missed_acks(_ack_conn)
+                if missed_ack_alerts:
+                    logger.warning("[Supervisor] %d missed ACK alerts raised", len(missed_ack_alerts))
+                health_status["missed_ack_alerts"] = len(missed_ack_alerts)
+            except Exception as exc:
+                logger.warning("ACK monitoring failed — continuing: %s", exc)
+
+            # LLM provider health monitoring (section-09)
+            try:
+                from quantstack.llm.provider import check_provider_health
+
+                provider_health = await check_provider_health()
+                health_status["llm_providers"] = provider_health
+
+                # Emit alerts for degraded providers
+                for pname, pinfo in provider_health.items():
+                    if pinfo.get("status") == "error":
+                        try:
+                            from quantstack.tools.functions.system_alerts import emit_system_alert
+                            emit_system_alert(
+                                title=f"LLM provider {pname} unavailable",
+                                category="service_failure",
+                                severity="warning",
+                                details=f"Error: {pinfo.get('error', 'unknown')}",
+                            )
+                        except Exception:
+                            pass
+            except Exception as exc:
+                logger.warning("LLM provider health check failed — continuing: %s", exc)
+
             return {"health_status": health_status}
         except Exception as exc:
             logger.error("health_check failed: %s", exc)
@@ -1423,6 +1514,30 @@ def make_scheduled_tasks(
                 logger.error("mmc_computation task failed: %s", exc)
                 mmc_result["error"] = str(exc)
         results.append(mmc_result)
+
+        # --- Memory Pruning (weekly, Saturday) ---
+        prune_due = _is_weekly_task_due("memory_pruning")
+        prune_result: dict[str, Any] = {
+            "task": "memory_pruning", "was_due": prune_due, "fired": False,
+        }
+        if prune_due:
+            try:
+                from quantstack.memory.blackboard import Blackboard
+
+                with db_conn() as conn:
+                    bb = Blackboard(conn=conn)
+                    archived = bb.archive_stale()
+                prune_result["fired"] = True
+                prune_result["archived_counts"] = archived
+                total = sum(archived.values())
+                logger.info(
+                    "[scheduled_tasks] Memory pruning: archived %d entries %s",
+                    total, archived,
+                )
+            except Exception as exc:
+                logger.error("memory_pruning task failed: %s", exc)
+                prune_result["error"] = str(exc)
+        results.append(prune_result)
 
         # --- Execution Researcher (monthly, 1st business day) ---
         exec_due = _is_execution_researcher_due()

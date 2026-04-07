@@ -25,13 +25,13 @@ async def async_main() -> None:
     shutdown = GracefulShutdown()
     shutdown.install_async(asyncio.get_running_loop())
 
-    from langgraph.checkpoint.memory import MemorySaver
+    from quantstack.checkpointing import create_checkpointer
     from quantstack.graphs.config_watcher import ConfigWatcher
     from quantstack.graphs.research import build_research_graph
 
     yaml_path = Path(__file__).resolve().parent.parent / "graphs" / "research" / "config" / "agents.yaml"
     config_watcher = ConfigWatcher(yaml_path)
-    checkpointer = MemorySaver()
+    checkpointer = create_checkpointer()
 
     def graph_builder():
         return build_research_graph(config_watcher, checkpointer)
@@ -59,6 +59,9 @@ async def async_main() -> None:
 
 def main() -> None:
     """Entry point: python -m quantstack.runners.research_runner"""
+    from quantstack.config.validation import validate_environment
+
+    validate_environment()
     asyncio.run(async_main())
 
 

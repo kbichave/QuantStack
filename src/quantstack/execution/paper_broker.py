@@ -31,7 +31,9 @@ from __future__ import annotations
 
 import math
 import os
+import random
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from threading import RLock
 from typing import Protocol, runtime_checkable
@@ -40,11 +42,14 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from quantstack.db import PgConnection, open_db, run_migrations
+from quantstack.execution.fill_utils import compute_fill_vwap, record_fill_leg
 from quantstack.execution.portfolio_state import (
     PortfolioState,
     Position,
     get_portfolio_state,
 )
+from quantstack.execution.slippage import classify_time_bucket, get_time_of_day_multiplier
+from quantstack.execution.tca_ewma import conservative_multiplier, get_ewma_forecast
 
 # =============================================================================
 # BROKER PROTOCOL — the shared interface every broker must satisfy
@@ -68,6 +73,18 @@ class BrokerProtocol(Protocol):
 # =============================================================================
 # DATA MODELS
 # =============================================================================
+
+
+@dataclass(frozen=True)
+class BarData:
+    """OHLCV + VWAP for a single intraday bar."""
+
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    vwap: float
 
 
 class OrderRequest(BaseModel):
@@ -200,6 +217,8 @@ class PaperBroker:
             daily_volume=daily_vol,
             order_type=req.order_type,
             limit_price=req.limit_price,
+            symbol=req.symbol,
+            timestamp=datetime.now(),
         )
 
         # Limit order not filled (price didn't cross)
@@ -240,6 +259,141 @@ class PaperBroker:
         )
         return fill
 
+    def _get_slippage_params(
+        self, symbol: str, timestamp: datetime | None = None,
+    ) -> tuple[float, float]:
+        """Return (spread_bps, impact_coefficient) for symbol and time.
+
+        Lookup order:
+        1. tca_parameters row with sample_count >= 50 -- use directly
+        2. tca_parameters with sample_count < 50 -- apply conservative multiplier
+        3. No row -- return (HALF_SPREAD_BPS * tod_multiplier, 5.0)
+        """
+        bucket = classify_time_bucket(timestamp) if timestamp else "close"
+        tod_mult = get_time_of_day_multiplier(bucket)
+
+        forecast = get_ewma_forecast(self._conn, symbol, bucket)
+        if forecast is None:
+            return (self.HALF_SPREAD_BPS * tod_mult, 5.0)
+
+        sample_count = forecast["sample_count"]
+        spread_bps = forecast["ewma_spread_bps"]
+        impact_bps = forecast["ewma_impact_bps"]
+
+        if sample_count >= 50:
+            # Trusted calibration -- use EWMA values directly.
+            # impact_bps from EWMA is per-unit; use as the coefficient k.
+            return (spread_bps, impact_bps)
+
+        # Low sample count -- apply conservative multiplier to widen the estimate.
+        mult = conservative_multiplier(sample_count)
+        return (spread_bps * mult, impact_bps * mult)
+
+    # -------------------------------------------------------------------------
+    # Algo child-order execution (TWAP / VWAP slicing)
+    # -------------------------------------------------------------------------
+
+    def execute_algo_child(
+        self,
+        req: OrderRequest,
+        scheduled_time: datetime,
+        participation_rate: float = 0.02,
+    ) -> Fill:
+        """Execute a single algo child order against the historical bar at *scheduled_time*.
+
+        Fill model:
+          1. Look up the bar covering ``scheduled_time``.
+          2. Cap fill quantity at ``bar.volume * participation_rate``.
+          3. Compute fill price: bar VWAP + adverse directional noise, clamped to
+             [bar.low, bar.high].
+
+        Fallback:
+          - No bar data -> log warning, delegate to ``execute()`` (instant-fill).
+          - Zero-volume bar -> reject with ``"zero volume in target bar"``.
+        """
+        bar = self._get_historical_bar(req.symbol, scheduled_time)
+
+        if bar is None:
+            logger.warning(
+                f"[PAPER-ALGO] No bar data for {req.symbol} at {scheduled_time}; "
+                "falling back to instant-fill model"
+            )
+            return self.execute(req)
+
+        if bar.volume == 0:
+            return self._reject(req, "zero volume in target bar")
+
+        # Participation cap
+        max_fillable = max(1, int(bar.volume * participation_rate))
+        filled_qty = min(req.quantity, max_fillable)
+        partial = filled_qty < req.quantity
+
+        # Fill price: bar VWAP + adverse noise, clamped to [low, high]
+        direction = 1 if req.side == "buy" else -1
+        noise_range = (bar.high - bar.low) * 0.3
+        noise = direction * random.uniform(0, noise_range)
+        raw_price = bar.vwap + noise
+        fill_price = round(max(bar.low, min(bar.high, raw_price)), 4)
+
+        slippage_bps = (
+            abs(fill_price - req.current_price) / req.current_price * 10_000
+            if req.current_price > 0
+            else 0.0
+        )
+        commission = filled_qty * self.COMMISSION_PER_SHARE
+
+        fill = Fill(
+            order_id=req.order_id,
+            symbol=req.symbol,
+            side=req.side,
+            requested_quantity=req.quantity,
+            filled_quantity=filled_qty,
+            fill_price=fill_price,
+            slippage_bps=slippage_bps,
+            commission=commission,
+            partial=partial,
+        )
+
+        self._record_fill(fill)
+        self._update_portfolio(fill, req)
+
+        logger.info(
+            f"[PAPER-ALGO] FILLED {fill.filled_quantity}/{req.quantity} "
+            f"{fill.symbol} @ ${fill.fill_price:.4f} "
+            f"(bar VWAP ${bar.vwap:.4f}, {fill.slippage_bps:.1f} bps slip)"
+        )
+        return fill
+
+    def _get_historical_bar(
+        self, symbol: str, timestamp: datetime,
+    ) -> BarData | None:
+        """Look up the intraday bar covering *timestamp*.
+
+        For paper trading without a real intraday data source this generates a
+        synthetic bar from the most recent close stored in the DB.  Production
+        deployments should override this with a real bar-data lookup.
+        """
+        row = self.conn.execute(
+            "SELECT fill_price FROM fills "
+            "WHERE symbol = ? AND rejected = FALSE AND filled_quantity > 0 "
+            "ORDER BY filled_at DESC LIMIT 1",
+            [symbol],
+        ).fetchone()
+
+        if row is None:
+            return None
+
+        ref = float(row[0])
+        spread = ref * 0.002  # 20 bps range
+        return BarData(
+            open=round(ref - spread * 0.3, 4),
+            high=round(ref + spread, 4),
+            low=round(ref - spread, 4),
+            close=round(ref + spread * 0.2, 4),
+            volume=10_000,
+            vwap=round(ref, 4),
+        )
+
     def _calc_fill_price(
         self,
         side: str,
@@ -248,6 +402,8 @@ class PaperBroker:
         daily_volume: int,
         order_type: str,
         limit_price: float | None,
+        symbol: str = "",
+        timestamp: datetime | None = None,
     ) -> float | None:
         """Return simulated fill price, or None if limit order won't fill."""
         if order_type == "limit":
@@ -264,12 +420,11 @@ class PaperBroker:
         # Market order: half-spread + square-root impact
         direction = 1 if side == "buy" else -1
 
-        # Half-spread
-        spread_cost = ref_price * self.HALF_SPREAD_BPS / 10_000
+        spread_bps, impact_k = self._get_slippage_params(symbol, timestamp)
+        spread_cost = ref_price * spread_bps / 10_000
 
         # Square-root market impact: k * sqrt(qty / (0.01 * daily_vol))
-        # k=5 calibrated so an order at 1% of ADV costs ~5 bps of impact
-        impact_bps = 5 * math.sqrt(quantity / max(1, daily_volume * 0.01))
+        impact_bps = impact_k * math.sqrt(quantity / max(1, daily_volume * 0.01))
         impact_cost = ref_price * impact_bps / 10_000
 
         fill_price = ref_price + direction * (spread_cost + impact_cost)
@@ -293,6 +448,7 @@ class PaperBroker:
 
     def _record_fill(self, fill: Fill) -> None:
         with self._lock:
+            # Upsert the summary row so partial fills update rather than conflict.
             self.conn.execute(
                 """
                 INSERT INTO fills
@@ -300,6 +456,15 @@ class PaperBroker:
                      fill_price, slippage_bps, commission, partial, rejected,
                      reject_reason, filled_at, session_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (order_id) DO UPDATE SET
+                    filled_quantity = EXCLUDED.filled_quantity,
+                    fill_price      = EXCLUDED.fill_price,
+                    slippage_bps    = EXCLUDED.slippage_bps,
+                    commission      = EXCLUDED.commission,
+                    partial         = EXCLUDED.partial,
+                    rejected        = EXCLUDED.rejected,
+                    reject_reason   = EXCLUDED.reject_reason,
+                    filled_at       = EXCLUDED.filled_at
                 """,
                 [
                     fill.order_id,
@@ -317,6 +482,22 @@ class PaperBroker:
                     getattr(fill, "session_id", ""),
                 ],
             )
+
+            # Dual-write: record fill leg for non-rejected fills with quantity > 0.
+            if not fill.rejected and fill.filled_quantity > 0:
+                record_fill_leg(
+                    self.conn,
+                    order_id=fill.order_id,
+                    quantity=fill.filled_quantity,
+                    price=fill.fill_price,
+                    venue="paper",
+                )
+                # Recompute VWAP from all legs and update the summary row.
+                vwap = compute_fill_vwap(self.conn, fill.order_id)
+                self.conn.execute(
+                    "UPDATE fills SET fill_price = ? WHERE order_id = ?",
+                    [vwap, fill.order_id],
+                )
 
     def _update_portfolio(self, fill: Fill, req: OrderRequest) -> None:
         """Reflect fill in PortfolioState and adjust cash."""

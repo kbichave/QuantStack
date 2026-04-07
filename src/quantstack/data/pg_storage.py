@@ -13,12 +13,11 @@ Design notes
 - No persistent connection — each method opens a pg_conn() context manager,
   executes, and returns.  This matches the pooled pg_conn() pattern used
   everywhere in the operational layer.
-- Bulk upserts use psycopg2.extras.execute_values with ON CONFLICT DO UPDATE
-  so repeated ingestion runs are idempotent.
-- pd.read_sql_query() is used for loads because it avoids the psycopg2 cursor
-  fetchall + column-name reconstruction dance.  It requires the raw psycopg2
-  connection (conn._raw), not the PgConnection wrapper.
-- psycopg2 uses %s placeholders.  The _translate() helper on PgConnection
+- Bulk upserts use _execute_values() (psycopg3 executemany with pipeline mode)
+  with ON CONFLICT DO UPDATE so repeated ingestion runs are idempotent.
+- Uses cursor.execute + fetchall instead of pd.read_sql_query to avoid
+  SQLAlchemy dependency warnings.
+- psycopg3 uses %s placeholders.  The _translate() helper on PgConnection
   converts ? → %s, but we write %s directly here since we own the SQL.
 """
 
@@ -29,7 +28,6 @@ from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
-import psycopg2.extras
 from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
@@ -51,6 +49,21 @@ def _safe_str(value: object) -> str | None:
     if value is None or value in ("None", "N/A", "-", ""):
         return None
     return str(value)
+
+
+def _execute_values(cur: Any, sql: str, rows: list) -> None:
+    """Bulk execute using psycopg3's executemany (pipeline mode).
+
+    Drop-in replacement for _execute_values.  The *sql* template
+    must contain ``VALUES %s`` — this is expanded to per-row placeholders and
+    executed via executemany, which psycopg3 pipelines automatically.
+    """
+    if not rows:
+        return
+    n_cols = len(rows[0])
+    placeholder = "(" + ", ".join(["%s"] * n_cols) + ")"
+    expanded_sql = sql.replace("VALUES %s", f"VALUES {placeholder}")
+    cur.executemany(expanded_sql, rows)
 
 
 class PgDataStore:
@@ -82,10 +95,9 @@ class PgDataStore:
     def _prime_cursor(conn: Any) -> Any:
         """Ensure *conn* has an open cursor and return it.
 
-        psycopg2.extras.execute_values requires a real psycopg2 cursor.
-        PgConnection creates _cur lazily on the first execute() call.  This
-        helper primes both the raw connection and the cursor without running
-        a round-trip query.
+        _execute_values requires a raw psycopg3 cursor. PgConnection creates
+        _cur lazily on the first execute() call.  This helper primes both the
+        raw connection and the cursor without running a round-trip query.
         """
         raw = conn._ensure_raw()
         if conn._cur is None or conn._cur.closed:
@@ -100,7 +112,7 @@ class PgDataStore:
 
         Uses cursor.execute + fetchall instead of pd.read_sql_query to avoid
         the 'pandas only supports SQLAlchemy connectable' UserWarning that
-        fires when passing a raw psycopg2 connection.
+        fires when passing a raw psycopg connection.
         """
         raw = conn._ensure_raw()
         cur = raw.cursor()
@@ -152,7 +164,7 @@ class PgDataStore:
                     [symbol, timeframe.value],
                 )
 
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 """
                 INSERT INTO ohlcv (symbol, timeframe, timestamp, open, high, low, close, volume)
@@ -249,7 +261,7 @@ class PgDataStore:
             if replace:
                 conn.execute("DELETE FROM ohlcv_1m WHERE symbol=%s", [symbol])
 
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 """
                 INSERT INTO ohlcv_1m
@@ -352,7 +364,7 @@ class PgDataStore:
         )
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO financial_statements ({col_list})
@@ -434,7 +446,7 @@ class PgDataStore:
         )
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO financial_metrics ({col_list})
@@ -501,7 +513,7 @@ class PgDataStore:
         )
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO insider_trades ({col_list})
@@ -568,7 +580,7 @@ class PgDataStore:
         )
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO institutional_ownership ({col_list})
@@ -616,7 +628,7 @@ class PgDataStore:
         rows = list(data[["indicator", "date", "value"]].itertuples(index=False, name=None))
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 """
                 INSERT INTO macro_indicators (indicator, date, value)
@@ -687,7 +699,7 @@ class PgDataStore:
             "ticker", "action_type", "effective_date", "amount",
             "declaration_date", "record_date", "payment_date",
         ]
-        # Replace pandas NaT/NaN with None so psycopg2 receives NULL.
+        # Replace pandas NaT/NaN with None so psycopg receives NULL.
         # Must convert to object dtype first — datetime64 columns keep NaT even after .where().
         rows = [
             tuple(None if pd.isna(v) else v for v in row)
@@ -701,7 +713,7 @@ class PgDataStore:
         )
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO corporate_actions ({col_list})
@@ -760,7 +772,7 @@ class PgDataStore:
         )
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO analyst_estimates ({col_list})
@@ -810,7 +822,7 @@ class PgDataStore:
         )
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO sec_filings ({col_list})
@@ -894,7 +906,7 @@ class PgDataStore:
                     [symbol, date_val],
                 )
 
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO options_chains ({col_list})
@@ -997,7 +1009,7 @@ class PgDataStore:
         rows = list(df[cols].itertuples(index=False, name=None))
 
         with pg_conn() as conn:
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 """
                 INSERT INTO put_call_ratio (symbol, date, put_volume, call_volume, pcr, source)
@@ -1092,7 +1104,7 @@ class PgDataStore:
             else:
                 conflict_clause = "ON CONFLICT (symbol, report_date) DO NOTHING"
 
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"INSERT INTO earnings_calendar ({col_list}) VALUES %s {conflict_clause}",
                 rows,
@@ -1248,7 +1260,7 @@ class PgDataStore:
             if replace:
                 conn.execute("DELETE FROM news_sentiment")
 
-            psycopg2.extras.execute_values(
+            _execute_values(
                 self._prime_cursor(conn),
                 f"""
                 INSERT INTO news_sentiment ({col_list})

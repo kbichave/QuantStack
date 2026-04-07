@@ -26,6 +26,7 @@ Design intent (unchanged):
 
 from __future__ import annotations
 
+import os
 from datetime import date
 from typing import Any, Literal
 
@@ -182,6 +183,10 @@ class RuleBasedSynthesizer:
     ML_BULLISH_THRESHOLD = 0.55
     ML_BEARISH_THRESHOLD = 0.45
 
+    # Conflict resolution thresholds
+    CONFLICT_SPREAD_THRESHOLD = 0.5
+    CONFLICT_CONVICTION_CAP = 0.3
+
     def synthesize(
         self,
         symbol: str,
@@ -249,6 +254,44 @@ class RuleBasedSynthesizer:
     # ------------------------------------------------------------------ #
     # Bias and conviction                                                  #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _detect_signal_conflict(scores: dict[str, float]) -> tuple[bool, float, list[str]]:
+        """
+        Detect conflicting signals based on spread between max and min vote scores.
+
+        Args:
+            scores: Dict of collector name -> vote score (range -1 to +1)
+
+        Returns:
+            (is_conflicting, spread, conflicting_collectors)
+            - is_conflicting: True if spread > CONFLICT_SPREAD_THRESHOLD
+            - spread: max(scores) - min(scores)
+            - conflicting_collectors: list of [max_voter, min_voter] when conflicting
+        """
+        vote_values = [v for v in scores.values() if v is not None]
+        if len(vote_values) < 2:
+            return False, 0.0, []
+
+        max_score = max(vote_values)
+        min_score = min(vote_values)
+        spread = max_score - min_score
+
+        is_conflicting = spread > RuleBasedSynthesizer.CONFLICT_SPREAD_THRESHOLD
+
+        conflicting_collectors = []
+        if is_conflicting:
+            # Find the collectors with max and min scores
+            for name, score in scores.items():
+                if score == max_score:
+                    conflicting_collectors.append(name)
+                    break
+            for name, score in scores.items():
+                if score == min_score:
+                    conflicting_collectors.append(name)
+                    break
+
+        return is_conflicting, spread, conflicting_collectors
 
     def _compute_bias_and_conviction(
         self,
@@ -381,44 +424,143 @@ class RuleBasedSynthesizer:
 
         # --- Conviction scaling ---
         conviction = abs(score)
-
-        # ADX > 25: trend is real, trust the direction more
         adx = technical.get("adx_14")
-        if adx is not None and adx > self.ADX_STRONG_TREND:
-            conviction += 0.10
-
-        # HMM stability bonus: well-established regimes deserve more trust
         hmm_stability = regime.get("hmm_stability")
+        weekly_trend = technical.get("weekly_trend", "unknown")
+
+        use_multiplicative = os.getenv(
+            "FEEDBACK_CONVICTION_MULTIPLICATIVE", "false"
+        ).lower() == "true"
+
+        if use_multiplicative:
+            conviction = self._conviction_multiplicative(
+                conviction, adx, hmm_stability, weekly_trend, trend,
+                regime, has_ml, scores, score, failures,
+            )
+        else:
+            conviction = self._conviction_additive(
+                conviction, adx, hmm_stability, weekly_trend, trend,
+                regime, has_ml, scores, score, failures,
+            )
+
+        # --- Conflict resolution: cap conviction if signal spread is high ---
+        vote_values = [v for v in scores.values() if v is not None]
+        if len(vote_values) >= 2:
+            signal_spread = max(vote_values) - min(vote_values)
+            if signal_spread > self.CONFLICT_SPREAD_THRESHOLD:
+                conviction = min(conviction, self.CONFLICT_CONVICTION_CAP)
+
+        conviction = round(max(0.05, min(0.95, conviction)), 3)
+        return bias, conviction
+
+    @staticmethod
+    def _conviction_additive(
+        conviction: float,
+        adx: float | None,
+        hmm_stability: float | None,
+        weekly_trend: str,
+        trend: str,
+        regime: dict,
+        has_ml: bool,
+        scores: dict[str, float],
+        score: float,
+        failures: list[str],
+    ) -> float:
+        """Original additive conviction adjustments (backward-compatible)."""
+        if adx is not None and adx > 25:  # ADX_STRONG_TREND
+            conviction += 0.10
         if hmm_stability is not None and hmm_stability > 0.8:
             conviction += 0.05
-
-        # Weekly trend contradicts daily → reduce conviction
-        weekly_trend = technical.get("weekly_trend", "unknown")
         if weekly_trend != "unknown" and trend != "unknown":
             if (weekly_trend == "bullish" and trend == "trending_down") or (
                 weekly_trend == "bearish" and trend == "trending_up"
             ):
                 conviction -= 0.15
-
-        # HMM/rule-based regime disagreement → reduce conviction
         if regime.get("regime_disagreement"):
             conviction -= 0.10
-
-        # ML model agreement bonus: if ML agrees with rule-based direction, boost
         if has_ml and scores.get("ml", 0) != 0:
             ml_direction = 1 if scores["ml"] > 0 else -1
             rule_direction = 1 if score > 0 else (-1 if score < 0 else 0)
             if ml_direction == rule_direction and rule_direction != 0:
-                conviction += 0.05  # ML confirms rule-based → small boost
-
-        # Collector failures reduce reliability
+                conviction += 0.05
         if "technical" in failures:
             conviction -= 0.20
         if "regime" in failures:
             conviction -= 0.20
+        return conviction
 
-        conviction = round(max(0.05, min(0.95, conviction)), 3)
-        return bias, conviction
+    @staticmethod
+    def _conviction_multiplicative(
+        base_conviction: float,
+        adx: float | None,
+        hmm_stability: float | None,
+        weekly_trend: str,
+        trend: str,
+        regime: dict,
+        has_ml: bool,
+        scores: dict[str, float],
+        score: float,
+        failures: list[str],
+    ) -> float:
+        """Multiplicative conviction factors — proportional scaling."""
+        # Factor 1: ADX strength (1.0 at ADX<=15, ramps to 1.15 at ADX>=50)
+        if adx is not None and adx > 15:
+            adx_factor = 1.0 + 0.15 * min(1.0, (adx - 15) / 35)
+        else:
+            adx_factor = 1.0
+
+        # Factor 2: Regime stability (0.85 at 0, 1.05 at 1.0)
+        if hmm_stability is not None:
+            stability_factor = 0.85 + 0.20 * hmm_stability
+        else:
+            stability_factor = 1.0
+
+        # Factor 3: Timeframe agreement
+        timeframe_factor = 1.0
+        if weekly_trend != "unknown" and trend != "unknown":
+            if (weekly_trend == "bullish" and trend == "trending_down") or (
+                weekly_trend == "bearish" and trend == "trending_up"
+            ):
+                timeframe_factor = 0.80
+
+        # Factor 4: Regime source agreement
+        regime_agreement_factor = 0.85 if regime.get("regime_disagreement") else 1.0
+
+        # Factor 5: ML confirmation (boost only, no penalty for disagreement)
+        ml_confirmation_factor = 1.0
+        if has_ml and scores.get("ml", 0) != 0:
+            ml_direction = 1 if scores["ml"] > 0 else -1
+            rule_direction = 1 if score > 0 else (-1 if score < 0 else 0)
+            if ml_direction == rule_direction and rule_direction != 0:
+                ml_confirmation_factor = 1.10
+
+        # Factor 6: Data quality (per-failure 0.75 penalty, multiplicative)
+        data_quality_factor = 1.0
+        if "technical" in failures:
+            data_quality_factor *= 0.75
+        if "regime" in failures:
+            data_quality_factor *= 0.75
+
+        adjusted = (
+            base_conviction
+            * adx_factor
+            * stability_factor
+            * timeframe_factor
+            * regime_agreement_factor
+            * ml_confirmation_factor
+            * data_quality_factor
+        )
+
+        logger.debug(
+            "conviction_factors | base=%.3f adx=%.3f stability=%.3f "
+            "timeframe=%.3f regime_agree=%.3f ml_confirm=%.3f data_quality=%.3f "
+            "adjusted=%.3f",
+            base_conviction, adx_factor, stability_factor,
+            timeframe_factor, regime_agreement_factor, ml_confirmation_factor,
+            data_quality_factor, adjusted,
+        )
+
+        return adjusted
 
     # ------------------------------------------------------------------ #
     # Pod agreement                                                        #

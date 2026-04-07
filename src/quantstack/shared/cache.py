@@ -23,21 +23,27 @@ class TTLCache:
 
     def __init__(self, ttl_seconds: int = 1800) -> None:
         self._ttl = ttl_seconds
-        self._store: dict[str, tuple[Any, float]] = {}
+        self._store: dict[str, tuple[Any, float, int | None]] = {}
 
     # -- public API ----------------------------------------------------------
 
-    def set(self, key: str, value: Any) -> None:
-        """Store *value* under *key* with the current monotonic timestamp."""
-        self._store[key] = (value, time.monotonic())
+    def set(self, key: str, value: Any, ttl: int | None = None) -> None:
+        """Store *value* under *key* with the current monotonic timestamp.
+
+        Args:
+            ttl: Optional per-entry TTL in seconds. If None, the instance
+                 default (self._ttl) is used at read time.
+        """
+        self._store[key] = (value, time.monotonic(), ttl)
 
     def get(self, key: str) -> Any | None:
         """Return the value for *key*, or ``None`` if absent/expired."""
         entry = self._store.get(key)
         if entry is None:
             return None
-        value, ts = entry
-        if time.monotonic() - ts > self._ttl:
+        value, ts, entry_ttl = entry
+        effective_ttl = entry_ttl if entry_ttl is not None else self._ttl
+        if time.monotonic() - ts > effective_ttl:
             del self._store[key]
             return None
         return value
@@ -53,7 +59,11 @@ class TTLCache:
     def clear_expired(self) -> int:
         """Remove all expired entries.  Returns the number removed."""
         now = time.monotonic()
-        expired = [k for k, (_, ts) in self._store.items() if now - ts > self._ttl]
+        expired = [
+            k
+            for k, (_, ts, entry_ttl) in self._store.items()
+            if now - ts > (entry_ttl if entry_ttl is not None else self._ttl)
+        ]
         for k in expired:
             del self._store[k]
         return len(expired)
@@ -67,8 +77,9 @@ class TTLCache:
         entry = self._store.get(key)
         if entry is None:
             return False
-        _, ts = entry
-        if time.monotonic() - ts > self._ttl:
+        _, ts, entry_ttl = entry
+        effective_ttl = entry_ttl if entry_ttl is not None else self._ttl
+        if time.monotonic() - ts > effective_ttl:
             del self._store[key]
             return False
         return True

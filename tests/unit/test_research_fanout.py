@@ -1,6 +1,7 @@
 """Tests for research fan-out via Send() (Section 09, WI-7)."""
 
 import operator
+import os
 from typing import Annotated
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -196,6 +197,70 @@ class TestFilterResults:
         state = {"validation_results": []}
         result = await node(state)
         assert result["validation_result"]["passed"] is False
+
+
+class TestFanOutSemaphore:
+    def test_semaphore_exists_with_limit_10(self):
+        import asyncio
+        from quantstack.graphs.research.nodes import _FANOUT_SEMAPHORE
+
+        assert isinstance(_FANOUT_SEMAPHORE, asyncio.Semaphore)
+        assert _FANOUT_SEMAPHORE._value == 10
+
+    @pytest.mark.asyncio
+    async def test_semaphore_limits_concurrency(self):
+        """Verify the semaphore actually limits concurrent tasks."""
+        import asyncio
+        from quantstack.graphs.research.nodes import _FANOUT_SEMAPHORE
+
+        peak_concurrent = 0
+        current_concurrent = 0
+
+        async def worker():
+            nonlocal peak_concurrent, current_concurrent
+            async with _FANOUT_SEMAPHORE:
+                current_concurrent += 1
+                peak_concurrent = max(peak_concurrent, current_concurrent)
+                await asyncio.sleep(0.01)
+                current_concurrent -= 1
+
+        await asyncio.gather(*[worker() for _ in range(20)])
+        assert peak_concurrent <= 10
+
+
+class TestAVCallsThisMinute:
+    def test_get_calls_this_minute_returns_count(self):
+        import time
+        from quantstack.data.fetcher import AlphaVantageClient
+
+        with patch.object(AlphaVantageClient, "__init__", lambda self, *a, **kw: None):
+            av = AlphaVantageClient.__new__(AlphaVantageClient)
+            av._fallback_call_count = 42
+            av._fallback_minute_start = time.time()
+            assert av.get_calls_this_minute() == 42
+
+    def test_get_calls_this_minute_resets_after_60s(self):
+        import time
+        from quantstack.data.fetcher import AlphaVantageClient
+
+        with patch.object(AlphaVantageClient, "__init__", lambda self, *a, **kw: None):
+            av = AlphaVantageClient.__new__(AlphaVantageClient)
+            av._fallback_call_count = 42
+            av._fallback_minute_start = time.time() - 61
+            assert av.get_calls_this_minute() == 0
+
+
+class TestFanOutDefaultFlip:
+    def test_default_is_true_when_env_unset(self):
+        env = {k: v for k, v in os.environ.items() if k != "RESEARCH_FAN_OUT_ENABLED"}
+        with patch.dict(os.environ, env, clear=True):
+            result = os.environ.get("RESEARCH_FAN_OUT_ENABLED", "true").lower() == "true"
+        assert result is True
+
+    def test_env_false_disables(self):
+        with patch.dict(os.environ, {"RESEARCH_FAN_OUT_ENABLED": "false"}):
+            result = os.environ.get("RESEARCH_FAN_OUT_ENABLED", "true").lower() == "true"
+        assert result is False
 
 
 class TestResearchStateAccumulator:

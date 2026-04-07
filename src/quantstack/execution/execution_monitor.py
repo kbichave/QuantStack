@@ -17,12 +17,13 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any, Protocol, runtime_checkable
 
 import pytz
 from loguru import logger
 
+from quantstack.core.options.engine import compute_greeks_dispatch
 from quantstack.execution.paper_broker import BrokerProtocol, Fill, OrderRequest
 from quantstack.execution.portfolio_state import PortfolioState, Position
 from quantstack.holding_period import HOLDING_CONFIGS, HoldingDecision, HoldingType
@@ -36,6 +37,24 @@ _BAR_HOURS: dict[HoldingType, float] = {
     HoldingType.SHORT_SWING: 4.0,
     HoldingType.SWING: 24.0,
     HoldingType.POSITION: 24.0,
+}
+
+
+@dataclass
+class OptionsMonitorRule:
+    """Configuration for a single options monitoring rule."""
+
+    name: str
+    enabled: bool
+    action: str  # "auto_exit" | "flag_only"
+
+
+DEFAULT_OPTIONS_RULES: dict[str, OptionsMonitorRule] = {
+    "theta_acceleration": OptionsMonitorRule("theta_acceleration", True, "auto_exit"),
+    "pin_risk": OptionsMonitorRule("pin_risk", True, "auto_exit"),
+    "assignment_risk": OptionsMonitorRule("assignment_risk", False, "flag_only"),
+    "iv_crush": OptionsMonitorRule("iv_crush", False, "flag_only"),
+    "max_theta_loss": OptionsMonitorRule("max_theta_loss", True, "auto_exit"),
 }
 
 
@@ -100,8 +119,13 @@ class MonitoredPosition:
     instrument_type: str = "equity"
     underlying_symbol: str = ""
     option_contract: str | None = None
+    option_strike: float | None = None
+    option_expiry: date | None = None
+    option_type: str | None = None  # "call" or "put"
+    entry_premium: float | None = None
     exit_pending: bool = False
     strategy_id: str = ""
+    regime_at_entry: str = "unknown"
 
     @classmethod
     def from_portfolio_position(cls, position: Position) -> MonitoredPosition:
@@ -124,6 +148,16 @@ class MonitoredPosition:
                 f"_{position.option_type[0].upper()}{position.option_strike}"
             )
 
+        # Parse option_expiry string → date if present
+        option_expiry_date: date | None = None
+        if position.option_expiry:
+            try:
+                option_expiry_date = datetime.strptime(
+                    position.option_expiry, "%Y-%m-%d"
+                ).date()
+            except (ValueError, TypeError):
+                pass
+
         return cls(
             symbol=position.symbol,
             side=position.side,
@@ -140,6 +174,10 @@ class MonitoredPosition:
             instrument_type=position.instrument_type,
             underlying_symbol=underlying,
             option_contract=option_contract,
+            option_strike=position.option_strike,
+            option_expiry=option_expiry_date,
+            option_type=position.option_type,
+            entry_premium=position.avg_cost if position.instrument_type == "options" else None,
             strategy_id=position.strategy_id,
         )
 
@@ -243,6 +281,9 @@ class ExecutionMonitor:
         self._running = False
         self._stopped = asyncio.Event()
 
+        # Options monitoring rules (override via _options_rules attr for testing)
+        self._options_rules: dict[str, OptionsMonitorRule] = dict(DEFAULT_OPTIONS_RULES)
+
         # Circuit breaker state
         self._feed_last_update: datetime | None = None
         self._db_last_success: datetime | None = None
@@ -340,14 +381,143 @@ class ExecutionMonitor:
         should_exit, reason = position.evaluate_rules(price, timestamp, False)
         if should_exit:
             await self._submit_exit(position, reason, price)
-        else:
-            # Update monitor bookkeeping (best-effort, no failure propagation)
-            try:
-                self._portfolio.update_monitor_state(
-                    symbol, position.high_water_mark, timestamp
-                )
-            except Exception:
-                pass  # Bookkeeping write failure is non-critical
+            return
+
+        # Options-specific rules (only if equity rules didn't trigger)
+        if position.instrument_type == "options":
+            should_exit, reason = await self._evaluate_options_rules(
+                position, price, timestamp
+            )
+            if should_exit:
+                await self._submit_exit(position, reason, price)
+                return
+
+        # Update monitor bookkeeping (best-effort, no failure propagation)
+        try:
+            self._portfolio.update_monitor_state(
+                symbol, position.high_water_mark, timestamp
+            )
+        except Exception:
+            pass  # Bookkeeping write failure is non-critical
+
+    # ── Options rule evaluation ───────────────────────────────────────────
+
+    async def _evaluate_options_rules(
+        self,
+        position: MonitoredPosition,
+        current_price: float,
+        current_time: datetime,
+    ) -> tuple[bool, str]:
+        """Evaluate options-specific exit rules.
+
+        Skips non-options positions. Returns (should_exit, reason).
+        Priority order: theta_acceleration > pin_risk > max_theta_loss.
+        Disabled rules and flag_only rules never cause an exit.
+        """
+        if position.instrument_type != "options":
+            return False, ""
+
+        # Compute DTE
+        if position.option_expiry is None:
+            return False, ""
+        today = current_time.date() if hasattr(current_time, "date") else date.today()
+        dte = (position.option_expiry - today).days
+
+        # Fetch Greeks (best-effort)
+        greeks: dict[str, float] = {}
+        try:
+            strike = position.option_strike or 0.0
+            tte_years = max(dte / 365.0, 1e-6)
+            result = compute_greeks_dispatch(
+                spot=current_price,
+                strike=strike,
+                time_to_expiry=tte_years,
+                vol=0.30,  # default vol estimate; real IV would come from market data
+                option_type=position.option_type or "call",
+            )
+            greeks = result.get("greeks", {})
+        except Exception as exc:
+            logger.warning(
+                f"[ExecMonitor] Greeks computation failed for {position.symbol}: {exc}"
+            )
+            return False, ""
+
+        theta = greeks.get("theta", 0.0)
+        rules = self._options_rules
+
+        # Track flag_only triggers for logging
+        flagged: list[str] = []
+
+        # --- Rule evaluation in priority order ---
+
+        # 1. theta_acceleration: DTE < 7 AND |theta|/premium > 5%
+        rule = rules.get("theta_acceleration")
+        if rule and rule.enabled and dte < 7 and current_price > 0:
+            theta_ratio = abs(theta) / current_price
+            if theta_ratio > 0.05:
+                detail = f"DTE={dte}, |theta|/premium={theta_ratio:.3f}"
+                if rule.action == "auto_exit":
+                    return True, f"options_theta_acceleration: {detail}"
+                flagged.append(f"theta_acceleration: {detail}")
+
+        # 2. pin_risk: DTE < 3 AND |underlying - strike|/strike < 1%
+        rule = rules.get("pin_risk")
+        if rule and rule.enabled and dte < 3 and position.option_strike:
+            distance_pct = abs(current_price - position.option_strike) / position.option_strike
+            if distance_pct < 0.01:
+                detail = f"DTE={dte}, distance={distance_pct:.4f}"
+                if rule.action == "auto_exit":
+                    return True, f"options_pin_risk: {detail}"
+                flagged.append(f"pin_risk: {detail}")
+
+        # 3. assignment_risk: short call ITM + ex-div within 2 days
+        rule = rules.get("assignment_risk")
+        if rule and rule.enabled and position.side == "short" and position.option_type == "call":
+            if position.option_strike and current_price > position.option_strike:
+                ex_div = getattr(position, "_ex_div_date", None)
+                if ex_div and (ex_div - today).days <= 2:
+                    detail = f"short call ITM, ex_div in {(ex_div - today).days}d"
+                    if rule.action == "auto_exit":
+                        return True, f"options_assignment_risk: {detail}"
+                    flagged.append(f"assignment_risk: {detail}")
+
+        # 4. iv_crush: post-earnings + IV drop > 30%
+        rule = rules.get("iv_crush")
+        if rule and rule.enabled:
+            earnings_date = getattr(position, "_earnings_date", None)
+            iv_entry = getattr(position, "_iv_entry", None)
+            iv_current = getattr(position, "_iv_current", None)
+            if (
+                earnings_date
+                and iv_entry
+                and iv_current
+                and (today - earnings_date).days >= 0
+                and (today - earnings_date).days <= 3
+            ):
+                iv_drop_pct = (iv_entry - iv_current) / iv_entry
+                if iv_drop_pct > 0.30:
+                    detail = f"IV drop {iv_drop_pct:.1%} post-earnings"
+                    if rule.action == "auto_exit":
+                        return True, f"options_iv_crush: {detail}"
+                    flagged.append(f"iv_crush: {detail}")
+
+        # 5. max_theta_loss: cumulative premium decay > 40%
+        rule = rules.get("max_theta_loss")
+        if rule and rule.enabled and position.entry_premium and position.entry_premium > 0:
+            decay_pct = (position.entry_premium - current_price) / position.entry_premium
+            if decay_pct > 0.40:
+                detail = f"decay={decay_pct:.1%}, entry={position.entry_premium:.2f}, current={current_price:.2f}"
+                if rule.action == "auto_exit":
+                    return True, f"options_max_theta_loss: {detail}"
+                flagged.append(f"max_theta_loss: {detail}")
+
+        # Log any flag_only triggers
+        for flag in flagged:
+            logger.warning(
+                f"[ExecMonitor] OPTIONS FLAG {position.symbol}: {flag}"
+            )
+
+        return False, ""
 
     # ── Exit submission ────────────────────────────────────────────────────
 

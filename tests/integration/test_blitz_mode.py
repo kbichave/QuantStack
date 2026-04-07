@@ -6,7 +6,7 @@ Integration tests for BLITZ mode — parallel research agent orchestration.
 """
 
 import pytest
-import psycopg2
+import psycopg
 from quantstack.db import db_conn, run_migrations
 from quantstack.research.agent_aggregator import AgentResult, ResearchAggregator
 
@@ -81,7 +81,7 @@ def test_work_lock_prevents_duplicates(db):
     )
 
     # Agent 2 tries same lock → should fail
-    with pytest.raises(psycopg2.IntegrityError):
+    with pytest.raises(psycopg.IntegrityError):
         db.execute(
             "INSERT INTO research_wip (symbol, domain, agent_id) VALUES (%s, %s, %s)",
             ("TEST_AAPL", "investment", "agent2")

@@ -43,18 +43,17 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run Ruff linter
-        run: uv run ruff check packages/ tests/
+        run: uv run ruff check src/ tests/
 
       - name: Run Ruff formatter check
-        run: uv run ruff format --check packages/ tests/
+        run: uv run ruff format --check src/ tests/
 
       - name: Run MyPy (critical path)
         # Type-check the trading hot path: execution, risk, and kill switch.
         # Broader codebase type coverage tracked in GitHub type-coverage label.
         run: >
           uv run mypy
-          packages/quantcore/execution
-          packages/quant_pod/execution
+          src/quantstack/execution
           --config-file pyproject.toml
 
   # ==========================================================================
@@ -99,8 +98,7 @@ jobs:
       - name: Run unit tests with coverage
         run: |
           uv run pytest tests/ -v \
-            --cov=packages/quantcore \
-            --cov=packages/quant_pod \
+            --cov=src/quantstack \
             --cov-report=xml \
             --cov-report=term-missing \
             --cov-fail-under=60 \
@@ -141,7 +139,7 @@ jobs:
       - name: Run integration tests
         run: |
           uv run pytest tests/ -v \
-            --cov=packages/quant_pod \
+            --cov=src/quantstack \
             --cov-report=term-missing \
             -m "integration"
 
@@ -166,9 +164,27 @@ jobs:
         run: uv tool install bandit
 
       - name: Run Bandit security scan
-        # -lll = HIGH severity only. Medium B608 (SQL injection) is a known
-        # false positive for DuckDB internal queries that use no user input.
-        run: uvx bandit -r packages/ -lll --exclude packages/quantcore/rl/
+        # -lll = HIGH severity only.
+        run: uvx bandit -r src/ -lll
+
+      - name: Install dependencies for audit
+        run: uv sync --all-packages
+
+      - name: Run pip-audit
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          vulnerability-service: pypi
+          ignore-vulns: .pip-audit-known-vulnerabilities
+
+      - name: Generate SBOM
+        run: uv run cyclonedx-py environment --output sbom.json --output-format json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.json
+          retention-days: 90
 
   # ==========================================================================
   # Docker Image Build + Trivy Scan
@@ -181,12 +197,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t quantpod:${{ github.sha }} .
+        run: docker build -t quantstack:${{ github.sha }} .
 
       - name: Run Trivy vulnerability scan
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: quantpod:${{ github.sha }}
+          image-ref: quantstack:${{ github.sha }}
           format: "table"
           exit-code: "1"
           ignore-unfixed: true

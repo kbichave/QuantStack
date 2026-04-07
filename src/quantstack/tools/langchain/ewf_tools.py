@@ -10,6 +10,71 @@ from pydantic import Field
 
 from quantstack.db import pg_conn
 
+# ---------------------------------------------------------------------------
+# Module-level cycle cache: populated at cycle start, cleared at cycle end.
+# Eliminates redundant DB queries when 5+ agents call get_ewf_analysis
+# for the same symbols in the same cycle.
+# ---------------------------------------------------------------------------
+
+_ewf_cycle_cache: dict[str, dict] = {}
+
+
+def populate_ewf_cache(
+    symbols: list[str] | None = None,
+    timeframes: list[str] | None = None,
+    preloaded_data: dict[str, dict] | None = None,
+) -> None:
+    """Populate the EWF cycle cache.
+
+    Called by data_refresh node at cycle start.
+
+    Args:
+        symbols: List of ticker symbols to preload.
+        timeframes: Timeframes to query (default: ["4h", "daily"]).
+        preloaded_data: Pre-built cache dict for testing (bypasses DB).
+    """
+    global _ewf_cycle_cache
+
+    if preloaded_data is not None:
+        _ewf_cycle_cache.update(preloaded_data)
+        return
+
+    if not symbols:
+        return
+
+    timeframes = timeframes or ["4h", "daily"]
+
+    try:
+        with pg_conn() as conn:
+            for sym in symbols:
+                sym = sym.strip().upper()
+                conn.execute(_MULTI_TTL_SQL, (sym,))
+                rows = conn.fetchall()
+                for row in rows:
+                    result = _row_to_dict(row)
+                    tf = result["timeframe"]
+                    if tf in timeframes or not timeframes:
+                        cache_key = f"{sym}:{tf}"
+                        _ewf_cycle_cache[cache_key] = result
+        logger.debug(
+            "[ewf_cache] Populated %d entries for %d symbols",
+            len(_ewf_cycle_cache), len(symbols),
+        )
+    except Exception as exc:
+        logger.warning("[ewf_cache] Failed to populate cache: %s", exc)
+
+
+def clear_ewf_cache() -> None:
+    """Clear the EWF cycle cache. Called at cycle end."""
+    global _ewf_cycle_cache
+    _ewf_cycle_cache.clear()
+
+
+def get_ewf_cache_entry(symbol: str, timeframe: str) -> dict | None:
+    """Look up a single cache entry. Returns None on miss."""
+    key = f"{symbol.strip().upper()}:{timeframe.strip()}"
+    return _ewf_cycle_cache.get(key)
+
 _TTL_MAP: dict[str, str] = {
     "1h_premarket": "4 hours",
     "1h_midday": "4 hours",
@@ -127,6 +192,24 @@ async def get_ewf_analysis(
     """
     try:
         sym = symbol.strip().upper()
+
+        # Check cycle cache first (populated by data_refresh node)
+        if timeframe:
+            cached = get_ewf_cache_entry(sym, timeframe.strip())
+            if cached is not None:
+                logger.debug("[ewf_tools] Cache hit: %s:%s", sym, timeframe)
+                return json.dumps({"ewf_available": True, "results": [cached]}, default=str)
+        else:
+            # Multi-timeframe: collect all cached entries for this symbol
+            cached_results = [
+                v for k, v in _ewf_cycle_cache.items()
+                if k.startswith(f"{sym}:")
+            ]
+            if cached_results:
+                logger.debug("[ewf_tools] Cache hit (multi-tf): %s (%d entries)", sym, len(cached_results))
+                return json.dumps({"ewf_available": True, "results": cached_results}, default=str)
+
+        # Cache miss — fall back to DB query
         with pg_conn() as conn:
             if timeframe:
                 tf = timeframe.strip()

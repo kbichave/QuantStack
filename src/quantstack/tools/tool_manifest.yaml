@@ -1,0 +1,148 @@
+# Tool Lifecycle Manifest
+# ----------------------
+# Each tool in TOOL_REGISTRY gets an entry here with a status:
+#   active   — fully operational, resolved for agent use
+#   planned  — stub or not yet implemented, excluded from agent resolution
+#   degraded — failing above threshold, auto-disabled by health monitor
+#
+# To add a new tool: add an entry with status: planned, then implement it,
+# then flip to active. The health monitor may auto-move tools to degraded.
+
+tools:
+  # Signal & analysis
+  signal_brief:
+    status: active
+  multi_signal_brief:
+    status: active
+
+  # Data
+  fetch_market_data:
+    status: active
+  fetch_fundamentals:
+    status: active
+  fetch_earnings_data:
+    status: active
+  load_market_data:
+    status: active
+  list_stored_symbols:
+    status: active
+  get_company_facts:
+    status: active
+  get_analyst_estimates:
+    status: active
+  screen_stocks:
+    status: active
+  get_put_call_ratio:
+    status: active
+  get_earnings_momentum:
+    status: active
+  get_commodity_signals:
+    status: active
+  get_forex_rates:
+    status: active
+  check_listing_status:
+    status: active
+
+  # Portfolio
+  fetch_portfolio:
+    status: active
+
+  # Options
+  fetch_options_chain:
+    status: active
+  compute_greeks:
+    status: active
+  price_option:
+    status: active
+  compute_implied_vol:
+    status: active
+  analyze_option_structure:
+    status: active
+  get_iv_surface:
+    status: active
+  score_trade_structure:
+    status: active
+  simulate_trade_outcome:
+    status: active
+
+  # Risk
+  compute_risk_metrics:
+    status: active
+  compute_position_size:
+    status: active
+  compute_var:
+    status: active
+  stress_test_portfolio:
+    status: active
+  check_risk_limits:
+    status: active
+  compute_max_drawdown:
+    status: active
+
+  # Execution
+  execute_order:
+    status: active
+  close_position:
+    status: active
+  get_fills:
+    status: active
+  get_audit_trail:
+    status: active
+  update_position_stops:
+    status: active
+  check_broker_connection:
+    status: active
+
+  # Backtesting
+  run_backtest:
+    status: active
+  run_walkforward:
+    status: active
+  run_backtest_options:
+    status: active
+
+  # ML
+  train_model:
+    status: active
+  compute_features:
+    status: active
+  predict_ml_signal:
+    status: active
+  get_ml_model_status:
+    status: active
+  check_concept_drift:
+    status: active
+
+  # Intelligence
+  web_search:
+    status: active
+
+  # Knowledge / Learning
+  search_knowledge_base:
+    status: active
+  promote_strategy:
+    status: active
+  retire_strategy:
+    status: active
+  get_strategy_performance:
+    status: active
+  validate_strategy:
+    status: active
+
+  # Strategy
+  fetch_strategy_registry:
+    status: active
+  register_strategy:
+    status: active
+  get_strategy:
+    status: active
+  update_strategy:
+    status: active
+
+  # Calendar
+  get_trading_calendar:
+    status: active
+
+  # Dynamically-imported tools default to active when present.
+  # Tools loaded via _try_import that succeed are auto-classified as active
+  # even if not listed here. Only list them explicitly to override status.

@@ -25,8 +25,8 @@ pytestmark = pytest.mark.integration
 
 def _pg_available() -> bool:
     try:
-        import psycopg2
-        conn = psycopg2.connect("postgresql://localhost/quantstack")
+        import psycopg
+        conn = psycopg.connect("postgresql://localhost/quantstack")
         conn.close()
         return True
     except Exception:
@@ -46,8 +46,8 @@ skip_no_pg = pytest.mark.skipif(
 @pytest.fixture
 def db_conn():
     """Real DB connection; rolls back after the test."""
-    import psycopg2
-    conn = psycopg2.connect("postgresql://localhost/quantstack")
+    import psycopg
+    conn = psycopg.connect("postgresql://localhost/quantstack")
     conn.autocommit = False
     yield conn
     conn.rollback()
@@ -107,7 +107,6 @@ def _seed_signal_ic(conn, strategy_id, icir_21d=0.22, icir_63d=0.25, n_dates=22)
 
 def _seed_ohlcv_for_fwd_returns(conn, symbols, n_days=35):
     """Insert minimal OHLCV for forward return computation."""
-    import psycopg2.extras
     rows = []
     rng = np.random.default_rng(99)
     base_date = date.today() - timedelta(days=n_days)
@@ -120,10 +119,9 @@ def _seed_ohlcv_for_fwd_returns(conn, symbols, n_days=35):
             price *= (1 + rng.normal(0.0, 0.01))
             rows.append((sym, "daily", d, price, price, price, price, 100_000))
     with conn.cursor() as cur:
-        psycopg2.extras.execute_values(
-            cur,
+        cur.executemany(
             "INSERT INTO ohlcv (symbol, timeframe, timestamp, open, high, low, close, volume) "
-            "VALUES %s ON CONFLICT (symbol, timeframe, timestamp) DO NOTHING",
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (symbol, timeframe, timestamp) DO NOTHING",
             rows,
         )
 
@@ -303,17 +301,17 @@ def test_ic_decay_not_triggered_when_only_one_window_below(db_conn, strategy_id)
 
 
 # ---------------------------------------------------------------------------
-# Helper: psycopg2 connection wrapper compatible with EventBus
+# Helper: psycopg connection wrapper compatible with EventBus
 # ---------------------------------------------------------------------------
 
 class _PsycopgWrapper:
-    """Thin wrapper so psycopg2 connection works with EventBus/AutoPromoter (which expects .execute())."""
+    """Thin wrapper so psycopg connection works with EventBus/AutoPromoter (which expects .execute())."""
 
     def __init__(self, conn):
         self._conn = conn
 
     def execute(self, sql, params=None):
-        # EventBus uses ? as placeholder; psycopg2 uses %s
+        # EventBus uses ? as placeholder; psycopg uses %s
         sql = sql.replace("?", "%s")
         # Use a long-lived cursor (not a context manager) so caller can fetchone/fetchall
         cur = self._conn.cursor()

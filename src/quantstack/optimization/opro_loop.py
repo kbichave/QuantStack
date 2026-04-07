@@ -33,6 +33,8 @@ from loguru import logger
 
 import litellm
 
+from quantstack.llm.provider import get_model_for_role
+
 
 # ---------------------------------------------------------------------------
 # Data models
@@ -76,10 +78,10 @@ class OPROLoop:
     def __init__(
         self,
         conn: Any,
-        engine: str = "groq/llama-3.3-70b-versatile",
+        engine: str | None = None,
     ) -> None:
         self._conn = conn
-        self._engine = engine
+        self._engine = engine or get_model_for_role("bulk")
 
     # ------------------------------------------------------------------
     # Weekly run

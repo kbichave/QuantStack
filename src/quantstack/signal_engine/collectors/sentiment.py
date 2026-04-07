@@ -32,7 +32,8 @@ from quantstack.data.adapters.financial_datasets_client import (
 
 import litellm
 
-from quantstack.llm_config import get_llm_for_role
+from quantstack.llm.provider import get_model_for_role
+from quantstack.signal_engine.staleness import check_freshness
 
 
 _SENTIMENT_TIMEOUT = 8.0  # seconds — lower than other collectors (network + LLM)
@@ -51,6 +52,8 @@ async def collect_sentiment(symbol: str, _store: Any) -> dict[str, Any]:
         n_headlines         : int — number of headlines scored
         source              : "groq" | "no_headlines" | "default"
     """
+    if not check_freshness(symbol, "news_sentiment", max_days=7):
+        return {}
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_collect_sentiment_sync, symbol),
@@ -67,13 +70,13 @@ def _collect_sentiment_sync(symbol: str) -> dict[str, Any]:
     """Synchronous sentiment collection — called via asyncio.to_thread."""
     headlines = _fetch_headlines(symbol)
     if not headlines:
-        return {**_safe_defaults(), "source": "no_headlines"}
+        return {}
 
     truncated = [h[:_MAX_HEADLINE_CHARS] for h in headlines[:_MAX_HEADLINES]]
     prompt = _build_prompt(symbol, truncated)
 
     try:
-        _model = get_llm_for_role("bulk")
+        _model = get_model_for_role("bulk")
         response = litellm.completion(
             model=_model,
             messages=[{"role": "user", "content": prompt}],
@@ -154,9 +157,8 @@ def _parse_response(raw: str, n_headlines: int) -> dict[str, Any]:
 
 
 def _safe_defaults() -> dict[str, Any]:
-    return {
-        "sentiment_score": 0.5,
-        "dominant_sentiment": "neutral",
-        "n_headlines": 0,
-        "source": "default",
-    }
+    """Return empty dict when sentiment data is unavailable.
+
+    Callers use .get() with explicit defaults, so {} is safe.
+    """
+    return {}

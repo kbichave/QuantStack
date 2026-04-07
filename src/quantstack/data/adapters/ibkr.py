@@ -32,8 +32,12 @@ from quantstack.data.base import AssetClass, AssetClassAdapter
 from quantstack.data.provider_enum import DataProvider
 from quantstack.shared.exceptions import BrokerConnectionError
 
-import ib_insync as ib
-from ibkr_mcp.connection import IBKRConnectionManager
+try:
+    import ib_insync as ib
+    from ibkr_mcp.connection import IBKRConnectionManager
+    _IBKR_AVAILABLE = True
+except ImportError:
+    _IBKR_AVAILABLE = False
 
 
 # IB barSizeSetting strings per timeframe
@@ -68,6 +72,11 @@ class IBKRDataAdapter(AssetClassAdapter):
         client_id: int = 1,
         timeout: int = 30,
     ) -> None:
+        if not _IBKR_AVAILABLE:
+            raise ImportError(
+                "IBKRDataAdapter requires 'ib_insync' and 'ibkr_mcp'. "
+                "Install with: uv pip install ib_insync ibkr_mcp"
+            )
         self._host = host
         self._port = port
         self._client_id = client_id

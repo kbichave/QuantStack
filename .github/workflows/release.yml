@@ -15,7 +15,7 @@ on:
         type: string
 
 env:
-  PYTHON_VERSION: "3.10"
+  PYTHON_VERSION: "3.11"
 
 jobs:
   # ==========================================================================
@@ -170,7 +170,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.validate.outputs.version }}
-          name: QuantCore ${{ needs.validate.outputs.version }}
+          name: QuantStack ${{ needs.validate.outputs.version }}
           body_path: changelog_section.md
           files: dist/*
           draft: false

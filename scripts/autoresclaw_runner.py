@@ -172,11 +172,53 @@ def _build_prompt_strategy_hypothesis(ctx: dict) -> str:
     )
 
 
+def _build_prompt_tool_implement(ctx: dict) -> str:
+    tool_name = ctx.get("tool_name", "unknown_tool")
+    description = ctx.get("description", "")
+    expected_input = ctx.get("expected_input", {})
+    expected_output = ctx.get("expected_output", {})
+    return (
+        f"## Task: Implement planned tool '{tool_name}'\n\n"
+        f"**Description:** {description}\n\n"
+        f"**Expected input:** {json.dumps(expected_input, indent=2)}\n\n"
+        f"**Expected output:** {json.dumps(expected_output, indent=2)}\n\n"
+        f"Instructions:\n"
+        f"1. Read the tool definition from src/quantstack/tools/tool_manifest.yaml\n"
+        f"2. Implement in src/quantstack/tools/langchain/ (LLM-facing) or "
+        f"src/quantstack/tools/functions/ (deterministic)\n"
+        f"3. Use @tool decorator, follow existing patterns\n"
+        f"4. Register in src/quantstack/tools/registry.py\n"
+        f"5. Validate: py_compile + import + test fixture\n"
+    )
+
+
+def _build_prompt_gap_detection(ctx: dict) -> str:
+    failure_mode = ctx.get("failure_mode", "unknown")
+    affected = ctx.get("affected_strategies", [])
+    examples = ctx.get("example_losses", [])
+    direction = ctx.get("suggested_research_direction", "")
+    impact = ctx.get("cumulative_pnl_impact", 0)
+    return (
+        f"## Task: Research gap from failure mode '{failure_mode}'\n\n"
+        f"**Cumulative P&L impact:** ${impact:,.2f}\n"
+        f"**Affected strategies:** {', '.join(affected)}\n\n"
+        f"**Example losses:**\n"
+        + "\n".join(f"  - {json.dumps(ex)}" for ex in examples[:5])
+        + f"\n\n**Suggested direction:** {direction}\n\n"
+        f"Instructions:\n"
+        f"1. Analyze failure mode and example losses\n"
+        f"2. Search for mitigation strategies\n"
+        f"3. Generate research_queue tasks targeting the gap\n"
+    )
+
+
 _PROMPT_BUILDERS = {
     "ml_arch_search": _build_prompt_ml_arch_search,
     "rl_env_design": _build_prompt_rl_env_design,
     "bug_fix": _build_prompt_bug_fix,
     "strategy_hypothesis": _build_prompt_strategy_hypothesis,
+    "tool_implement": _build_prompt_tool_implement,
+    "gap_detection": _build_prompt_gap_detection,
 }
 
 
@@ -542,37 +584,47 @@ def _revert_and_note(task_id: str, summary: str, reason: str) -> None:
 
 
 def _restart_loops_after_fix(changed_files: list[str]) -> None:
-    """Interrupt running loop windows in tmux so they restart with new code."""
-    # Determine which loops are likely affected
-    targets = []
+    """Restart affected Docker Compose services after a code fix."""
+    services = []
     src_files = " ".join(changed_files)
-    # Heuristic: data/signal/execution changes affect trading; research/ml affect research
     if any(k in src_files for k in ("signal", "execution", "data", "coordination")):
-        targets.append(("quantstack-loops:trading", "cat prompts/trading_loop.md | claude --model sonnet"))
+        services.append("trading-graph")
     if any(k in src_files for k in ("research", "ml", "models", "features")):
-        targets.append(("quantstack-loops:research", "cat prompts/research_loop.md | claude --model haiku"))
-    # If unclear, restart both
-    if not targets:
-        targets = [
-            ("quantstack-loops:trading", "cat prompts/trading_loop.md | claude --model sonnet"),
-            ("quantstack-loops:research", "cat prompts/research_loop.md | claude --model haiku"),
-        ]
+        services.append("research-graph")
+    if not services:
+        services = ["trading-graph", "research-graph"]
 
-    for tmux_target, restart_cmd in targets:
+    for service in services:
         try:
-            # Send C-c to stop the current iteration, then restart
             subprocess.run(
-                ["tmux", "send-keys", "-t", tmux_target, "C-c", ""],
-                timeout=5,
+                ["docker", "compose", "restart", service],
+                cwd=str(WORKDIR),
+                timeout=60,
+                capture_output=True,
             )
-            time.sleep(1)
-            subprocess.run(
-                ["tmux", "send-keys", "-t", tmux_target, restart_cmd, "Enter"],
-                timeout=5,
-            )
-            logger.info(f"[auto_patch] Restarted {tmux_target}")
+            logger.info(f"[auto_patch] Restarted {service} via docker compose")
+        except FileNotFoundError:
+            logger.warning("[auto_patch] Docker not found — cannot restart %s", service)
+        except subprocess.TimeoutExpired:
+            logger.warning("[auto_patch] Timeout restarting %s", service)
         except Exception as exc:
-            logger.warning(f"[auto_patch] Could not restart {tmux_target}: {exc}")
+            logger.warning("[auto_patch] Could not restart %s: %s", service, exc)
+
+
+def _load_test_fixture(tool_name: str) -> dict | None:
+    """Load test fixture for a tool from tool_manifest.yaml."""
+    manifest_path = WORKDIR / "src" / "quantstack" / "tools" / "tool_manifest.yaml"
+    if not manifest_path.exists():
+        return None
+    try:
+        import yaml
+        with open(manifest_path) as fh:
+            data = yaml.safe_load(fh)
+        tools = data.get("tools", {}) if isinstance(data, dict) else {}
+        entry = tools.get(tool_name, {})
+        return entry.get("test_fixture") if isinstance(entry, dict) else None
+    except Exception:
+        return None
 
 
 def process_tasks(

@@ -20,6 +20,7 @@ from typing import Any
 from loguru import logger
 
 from quantstack.db import pg_conn
+from quantstack.signal_engine.staleness import check_freshness
 
 _COLLECTOR_TIMEOUT = 10.0  # seconds
 
@@ -51,6 +52,8 @@ async def collect_ewf(symbol: str, store: Any) -> dict[str, Any]:
     if EWF has not published an analysis for this symbol yet, or if any
     error occurs. Never raises.
     """
+    if not check_freshness(symbol, "ewf_forecasts", max_days=7):
+        return {}
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_collect_ewf_sync, symbol),

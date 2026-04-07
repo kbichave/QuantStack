@@ -15,6 +15,7 @@ from typing import Any
 from loguru import logger
 
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 _CSUITE_TITLES = {"CEO", "CFO", "COO", "President", "Chief Executive Officer",
                   "Chief Financial Officer", "Chief Operating Officer"}
@@ -27,6 +28,8 @@ async def collect_insider_signals(symbol: str, store: DataStore) -> dict[str, An
     Returns dict with insider_signal_score, signal_types, transactions, confidence.
     Returns {} on failure (collector contract).
     """
+    if not check_freshness(symbol, "insider_trades", max_days=30):
+        return {}
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_collect_sync, symbol),

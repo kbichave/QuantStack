@@ -1,6 +1,6 @@
 """Tests for RAG Pipeline (pgvector backend).
 
-Unit tests mock psycopg2 at the connection level. No live database required.
+Unit tests mock psycopg at the connection level. No live database required.
 """
 
 import tempfile
@@ -32,7 +32,7 @@ def embedding_fn():
 
 @pytest.fixture()
 def mock_conn():
-    """Mock psycopg2 connection with cursor that tracks executed SQL."""
+    """Mock psycopg connection with cursor that tracks executed SQL."""
     conn = MagicMock()
     conn.closed = False
     cursor = MagicMock()
@@ -185,7 +185,6 @@ class TestSearchSimilar:
 
     def test_queries_with_collection_filter(self, mock_conn):
         from quantstack.rag.query import search_similar
-        import psycopg2.extras
         dict_cursor = MagicMock()
         dict_cursor.fetchall.return_value = [
             {"content": "result text", "metadata": {"ticker": "SPY"},

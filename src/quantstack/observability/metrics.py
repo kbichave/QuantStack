@@ -70,6 +70,10 @@ _portfolio_nav: Gauge | None = None
 _daily_pnl: Gauge | None = None
 _kill_switch: Gauge | None = None
 _tick_lag: Histogram | None = None
+_cycle_success_rate: Gauge | None = None
+_cycle_error_count: Gauge | None = None
+_strategy_generation_7d: Gauge | None = None
+_research_queue_depth: Gauge | None = None
 
 
 def _init_metrics() -> None:
@@ -77,6 +81,8 @@ def _init_metrics() -> None:
     global _trades_executed, _risk_rejections, _agent_latency
     global _signal_staleness, _portfolio_nav, _daily_pnl
     global _kill_switch, _tick_lag
+    global _cycle_success_rate, _cycle_error_count
+    global _strategy_generation_7d, _research_queue_depth
     if _trades_executed is not None:
         return
 
@@ -117,6 +123,24 @@ def _init_metrics() -> None:
         "quantstack_tick_executor_lag_seconds",
         "Elapsed time from tick arrival to order submit in the hot path",
         buckets=[0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0],
+    )
+    _cycle_success_rate = Gauge(
+        "quantstack_cycle_success_rate",
+        "Fraction of last 10 graph cycles that completed successfully",
+        ["graph_name"],
+    )
+    _cycle_error_count = Gauge(
+        "quantstack_cycle_error_count",
+        "Number of errors in the most recent graph cycle",
+        ["graph_name"],
+    )
+    _strategy_generation_7d = Gauge(
+        "quantstack_strategy_generation_7d",
+        "Number of new strategies created in the last 7 days",
+    )
+    _research_queue_depth = Gauge(
+        "quantstack_research_queue_depth",
+        "Number of pending research tasks in the queue",
     )
 
 
@@ -171,6 +195,30 @@ def record_tick_latency(latency_seconds: float) -> None:
     """Record a single tick-executor hot-path latency observation."""
     _init_metrics()
     _tick_lag.observe(latency_seconds)
+
+
+def record_cycle_success_rate(graph_name: str, rate: float) -> None:
+    """Set the cycle success rate gauge for a graph."""
+    _init_metrics()
+    _cycle_success_rate.labels(graph_name=graph_name).set(rate)
+
+
+def record_cycle_error_count(graph_name: str, count: int) -> None:
+    """Set the cycle error count gauge for a graph."""
+    _init_metrics()
+    _cycle_error_count.labels(graph_name=graph_name).set(float(count))
+
+
+def record_strategy_generation(count: int) -> None:
+    """Set the 7-day strategy generation count gauge."""
+    _init_metrics()
+    _strategy_generation_7d.set(float(count))
+
+
+def record_research_queue_depth(count: int) -> None:
+    """Set the research queue depth gauge."""
+    _init_metrics()
+    _research_queue_depth.set(float(count))
 
 
 # ---------------------------------------------------------------------------

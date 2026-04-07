@@ -22,6 +22,7 @@ from quantstack.data.storage import DataStore
 from quantstack.core.features.macro_features import CreditSpreadFeatures, VolOfVol
 from quantstack.core.features.rates import SpreadSignals, YieldCurveFeatures
 from quantstack.data.fred_fetcher import FREDFetcher
+from quantstack.signal_engine.staleness import check_freshness
 
 
 _TIMEOUT_SECONDS = 10.0
@@ -30,6 +31,8 @@ _RATE_LOOKBACK_DAYS = 30  # enough for 20-day trend classification
 
 async def collect_macro(symbol: str, store: DataStore) -> dict[str, Any]:
     """Compute macro signals: yield curve, rate momentum, risk appetite. Returns {} on failure."""
+    if not check_freshness(symbol, "macro_indicators", max_days=45):
+        return {}
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_collect_macro_sync, symbol, store),

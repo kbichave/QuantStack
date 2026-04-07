@@ -39,6 +39,8 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from quantstack.config.settings import get_settings
+from quantstack.db import open_db, run_migrations
+from quantstack.execution.fill_utils import compute_fill_vwap, record_fill_leg
 from quantstack.execution.kill_switch import get_kill_switch
 from quantstack.execution.paper_broker import Fill, OrderRequest
 from quantstack.execution.portfolio_state import Position, get_portfolio_state
@@ -90,6 +92,8 @@ class AlpacaBroker:
         )
         self._portfolio = get_portfolio_state()
         self._kill_switch_registered = False
+        self._conn = open_db("")
+        run_migrations(self._conn)
 
         mode = "paper" if self._paper else "live"
         logger.info(f"[ALPACA] AlpacaBroker initialized (mode={mode})")
@@ -378,7 +382,7 @@ class AlpacaBroker:
             direction = 1 if req.side.lower() == "buy" else -1
             slippage_bps = direction * (fill_price - req.current_price) / req.current_price * 10_000
 
-        return Fill(
+        fill = Fill(
             order_id=str(order.id),
             symbol=req.symbol,
             side=req.side.lower(),
@@ -392,6 +396,62 @@ class AlpacaBroker:
             reject_reason=str(order.status) if rejected else None,
             filled_at=order.filled_at or datetime.now(timezone.utc),
         )
+
+        self._record_fill(fill)
+        return fill
+
+    def _record_fill(self, fill: Fill) -> None:
+        """Persist fill to the DB with dual-write to fill_legs."""
+        try:
+            self._conn.execute(
+                """
+                INSERT INTO fills
+                    (order_id, symbol, side, requested_quantity, filled_quantity,
+                     fill_price, slippage_bps, commission, partial, rejected,
+                     reject_reason, filled_at, session_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (order_id) DO UPDATE SET
+                    filled_quantity = EXCLUDED.filled_quantity,
+                    fill_price      = EXCLUDED.fill_price,
+                    slippage_bps    = EXCLUDED.slippage_bps,
+                    commission      = EXCLUDED.commission,
+                    partial         = EXCLUDED.partial,
+                    rejected        = EXCLUDED.rejected,
+                    reject_reason   = EXCLUDED.reject_reason,
+                    filled_at       = EXCLUDED.filled_at
+                """,
+                [
+                    fill.order_id,
+                    fill.symbol,
+                    fill.side,
+                    fill.requested_quantity,
+                    fill.filled_quantity,
+                    fill.fill_price,
+                    fill.slippage_bps,
+                    fill.commission,
+                    fill.partial,
+                    fill.rejected,
+                    fill.reject_reason,
+                    fill.filled_at,
+                    "",
+                ],
+            )
+
+            if not fill.rejected and fill.filled_quantity > 0:
+                record_fill_leg(
+                    self._conn,
+                    order_id=fill.order_id,
+                    quantity=fill.filled_quantity,
+                    price=fill.fill_price,
+                    venue="alpaca",
+                )
+                vwap = compute_fill_vwap(self._conn, fill.order_id)
+                self._conn.execute(
+                    "UPDATE fills SET fill_price = ? WHERE order_id = ?",
+                    [vwap, fill.order_id],
+                )
+        except Exception as e:
+            logger.warning(f"[ALPACA] Failed to record fill to DB: {e}")
 
     def _reject(self, req: OrderRequest, reason: str) -> Fill:
         return Fill(

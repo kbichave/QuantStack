@@ -24,8 +24,8 @@ pytestmark = pytest.mark.integration
 
 def _pg_available() -> bool:
     try:
-        import psycopg2
-        conn = psycopg2.connect("postgresql://localhost/quantstack")
+        import psycopg
+        conn = psycopg.connect("postgresql://localhost/quantstack")
         conn.close()
         return True
     except Exception:
@@ -45,9 +45,8 @@ skip_no_pg = pytest.mark.skipif(
 @pytest.fixture
 def db_conn():
     """Real DB connection with autocommit=False; rolls back after the test."""
-    import psycopg2
-    import psycopg2.extras
-    conn = psycopg2.connect("postgresql://localhost/quantstack")
+    import psycopg
+    conn = psycopg.connect("postgresql://localhost/quantstack")
     conn.autocommit = False
     yield conn
     conn.rollback()
@@ -62,7 +61,6 @@ def strategy_id():
 
 def _seed_ohlcv(conn, symbols, n_days=120):
     """Insert synthetic OHLCV rows for symbols."""
-    import psycopg2.extras
     rows = []
     rng = np.random.default_rng(42)
     base_date = date.today() - timedelta(days=n_days)
@@ -77,13 +75,10 @@ def _seed_ohlcv(conn, symbols, n_days=120):
             rows.append((sym, "daily", dt, price * 0.99, price * 1.01, price * 0.98, price, 1_000_000))
 
     with conn.cursor() as cur:
-        psycopg2.extras.execute_values(
-            cur,
-            """
-            INSERT INTO ohlcv (symbol, timeframe, timestamp, open, high, low, close, volume)
-            VALUES %s
-            ON CONFLICT (symbol, timeframe, timestamp) DO NOTHING
-            """,
+        cur.executemany(
+            "INSERT INTO ohlcv (symbol, timeframe, timestamp, open, high, low, close, volume) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (symbol, timeframe, timestamp) DO NOTHING",
             rows,
         )
 

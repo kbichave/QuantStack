@@ -118,6 +118,21 @@ class KillSwitch:
             f"{'=' * 70}"
         )
 
+        # Best-effort: notify other graphs via EventBus
+        try:
+            from quantstack.db import db_conn
+            from quantstack.coordination.event_bus import EventBus, Event, EventType
+
+            with db_conn() as conn:
+                bus = EventBus(conn)
+                bus.publish(Event(
+                    event_type=EventType.KILL_SWITCH_TRIGGERED,
+                    source_loop="kill_switch",
+                    payload={"reason": reason, "triggered_at": self._status.triggered_at.isoformat()},
+                ))
+        except Exception as exc:
+            logger.warning(f"[KILL SWITCH] EventBus publication failed (non-blocking): {exc}")
+
         # Best-effort: close all positions via registered closer
         if self._position_closer is not None:
             try:
@@ -127,11 +142,13 @@ class KillSwitch:
             except Exception as e:
                 logger.error(f"[KILL SWITCH] Position closer failed: {e}")
 
-    def reset(self, reset_by: str = "manual") -> None:
+    def reset(self, reset_by: str = "manual", reason: str = "") -> None:
         """
         Deactivate the kill switch. Allows trading to resume.
 
-        Should only be called after the root cause is investigated.
+        Args:
+            reset_by: Who/what initiated the reset (e.g., "manual", "auto_recovery").
+            reason: Why the reset is happening. Logged for audit trail.
         """
         with self._lock:
             self._status.active = False
@@ -145,9 +162,16 @@ class KillSwitch:
             except FileNotFoundError:
                 pass  # Already absent — that's fine
 
-        logger.info(
-            f"[KILL SWITCH] Reset by '{reset_by}' at {self._status.reset_at}. Trading may resume."
-        )
+        if reason:
+            logger.info(
+                f"[KILL SWITCH] Reset by '{reset_by}' at {self._status.reset_at}. "
+                f"Reason: {reason}. Trading may resume."
+            )
+        else:
+            logger.warning(
+                f"[KILL SWITCH] Reset by '{reset_by}' at {self._status.reset_at} "
+                f"without reason. Provide a reason for audit trail. Trading may resume."
+            )
 
     def is_active(self) -> bool:
         """

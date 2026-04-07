@@ -13,8 +13,8 @@ import pytest
 
 def _local_pg_reachable() -> bool:
     try:
-        import psycopg2
-        conn = psycopg2.connect("postgresql://localhost/quantstack", connect_timeout=2)
+        import psycopg
+        conn = psycopg.connect("postgresql://localhost/quantstack", connect_timeout=2)
         conn.close()
         return True
     except Exception:
@@ -31,7 +31,6 @@ pytestmark = pytest.mark.skipif(
 def conn():
     """Live PgConnection using localhost (avoids Docker host.docker.internal in TRADER_PG_URL)."""
     import os
-    import psycopg2
     from quantstack.db import PgConnection, _get_pg_pool, run_migrations_pg
 
     # Override the pool DSN to use localhost directly.

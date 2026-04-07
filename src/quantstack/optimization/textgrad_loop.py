@@ -37,6 +37,7 @@ from loguru import logger
 
 import litellm
 
+from quantstack.llm.provider import get_model_for_role
 from quantstack.optimization.credit_assignment import CreditAssigner, StepCredit
 
 
@@ -102,10 +103,10 @@ class TextGradOptimizer:
     def __init__(
         self,
         conn: Any,
-        engine: str = "groq/llama-3.3-70b-versatile",
+        engine: str | None = None,
     ) -> None:
         self._conn = conn
-        self._engine = engine
+        self._engine = engine or get_model_for_role("bulk")
         self._credit_assigner = CreditAssigner(conn)
 
     # ------------------------------------------------------------------

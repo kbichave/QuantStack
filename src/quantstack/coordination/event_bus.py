@@ -73,6 +73,22 @@ class EventType(str, Enum):
     IC_DECAY = "ic_decay"
     REGIME_CHANGE = "regime_change"
     RISK_ALERT = "risk_alert"
+    # Kill switch coordination (Section 07)
+    KILL_SWITCH_TRIGGERED = "kill_switch_triggered"
+    # Feedback loop event types (Phase 7)
+    SIGNAL_DEGRADATION = "signal_degradation"
+    SIGNAL_CONFLICT = "signal_conflict"
+    AGENT_DEGRADATION = "agent_degradation"
+    # Phase 10: Advanced Research coordination
+    TOOL_ADDED = "tool_added"
+    TOOL_DISABLED = "tool_disabled"
+    EXPERIMENT_COMPLETED = "experiment_completed"
+    FEATURE_DECAYED = "feature_decayed"
+    FEATURE_REPLACED = "feature_replaced"
+    MANDATE_ISSUED = "mandate_issued"
+    META_OPTIMIZATION_APPLIED = "meta_optimization_applied"
+    CONSENSUS_REQUIRED = "consensus_required"
+    CONSENSUS_REACHED = "consensus_reached"
 
 
 @dataclass(frozen=True)
@@ -84,10 +100,25 @@ class Event:
     payload: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     event_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    requires_ack: bool = False
 
 
 # TTL for event pruning
 _EVENT_TTL_DAYS = 7
+
+# Events that require consumer acknowledgement
+ACK_REQUIRED_EVENTS: set[EventType] = {
+    EventType.RISK_WARNING,
+    EventType.RISK_ENTRY_HALT,
+    EventType.RISK_LIQUIDATION,
+    EventType.RISK_EMERGENCY,
+    EventType.IC_DECAY,
+    EventType.REGIME_CHANGE,
+    EventType.MODEL_DEGRADATION,
+}
+
+# Time allowed for consumers to ACK before escalation (2x supervisor cycle)
+ACK_TIMEOUT_SECONDS: int = 600
 
 
 class EventBus:
@@ -108,21 +139,35 @@ class EventBus:
         Returns the event_id.
         """
         payload_json = json.dumps(event.payload) if event.payload else "{}"
+        etype_val = (
+            event.event_type.value
+            if isinstance(event.event_type, EventType)
+            else event.event_type
+        )
+        needs_ack = (
+            event.event_type in ACK_REQUIRED_EVENTS
+            if isinstance(event.event_type, EventType)
+            else False
+        )
+        ack_deadline = (
+            event.created_at + timedelta(seconds=ACK_TIMEOUT_SECONDS)
+            if needs_ack else None
+        )
         self._conn.execute(
             """
-            INSERT INTO loop_events (event_id, event_type, source_loop, payload, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO loop_events
+                (event_id, event_type, source_loop, payload, created_at,
+                 requires_ack, expected_ack_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 event.event_id,
-                (
-                    event.event_type.value
-                    if isinstance(event.event_type, EventType)
-                    else event.event_type
-                ),
+                etype_val,
                 event.source_loop,
                 payload_json,
                 event.created_at,
+                needs_ack,
+                ack_deadline,
             ],
         )
 
@@ -133,14 +178,9 @@ class EventBus:
             [cutoff],
         )
 
-        etype_str = (
-            event.event_type.value
-            if isinstance(event.event_type, EventType)
-            else event.event_type
-        )
         logger.debug(
-            f"[EventBus] Published {etype_str} from {event.source_loop} "
-            f"(id={event.event_id})"
+            f"[EventBus] Published {etype_val} from {event.source_loop} "
+            f"(id={event.event_id}, ack={needs_ack})"
         )
         return event.event_id
 
@@ -177,14 +217,14 @@ class EventBus:
             if cursor_row:
                 cursor_ts = cursor_row[0]
                 base_query = (
-                    "SELECT event_id, event_type, source_loop, payload, created_at "
+                    "SELECT event_id, event_type, source_loop, payload, created_at, requires_ack "
                     "FROM loop_events WHERE created_at >= ? AND event_id != ?"
                 )
                 params: list[Any] = [cursor_ts, last_event_id]
             else:
                 # Cursor event was pruned — read all remaining events
                 base_query = (
-                    "SELECT event_id, event_type, source_loop, payload, created_at "
+                    "SELECT event_id, event_type, source_loop, payload, created_at, requires_ack "
                     "FROM loop_events WHERE 1=1"
                 )
                 params = []
@@ -208,7 +248,8 @@ class EventBus:
         rows = self._conn.execute(base_query, params).fetchall()
 
         events: list[Event] = []
-        for eid, etype, source, payload_raw, created in rows:
+        for eid, etype, source, payload_raw, created, *extra in rows:
+            requires_ack_val = extra[0] if extra else False
             payload = json.loads(payload_raw) if payload_raw else {}
             try:
                 event_type = EventType(etype)
@@ -221,34 +262,21 @@ class EventBus:
                     source_loop=source,
                     payload=payload,
                     created_at=created,
+                    requires_ack=bool(requires_ack_val),
                 )
             )
 
-        # Update cursor to the latest event we returned
+        # Update cursor atomically via upsert (no crash window between DELETE+INSERT)
         now = datetime.now(timezone.utc)
-        if events:
-            new_cursor = events[-1].event_id
-            # Upsert cursor: delete + insert (for compatibility with the cursor table)
-            self._conn.execute(
-                "DELETE FROM loop_cursors WHERE consumer_id = ?",
-                [consumer_id],
-            )
-            self._conn.execute(
-                "INSERT INTO loop_cursors (consumer_id, last_event_id, last_polled_at) "
-                "VALUES (?, ?, ?)",
-                [consumer_id, new_cursor, now],
-            )
-        else:
-            # Update polled_at even if no events (so supervisor knows consumer is alive)
-            self._conn.execute(
-                "DELETE FROM loop_cursors WHERE consumer_id = ?",
-                [consumer_id],
-            )
-            self._conn.execute(
-                "INSERT INTO loop_cursors (consumer_id, last_event_id, last_polled_at) "
-                "VALUES (?, NULL, ?)",
-                [consumer_id, now],
-            )
+        new_cursor = events[-1].event_id if events else None
+        self._conn.execute(
+            "INSERT INTO loop_cursors (consumer_id, last_event_id, last_polled_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT (consumer_id) DO UPDATE SET "
+            "last_event_id = EXCLUDED.last_event_id, "
+            "last_polled_at = EXCLUDED.last_polled_at",
+            [consumer_id, new_cursor, now],
+        )
 
         return events
 
@@ -296,3 +324,150 @@ class EventBus:
 
         row = self._conn.execute(query, params).fetchone()
         return row[0] if row else 0
+
+    def ack(self, event_id: str, consumer_id: str) -> None:
+        """Acknowledge receipt and processing of an event.
+
+        Sets acked_at and acked_by on the event row.
+        Idempotent: if already acked, this is a no-op (acked_at not overwritten).
+        """
+        now = datetime.now(timezone.utc)
+        self._conn.execute(
+            "UPDATE loop_events SET acked_at = ?, acked_by = ? "
+            "WHERE event_id = ? AND acked_at IS NULL",
+            [now, consumer_id, event_id],
+        )
+        logger.debug("[EventBus] ACKed %s by %s", event_id, consumer_id)
+
+
+async def check_missed_acks(conn: PgConnection) -> list[dict]:
+    """Detect events that missed their ACK deadline and escalate.
+
+    Escalation tiers based on how long overdue:
+    - <=600s past deadline: re-publish (retry)
+    - 600-1500s: WARNING system alert
+    - >1500s: dead letter + CRITICAL alert
+
+    Returns list of system alerts created.
+    """
+    now = datetime.now(timezone.utc)
+    # Grace buffer: ignore events whose deadline just passed (within 60s)
+    grace_cutoff = now - timedelta(seconds=60)
+
+    rows = conn.execute(
+        """
+        SELECT event_id, event_type, source_loop, payload, created_at,
+               expected_ack_by
+        FROM loop_events
+        WHERE requires_ack = TRUE
+          AND acked_at IS NULL
+          AND expected_ack_by < ?
+        ORDER BY expected_ack_by ASC
+        """,
+        [grace_cutoff],
+    ).fetchall()
+
+    if not rows:
+        return []
+
+    alerts: list[dict] = []
+    bus = EventBus(conn)
+
+    for row in rows:
+        eid = row["event_id"]
+        etype = row["event_type"]
+        source = row["source_loop"]
+        payload_raw = row["payload"]
+        created = row["created_at"]
+        expected_by = row["expected_ack_by"]
+
+        overdue_seconds = (now - expected_by).total_seconds()
+        payload = json.loads(payload_raw) if isinstance(payload_raw, str) else (payload_raw or {})
+
+        if overdue_seconds <= 600:
+            # Tier 1: retry — re-publish the event
+            try:
+                new_event = Event(
+                    event_type=EventType(etype),
+                    source_loop=source,
+                    payload={**payload, "_retry_of": eid},
+                )
+                bus.publish(new_event)
+                logger.info("[ACK] Re-published %s (retry of %s)", new_event.event_id, eid)
+                # Mark original so we don't re-process it
+                conn.execute(
+                    "UPDATE loop_events SET acked_by = 'retried' WHERE event_id = ?",
+                    [eid],
+                )
+            except Exception as e:
+                logger.warning("[ACK] Retry failed for %s: %s", eid, e)
+
+        elif overdue_seconds <= 1500:
+            # Tier 2: WARNING alert
+            try:
+                from quantstack.tools.functions.system_alerts import emit_system_alert
+
+                alert_id = await emit_system_alert(
+                    category="ack_timeout",
+                    severity="warning",
+                    title=f"Missed ACK: {etype} (event {eid})",
+                    detail=(
+                        f"Event {eid} ({etype}) from {source} has been unacknowledged "
+                        f"for {int(overdue_seconds)}s (deadline was {expected_by})."
+                    ),
+                    source="ack_monitor",
+                    metadata={"event_id": eid, "event_type": etype, "overdue_seconds": overdue_seconds},
+                )
+                alerts.append({"alert_id": alert_id, "severity": "warning", "event_id": eid})
+            except Exception as e:
+                logger.warning("[ACK] Warning alert failed for %s: %s", eid, e)
+
+        else:
+            # Tier 3: dead letter + CRITICAL alert
+            try:
+                # Count retries for this event
+                retry_row = conn.execute(
+                    "SELECT COUNT(*) FROM loop_events "
+                    "WHERE payload::text LIKE ? AND event_id != ?",
+                    [f'%"_retry_of": "{eid}"%', eid],
+                ).fetchone()
+                retry_count = retry_row[0] if retry_row else 0
+
+                conn.execute(
+                    """
+                    INSERT INTO dead_letter_events
+                        (original_event_id, event_type, source_loop, payload,
+                         published_at, expected_ack_by, retry_count, dead_lettered_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [eid, etype, source, payload_raw, created, expected_by, retry_count, now],
+                )
+
+                # Mark original as dead-lettered
+                conn.execute(
+                    "UPDATE loop_events SET acked_by = 'dead_lettered' WHERE event_id = ?",
+                    [eid],
+                )
+
+                from quantstack.tools.functions.system_alerts import emit_system_alert
+
+                alert_id = await emit_system_alert(
+                    category="ack_timeout",
+                    severity="critical",
+                    title=f"Dead-lettered: {etype} (event {eid})",
+                    detail=(
+                        f"Event {eid} ({etype}) from {source} dead-lettered after "
+                        f"{int(overdue_seconds)}s unacknowledged. Retry count: {retry_count}."
+                    ),
+                    source="ack_monitor",
+                    metadata={
+                        "event_id": eid, "event_type": etype,
+                        "overdue_seconds": overdue_seconds, "retry_count": retry_count,
+                    },
+                )
+                alerts.append({"alert_id": alert_id, "severity": "critical", "event_id": eid})
+                logger.warning("[ACK] Dead-lettered event %s (%s)", eid, etype)
+            except Exception as e:
+                logger.error("[ACK] Dead-letter failed for %s: %s", eid, e)
+
+    return alerts

@@ -16,6 +16,7 @@ from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 _LOOKBACK = 252  # 1 year for VaR
 _MIN_BARS = 30
@@ -35,6 +36,8 @@ async def collect_risk(symbol: str, store: DataStore) -> dict[str, Any]:
         liquidity_score     : float [0, 1] — based on ADV (>1M=1.0, <100k=0.0)
         max_drawdown_90d    : float — max drawdown over last 90 days (%)
     """
+    if not check_freshness(symbol, "1d", max_days=4):
+        return {}
     try:
         return await asyncio.to_thread(_collect_risk_sync, symbol, store)
     except Exception as exc:

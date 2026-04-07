@@ -18,6 +18,7 @@ from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 from quantstack.core.features.flow import (
     CumulativeVolumeDelta,
     FootprintApproximation,
@@ -71,6 +72,8 @@ async def collect_technical(symbol: str, store: DataStore) -> dict[str, Any]:
     Returns a flat dict of indicator values (last bar only) plus weekly
     MTF alignment context.  Returns {} if insufficient data is available.
     """
+    if not check_freshness(symbol, "1d", max_days=4):
+        return {}
     try:
         return await asyncio.to_thread(_collect_technical_sync, symbol, store)
     except Exception as exc:

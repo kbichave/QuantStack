@@ -16,6 +16,7 @@ from loguru import logger
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 
 _MIN_BARS = 25  # need at least 20 + a few for safety
@@ -103,6 +104,8 @@ SYMBOL_TO_SECTOR_ETF: dict[str, str] = {
 
 async def collect_sector(symbol: str, store: DataStore) -> dict[str, Any]:
     """Compute sector relative strength and rotation signals. Returns {} on failure."""
+    if not check_freshness(symbol, "1d", max_days=7):
+        return {}
     try:
         return await asyncio.to_thread(_collect_sector_sync, symbol, store)
     except Exception as exc:

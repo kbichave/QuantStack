@@ -16,6 +16,7 @@ from typing import Any
 from loguru import logger
 
 from quantstack.data.storage import DataStore
+from quantstack.signal_engine.staleness import check_freshness
 
 
 async def collect_short_interest(symbol: str, store: DataStore) -> dict[str, Any]:
@@ -24,6 +25,8 @@ async def collect_short_interest(symbol: str, store: DataStore) -> dict[str, Any
     Returns dict with short_interest_ratio, days_to_cover, squeeze_candidate.
     Returns {} on failure (collector contract).
     """
+    if not check_freshness(symbol, "short_interest", max_days=14):
+        return {}
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_collect_sync, symbol),

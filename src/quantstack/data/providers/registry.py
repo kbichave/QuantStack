@@ -33,11 +33,11 @@ _METHOD_MAP: dict[str, str] = {
 # Best-source routing: data_type -> ordered list of provider names
 # Primary is first, fallbacks follow. Providers not in this list are skipped.
 _ROUTING_TABLE: dict[str, list[str]] = {
-    "ohlcv_daily": ["alpha_vantage"],
-    "ohlcv_intraday": ["alpha_vantage"],
+    "ohlcv_daily": ["alpha_vantage", "fmp", "yahoo"],
+    "ohlcv_intraday": ["alpha_vantage", "yahoo"],
     "macro_indicator": ["alpha_vantage", "fred"],
-    "fundamentals": ["alpha_vantage", "edgar"],
-    "earnings_history": ["alpha_vantage", "edgar"],
+    "fundamentals": ["alpha_vantage", "fmp", "edgar"],
+    "earnings_history": ["alpha_vantage", "fmp", "edgar"],
     "insider_transactions": ["edgar", "alpha_vantage"],
     "institutional_holdings": ["edgar", "alpha_vantage"],
     "options_chain": ["alpha_vantage"],
@@ -218,13 +218,16 @@ def build_registry() -> ProviderRegistry:
     """Factory that instantiates all known providers and builds the registry.
 
     Providers that raise ConfigurationError are excluded with a warning log.
+    Order matters: providers earlier in the list are preferred for routing.
     """
     from quantstack.data.providers.alpha_vantage import AVProvider
     from quantstack.data.providers.edgar import EDGARProvider
+    from quantstack.data.providers.fmp import FMPProvider
     from quantstack.data.providers.fred import FREDProvider
+    from quantstack.data.providers.yahoo import YahooProvider
 
     providers: list[DataProvider] = []
-    for cls in [AVProvider, FREDProvider, EDGARProvider]:
+    for cls in [AVProvider, FREDProvider, EDGARProvider, FMPProvider, YahooProvider]:
         try:
             providers.append(cls())
         except ConfigurationError as exc:

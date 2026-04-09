@@ -104,9 +104,14 @@ _STRATEGY_TEMPLATES = [
 # Promotion thresholds — walkforward path (run_weekly template candidates)
 _MIN_OOS_SHARPE = 0.5
 _MAX_OVERFIT_RATIO = 2.0
+_MIN_OOS_IS_RATIO = 0.5  # OOS Sharpe must be >= 50% of IS Sharpe
 _FORWARD_TEST_DAYS = 30
 _MIN_LIVE_SHARPE = 0.3
 _RETIREMENT_DEGRADATION_PCT = 50.0
+
+# Monte Carlo gate — bootstrap Sharpe 5th percentile must exceed this
+_MC_MIN_5TH_SHARPE = 0.3
+_MC_N_SIMULATIONS = 1000
 
 # Phase 2 screening thresholds — backtest-only path (research-graph candidates)
 # Lower bar than walkforward: forward_testing is itself a probationary period
@@ -293,22 +298,65 @@ class StrategyLifecycle:
 
         # Backtest on each test symbol
         best_oos_sharpe = -999.0
+        best_is_sharpe = -999.0
         best_overfit = 999.0
+        oos_returns_for_mc: list[float] = []
 
         for symbol in self._test_symbols:
             try:
                 result = await self._run_walkforward(strategy_name, symbol)
                 if result and result.get("success"):
                     oos = result.get("oos_sharpe_mean", 0)
+                    is_sharpe = result.get("is_sharpe_mean", 0)
                     overfit = result.get("overfit_ratio", 999)
                     if oos > best_oos_sharpe:
                         best_oos_sharpe = oos
+                        best_is_sharpe = is_sharpe
                         best_overfit = overfit
+                    # Collect OOS returns for Monte Carlo gate
+                    oos_ret = result.get("oos_returns", [])
+                    if oos_ret:
+                        oos_returns_for_mc.extend(oos_ret)
             except Exception:
                 continue
 
-        # Evaluate thresholds
-        if best_oos_sharpe >= _MIN_OOS_SHARPE and best_overfit <= _MAX_OVERFIT_RATIO:
+        # Gate 1: absolute OOS Sharpe + overfit ratio
+        passed = (
+            best_oos_sharpe >= _MIN_OOS_SHARPE
+            and best_overfit <= _MAX_OVERFIT_RATIO
+        )
+
+        # Gate 2: OOS/IS ratio — OOS must be >= 50% of IS to rule out overfitting
+        if passed and best_is_sharpe > 0:
+            oos_is_ratio = best_oos_sharpe / best_is_sharpe
+            if oos_is_ratio < _MIN_OOS_IS_RATIO:
+                logger.info(
+                    f"[Lifecycle] REJECTED {strategy_name}: OOS/IS ratio "
+                    f"{oos_is_ratio:.2f} < {_MIN_OOS_IS_RATIO}"
+                )
+                passed = False
+
+        # Gate 3: Monte Carlo bootstrap — 5th percentile Sharpe must exceed floor
+        if passed and oos_returns_for_mc:
+            try:
+                import pandas as pd
+
+                from quantstack.core.analysis.bootstrap_mc import bootstrap_sharpe_ci
+
+                mc_result = bootstrap_sharpe_ci(
+                    pd.Series(oos_returns_for_mc),
+                    n_simulations=_MC_N_SIMULATIONS,
+                )
+                if mc_result.ci_5 < _MC_MIN_5TH_SHARPE:
+                    logger.info(
+                        f"[Lifecycle] REJECTED {strategy_name}: MC 5th pctile "
+                        f"Sharpe {mc_result.ci_5:.3f} < {_MC_MIN_5TH_SHARPE}"
+                    )
+                    passed = False
+            except Exception as exc:
+                logger.warning(f"[Lifecycle] MC gate skipped for {strategy_name}: {exc}")
+
+        if passed:
             # Promote to forward_testing
             self._conn.execute(
                 "UPDATE strategies SET status = 'forward_testing', updated_at = NOW() WHERE strategy_id = %s",
@@ -592,7 +640,7 @@ class StrategyLifecycle:
         # This covers research-graph strategies that went draft → backtested
         # but have no walkforward path. forward_testing is itself a safety net
         # (50% size, AutoPromoter gate before live).
-        promoted = self._screen_and_promote_backtested()
+        promoted = await self._screen_and_promote_backtested()
         report.backtested.extend(f"promoted:{sid}" for sid in promoted)
 
         try:
@@ -619,13 +667,13 @@ class StrategyLifecycle:
         )
         return report
 
-    def _screen_and_promote_backtested(self) -> list[str]:
+    async def _screen_and_promote_backtested(self) -> list[str]:
         """
-        Phase 2: screen backtested strategies on backtest metrics alone
+        Phase 2: screen backtested strategies on backtest metrics + WFV gate
         and promote the best to forward_testing.
 
-        Thresholds are intentionally lower than walkforward — the forward_testing
-        period with reduced position size IS the real-world validation.
+        Candidates must first pass the cheap metric screen, then walk-forward
+        validation (mandatory gate — same thresholds as Phase 1).
         """
         promoted: list[str] = []
         try:
@@ -654,22 +702,48 @@ class StrategyLifecycle:
             trades = bt.get("total_trades", 0) or 0
             dd = bt.get("max_drawdown", 999) or 0
 
-            if (
+            # Cheap metric screen
+            if not (
                 sharpe >= _PHASE2_MIN_SHARPE
                 and pf >= _PHASE2_MIN_PROFIT_FACTOR
                 and trades >= _PHASE2_MIN_TRADES
                 and dd <= _PHASE2_MAX_DRAWDOWN
             ):
-                self._conn.execute(
-                    "UPDATE strategies SET status = 'forward_testing', updated_at = NOW() "
-                    "WHERE strategy_id = %s AND status = 'backtested'",
-                    [strategy_id],
+                continue
+
+            # Walk-forward validation gate (mandatory)
+            try:
+                wfv_result = await self._run_walkforward(strategy_id, symbol or "SPY")
+                if wfv_result and wfv_result.get("success"):
+                    oos = wfv_result.get("oos_sharpe_mean", 0)
+                    overfit = wfv_result.get("overfit_ratio", 999)
+                    if oos < _MIN_OOS_SHARPE or overfit > _MAX_OVERFIT_RATIO:
+                        logger.info(
+                            f"[Pipeline Phase 2] WFV REJECTED {name} ({symbol}) — "
+                            f"OOS Sharpe={oos:.3f} overfit={overfit:.2f}"
+                        )
+                        continue
+                else:
+                    logger.info(
+                        f"[Pipeline Phase 2] WFV FAILED for {name} ({symbol}) — skipping"
+                    )
+                    continue
+            except Exception as wfv_exc:
+                logger.warning(
+                    f"[Pipeline Phase 2] WFV exception for {name}: {wfv_exc} — skipping"
                 )
-                self._conn.commit()
-                promoted.append(strategy_id)
-                logger.info(
-                    f"[Pipeline Phase 2] PROMOTED {name} ({symbol}) to forward_testing — "
-                    f"Sharpe={sharpe:.3f} PF={pf:.2f} trades={trades} DD={dd:.1f}%"
-                )
+                continue
+
+            self._conn.execute(
+                "UPDATE strategies SET status = 'forward_testing', updated_at = NOW() "
+                "WHERE strategy_id = %s AND status = 'backtested'",
+                [strategy_id],
+            )
+            self._conn.commit()
+            promoted.append(strategy_id)
+            logger.info(
+                f"[Pipeline Phase 2] PROMOTED {name} ({symbol}) to forward_testing — "
+                f"Sharpe={sharpe:.3f} PF={pf:.2f} trades={trades} DD={dd:.1f}%"
+            )
 
         return promoted

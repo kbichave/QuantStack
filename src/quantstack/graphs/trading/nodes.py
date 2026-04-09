@@ -261,10 +261,64 @@ def make_daily_plan(llm: BaseChatModel, config: AgentConfig, tools: list[BaseToo
                     f"--- End Briefing ---\n\n"
                 )
 
+            # Wire 6: Inject recent trade quality scores for learning context
+            quality_section = ""
+            try:
+                with db_conn() as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT symbol, overall_score, thesis_accuracy, execution_quality,
+                               timing_quality, sizing_quality, created_at
+                        FROM trade_quality_scores
+                        ORDER BY created_at DESC LIMIT 20
+                        """
+                    ).fetchall()
+                if rows:
+                    scores = [dict(r._mapping) if hasattr(r, "_mapping") else dict(r) for r in rows]
+                    avg_overall = sum(float(s.get("overall_score", 0)) for s in scores) / len(scores)
+                    quality_section = (
+                        f"\n--- Recent Trade Quality (last {len(scores)} trades, avg={avg_overall:.2f}) ---\n"
+                        f"{json.dumps(scores[:5], default=str)}\n"
+                        f"--- End Quality ---\n\n"
+                    )
+            except Exception:
+                pass  # non-critical: quality context unavailable
+
+            # Wire 1: Inject strategy regime affinity for the current regime
+            affinity_section = ""
+            regime = state.get("regime", "unknown")
+            try:
+                with db_conn() as conn:
+                    rows = conn.execute(
+                        "SELECT strategy_id, name, regime_affinity "
+                        "FROM strategies WHERE status NOT IN ('retired', 'rejected')"
+                    ).fetchall()
+                if rows:
+                    ranked = []
+                    for r in rows:
+                        raw = r[2] if len(r) > 2 else None
+                        aff = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                        ranked.append({
+                            "strategy_id": r[0],
+                            "name": r[1] if len(r) > 1 else "",
+                            "affinity": round(float(aff.get(regime, 0.5)), 2),
+                        })
+                    ranked.sort(key=lambda x: x["affinity"], reverse=True)
+                    if ranked:
+                        affinity_section = (
+                            f"\n--- Strategy Regime Affinity ({regime}) ---\n"
+                            f"{json.dumps(ranked[:10], default=str)}\n"
+                            f"--- End Affinity ---\n\n"
+                        )
+            except Exception:
+                pass  # non-critical: affinity context unavailable
+
             prompt = (
-                f"Cycle {state['cycle_number']}, regime: {state.get('regime', 'unknown')}.\n"
+                f"Cycle {state['cycle_number']}, regime: {regime}.\n"
                 f"Portfolio: {json.dumps(state.get('portfolio_context', {}), default=str)}\n"
                 f"{market_intel_section}"
+                f"{quality_section}"
+                f"{affinity_section}"
                 "First, use your tools to gather real data:\n"
                 "1. Fetch the current portfolio state\n"
                 "2. Get signal briefs for key symbols in the portfolio and watchlist\n"
@@ -562,6 +616,23 @@ def make_risk_sizing():
             except Exception as exc:
                 logger.warning("signal_ic query failed (IC prior applies to all): %s", exc)
 
+            # --- Wire 2: Regime affinity per strategy (P00) ---
+            regime_affinity_lookup: dict[str, float] = {}
+            try:
+                from quantstack.config.feedback_flags import regime_affinity_sizing_enabled
+                if regime_affinity_sizing_enabled():
+                    with db_conn() as conn:
+                        for sid in strategy_ids:
+                            row = conn.execute(
+                                "SELECT regime_affinity FROM strategies WHERE strategy_id = %s",
+                                (sid,),
+                            ).fetchone()
+                            if row and row[0]:
+                                aff = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                                regime_affinity_lookup[sid] = float(aff.get(regime, 1.0))
+            except Exception as exc:
+                logger.warning("regime_affinity query failed (using 1.0 default): %s", exc)
+
             # --- Step 2: Fetch 63-day returns for EWMA vol per symbol ---
             symbols = list({c.get("symbol", "") for c in candidates if c.get("symbol")})
             volatility_lookup: dict[str, float] = {}
@@ -604,14 +675,17 @@ def make_risk_sizing():
             # Query current regime
             regime = "unknown"
             regime_confidence = 0.0
+            in_regime_transition = False
             try:
                 with db_conn() as conn:
                     row = conn.execute(
-                        "SELECT regime, confidence FROM regime_state ORDER BY updated_at DESC LIMIT 1"
+                        "SELECT regime, confidence, regime_change "
+                        "FROM regime_state ORDER BY detected_at DESC LIMIT 1"
                     ).fetchone()
                     if row:
                         regime = row[0] or "unknown"
                         regime_confidence = float(row[1]) if row[1] is not None else 0.0
+                        in_regime_transition = bool(row[2])
             except Exception as exc:
                 logger.warning("regime_state query failed; using unknown/0.0: %s", exc)
 
@@ -644,6 +718,20 @@ def make_risk_sizing():
                 regime_multiplier, vol_scalar, raw_kelly, kelly_fraction,
             )
 
+            # --- Wire 4: SkillTracker confidence adjustments (P00) ---
+            skill_adjustments: dict[str, float] = {}
+            try:
+                from quantstack.config.feedback_flags import skill_confidence_enabled
+                if skill_confidence_enabled():
+                    from quantstack.learning.skill_tracker import SkillTracker
+                    tracker = SkillTracker()
+                    for c in candidates:
+                        agent_id = c.get("agent_id", c.get("strategy_id", ""))
+                        if agent_id and agent_id not in skill_adjustments:
+                            skill_adjustments[agent_id] = tracker.get_confidence_adjustment(agent_id)
+            except Exception as exc:
+                logger.warning("SkillTracker lookup failed (using 1.0): %s", exc)
+
             # --- Step 4: Filter cold-start symbols, compute alpha signals ---
             normalized_candidates = []
             filtered_candidates = []
@@ -653,9 +741,38 @@ def make_risk_sizing():
                     logger.info("Skipping %s: cold-start vol (insufficient history)", sym)
                     continue
                 signal_value = c.get("signal_value", c.get("conviction", 0.5))
+
+                # Wire 2: Scale by regime affinity (P00, gated)
+                sid = c.get("strategy_id", "")
+                if regime_affinity_lookup and sid in regime_affinity_lookup:
+                    affinity = max(regime_affinity_lookup[sid], 0.1)  # floor at 0.1
+                    signal_value *= affinity
+
+                # Wire 4: Scale by agent skill confidence (P00, gated)
+                if skill_adjustments:
+                    agent_id = c.get("agent_id", c.get("strategy_id", ""))
+                    adj = skill_adjustments.get(agent_id, 1.0)
+                    signal_value *= adj  # adj ∈ [0.5, 1.5]
+
+                # P05 §4: Halve sizing during regime transitions (flag-gated)
+                # Full scalar chain: affinity × skill × transition × forward_testing
+                try:
+                    from quantstack.config.feedback_flags import transition_sizing_enabled
+                    if transition_sizing_enabled() and in_regime_transition:
+                        signal_value *= 0.5
+                except Exception:
+                    pass
+
+                # P05 §4: Skip microscopic positions (< $50 or < 0.1% of portfolio)
+                # Applied after all scalars — prevents noise trades
+                # (Actual $ check happens downstream in execution; here we skip near-zero signals)
+                if abs(signal_value) < 0.01:
+                    logger.debug("Skipping %s: signal_value=%.4f below minimum", sym, signal_value)
+                    continue
+
                 normalized_candidates.append({
                     "symbol": sym,
-                    "strategy_id": c.get("strategy_id", ""),
+                    "strategy_id": sid,
                     "signal_value": signal_value,
                 })
                 filtered_candidates.append(c)
@@ -1061,6 +1178,40 @@ def make_execute_entries(llm: BaseChatModel, config: AgentConfig, tools: list[Ba
                     "entry_orders": [],
                     "decisions": [{"node": "execute_entries", "action": "no_approved"}],
                 }
+
+            # Wire 3a: Check StrategyBreaker scale_factor before order submission.
+            # TRIPPED (0.0) → reject entry. SCALED (<1.0) → reduce size.
+            # This only tightens risk — never loosens beyond ACTIVE.
+            try:
+                from quantstack.execution.strategy_breaker import StrategyBreaker
+                breaker = StrategyBreaker()
+                filtered = []
+                for d in approved:
+                    sid = d.get("strategy_id", "")
+                    scale = breaker.get_scale_factor(sid) if sid else 1.0
+                    if scale == 0.0:
+                        logger.warning(
+                            "[execute_entries] TRIPPED breaker for strategy=%s — rejecting entry", sid,
+                        )
+                        continue
+                    if scale < 1.0:
+                        logger.info(
+                            "[execute_entries] SCALED breaker for strategy=%s scale=%.2f", sid, scale,
+                        )
+                        d = dict(d)  # copy to avoid mutating state
+                        if "size" in d:
+                            d["size"] = round(d["size"] * scale, 4)
+                        d["breaker_scale_factor"] = scale
+                    filtered.append(d)
+                approved = filtered
+                if not approved:
+                    return {
+                        "entry_orders": [],
+                        "decisions": [{"node": "execute_entries", "action": "all_breaker_blocked"}],
+                    }
+            except Exception as exc:
+                logger.warning("[execute_entries] StrategyBreaker check failed (proceeding): %s", exc)
+
             prompt = (
                 f"Execute entries for approved candidates:\n{json.dumps(approved, default=str)}\n"
                 f"Options analysis:\n{json.dumps(state.get('options_analysis', []), default=str)}\n\n"

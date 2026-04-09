@@ -220,6 +220,9 @@ class SymbolBrief(BaseModel):
     ]
     consensus_conviction: float = Field(ge=0, le=1, default=0.5)
 
+    # P01 §1.2: Bootstrap CI half-width on conviction
+    uncertainty_estimate: float = Field(default=0.0, ge=0, le=1)
+
     # Agreement level
     pod_agreement: Literal["unanimous", "strong", "moderate", "mixed", "conflicting"]
 
@@ -234,6 +237,12 @@ class SymbolBrief(BaseModel):
 
     # Actionable insights
     actionable_insights: list[str] = Field(default_factory=list)
+
+    # P05 §5.3: Conviction factor breakdown for empirical calibration
+    conviction_factors: dict[str, float] | None = None
+
+    # P05 §4: Transition zone flag — regime transition probability > 0.3
+    transition_zone: bool = False
 
     # Metadata
     contributing_pods: list[str] = Field(default_factory=list)

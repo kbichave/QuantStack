@@ -1,0 +1,172 @@
+{
+  "epic": {
+    "title": "plan-all: 701fbf03",
+    "context": {
+      "phases_dir": "/Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases",
+      "plugin_root": "/Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins",
+      "discovery_findings": "/Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03"
+    }
+  },
+  "issues": {
+    "phase-P00": {
+      "title": "P00",
+      "status": "closed",
+      "description": "",
+      "depends_on": [],
+      "closed_reason": "Phase banner printed"
+    },
+    "P00-research-decision": {
+      "title": "Research Decision",
+      "status": "closed",
+      "description": "Read research-protocol.md and decide on research approach",
+      "depends_on": [
+        "phase-P00"
+      ],
+      "closed_reason": "Codebase research selected, web research skipped (internal wiring task)"
+    },
+    "P00-execute-research": {
+      "title": "Execute Research",
+      "status": "closed",
+      "description": "Launch research subagents based on decisions from previous step",
+      "depends_on": [
+        "P00-research-decision"
+      ],
+      "closed_reason": "Research complete: 4/6 wires already operational, wrote claude-research.md"
+    },
+    "P00-detailed-interview": {
+      "title": "Detailed Interview",
+      "status": "closed",
+      "description": "Read interview-protocol.md and conduct stakeholder interview",
+      "depends_on": [
+        "P00-execute-research"
+      ],
+      "closed_reason": "4 questions answered: enable all flags, both-layer conviction, per-close trigger, optional evaluator"
+    },
+    "P00-save-interview": {
+      "title": "Save Interview Transcript",
+      "status": "closed",
+      "description": "Write Q&A to claude-interview.md",
+      "depends_on": [
+        "P00-detailed-interview"
+      ],
+      "closed_reason": "Written to P00/claude-interview.md"
+    },
+    "P00-write-spec": {
+      "title": "Write Initial Spec",
+      "status": "closed",
+      "description": "Combine input, research, and interview into claude-spec.md",
+      "depends_on": [
+        "P00-save-interview"
+      ],
+      "closed_reason": "Spec written combining research findings + interview decisions"
+    },
+    "P00-generate-plan": {
+      "title": "Generate Implementation Plan",
+      "status": "closed",
+      "description": "Create detailed plan in claude-plan.md. Write for unfamiliar reader.",
+      "depends_on": [
+        "P00-write-spec"
+      ],
+      "closed_reason": "claude-plan.md written: 8 sections, 17 tests, 6 files modified"
+    },
+    "P00-context-check-pre-review": {
+      "title": "Context Check (Pre-Review)",
+      "status": "closed",
+      "description": "Run check-context-decision.py before external review",
+      "depends_on": [
+        "P00-generate-plan"
+      ],
+      "closed_reason": "Context OK, continuing"
+    },
+    "P00-external-review": {
+      "title": "External LLM Review",
+      "status": "closed",
+      "description": "Read external-review.md and run review based on review_mode",
+      "depends_on": [
+        "P00-context-check-pre-review"
+      ],
+      "closed_reason": "Opus review: 60% of plan already exists, need to verify and revise"
+    },
+    "P00-integrate-feedback": {
+      "title": "Integrate External Feedback",
+      "status": "closed",
+      "description": "Write integration notes and update claude-plan.md",
+      "depends_on": [
+        "P00-external-review"
+      ],
+      "closed_reason": "Plan revised: removed 4 duplicate sections, added observability + integration test, deferred Wire 4 L2"
+    },
+    "P00-user-review": {
+      "title": "User Review of Integrated Plan",
+      "status": "closed",
+      "description": "Wait for user to review and approve claude-plan.md",
+      "depends_on": [
+        "P00-integrate-feedback"
+      ],
+      "closed_reason": "User approved plan"
+    },
+    "P00-apply-tdd": {
+      "title": "Apply TDD Approach",
+      "status": "closed",
+      "description": "Read tdd-approach.md and create claude-plan-tdd.md",
+      "depends_on": [
+        "P00-user-review"
+      ],
+      "closed_reason": "TDD plan written: 7 sections mirroring plan, ~35 test stubs"
+    },
+    "P00-context-check-pre-split": {
+      "title": "Context Check (Pre-Split)",
+      "status": "closed",
+      "description": "Run check-context-decision.py before section splitting",
+      "depends_on": [
+        "P00-apply-tdd"
+      ],
+      "closed_reason": "Context OK"
+    },
+    "P00-create-section-index": {
+      "title": "Create Section Index",
+      "status": "closed",
+      "description": "Read section-index.md and create sections/index.md with SECTION_MANIFEST",
+      "depends_on": [
+        "P00-context-check-pre-split"
+      ],
+      "closed_reason": "Index created: 7 sections, 4 parallel in wave 1"
+    },
+    "P00-generate-section-tasks": {
+      "title": "Generate Section Tasks",
+      "status": "closed",
+      "description": "Run generate-section-tasks.py to get batch task operations",
+      "depends_on": [
+        "P00-create-section-index"
+      ],
+      "closed_reason": "All section tasks generated for P05-P15"
+    },
+    "P00-write-sections": {
+      "title": "Write Section Files",
+      "status": "closed",
+      "description": "Read section-splitting.md and execute batch loop with subagents",
+      "depends_on": [
+        "P00-generate-section-tasks"
+      ],
+      "closed_reason": "All section files written for P05-P15"
+    },
+    "P00-final-verification": {
+      "title": "Final Verification",
+      "status": "closed",
+      "description": "Run check-sections.py to verify all sections complete",
+      "depends_on": [
+        "P00-write-sections"
+      ],
+      "closed_reason": "All phases verified: imports pass, tests pass"
+    },
+    "P00-output-summary": {
+      "title": "Output Summary",
+      "status": "closed",
+      "description": "Print generated files and next steps",
+      "depends_on": [
+        "P00-final-verification"
+      ],
+      "closed_reason": "Implementation complete for all 11 phases"
+    }
+  }
+}

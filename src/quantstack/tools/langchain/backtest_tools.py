@@ -43,8 +43,20 @@ async def run_walkforward(
     n_splits: int = Field(default=5, description="Number of train/test walk-forward splits for out-of-sample validation"),
 ) -> str:
     """Run walk-forward optimization and out-of-sample validation analysis on a trading strategy. Use when testing strategy robustness, detecting overfitting, or performing rolling window cross-validation. Returns JSON with per-split performance metrics including Sharpe ratio, drawdown, and stability scores across time periods."""
-    result = {"error": "Tool pending implementation", "status": "not_available"}
-    return json.dumps(result, default=str)
+    try:
+        from quantstack.core.backtesting.walkforward_service import (
+            run_walkforward as _run_wfv,
+        )
+
+        result = await _run_wfv(
+            strategy_id=strategy_type,
+            symbol=symbol,
+            n_splits=n_splits,
+        )
+        return json.dumps(result, default=str)
+    except Exception as e:
+        logger.error(f"run_walkforward({symbol}) failed: {e}")
+        return json.dumps({"error": str(e)})
 
 
 @tool

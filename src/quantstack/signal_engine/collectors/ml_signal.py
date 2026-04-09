@@ -106,6 +106,12 @@ def _collect_ml_signal_sync(symbol: str, store: DataStore) -> dict[str, Any]:
         "ml_model_age_days": getattr(training_result, "age_days", None),
     }
 
+    # --- Shadow predictions for challenger models (A/B testing) ---
+    try:
+        _record_shadow_predictions(symbol, features_df, store)
+    except Exception as exc:
+        logger.debug(f"[ml_signal] {symbol}: shadow prediction failed: {exc}")
+
     # --- Lorentzian KNN inference (if a pre-trained model file exists) ---
     try:
         lknn = _load_lorentzian_model(symbol)
@@ -151,22 +157,68 @@ def _load_lorentzian_model(symbol: str) -> Any | None:
 
 
 def _load_latest_training_result(symbol: str) -> Any | None:
-    """Attempt to load the latest TrainingResult for *symbol* from disk.
+    """Load the champion model for *symbol* from the model registry.
 
-    Returns None if no serialized model is found.  Uses joblib/pickle
-    convention: ``models/{symbol}_latest.joblib``.
+    Returns None if no champion model is registered or the artifact is missing.
     """
-    candidates = [
-        pathlib.Path(_MODEL_DIR) / f"{symbol}_latest.joblib",
-        pathlib.Path(_MODEL_DIR) / f"{symbol.lower()}_latest.joblib",
-        pathlib.Path(_MODEL_DIR) / f"{symbol}_latest.pkl",
-    ]
+    from quantstack.ml.model_registry import query_champion
 
-    for path in candidates:
-        if path.exists():
-            return joblib.load(path)
+    champion = query_champion(symbol)
+    if champion and pathlib.Path(champion.model_path).exists():
+        logger.debug(f"[ml_signal] {symbol}: loading champion {champion.model_id}")
+        return joblib.load(champion.model_path)
 
     return None
+
+
+def _record_shadow_predictions(
+    symbol: str, features_df: Any, store: DataStore
+) -> None:
+    """Run predictions from challenger models and record for A/B evaluation.
+
+    Best-effort: failures are silently ignored (shadow predictions are not
+    critical to the trading path).
+    """
+    from quantstack.db import db_conn
+    from quantstack.ml.model_registry import query_champion
+    from quantstack.ml.predictor import Predictor
+
+    with db_conn() as conn:
+        rows = conn.fetchall(
+            "SELECT model_id, model_path FROM model_registry "
+            "WHERE strategy_id = %s AND status = 'challenger'",
+            (symbol,),
+        )
+
+    if not rows:
+        return
+
+    from datetime import date, datetime, timezone
+
+    today = date.today()
+
+    for row in rows:
+        model_path = pathlib.Path(row["model_path"])
+        if not model_path.exists():
+            continue
+        try:
+            result = joblib.load(model_path)
+            pred = Predictor(result)
+            prob = float(pred.predict_proba(features_df.iloc[[-1]])[0])
+
+            with db_conn() as conn:
+                conn.execute(
+                    "INSERT INTO model_shadow_predictions "
+                    "(model_id, symbol, prediction_date, prediction, created_at) "
+                    "VALUES (%s, %s, %s, %s, %s) "
+                    "ON CONFLICT DO NOTHING",
+                    (row["model_id"], symbol, today, prob,
+                     datetime.now(timezone.utc)),
+                )
+        except Exception as exc:
+            logger.debug(
+                f"[ml_signal] shadow prediction failed for {row['model_id']}: {exc}"
+            )
 
 
 def _get_top_features(

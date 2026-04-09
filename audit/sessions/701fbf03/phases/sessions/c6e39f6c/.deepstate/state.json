@@ -1,0 +1,164 @@
+{
+  "epic": {
+    "title": "deep-plan: phasing-overview",
+    "context": {
+      "plugin_root": "/Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins",
+      "planning_dir": "/Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c",
+      "initial_file": "/Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/phasing-overview.md",
+      "review_mode": "opus_subagent"
+    }
+  },
+  "issues": {
+    "research-decision": {
+      "title": "Research Decision",
+      "status": "open",
+      "description": "## Research Decision\n\nRead research-protocol.md and decide on research approach\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/research-protocol.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Research Decision completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [],
+      "closed_reason": null
+    },
+    "execute-research": {
+      "title": "Execute Research",
+      "status": "open",
+      "description": "## Execute Research\n\nLaunch research subagents based on decisions from previous step\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/research-protocol.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Execute Research completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "research-decision"
+      ],
+      "closed_reason": null
+    },
+    "detailed-interview": {
+      "title": "Detailed Interview",
+      "status": "open",
+      "description": "## Detailed Interview\n\nRead interview-protocol.md and conduct stakeholder interview\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/interview-protocol.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Detailed Interview completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "execute-research"
+      ],
+      "closed_reason": null
+    },
+    "save-interview": {
+      "title": "Save Interview Transcript",
+      "status": "open",
+      "description": "## Save Interview Transcript\n\nWrite Q&A to claude-interview.md\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/interview-protocol.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Save Interview Transcript completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "detailed-interview"
+      ],
+      "closed_reason": null
+    },
+    "write-spec": {
+      "title": "Write Initial Spec",
+      "status": "open",
+      "description": "## Write Initial Spec\n\nCombine input, research, and interview into claude-spec.md\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/plan-writing.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Write Initial Spec completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "save-interview"
+      ],
+      "closed_reason": null
+    },
+    "generate-plan": {
+      "title": "Generate Implementation Plan",
+      "status": "open",
+      "description": "## Generate Implementation Plan\n\nCreate detailed plan in claude-plan.md. Write for unfamiliar reader.\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/plan-writing.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Generate Implementation Plan completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "write-spec"
+      ],
+      "closed_reason": null
+    },
+    "context-check-pre-review": {
+      "title": "Context Check (Pre-Review)",
+      "status": "open",
+      "description": "## Context Check (Pre-Review)\n\nRun check-context-decision.py before external review\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/context-check.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Context Check (Pre-Review) completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "generate-plan"
+      ],
+      "closed_reason": null
+    },
+    "external-review": {
+      "title": "External LLM Review",
+      "status": "open",
+      "description": "## External LLM Review\n\nRead external-review.md and run review based on review_mode\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/external-review.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- External LLM Review completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "context-check-pre-review"
+      ],
+      "closed_reason": null
+    },
+    "integrate-feedback": {
+      "title": "Integrate External Feedback",
+      "status": "open",
+      "description": "## Integrate External Feedback\n\nWrite integration notes and update claude-plan.md\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/external-review.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Integrate External Feedback completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "external-review"
+      ],
+      "closed_reason": null
+    },
+    "user-review": {
+      "title": "User Review of Integrated Plan",
+      "status": "open",
+      "description": "## User Review of Integrated Plan\n\nWait for user to review and approve claude-plan.md\n\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- User Review of Integrated Plan completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "integrate-feedback"
+      ],
+      "closed_reason": null
+    },
+    "apply-tdd": {
+      "title": "Apply TDD Approach",
+      "status": "open",
+      "description": "## Apply TDD Approach\n\nRead tdd-approach.md and create claude-plan-tdd.md\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/tdd-approach.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Apply TDD Approach completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "user-review"
+      ],
+      "closed_reason": null
+    },
+    "context-check-pre-split": {
+      "title": "Context Check (Pre-Split)",
+      "status": "open",
+      "description": "## Context Check (Pre-Split)\n\nRun check-context-decision.py before section splitting\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/context-check.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Context Check (Pre-Split) completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "apply-tdd"
+      ],
+      "closed_reason": null
+    },
+    "create-section-index": {
+      "title": "Create Section Index",
+      "status": "open",
+      "description": "## Create Section Index\n\nRead section-index.md and create sections/index.md with SECTION_MANIFEST\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/section-index.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Create Section Index completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "context-check-pre-split"
+      ],
+      "closed_reason": null
+    },
+    "generate-section-tasks": {
+      "title": "Generate Section Tasks",
+      "status": "open",
+      "description": "## Generate Section Tasks\n\nRun generate-section-tasks.py to get batch task operations\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/section-index.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Generate Section Tasks completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "create-section-index"
+      ],
+      "closed_reason": null
+    },
+    "write-sections": {
+      "title": "Write Section Files",
+      "status": "open",
+      "description": "## Write Section Files\n\nRead section-splitting.md and execute batch loop with subagents\n\n**Reference:** /Users/kshitijbichave/.claude/plugins/marketplaces/kbichave-plugins/references/section-splitting.md\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Write Section Files completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "generate-section-tasks"
+      ],
+      "closed_reason": null
+    },
+    "final-verification": {
+      "title": "Final Verification",
+      "status": "open",
+      "description": "## Final Verification\n\nRun check-sections.py to verify all sections complete\n\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Final Verification completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "write-sections"
+      ],
+      "closed_reason": null
+    },
+    "output-summary": {
+      "title": "Output Summary",
+      "status": "open",
+      "description": "## Output Summary\n\nPrint generated files and next steps\n\n**Planning dir:** /Users/kshitijbichave/Personal/Trader/audit/sessions/701fbf03/phases/sessions/c6e39f6c\n\n**Acceptance Criteria:**\n- Output Summary completed successfully\n\n**Resume Here:**\n- Read the reference file first\n- Check existing output files for partial progress",
+      "depends_on": [
+        "final-verification"
+      ],
+      "closed_reason": null
+    }
+  }
+}

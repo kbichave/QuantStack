@@ -1172,8 +1172,8 @@ class PgDataStore:
                 INSERT INTO company_overview
                     (symbol, name, sector, industry, market_cap, dividend_yield,
                      ex_dividend_date, fifty_two_week_high, fifty_two_week_low,
-                     beta, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                     beta, ipo_date, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
                 ON CONFLICT (symbol) DO UPDATE SET
                     name=EXCLUDED.name, sector=EXCLUDED.sector,
                     industry=EXCLUDED.industry, market_cap=EXCLUDED.market_cap,
@@ -1181,7 +1181,9 @@ class PgDataStore:
                     ex_dividend_date=EXCLUDED.ex_dividend_date,
                     fifty_two_week_high=EXCLUDED.fifty_two_week_high,
                     fifty_two_week_low=EXCLUDED.fifty_two_week_low,
-                    beta=EXCLUDED.beta, updated_at=NOW()
+                    beta=EXCLUDED.beta,
+                    ipo_date=COALESCE(EXCLUDED.ipo_date, company_overview.ipo_date),
+                    updated_at=NOW()
                 """,
                 [
                     _safe_str(data.get("Symbol")),
@@ -1194,6 +1196,7 @@ class PgDataStore:
                     _safe_float(data.get("52WeekHigh")),
                     _safe_float(data.get("52WeekLow")),
                     _safe_float(data.get("Beta")),
+                    _safe_str(data.get("IPODate")),
                 ],
             )
 

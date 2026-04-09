@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from quantstack.learning.drift_detector import (
-    TRACKED_FEATURES,
+    DEFAULT_TRACKED_FEATURES,
     DriftDetector,
     DriftReport,
     compute_psi,

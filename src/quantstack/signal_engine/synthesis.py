@@ -26,12 +26,20 @@ Design intent (unchanged):
 
 from __future__ import annotations
 
-import os
 from datetime import date
 from typing import Any, Literal
 
 from loguru import logger
 
+from quantstack.config.feedback_flags import (
+    correlation_penalty_enabled,
+    ensemble_ab_test_enabled,
+    ensemble_active_method,
+    ic_driven_weights_enabled,
+    ic_gate_enabled,
+    transition_signal_dampening_enabled,
+)
+from quantstack.learning.ic_attribution import get_precomputed_weights
 from quantstack.shared.schemas import KeyLevel, SymbolBrief
 
 # Type aliases for readability
@@ -91,6 +99,37 @@ _WEIGHT_PROFILES: dict[str, dict[str, float]] = {
         "ml": 0.20,
         "flow": 0.10,
     },
+    # --- P05 §5.2: Vol-conditioned sub-regime profiles ---
+    # Low-vol trends are clean: boost momentum, suppress mean-reversion
+    "trending_up_low_vol": {
+        "trend": 0.40, "rsi": 0.05, "macd": 0.25, "bb": 0.00,
+        "sentiment": 0.10, "ml": 0.15, "flow": 0.05,
+    },
+    # High-vol trends: mean-reversion opportunities exist even in trends
+    "trending_up_high_vol": {
+        "trend": 0.25, "rsi": 0.15, "macd": 0.15, "bb": 0.10,
+        "sentiment": 0.10, "ml": 0.15, "flow": 0.10,
+    },
+    # Low-vol bear: clean downtrend — trust trend direction
+    "trending_down_low_vol": {
+        "trend": 0.35, "rsi": 0.10, "macd": 0.25, "bb": 0.05,
+        "sentiment": 0.05, "ml": 0.15, "flow": 0.05,
+    },
+    # High-vol bear: capitulation reads matter — boost bb + sentiment
+    "trending_down_high_vol": {
+        "trend": 0.20, "rsi": 0.15, "macd": 0.10, "bb": 0.15,
+        "sentiment": 0.15, "ml": 0.15, "flow": 0.10,
+    },
+    # Low-vol range: classic mean-reversion (same as base ranging)
+    "ranging_low_vol": {
+        "trend": 0.05, "rsi": 0.25, "macd": 0.10, "bb": 0.25,
+        "sentiment": 0.10, "ml": 0.15, "flow": 0.10,
+    },
+    # High-vol range: breakout detection — lean on ML + flow
+    "ranging_high_vol": {
+        "trend": 0.10, "rsi": 0.15, "macd": 0.10, "bb": 0.15,
+        "sentiment": 0.10, "ml": 0.25, "flow": 0.15,
+    },
 }
 
 # Default (legacy) weights — used as absolute fallback
@@ -109,14 +148,19 @@ def _get_weights(
     trend_regime: str,
     has_ml: bool,
     has_flow: bool,
+    sub_regime: str | None = None,
 ) -> dict[str, float]:
     """
     Get synthesis weights for the given regime.
 
+    Lookup order: sub_regime (P05 vol-conditioned) → trend_regime → default.
     If ML signal is unavailable, redistribute its weight proportionally
     to the remaining voters. Same for flow.
     """
-    profile = _WEIGHT_PROFILES.get(trend_regime, _DEFAULT_WEIGHTS).copy()
+    if sub_regime and sub_regime in _WEIGHT_PROFILES:
+        profile = _WEIGHT_PROFILES[sub_regime].copy()
+    else:
+        profile = _WEIGHT_PROFILES.get(trend_regime, _DEFAULT_WEIGHTS).copy()
 
     # Redistribute inactive voter weights
     inactive_weight = 0.0
@@ -133,6 +177,63 @@ def _get_weights(
                 profile[key] = round(profile[key] * scale, 4)
 
     return profile
+
+
+# ------------------------------------------------------------------ #
+# P05 §5.4: Signal ensemble methods                                   #
+# ------------------------------------------------------------------ #
+
+
+def _ensemble_weighted_avg(scores: dict[str, float], weights: dict[str, float]) -> float:
+    """Weighted sum of vote scores — the default aggregation."""
+    return sum(scores.get(k, 0.0) * w for k, w in weights.items())
+
+
+def _ensemble_weighted_median(scores: dict[str, float], weights: dict[str, float]) -> float:
+    """Weighted median — robust to outlier voters.
+
+    Sorts votes by score, accumulates weight until reaching the 50th
+    percentile, and returns that vote's score.
+    """
+    items = sorted(
+        ((scores.get(k, 0.0), w) for k, w in weights.items()),
+        key=lambda x: x[0],
+    )
+    if not items:
+        return 0.0
+    half = sum(w for _, w in items) / 2
+    cumulative = 0.0
+    for val, w in items:
+        cumulative += w
+        if cumulative >= half:
+            return val
+    return items[-1][0]
+
+
+def _ensemble_trimmed_mean(
+    scores: dict[str, float], weights: dict[str, float], trim_n: int = 1,
+) -> float:
+    """Weighted average after dropping the single highest and lowest voters.
+
+    With 7 voters, drops 1 top + 1 bottom → 5-voter trimmed mean.
+    Falls back to full weighted average if ≤3 voters remain after trim.
+    """
+    items = sorted(
+        ((scores.get(k, 0.0), w) for k, w in weights.items()),
+        key=lambda x: x[0],
+    )
+    n = len(items)
+    if n <= 2 * trim_n:
+        # Not enough voters to trim — use full average
+        return _ensemble_weighted_avg(scores, weights)
+    trimmed = items[trim_n : n - trim_n]
+    total_w = sum(w for _, w in trimmed)
+    if total_w == 0:
+        return 0.0
+    return sum(v * w for v, w in trimmed) / total_w
+
+
+_ENSEMBLE_METHODS = [_ensemble_weighted_avg, _ensemble_weighted_median, _ensemble_trimmed_mean]
 
 
 class RuleBasedSynthesizer:
@@ -206,7 +307,10 @@ class RuleBasedSynthesizer:
     ) -> SymbolBrief:
         """Build a SymbolBrief from collector outputs."""
 
-        bias, conviction = self._compute_bias_and_conviction(
+        (
+            bias, conviction, vote_scores, raw_score, trend_regime, final_weights,
+            conviction_factor_breakdown,
+        ) = self._compute_bias_and_conviction(
             technical,
             regime,
             collector_failures,
@@ -215,7 +319,35 @@ class RuleBasedSynthesizer:
             flow=flow or {},
             put_call_ratio=put_call_ratio or {},
             earnings_momentum=earnings_momentum or {},
+            symbol=symbol,
         )
+
+        # P01 §1.1: Persist vote scores for cross-sectional IC analysis
+        try:
+            import json as _json_synth
+            from quantstack.db import db_conn as _synth_db
+            with _synth_db() as _conn:
+                _conn.execute(
+                    "INSERT INTO signals "
+                    "(signal_date, strategy_id, symbol, signal_value, confidence, regime, metadata) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                    [
+                        date.today(),
+                        "synthesis_v1",
+                        symbol,
+                        raw_score,
+                        conviction,
+                        trend_regime,
+                        _json_synth.dumps({
+                            "votes": vote_scores,
+                            "weights": final_weights,
+                            "conviction_factors": conviction_factor_breakdown,
+                        }),
+                    ],
+                )
+        except Exception:
+            pass  # fire-and-forget — never blocks brief generation
+
         pod_agreement = self._compute_pod_agreement(
             technical,
             regime,
@@ -237,11 +369,29 @@ class RuleBasedSynthesizer:
         quality = self._assess_quality(regime, technical, collector_failures)
         summary = self._build_summary(symbol, bias, conviction, regime, events)
 
+        # P01 §1.2: Bootstrap CI on conviction (flag-gated)
+        uncertainty = 0.0
+        try:
+            from quantstack.config.feedback_flags import signal_ci_enabled
+            if signal_ci_enabled():
+                uncertainty = self._bootstrap_conviction_ci(vote_scores, final_weights)
+        except Exception as exc:
+            logger.warning("bootstrap_ci_failed | error=%s", exc)
+
+        # P05 §4: Transition zone detection
+        transition_prob = regime.get("transition_probability")
+        in_transition = (
+            transition_prob is not None and transition_prob > 0.3
+        )
+
         return SymbolBrief(
             symbol=symbol,
             market_summary=summary,
             consensus_bias=bias,
             consensus_conviction=round(conviction, 3),
+            uncertainty_estimate=uncertainty,
+            conviction_factors=conviction_factor_breakdown,
+            transition_zone=in_transition,
             pod_agreement=pod_agreement,
             critical_levels=critical_levels,
             key_observations=observations,
@@ -303,6 +453,7 @@ class RuleBasedSynthesizer:
         flow: dict | None = None,
         put_call_ratio: dict | None = None,
         earnings_momentum: dict | None = None,
+        symbol: str = "",
     ) -> tuple[_Bias, float]:
 
         scores: dict[str, float] = {}
@@ -393,9 +544,89 @@ class RuleBasedSynthesizer:
             scores["flow"] = 0.0
 
         # --- Regime-conditional weighted sum ---
-        weights = _get_weights(trend, has_ml=has_ml, has_flow=has_flow)
+        sub_regime = regime.get("sub_regime")
+        weights = _get_weights(trend, has_ml=has_ml, has_flow=has_flow, sub_regime=sub_regime)
 
-        score = sum(scores.get(key, 0.0) * w for key, w in weights.items())
+        # P05 §3: IC-driven weights from precomputed table (static fallback if stale/missing)
+        try:
+            if ic_driven_weights_enabled():
+                ic_weights = get_precomputed_weights(trend)
+                if ic_weights:
+                    weights = ic_weights
+                    logger.debug(
+                        "ic_driven_weights | regime=%s weights=%s", trend, ic_weights,
+                    )
+        except Exception as exc:
+            logger.warning("ic_driven_weights_lookup_failed | error=%s", exc)
+
+        # P01 §1.1: IC gate — zero out collectors with rolling 63d IC < 0.02
+        try:
+            if ic_gate_enabled():
+                from quantstack.signal_engine.cross_sectional_ic import (
+                    CrossSectionalICTracker,
+                )
+                gate = CrossSectionalICTracker().get_ic_gate_status()
+                for k in list(weights):
+                    if gate.get(k) is False:
+                        weights[k] = 0.0
+                total = sum(weights.values())
+                if total > 0:
+                    weights = {k: round(v / total, 4) for k, v in weights.items()}
+        except Exception as exc:
+            logger.warning("ic_gate_failed | error=%s", exc)
+
+        # P01 §1.4: Correlation penalty — halve weight of redundant collectors
+        try:
+            if correlation_penalty_enabled():
+                from quantstack.signal_engine.cross_sectional_ic import (
+                    CrossSectionalICTracker as _CSICTracker,
+                )
+                penalties = _CSICTracker().compute_pairwise_correlation()
+                if penalties:
+                    for k in weights:
+                        if k in penalties:
+                            weights[k] *= penalties[k]
+                    total = sum(weights.values())
+                    if total > 0:
+                        weights = {k: round(v / total, 4) for k, v in weights.items()}
+        except Exception as exc:
+            logger.warning("correlation_penalty_failed | error=%s", exc)
+
+        # --- P05 §6: Ensemble method selection (active method from config) ---
+        _method_lookup = {fn.__name__: fn for fn in _ENSEMBLE_METHODS}
+        active = ensemble_active_method()
+        ensemble_fn = _method_lookup.get(
+            f"_ensemble_{active}", _ensemble_weighted_avg,
+        )
+        score = ensemble_fn(scores, weights)
+
+        # P05 §6: Record all ensemble method outputs for offline A/B evaluation
+        if ensemble_ab_test_enabled() and symbol:
+            try:
+                from quantstack.db import db_conn as _ab_db
+                with _ab_db() as _ab_conn:
+                    for _fn in _ENSEMBLE_METHODS:
+                        _m_name = _fn.__name__.replace("_ensemble_", "")
+                        _m_val = _fn(scores, weights) if _fn is not ensemble_fn else score
+                        _ab_conn.execute(
+                            "INSERT INTO ensemble_ab_results "
+                            "(symbol, signal_date, method_name, signal_value) "
+                            "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                            [symbol, date.today(), _m_name, _m_val],
+                        )
+            except Exception as exc:
+                logger.warning("ensemble_ab_record_failed | error=%s", exc)
+
+        # --- P05 §5.2: Dampen score during regime transitions ---
+        if transition_signal_dampening_enabled():
+            transition_prob = regime.get("transition_probability")
+            if transition_prob is not None and transition_prob > 0.3:
+                pre_score = score
+                score *= 0.5
+                logger.debug(
+                    "transition_zone | P(transition)=%.3f → score halved: %.3f → %.3f",
+                    transition_prob, pre_score, score,
+                )
 
         # --- Minor adjustments from Phase 7 collectors ---
         # PCR: contrarian signal nudges sentiment component (+/- 0.1)
@@ -422,26 +653,16 @@ class RuleBasedSynthesizer:
         else:
             bias = "neutral"
 
-        # --- Conviction scaling ---
+        # --- Conviction scaling (multiplicative factors) ---
         conviction = abs(score)
         adx = technical.get("adx_14")
         hmm_stability = regime.get("hmm_stability")
         weekly_trend = technical.get("weekly_trend", "unknown")
 
-        use_multiplicative = os.getenv(
-            "FEEDBACK_CONVICTION_MULTIPLICATIVE", "false"
-        ).lower() == "true"
-
-        if use_multiplicative:
-            conviction = self._conviction_multiplicative(
-                conviction, adx, hmm_stability, weekly_trend, trend,
-                regime, has_ml, scores, score, failures,
-            )
-        else:
-            conviction = self._conviction_additive(
-                conviction, adx, hmm_stability, weekly_trend, trend,
-                regime, has_ml, scores, score, failures,
-            )
+        conviction, conviction_factors = self._conviction_multiplicative(
+            conviction, adx, hmm_stability, weekly_trend, trend,
+            regime, has_ml, scores, score, failures,
+        )
 
         # --- Conflict resolution: cap conviction if signal spread is high ---
         vote_values = [v for v in scores.values() if v is not None]
@@ -451,43 +672,7 @@ class RuleBasedSynthesizer:
                 conviction = min(conviction, self.CONFLICT_CONVICTION_CAP)
 
         conviction = round(max(0.05, min(0.95, conviction)), 3)
-        return bias, conviction
-
-    @staticmethod
-    def _conviction_additive(
-        conviction: float,
-        adx: float | None,
-        hmm_stability: float | None,
-        weekly_trend: str,
-        trend: str,
-        regime: dict,
-        has_ml: bool,
-        scores: dict[str, float],
-        score: float,
-        failures: list[str],
-    ) -> float:
-        """Original additive conviction adjustments (backward-compatible)."""
-        if adx is not None and adx > 25:  # ADX_STRONG_TREND
-            conviction += 0.10
-        if hmm_stability is not None and hmm_stability > 0.8:
-            conviction += 0.05
-        if weekly_trend != "unknown" and trend != "unknown":
-            if (weekly_trend == "bullish" and trend == "trending_down") or (
-                weekly_trend == "bearish" and trend == "trending_up"
-            ):
-                conviction -= 0.15
-        if regime.get("regime_disagreement"):
-            conviction -= 0.10
-        if has_ml and scores.get("ml", 0) != 0:
-            ml_direction = 1 if scores["ml"] > 0 else -1
-            rule_direction = 1 if score > 0 else (-1 if score < 0 else 0)
-            if ml_direction == rule_direction and rule_direction != 0:
-                conviction += 0.05
-        if "technical" in failures:
-            conviction -= 0.20
-        if "regime" in failures:
-            conviction -= 0.20
-        return conviction
+        return bias, conviction, scores, score, trend, weights, conviction_factors
 
     @staticmethod
     def _conviction_multiplicative(
@@ -501,8 +686,11 @@ class RuleBasedSynthesizer:
         scores: dict[str, float],
         score: float,
         failures: list[str],
-    ) -> float:
-        """Multiplicative conviction factors — proportional scaling."""
+    ) -> tuple[float, dict[str, float]]:
+        """Multiplicative conviction factors — proportional scaling.
+
+        Returns (adjusted_conviction, factor_breakdown_dict).
+        """
         # Factor 1: ADX strength (1.0 at ADX<=15, ramps to 1.15 at ADX>=50)
         if adx is not None and adx > 15:
             adx_factor = 1.0 + 0.15 * min(1.0, (adx - 15) / 35)
@@ -551,6 +739,15 @@ class RuleBasedSynthesizer:
             * data_quality_factor
         )
 
+        factor_breakdown = {
+            "adx": round(adx_factor, 4),
+            "stability": round(stability_factor, 4),
+            "timeframe": round(timeframe_factor, 4),
+            "regime_agreement": round(regime_agreement_factor, 4),
+            "ml_confirmation": round(ml_confirmation_factor, 4),
+            "data_quality": round(data_quality_factor, 4),
+        }
+
         logger.debug(
             "conviction_factors | base=%.3f adx=%.3f stability=%.3f "
             "timeframe=%.3f regime_agree=%.3f ml_confirm=%.3f data_quality=%.3f "
@@ -560,7 +757,36 @@ class RuleBasedSynthesizer:
             data_quality_factor, adjusted,
         )
 
-        return adjusted
+        return adjusted, factor_breakdown
+
+    @staticmethod
+    def _bootstrap_conviction_ci(
+        scores: dict[str, float],
+        weights: dict[str, float],
+        n_boot: int = 500,
+    ) -> float:
+        """Bootstrap CI half-width on the weighted conviction score.
+
+        Resamples collector vote scores with replacement, recomputes
+        weighted sum each time, returns half-width of 95% CI.
+        A narrow CI means collectors agree; wide means high uncertainty.
+        """
+        import random
+
+        keys = list(scores.keys())
+        if len(keys) < 2:
+            return 0.0
+        vals = [scores[k] for k in keys]
+        wts = [weights.get(k, 0.0) for k in keys]
+        boot_scores: list[float] = []
+        for _ in range(n_boot):
+            indices = random.choices(range(len(keys)), k=len(keys))
+            resampled_score = sum(vals[i] * wts[i] for i in indices)
+            boot_scores.append(abs(resampled_score))
+        boot_scores.sort()
+        lo = boot_scores[int(0.025 * n_boot)]
+        hi = boot_scores[int(0.975 * n_boot)]
+        return round(min(1.0, max(0.0, (hi - lo) / 2)), 4)
 
     # ------------------------------------------------------------------ #
     # Pod agreement                                                        #

@@ -656,6 +656,24 @@ def run_migrations_pg(conn: PgConnection) -> None:
             _migrate_llm_config_pg(conn)
             # Phase 10: Advanced Research
             _migrate_phase10_pg(conn)
+            # P05: Adaptive Signal Synthesis
+            _migrate_p05_adaptive_synthesis_pg(conn)
+            # P06: Options Desk Upgrade
+            _migrate_p06_options_desk_pg(conn)
+            # P07: Data Architecture Evolution
+            _migrate_p07_data_architecture_pg(conn)
+            # P08: Options Market-Making
+            _migrate_p08_options_market_making_pg(conn)
+            # P10: Meta-Learning & Self-Improvement
+            _migrate_p10_meta_learning_pg(conn)
+            # P11: Alternative Data Sources
+            _migrate_p11_alternative_data_pg(conn)
+            # P12: Multi-Asset Expansion
+            _migrate_p12_multi_asset_pg(conn)
+            # P13: Causal Alpha Discovery
+            _migrate_p13_causal_alpha_pg(conn)
+            # P15: Autonomous Fund Integration
+            _migrate_p15_autonomous_fund_pg(conn)
 
             logger.info("[DB] PostgreSQL migrations complete")
             _migrations_done = True
@@ -1648,6 +1666,12 @@ def _migrate_market_data_pg(conn: PgConnection) -> None:
     conn.execute("""
         ALTER TABLE company_overview
         ADD COLUMN IF NOT EXISTS delisted_at DATE
+    """)
+
+    # -- IPO date for survivorship-bias filtering --------------------------
+    conn.execute("""
+        ALTER TABLE company_overview
+        ADD COLUMN IF NOT EXISTS ipo_date DATE
     """)
 
     logger.debug("[DB] Market data tables migrated")
@@ -3462,6 +3486,465 @@ def _migrate_phase10_pg(conn: PgConnection) -> None:
     """)
 
     logger.debug("[DB] Phase 10 tables migrated (10 tables)")
+
+
+def _migrate_p05_adaptive_synthesis_pg(conn: PgConnection) -> None:
+    """P05: Adaptive Signal Synthesis — regime column on IC data + conviction calibration."""
+    # 5.1: Add regime column to existing ic_attribution_data
+    conn.execute(
+        "ALTER TABLE ic_attribution_data "
+        "ADD COLUMN IF NOT EXISTS regime TEXT DEFAULT 'unknown'"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ic_attr_regime "
+        "ON ic_attribution_data (collector, regime, recorded_at DESC)"
+    )
+    # 5.3: Conviction calibration data for empirical factor tuning
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS conviction_calibration (
+            id              BIGSERIAL PRIMARY KEY,
+            factor_name     TEXT NOT NULL,
+            factor_value    DOUBLE PRECISION,
+            forward_return  DOUBLE PRECISION,
+            regime          TEXT,
+            recorded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_conviction_cal_factor "
+        "ON conviction_calibration (factor_name, recorded_at DESC)"
+    )
+
+    # P05 §3: Precomputed IC weights — weekly batch output
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS precomputed_ic_weights (
+            regime          TEXT NOT NULL,
+            collector       TEXT NOT NULL,
+            weight          DOUBLE PRECISION NOT NULL,
+            ic_value        DOUBLE PRECISION NOT NULL,
+            batch_id        INTEGER NOT NULL DEFAULT 1,
+            computed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (regime, collector)
+        )
+    """))
+
+    # P05 §5: Calibrated conviction factor parameters (distinct from raw observation table)
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS conviction_calibration_params (
+            factor_name     TEXT NOT NULL,
+            param_name      TEXT NOT NULL,
+            param_value     DOUBLE PRECISION NOT NULL,
+            calibrated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            sample_size     INTEGER NOT NULL DEFAULT 0,
+            r_squared       DOUBLE PRECISION DEFAULT 0.0,
+            PRIMARY KEY (factor_name, param_name)
+        )
+    """))
+
+    # P05 §6: Ensemble A/B test results — offline evaluation per method per symbol
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS ensemble_ab_results (
+            id              SERIAL PRIMARY KEY,
+            symbol          TEXT NOT NULL,
+            signal_date     DATE NOT NULL,
+            method_name     TEXT NOT NULL,
+            signal_value    DOUBLE PRECISION NOT NULL,
+            forward_return_5d DOUBLE PRECISION,
+            recorded_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ensemble_ab_date_method "
+        "ON ensemble_ab_results (signal_date, method_name)"
+    )
+
+    # P05 §6: Active ensemble method config (single-row)
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS ensemble_config (
+            id              INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+            active_method   TEXT NOT NULL DEFAULT 'weighted_avg',
+            promoted_at     TIMESTAMPTZ,
+            evidence_ic     DOUBLE PRECISION,
+            evidence_pvalue DOUBLE PRECISION
+        )
+    """))
+    conn.execute(
+        "INSERT INTO ensemble_config (id, active_method) "
+        "VALUES (1, 'weighted_avg') ON CONFLICT (id) DO NOTHING"
+    )
+
+    logger.debug(
+        "[DB] P05 adaptive synthesis tables migrated "
+        "(precomputed_ic_weights, conviction_calibration_params, "
+        "ensemble_ab_results, ensemble_config)"
+    )
+
+
+def _migrate_p06_options_desk_pg(conn: PgConnection) -> None:
+    """P06: Options Desk — portfolio Greeks history, P&L attribution, structure type."""
+    # P06 §5: Portfolio Greeks history — periodic snapshots for time-series analysis
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS portfolio_greeks_history (
+            id              SERIAL PRIMARY KEY,
+            snapshot_time   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            symbol_greeks   JSONB,
+            strategy_greeks JSONB,
+            portfolio_delta FLOAT NOT NULL DEFAULT 0,
+            portfolio_gamma FLOAT NOT NULL DEFAULT 0,
+            portfolio_theta FLOAT NOT NULL DEFAULT 0,
+            portfolio_vega  FLOAT NOT NULL DEFAULT 0,
+            portfolio_rho   FLOAT NOT NULL DEFAULT 0
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pgh_snapshot_time "
+        "ON portfolio_greeks_history (snapshot_time DESC)"
+    )
+
+    # P06 §8: Options P&L attribution — daily Greek decomposition
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS options_pnl_attribution (
+            id              SERIAL PRIMARY KEY,
+            date            DATE NOT NULL,
+            symbol          TEXT NOT NULL,
+            delta_pnl       FLOAT NOT NULL DEFAULT 0,
+            gamma_pnl       FLOAT NOT NULL DEFAULT 0,
+            theta_pnl       FLOAT NOT NULL DEFAULT 0,
+            vega_pnl        FLOAT NOT NULL DEFAULT 0,
+            unexplained_pnl FLOAT NOT NULL DEFAULT 0,
+            total_pnl       FLOAT NOT NULL DEFAULT 0
+        )
+    """))
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_opa_date_symbol "
+        "ON options_pnl_attribution (date, symbol)"
+    )
+
+    # P06 §4: Structure type column on positions
+    conn.execute(
+        "ALTER TABLE positions ADD COLUMN IF NOT EXISTS structure_type TEXT DEFAULT 'single_leg'"
+    )
+
+    logger.debug("[DB] P06 options desk tables migrated")
+
+
+def _migrate_p07_data_architecture_pg(conn: PgConnection) -> None:
+    """P07: Data Architecture — PIT columns, data provider failures, schema migrations."""
+    # P07 §4: available_date for point-in-time queries
+    for table in (
+        "financial_statements",
+        "earnings_calendar",
+        "insider_trades",
+        "institutional_holdings",
+    ):
+        conn.execute(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS available_date DATE"
+        )
+
+    # P07 §2: schema_migrations table for tracking applied migrations
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            name        TEXT PRIMARY KEY,
+            checksum    TEXT,
+            applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+
+    # Ensure data_provider_failures table exists (used by registry circuit breaker)
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS data_provider_failures (
+            provider              TEXT NOT NULL,
+            data_type             TEXT NOT NULL,
+            consecutive_failures  INTEGER NOT NULL DEFAULT 0,
+            last_failure_at       TIMESTAMPTZ,
+            last_error            TEXT,
+            PRIMARY KEY (provider, data_type)
+        )
+    """))
+
+    logger.debug("[DB] P07 data architecture tables migrated")
+
+
+def _migrate_p08_options_market_making_pg(conn: PgConnection) -> None:
+    """P08: Options Market-Making — vol strategy signals, dispersion trades."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS vol_strategy_signals (
+            id              SERIAL PRIMARY KEY,
+            symbol          TEXT NOT NULL,
+            signal_date     DATE NOT NULL,
+            strategy_type   TEXT NOT NULL,
+            signal_value    REAL,
+            iv_rank         REAL,
+            realized_vol    REAL,
+            implied_vol     REAL,
+            z_score         REAL,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(symbol, signal_date, strategy_type)
+        )
+    """))
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS dispersion_trades (
+            id                    SERIAL PRIMARY KEY,
+            index_symbol          TEXT NOT NULL,
+            components            JSONB,
+            implied_correlation   REAL,
+            realized_correlation  REAL,
+            correlation_spread    REAL,
+            entry_date            DATE,
+            exit_date             DATE,
+            exit_reason           TEXT,
+            pnl                   REAL,
+            created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+
+    logger.debug("[DB] P08 options market-making tables migrated")
+
+
+def _migrate_p10_meta_learning_pg(conn: PgConnection) -> None:
+    """P10: Meta-Learning — agent quality scores, prompt A/B testing, research candidates."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS agent_quality_scores (
+            id                SERIAL PRIMARY KEY,
+            agent_name        TEXT NOT NULL,
+            cycle_id          TEXT NOT NULL,
+            direction_correct BOOLEAN,
+            magnitude_score   REAL,
+            timing_score      REAL,
+            composite_score   REAL,
+            created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(agent_name, cycle_id)
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_aqs_agent_created "
+        "ON agent_quality_scores (agent_name, created_at DESC)"
+    )
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS prompt_ab_results (
+            id          SERIAL PRIMARY KEY,
+            agent_name  TEXT NOT NULL,
+            variant_id  TEXT NOT NULL,
+            score       REAL NOT NULL,
+            is_control  BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pab_agent_variant "
+        "ON prompt_ab_results (agent_name, variant_id)"
+    )
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS research_candidates (
+            id                  SERIAL PRIMARY KEY,
+            hypothesis_id       TEXT NOT NULL UNIQUE,
+            description         TEXT,
+            alpha_uplift_est    REAL DEFAULT 0,
+            portfolio_gap_score REAL DEFAULT 0,
+            failure_frequency   REAL DEFAULT 0,
+            staleness_days      REAL DEFAULT 0,
+            priority_score      REAL DEFAULT 0,
+            status              TEXT DEFAULT 'pending',
+            outcome             JSONB,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            completed_at        TIMESTAMPTZ
+        )
+    """))
+
+    logger.debug("[DB] P10 meta-learning tables migrated")
+
+
+def _migrate_p11_alternative_data_pg(conn: PgConnection) -> None:
+    """P11: Alternative Data — congressional trades, web traffic, job postings, patents."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS congressional_trades (
+            id              SERIAL PRIMARY KEY,
+            symbol          TEXT NOT NULL,
+            trader_name     TEXT,
+            trade_type      TEXT,
+            amount_range    TEXT,
+            trade_date      DATE,
+            disclosure_date DATE,
+            chamber         TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ct_symbol_date "
+        "ON congressional_trades (symbol, trade_date DESC)"
+    )
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS web_traffic_metrics (
+            id                  SERIAL PRIMARY KEY,
+            symbol              TEXT NOT NULL,
+            month               DATE NOT NULL,
+            unique_visitors     BIGINT,
+            page_views          BIGINT,
+            avg_visit_duration  REAL,
+            bounce_rate         REAL,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(symbol, month)
+        )
+    """))
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS job_posting_metrics (
+            id              SERIAL PRIMARY KEY,
+            symbol          TEXT NOT NULL,
+            month           DATE NOT NULL,
+            total_openings  INTEGER,
+            engineering_pct REAL,
+            yoy_growth_pct  REAL,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(symbol, month)
+        )
+    """))
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS patent_filings (
+            id              SERIAL PRIMARY KEY,
+            symbol          TEXT NOT NULL,
+            filing_date     DATE NOT NULL,
+            patent_number   TEXT,
+            title           TEXT,
+            category        TEXT,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pf_symbol_date "
+        "ON patent_filings (symbol, filing_date DESC)"
+    )
+
+    logger.debug("[DB] P11 alternative data tables migrated")
+
+
+def _migrate_p12_multi_asset_pg(conn: PgConnection) -> None:
+    """P12: Multi-Asset Expansion — asset class config, cross-asset signals."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS asset_class_config (
+            asset_class     TEXT PRIMARY KEY,
+            enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+            max_pct_equity  REAL NOT NULL DEFAULT 0.05,
+            max_notional    REAL NOT NULL DEFAULT 50000,
+            max_positions   INTEGER NOT NULL DEFAULT 20,
+            max_leverage    REAL NOT NULL DEFAULT 1.0,
+            config          JSONB DEFAULT '{}',
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+
+    # Extend positions table for multi-asset
+    conn.execute(
+        "ALTER TABLE positions ADD COLUMN IF NOT EXISTS asset_class TEXT DEFAULT 'equity'"
+    )
+    conn.execute(
+        "ALTER TABLE positions ADD COLUMN IF NOT EXISTS contract_spec JSONB"
+    )
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS cross_asset_signals (
+            id              SERIAL PRIMARY KEY,
+            signal_name     TEXT NOT NULL,
+            signal_date     DATE NOT NULL,
+            signal_value    REAL,
+            asset_pair      TEXT,
+            details         JSONB,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE(signal_name, signal_date)
+        )
+    """))
+
+    logger.debug("[DB] P12 multi-asset tables migrated")
+
+
+def _migrate_p13_causal_alpha_pg(conn: PgConnection) -> None:
+    """P13: Causal Alpha Discovery — causal graphs, treatment effects, causal factors."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS causal_graphs (
+            id                      SERIAL PRIMARY KEY,
+            graph_name              TEXT NOT NULL,
+            adjacency_list          JSONB NOT NULL,
+            edge_metadata           JSONB,
+            discovery_method        TEXT NOT NULL DEFAULT 'pc',
+            feature_columns         TEXT[],
+            num_samples             INTEGER NOT NULL,
+            domain_agreement_score  REAL,
+            created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cg_name ON causal_graphs (graph_name)"
+    )
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS treatment_effects (
+            id                  SERIAL PRIMARY KEY,
+            hypothesis_id       TEXT NOT NULL,
+            treatment           TEXT NOT NULL,
+            outcome             TEXT NOT NULL,
+            ate                 REAL NOT NULL,
+            ci_lower            REAL,
+            ci_upper            REAL,
+            p_value             REAL,
+            method              TEXT NOT NULL DEFAULT 'dml',
+            refutation_passed   BOOLEAN,
+            regime_stability    REAL,
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+
+    logger.debug("[DB] P13 causal alpha tables migrated")
+
+
+def _migrate_p15_autonomous_fund_pg(conn: PgConnection) -> None:
+    """P15: Autonomous Fund — authority decisions, feedback loop status, reconciliation."""
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS authority_decisions (
+            id              SERIAL PRIMARY KEY,
+            decision_type   TEXT NOT NULL,
+            agent_name      TEXT NOT NULL,
+            value           REAL,
+            details         JSONB,
+            approved        BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ad_type_date "
+        "ON authority_decisions (decision_type, created_at DESC)"
+    )
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS feedback_loop_status (
+            loop_name       TEXT PRIMARY KEY,
+            last_triggered  TIMESTAMPTZ,
+            last_action     TEXT,
+            is_healthy      BOOLEAN NOT NULL DEFAULT TRUE,
+            details         JSONB DEFAULT '{}',
+            updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    """))
+
+    conn.execute(_to_pg("""
+        CREATE TABLE IF NOT EXISTS reconciliation_log (
+            id                  SERIAL PRIMARY KEY,
+            reconciled_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            matches             INTEGER NOT NULL DEFAULT 0,
+            mismatches          INTEGER NOT NULL DEFAULT 0,
+            broker_only         INTEGER NOT NULL DEFAULT 0,
+            system_only         INTEGER NOT NULL DEFAULT 0,
+            total_discrepancy   REAL NOT NULL DEFAULT 0,
+            is_clean            BOOLEAN NOT NULL DEFAULT TRUE,
+            details             JSONB
+        )
+    """))
+
+    logger.debug("[DB] P15 autonomous fund tables migrated")
 
 
 # ---------------------------------------------------------------------------

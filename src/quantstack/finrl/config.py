@@ -62,7 +62,7 @@ class FinRLConfig(BaseSettings):
 
     # ── Environment defaults ──
     default_initial_capital: float = 100_000
-    default_transaction_cost: float = 0.001
+    default_transaction_cost: float = 0.003  # 30 bps all-in (commission + spread + impact)
 
     # ── Technical indicators for stock trading envs ──
     default_indicators: list[str] = [

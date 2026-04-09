@@ -48,6 +48,19 @@ class TTLCache:
             return None
         return value
 
+    def get_with_age(self, key: str) -> tuple[Any, float] | None:
+        """Return ``(value, age_seconds)`` or ``None`` if absent/expired."""
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        value, ts, entry_ttl = entry
+        effective_ttl = entry_ttl if entry_ttl is not None else self._ttl
+        age = time.monotonic() - ts
+        if age > effective_ttl:
+            del self._store[key]
+            return None
+        return value, age
+
     def delete(self, key: str) -> bool:
         """Remove *key* if present.  Returns True if it existed."""
         return self._store.pop(key, None) is not None

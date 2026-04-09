@@ -244,8 +244,7 @@ async def run_backtest_impl(
     end_date: str | None = None,
     initial_capital: float = 100_000.0,
     position_size_pct: float = 0.10,
-    commission: float = 1.0,
-    slippage_pct: float = 0.001,
+    all_in_cost_bps: float = 30.0,
 ) -> dict[str, Any]:
     """Core logic for run_backtest — callable from other tool modules."""
     _, err = live_db_or_error()
@@ -294,8 +293,7 @@ async def run_backtest_impl(
         config = BacktestConfig(
             initial_capital=initial_capital,
             position_size_pct=position_size_pct,
-            commission_per_trade=commission,
-            slippage_pct=slippage_pct,
+            all_in_cost_bps=all_in_cost_bps,
         )
         engine = BacktestEngine(config=config)
         result = engine.run(signals, price_data)

@@ -112,6 +112,10 @@ def _try_hmm_regime(df: "pd.DataFrame") -> dict[str, Any] | None:
         trend_regime = _hmm_state_to_trend(result.state)
         vol_regime = _hmm_state_to_vol(result.state)
 
+        # P05 §5.2: Vol-conditioned sub-regime (e.g. "trending_up_low_vol")
+        vol_sub = _vol_sub_regime(df)
+        sub_regime = f"{trend_regime}_{vol_sub}"
+
         # Confidence: use regime stability (how certain HMM is about current state)
         confidence = round(result.regime_stability, 3)
 
@@ -132,6 +136,7 @@ def _try_hmm_regime(df: "pd.DataFrame") -> dict[str, Any] | None:
         return {
             "trend_regime": trend_regime,
             "volatility_regime": vol_regime,
+            "sub_regime": sub_regime,
             "confidence": confidence,
             "regime_label": result.state.name,
             "hmm_state": result.state.name,

@@ -81,6 +81,7 @@ class _Observation:
     signal_value: float
     forward_return: float
     timestamp: str
+    regime: str = "unknown"
 
 
 @dataclass
@@ -131,6 +132,7 @@ class ICAttributionTracker:
         signal_value: float,
         forward_return: float,
         timestamp: datetime | None = None,
+        regime: str = "unknown",
     ) -> None:
         """
         Record a single observation for a collector.
@@ -144,6 +146,7 @@ class ICAttributionTracker:
                           forward returns.
             forward_return: Realized return over the holding period.
             timestamp: When the signal was generated. Defaults to now.
+            regime: Trend regime at signal time (P05 §5.1 regime-conditioned IC).
         """
         if not math.isfinite(signal_value) or not math.isfinite(forward_return):
             logger.debug(
@@ -161,11 +164,12 @@ class ICAttributionTracker:
                     signal_value=signal_value,
                     forward_return=forward_return,
                     timestamp=ts,
+                    regime=regime,
                 )
             )
 
             # Persist the single new observation to DB
-            self._persist_observation(collector, signal_value, forward_return, ts)
+            self._persist_observation(collector, signal_value, forward_return, ts, regime)
 
             # Keep bounded — retain 2x window to allow trend comparison
             max_keep = self._window_size * 2
@@ -301,12 +305,58 @@ class ICAttributionTracker:
 
         return weights
 
+    def get_weights_for_regime(
+        self,
+        regime: str,
+        window: int = 63,
+        min_days: int = 60,
+    ) -> dict[str, float] | None:
+        """
+        IC-derived weights conditioned on a specific regime (P05 §5.1).
+
+        Filters observations by ``regime``, requires at least ``min_days``
+        observations in that regime, then computes per-collector Spearman IC
+        over the most recent ``window`` observations. Normalizes positive-IC
+        collectors to sum 1.0.
+
+        Returns None if insufficient data or all IC <= 0.
+        """
+        ics: dict[str, float] = {}
+
+        with self._lock:
+            for name, state in self._collectors.items():
+                regime_obs = [o for o in state.observations if o.regime == regime]
+                if len(regime_obs) < min_days:
+                    continue
+
+                recent = regime_obs[-window:]
+                if len(recent) < min_days:
+                    continue
+
+                signals = [o.signal_value for o in recent]
+                returns = [o.forward_return for o in recent]
+
+                corr, _ = _spearmanr(signals, returns)
+                if math.isfinite(corr) and corr > 0:
+                    ics[name] = corr
+
+        if not ics:
+            return None
+
+        total_ic = sum(ics.values())
+        return {name: round(ic / total_ic, 4) for name, ic in ics.items()}
+
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 
     def _persist_observation(
-        self, collector: str, signal_value: float, forward_return: float, timestamp: str
+        self,
+        collector: str,
+        signal_value: float,
+        forward_return: float,
+        timestamp: str,
+        regime: str = "unknown",
     ) -> None:
         """Insert a single observation to PostgreSQL. Called under lock."""
         try:
@@ -314,10 +364,10 @@ class ICAttributionTracker:
                 conn.execute(
                     """
                     INSERT INTO ic_attribution_data
-                        (collector, signal_value, forward_return, recorded_at)
-                    VALUES (%s, %s, %s, %s)
+                        (collector, signal_value, forward_return, recorded_at, regime)
+                    VALUES (%s, %s, %s, %s, %s)
                     """,
-                    [collector, signal_value, forward_return, timestamp],
+                    [collector, signal_value, forward_return, timestamp, regime],
                 )
         except Exception as exc:
             logger.warning(f"[ICAttribution] Failed to persist observation: {exc}")
@@ -348,7 +398,8 @@ class ICAttributionTracker:
             with db_conn() as conn:
                 conn.execute(
                     """
-                    SELECT collector, signal_value, forward_return, recorded_at
+                    SELECT collector, signal_value, forward_return, recorded_at,
+                           COALESCE(regime, 'unknown') AS regime
                     FROM ic_attribution_data
                     ORDER BY collector, recorded_at ASC
                     """
@@ -365,6 +416,7 @@ class ICAttributionTracker:
                         timestamp=row["recorded_at"].isoformat()
                             if hasattr(row["recorded_at"], "isoformat")
                             else str(row["recorded_at"]),
+                        regime=row["regime"],
                     )
                 )
 
@@ -419,6 +471,412 @@ class ICAttributionTracker:
         if not math.isfinite(corr):
             return None
         return float(corr)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# IC Weight Precomputation (P05 §3 — batch job)
+# ---------------------------------------------------------------------------
+
+_BASE_REGIMES = ("trending_up", "trending_down", "ranging", "unknown")
+_IC_GATE_FLOOR = 0.02
+_ICIR_THRESHOLD = 0.1
+_ICIR_PENALTY = 0.7
+_TOTAL_WEIGHT_FLOOR = 0.1
+_MAX_SINGLE_WEIGHT = 0.80
+_STALENESS_DAYS = 14
+
+
+def _rolling_sub_ics(
+    signals: list[float], returns: list[float], window: int = 21,
+) -> list[float]:
+    """Compute IC over rolling sub-windows for ICIR calculation."""
+    sub_ics: list[float] = []
+    for i in range(0, len(signals) - window + 1, window):
+        s = signals[i : i + window]
+        r = returns[i : i + window]
+        if len(s) < 10:
+            continue
+        corr, _ = _spearmanr(s, r)
+        if math.isfinite(corr):
+            sub_ics.append(corr)
+    return sub_ics
+
+
+def _population_std(values: list[float]) -> float:
+    """Population standard deviation."""
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+    return variance ** 0.5
+
+
+def compute_and_store_ic_weights() -> dict[str, dict[str, float]]:
+    """Batch-compute IC-driven weights per regime and store in precomputed_ic_weights.
+
+    For each base regime:
+      1. Query ic_attribution_data for the last 63 days, filtered by regime
+      2. Compute per-collector Spearman IC
+      3. Apply IC gate: drop collectors with IC < 0.02
+      4. Apply ICIR penalty: multiply by 0.7 if IC/std(IC) < 0.1
+      5. Apply correlation penalty from CrossSectionalICTracker
+      6. Reject regime if single collector > 0.80 (sanity bound)
+      7. Check weight floor: if total positive weight < 0.1, skip regime
+      8. Normalize to sum=1.0
+      9. Upsert into precomputed_ic_weights
+
+    Returns:
+        {regime: {collector: weight}} for logging/diagnostics.
+    """
+    results: dict[str, dict[str, float]] = {}
+
+    for regime in _BASE_REGIMES:
+        with db_conn() as conn:
+            conn.execute(
+                "SELECT collector, signal_value, forward_return "
+                "FROM ic_attribution_data "
+                "WHERE regime = %s AND recorded_at > NOW() - INTERVAL '63 days' "
+                "ORDER BY collector, recorded_at ASC",
+                [regime],
+            )
+            rows = conn.fetchall()
+
+        if not rows:
+            logger.info("[ICPrecompute] No data for regime=%s, skipping", regime)
+            continue
+
+        # Group by collector
+        collector_data: dict[str, list[tuple[float, float]]] = {}
+        for row in rows:
+            coll = row["collector"]
+            collector_data.setdefault(coll, []).append(
+                (row["signal_value"], row["forward_return"]),
+            )
+
+        # Per-collector Spearman IC
+        collector_ic: dict[str, float] = {}
+        collector_ic_std: dict[str, float] = {}
+        for coll, pairs in collector_data.items():
+            if len(pairs) < 20:
+                continue
+            sigs = [p[0] for p in pairs]
+            rets = [p[1] for p in pairs]
+            corr, _ = _spearmanr(sigs, rets)
+            if not math.isfinite(corr):
+                continue
+            collector_ic[coll] = corr
+            sub_ics = _rolling_sub_ics(sigs, rets, window=21)
+            if sub_ics:
+                collector_ic_std[coll] = _population_std(sub_ics)
+
+        # IC gate
+        gated = {k: v for k, v in collector_ic.items() if v >= _IC_GATE_FLOOR}
+
+        # ICIR penalty
+        for coll in list(gated):
+            std = collector_ic_std.get(coll, 0.0)
+            if std > 0:
+                icir = gated[coll] / std
+                if icir < _ICIR_THRESHOLD:
+                    gated[coll] *= _ICIR_PENALTY
+
+        # Correlation penalty
+        try:
+            from quantstack.signal_engine.cross_sectional_ic import (
+                CrossSectionalICTracker,
+            )
+            penalties = CrossSectionalICTracker().compute_pairwise_correlation()
+            if penalties:
+                for coll in gated:
+                    if coll in penalties:
+                        gated[coll] *= penalties[coll]
+        except Exception as exc:
+            logger.warning("[ICPrecompute] Correlation penalty failed: %s", exc)
+
+        # Weight floor check
+        total_positive = sum(v for v in gated.values() if v > 0)
+        if total_positive < _TOTAL_WEIGHT_FLOOR:
+            logger.info(
+                "[ICPrecompute] regime=%s total_positive=%.4f < floor, skipping",
+                regime, total_positive,
+            )
+            continue
+
+        # Normalize
+        positive = {k: v for k, v in gated.items() if v > 0}
+        total = sum(positive.values())
+        weights = {k: round(v / total, 4) for k, v in positive.items()}
+
+        # Sanity bound: reject if any single collector > 0.80
+        if any(w > _MAX_SINGLE_WEIGHT for w in weights.values()):
+            logger.warning(
+                "[ICPrecompute] regime=%s has collector with weight > %.2f, "
+                "falling back to static",
+                regime, _MAX_SINGLE_WEIGHT,
+            )
+            continue
+
+        # Upsert
+        with db_conn() as conn:
+            for coll, weight in weights.items():
+                ic_val = collector_ic.get(coll, 0.0)
+                conn.execute(
+                    "INSERT INTO precomputed_ic_weights "
+                    "(regime, collector, weight, ic_value, computed_at) "
+                    "VALUES (%s, %s, %s, %s, NOW()) "
+                    "ON CONFLICT (regime, collector) "
+                    "DO UPDATE SET weight = EXCLUDED.weight, "
+                    "ic_value = EXCLUDED.ic_value, "
+                    "computed_at = EXCLUDED.computed_at",
+                    [regime, coll, weight, ic_val],
+                )
+
+        results[regime] = weights
+        logger.info(
+            "[ICPrecompute] regime=%s collectors=%d weights=%s",
+            regime, len(weights), weights,
+        )
+
+    return results
+
+
+def get_precomputed_weights(regime: str) -> dict[str, float] | None:
+    """Read precomputed IC-driven weights for a regime.
+
+    Returns None if no rows exist or data is stale (> 14 days old).
+    Caller should fall back to static weight profiles.
+    """
+    try:
+        with db_conn() as conn:
+            conn.execute(
+                "SELECT collector, weight FROM precomputed_ic_weights "
+                "WHERE regime = %s AND computed_at > NOW() - INTERVAL '%s days'",
+                [regime, _STALENESS_DAYS],
+            )
+            rows = conn.fetchall()
+        if not rows:
+            return None
+        return {row["collector"]: row["weight"] for row in rows}
+    except Exception as exc:
+        logger.warning("[ICPrecompute] Failed to read precomputed weights: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Conviction Factor Calibration (P05 §5 — quarterly batch job)
+# ---------------------------------------------------------------------------
+
+_CALIBRATION_FACTORS = (
+    "adx", "stability", "timeframe", "regime_agreement",
+    "ml_confirmation", "data_quality",
+)
+_MIN_CALIBRATION_SAMPLES = 100
+_MIN_R_SQUARED = 0.01
+
+
+def calibrate_conviction_factors() -> dict[str, dict[str, float]]:
+    """Quarterly batch job: calibrate conviction factor parameters from realized data.
+
+    Joins signals.metadata.conviction_factors with OHLCV forward returns to
+    find optimal threshold/scale parameters for each conviction factor.
+    Uses ALL signals (not just closed trades) to avoid survivorship bias.
+
+    Returns:
+        {factor_name: {param_name: param_value}} for logging.
+    """
+    results: dict[str, dict[str, float]] = {}
+
+    for factor in _CALIBRATION_FACTORS:
+        try:
+            with db_conn() as conn:
+                # Join signals with forward 5-day returns from OHLCV
+                conn.execute(
+                    """
+                    SELECT
+                        (s.metadata::jsonb -> 'conviction_factors' ->> %s)::float AS factor_value,
+                        (o_fwd.close - o_cur.close) / NULLIF(o_cur.close, 0) AS forward_return
+                    FROM signals s
+                    JOIN ohlcv o_cur ON o_cur.symbol = s.symbol AND o_cur.date = s.signal_date
+                    JOIN ohlcv o_fwd ON o_fwd.symbol = s.symbol
+                        AND o_fwd.date = (
+                            SELECT MIN(date) FROM ohlcv
+                            WHERE symbol = s.symbol AND date > s.signal_date + INTERVAL '4 days'
+                        )
+                    WHERE s.metadata::jsonb -> 'conviction_factors' ? %s
+                      AND s.signal_date > NOW() - INTERVAL '180 days'
+                    """,
+                    [factor, factor],
+                )
+                rows = conn.fetchall()
+
+            if len(rows) < _MIN_CALIBRATION_SAMPLES:
+                logger.info(
+                    "[Calibration] %s: only %d samples (need %d), skipping",
+                    factor, len(rows), _MIN_CALIBRATION_SAMPLES,
+                )
+                continue
+
+            factor_values = [float(r["factor_value"]) for r in rows if r["factor_value"] is not None]
+            forward_returns = [float(r["forward_return"]) for r in rows if r["forward_return"] is not None]
+
+            if len(factor_values) < _MIN_CALIBRATION_SAMPLES:
+                continue
+
+            # Simple linear regression: forward_return = a + b * factor_value
+            n = len(factor_values)
+            mean_x = sum(factor_values) / n
+            mean_y = sum(forward_returns) / n
+            ss_xy = sum((x - mean_x) * (y - mean_y) for x, y in zip(factor_values, forward_returns))
+            ss_xx = sum((x - mean_x) ** 2 for x in factor_values)
+            ss_yy = sum((y - mean_y) ** 2 for y in forward_returns)
+
+            if ss_xx == 0 or ss_yy == 0:
+                continue
+
+            slope = ss_xy / ss_xx
+            intercept = mean_y - slope * mean_x
+            r_squared = (ss_xy ** 2) / (ss_xx * ss_yy)
+
+            if r_squared < _MIN_R_SQUARED:
+                logger.info(
+                    "[Calibration] %s: R²=%.4f below threshold, keeping defaults",
+                    factor, r_squared,
+                )
+                continue
+
+            # Store calibrated params
+            params = {
+                "slope": round(slope, 6),
+                "intercept": round(intercept, 6),
+                "r_squared": round(r_squared, 4),
+            }
+
+            with db_conn() as conn:
+                for param_name, param_value in params.items():
+                    conn.execute(
+                        "INSERT INTO conviction_calibration_params "
+                        "(factor_name, param_name, param_value, calibrated_at, "
+                        "sample_size, r_squared) "
+                        "VALUES (%s, %s, %s, NOW(), %s, %s) "
+                        "ON CONFLICT (factor_name, param_name) "
+                        "DO UPDATE SET param_value = EXCLUDED.param_value, "
+                        "calibrated_at = EXCLUDED.calibrated_at, "
+                        "sample_size = EXCLUDED.sample_size, "
+                        "r_squared = EXCLUDED.r_squared",
+                        [factor, param_name, param_value, n, r_squared],
+                    )
+
+            results[factor] = params
+            logger.info(
+                "[Calibration] %s: slope=%.6f R²=%.4f n=%d",
+                factor, slope, r_squared, n,
+            )
+
+        except Exception as exc:
+            logger.warning("[Calibration] %s failed: %s", factor, exc)
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Ensemble A/B Evaluation (P05 §6 — weekly batch job)
+# ---------------------------------------------------------------------------
+
+
+def evaluate_ensemble_ab() -> dict[str, float]:
+    """Weekly job: backfill forward returns and compare ensemble methods by IC.
+
+    1. Backfill forward_return_5d for recent ensemble_ab_results
+    2. Compute per-method IC (Spearman correlation of signal_value vs forward_return)
+    3. If non-default method has IC improvement > 0.01 sustained over 60+ days, promote it
+
+    Returns:
+        {method_name: ic_value} for logging.
+    """
+    method_ics: dict[str, float] = {}
+
+    try:
+        # Step 1: Backfill forward returns
+        with db_conn() as conn:
+            conn.execute(
+                """
+                UPDATE ensemble_ab_results ab
+                SET forward_return_5d = (o_fwd.close - o_cur.close) / NULLIF(o_cur.close, 0)
+                FROM ohlcv o_cur, ohlcv o_fwd
+                WHERE o_cur.symbol = ab.symbol AND o_cur.date = ab.signal_date
+                  AND o_fwd.symbol = ab.symbol
+                  AND o_fwd.date = (
+                      SELECT MIN(date) FROM ohlcv
+                      WHERE symbol = ab.symbol AND date > ab.signal_date + INTERVAL '4 days'
+                  )
+                  AND ab.forward_return_5d IS NULL
+                  AND ab.signal_date < NOW() - INTERVAL '7 days'
+                """
+            )
+
+        # Step 2: Compute per-method IC over last 60 days
+        with db_conn() as conn:
+            conn.execute(
+                """
+                SELECT method_name, signal_value, forward_return_5d
+                FROM ensemble_ab_results
+                WHERE forward_return_5d IS NOT NULL
+                  AND signal_date > NOW() - INTERVAL '60 days'
+                ORDER BY method_name, signal_date
+                """
+            )
+            rows = conn.fetchall()
+
+        if not rows:
+            logger.info("[EnsembleAB] No backfilled results yet")
+            return method_ics
+
+        # Group by method
+        method_data: dict[str, list[tuple[float, float]]] = {}
+        for row in rows:
+            method_data.setdefault(row["method_name"], []).append(
+                (row["signal_value"], row["forward_return_5d"]),
+            )
+
+        for method, pairs in method_data.items():
+            if len(pairs) < 30:
+                continue
+            sigs = [p[0] for p in pairs]
+            rets = [p[1] for p in pairs]
+            corr, _ = _spearmanr(sigs, rets)
+            if math.isfinite(corr):
+                method_ics[method] = round(corr, 4)
+
+        logger.info("[EnsembleAB] Method ICs: %s", method_ics)
+
+        # Step 3: Auto-promote if non-default method is clearly better
+        if len(method_ics) >= 2:
+            default_ic = method_ics.get("weighted_avg", 0.0)
+            best_method = max(method_ics, key=lambda m: method_ics[m])
+            best_ic = method_ics[best_method]
+
+            if best_method != "weighted_avg" and (best_ic - default_ic) > 0.01:
+                with db_conn() as conn:
+                    conn.execute(
+                        "UPDATE ensemble_config SET active_method = %s, "
+                        "promoted_at = NOW(), evidence_ic = %s "
+                        "WHERE id = 1",
+                        [best_method, best_ic],
+                    )
+                logger.info(
+                    "[EnsembleAB] Promoted %s (IC=%.4f) over weighted_avg (IC=%.4f)",
+                    best_method, best_ic, default_ic,
+                )
+
+    except Exception as exc:
+        logger.warning("[EnsembleAB] Evaluation failed: %s", exc)
+
+    return method_ics
 
 
 # ---------------------------------------------------------------------------

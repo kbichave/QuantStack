@@ -303,6 +303,11 @@ async def execute_trade(
                 symbol=symbol,
                 action=action,
                 fill_price=fill.fill_price,
+                fill_quantity=fill.filled_quantity,
+                fill_timestamp=fill.filled_at if hasattr(fill, "filled_at") else None,
+                arrival_price=current_price,
+                daily_volume=daily_volume,
+                order_id=getattr(fill, "order_id", ""),
                 session_id=session_id,
                 regime_at_entry=regime_at_entry or "unknown",
             )

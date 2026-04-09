@@ -130,6 +130,93 @@ class CorrelationFilter:
         )
 
 
+class VIFFilter:
+    """
+    Variance Inflation Factor filter for multicollinearity.
+
+    Iteratively removes the feature with the highest VIF until all
+    remaining features have VIF <= threshold.
+    """
+
+    def __init__(self, threshold: float = 10.0, max_iterations: int = 50):
+        self.threshold = threshold
+        self.max_iterations = max_iterations
+        self._selected_features: list[str] = []
+        self._removed_features: list[str] = []
+
+    def _compute_vif(self, X: np.ndarray) -> np.ndarray:
+        """Compute VIF for each feature column."""
+        from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+        n_features = X.shape[1]
+        vif_values = np.empty(n_features)
+        for i in range(n_features):
+            vif_values[i] = variance_inflation_factor(X, i)
+        return vif_values
+
+    def fit(self, X: pd.DataFrame) -> "VIFFilter":
+        """Iteratively drop features with VIF > threshold."""
+        remaining = list(X.columns)
+        X_clean = X[remaining].dropna()
+
+        if X_clean.shape[0] < X_clean.shape[1] + 2:
+            logger.warning(
+                "VIFFilter: too few rows for reliable VIF — keeping all features"
+            )
+            self._selected_features = list(X.columns)
+            self._removed_features = []
+            return self
+
+        removed = []
+        for _ in range(self.max_iterations):
+            if len(remaining) <= 1:
+                break
+
+            X_arr = X_clean[remaining].values.astype(np.float64)
+            # Add constant for VIF computation
+            X_with_const = np.column_stack([np.ones(X_arr.shape[0]), X_arr])
+            vifs = self._compute_vif(X_with_const)
+            # Skip the constant column (index 0)
+            feature_vifs = vifs[1:]
+
+            max_vif_idx = int(np.argmax(feature_vifs))
+            max_vif = feature_vifs[max_vif_idx]
+
+            if max_vif <= self.threshold:
+                break
+
+            dropped = remaining.pop(max_vif_idx)
+            removed.append(dropped)
+            logger.debug(f"VIFFilter: dropped {dropped} (VIF={max_vif:.1f})")
+
+        self._selected_features = remaining
+        self._removed_features = removed
+        logger.info(
+            f"VIF filter: {len(remaining) + len(removed)} -> {len(remaining)} features "
+            f"(threshold={self.threshold})"
+        )
+        return self
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Transform DataFrame to selected features."""
+        return X[self._selected_features]
+
+    def fit_transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Fit and transform."""
+        self.fit(X)
+        return self.transform(X)
+
+    def get_result(self) -> OrthogonalizationResult:
+        """Get orthogonalization result."""
+        return OrthogonalizationResult(
+            original_features=len(self._selected_features)
+            + len(self._removed_features),
+            selected_features=len(self._selected_features),
+            removed_features=self._removed_features,
+            feature_clusters={},
+        )
+
+
 class PCAReducer:
     """
     PCA-based dimensionality reduction.
@@ -287,6 +374,8 @@ class FeatureOrthogonalizer:
         pca_variance_threshold: float = 0.95,
         use_causal_filter: bool = False,
         causal_filter_kwargs: dict | None = None,
+        use_vif_filter: bool = False,
+        vif_threshold: float = 10.0,
     ):
         """
         Initialize orthogonalizer.
@@ -297,6 +386,8 @@ class FeatureOrthogonalizer:
             pca_variance_threshold: PCA variance threshold
             use_causal_filter: Whether to apply causal filtering before correlation filter
             causal_filter_kwargs: Keyword arguments passed to CausalFilter
+            use_vif_filter: Whether to apply VIF filtering after correlation filter
+            vif_threshold: VIF threshold for removal (default 10.0)
         """
         self.use_causal_filter = use_causal_filter
         self.causal_filter = None
@@ -304,6 +395,10 @@ class FeatureOrthogonalizer:
             self.causal_filter = CausalFilter(**(causal_filter_kwargs or {}))
 
         self.corr_filter = CorrelationFilter(threshold=correlation_threshold)
+
+        self.use_vif_filter = use_vif_filter
+        self.vif_filter = VIFFilter(threshold=vif_threshold) if use_vif_filter else None
+
         self.use_pca = use_pca
         self.pca_reducer = (
             PCAReducer(variance_threshold=pca_variance_threshold) if use_pca else None
@@ -335,7 +430,11 @@ class FeatureOrthogonalizer:
         # Step 1: Correlation filter
         X_filtered = self.corr_filter.fit_transform(X)
 
-        # Step 2: PCA (optional)
+        # Step 2: VIF filter (optional) — runs after correlation to reduce set size
+        if self.use_vif_filter and self.vif_filter is not None:
+            X_filtered = self.vif_filter.fit_transform(X_filtered)
+
+        # Step 3: PCA (optional)
         if self.use_pca and self.pca_reducer:
             self.pca_reducer.fit(X_filtered)
 
@@ -362,7 +461,11 @@ class FeatureOrthogonalizer:
         # Step 1: Correlation filter
         X_filtered = self.corr_filter.transform(X)
 
-        # Step 2: PCA (optional)
+        # Step 2: VIF filter (optional)
+        if self.use_vif_filter and self.vif_filter is not None:
+            X_filtered = self.vif_filter.transform(X_filtered)
+
+        # Step 3: PCA (optional)
         if self.use_pca and self.pca_reducer:
             return self.pca_reducer.transform(X_filtered)
 

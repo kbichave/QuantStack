@@ -49,6 +49,7 @@ from loguru import logger
 from quantstack.config.timeframes import Timeframe
 from quantstack.data.storage import DataStore
 from quantstack.db import PgConnection, pg_conn
+from quantstack.core.risk.options_risk import PortfolioGreeksManager
 from quantstack.execution.liquidity_model import LiquidityModel, LiquidityVerdict
 from quantstack.execution.portfolio_state import get_portfolio_state
 from quantstack.holding_period import HoldingType
@@ -263,10 +264,12 @@ class RiskGate:
         self,
         limits: RiskLimits | None = None,
         portfolio: PortfolioState | None = None,  # type: ignore[name-defined]  # noqa: F821
+        greeks_manager: PortfolioGreeksManager | None = None,
     ):
         self.limits = limits or RiskLimits.from_env()
         # Accept injected PortfolioState (preferred) or fall back to singleton
         self._portfolio = portfolio if portfolio is not None else get_portfolio_state()
+        self._greeks_manager = greeks_manager or PortfolioGreeksManager()
         self._daily_halted: date | None = None
         # Recover halt state from previous session if sentinel is present
         self._load_halt_sentinel()
@@ -331,6 +334,8 @@ class RiskGate:
         dte: int = 0,
         strategy_status: str = "live",
         holding_type: HoldingType | None = None,
+        proposed_delta: float = 0.0,
+        proposed_gamma: float = 0.0,
     ) -> RiskVerdict:
         """
         Run all risk checks. Returns RiskVerdict (approved / rejected / scaled).
@@ -674,6 +679,22 @@ class RiskGate:
                             ),
                         )
                     )
+
+            # -- 7c. Portfolio Greeks limits (delta/gamma/vega per-trade check)
+            allowed, reason = self._greeks_manager.check_new_trade(
+                proposed_delta=proposed_delta,
+                proposed_gamma=proposed_gamma,
+                symbol=symbol,
+            )
+            if not allowed:
+                violations.append(
+                    RiskViolation(
+                        rule="options_greeks_limit",
+                        limit=0,
+                        actual=0,
+                        description=f"{symbol} Greeks limit breach: {reason}",
+                    )
+                )
 
             if violations:
                 for v in violations:

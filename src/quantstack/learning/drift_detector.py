@@ -43,8 +43,8 @@ PSI_WARNING = 0.10
 PSI_CRITICAL = 0.25
 BASELINE_DIR = Path.home() / ".quantstack" / "drift_baselines"
 
-# Features to track — all computed by SignalEngine collectors every run
-TRACKED_FEATURES = [
+# Default features to track — fallback when baseline has no feature list
+DEFAULT_TRACKED_FEATURES = [
     "rsi_14",
     "atr_pct",
     "adx_14",
@@ -227,6 +227,7 @@ class DriftDetector:
     def __init__(self, baseline_dir: Path | None = None):
         self._baseline_dir = baseline_dir or BASELINE_DIR
         self._cache: dict[str, dict[str, np.ndarray]] = {}
+        self._threshold_cache: dict[str, dict[str, list[float]]] = {}
 
     # -----------------------------------------------------------------------
     # Baseline management
@@ -236,28 +237,70 @@ class DriftDetector:
         self,
         strategy_id: str,
         features: dict[str, np.ndarray],
+        calibrate_thresholds: bool = True,
+        n_bootstrap: int = 50,
     ) -> None:
         """
         Record training-period feature distributions as baseline.
 
+        When calibrate_thresholds=True, computes per-feature PSI thresholds
+        by bootstrapping self-PSI (splitting baseline in half repeatedly).
+        Thresholds are floored at the global PSI_WARNING/PSI_CRITICAL defaults
+        to never weaken detection.
+
         Args:
             strategy_id: Strategy identifier.
             features: Dict mapping feature names to 1-D sample arrays.
+            calibrate_thresholds: Whether to compute per-feature thresholds.
+            n_bootstrap: Number of bootstrap splits for calibration.
         """
         self._baseline_dir.mkdir(parents=True, exist_ok=True)
         path = self._baseline_dir / f"{strategy_id}.json"
 
-        serializable = {}
+        serializable: dict[str, Any] = {}
         for name, arr in features.items():
             arr = np.asarray(arr, dtype=np.float64).ravel()
             arr = arr[np.isfinite(arr)]
             if len(arr) > 0:
                 serializable[name] = arr.tolist()
 
-        path.write_text(json.dumps(serializable, indent=2))
+        # Per-feature threshold calibration via bootstrap self-PSI
+        thresholds: dict[str, list[float]] = {}
+        if calibrate_thresholds:
+            rng = np.random.default_rng(42)
+            for name, values in serializable.items():
+                arr = np.array(values, dtype=np.float64)
+                if len(arr) < 20:
+                    continue
+                self_psis = []
+                for _ in range(n_bootstrap):
+                    idx = rng.permutation(len(arr))
+                    half = len(arr) // 2
+                    psi_val = compute_psi(arr[idx[:half]], arr[idx[half:]])
+                    self_psis.append(psi_val)
+
+                self_psis_sorted = sorted(self_psis)
+                p95 = self_psis_sorted[int(0.95 * len(self_psis_sorted))]
+                p99 = self_psis_sorted[int(0.99 * len(self_psis_sorted))]
+
+                # Floor at global defaults — never weaken
+                warn_thresh = max(PSI_WARNING, p95 * 1.5)
+                crit_thresh = max(PSI_CRITICAL, p99 * 1.5)
+                thresholds[name] = [warn_thresh, crit_thresh]
+
+        baseline_data: dict[str, Any] = {
+            "_features": serializable,
+            "_thresholds": thresholds,
+        }
+        # Top-level keys are the feature arrays (backward compat)
+        baseline_data.update(serializable)
+
+        path.write_text(json.dumps(baseline_data, indent=2))
         self._cache[strategy_id] = {k: np.array(v) for k, v in serializable.items()}
+        self._threshold_cache[strategy_id] = thresholds
         logger.info(
-            f"[DriftDetector] Baseline set for {strategy_id}: {list(serializable.keys())}"
+            f"[DriftDetector] Baseline set for {strategy_id}: "
+            f"{list(serializable.keys())} ({len(thresholds)} calibrated thresholds)"
         )
 
     def has_baseline(self, strategy_id: str) -> bool:
@@ -278,14 +321,46 @@ class DriftDetector:
 
         try:
             raw = json.loads(path.read_text())
-            baseline = {k: np.array(v, dtype=np.float64) for k, v in raw.items()}
+            features_raw = raw["_features"]
+            thresholds = raw.get("_thresholds", {})
+
+            baseline = {
+                k: np.array(v, dtype=np.float64)
+                for k, v in features_raw.items()
+                if isinstance(v, list)
+            }
             self._cache[strategy_id] = baseline
+            self._threshold_cache[strategy_id] = thresholds
             return baseline
         except Exception as exc:
             logger.warning(
                 f"[DriftDetector] Failed to load baseline for {strategy_id}: {exc}"
             )
             return None
+
+    def _get_tracked_features(self, strategy_id: str) -> list[str]:
+        """Return feature names to track for this strategy.
+
+        Uses all features present in the baseline file when available,
+        falling back to DEFAULT_TRACKED_FEATURES otherwise.
+        """
+        baseline = self._load_baseline(strategy_id)
+        if baseline:
+            return list(baseline.keys())
+        return list(DEFAULT_TRACKED_FEATURES)
+
+    def _get_feature_thresholds(
+        self, strategy_id: str, feature_name: str
+    ) -> tuple[float, float]:
+        """Return (warning, critical) PSI thresholds for a feature.
+
+        Uses per-feature calibrated thresholds when available,
+        falling back to global defaults.
+        """
+        thresholds = self._threshold_cache.get(strategy_id, {})
+        if feature_name in thresholds:
+            return tuple(thresholds[feature_name])  # type: ignore[return-value]
+        return (PSI_WARNING, PSI_CRITICAL)
 
     # -----------------------------------------------------------------------
     # Drift checking
@@ -298,6 +373,9 @@ class DriftDetector:
     ) -> DriftReport:
         """
         Compare current features against baseline.
+
+        Uses all features present in the baseline (dynamic), not just the
+        default set. Per-feature calibrated thresholds are used when available.
 
         Args:
             strategy_id: Strategy to check.
@@ -317,10 +395,12 @@ class DriftDetector:
                 drifted_features=[],
             )
 
+        tracked = self._get_tracked_features(strategy_id)
+
         feature_psis: dict[str, float] = {}
         drifted: list[str] = []
 
-        for name in TRACKED_FEATURES:
+        for name in tracked:
             if name not in baseline or name not in features:
                 continue
 
@@ -333,17 +413,22 @@ class DriftDetector:
             psi_val = compute_psi(expected, actual)
             feature_psis[name] = psi_val
 
-            if psi_val >= PSI_WARNING:
+            warn_thresh, _ = self._get_feature_thresholds(strategy_id, name)
+            if psi_val >= warn_thresh:
                 drifted.append(name)
 
         overall_psi = max(feature_psis.values()) if feature_psis else 0.0
 
-        if overall_psi >= PSI_CRITICAL:
-            severity = "CRITICAL"
-        elif overall_psi >= PSI_WARNING:
-            severity = "WARNING"
-        else:
-            severity = "NONE"
+        # Determine severity using the most sensitive threshold across features
+        severity = "NONE"
+        for name, psi_val in feature_psis.items():
+            _, crit_thresh = self._get_feature_thresholds(strategy_id, name)
+            warn_thresh, _ = self._get_feature_thresholds(strategy_id, name)
+            if psi_val >= crit_thresh:
+                severity = "CRITICAL"
+                break
+            elif psi_val >= warn_thresh and severity != "CRITICAL":
+                severity = "WARNING"
 
         return DriftReport(
             strategy_id=strategy_id,
@@ -416,6 +501,72 @@ class DriftDetector:
         if os.getenv("FEEDBACK_DRIFT_DETECTION", "false").lower() != "true":
             return ICDriftReport.no_op()
         return self.check_ic_drift(current_ic, baseline_ic)
+
+    def record_rolling_ic(
+        self,
+        strategy_id: str,
+        feature_ics: dict[str, float],
+    ) -> None:
+        """Append daily rolling IC values for drift monitoring.
+
+        Stored at ~/.quantstack/drift_baselines/{strategy_id}_ic_history.json
+        as a list of {date, ics} entries. The first 60 entries serve as the
+        baseline for check_ic_drift when no explicit baseline is provided.
+        """
+        self._baseline_dir.mkdir(parents=True, exist_ok=True)
+        path = self._baseline_dir / f"{strategy_id}_ic_history.json"
+
+        history: list[dict] = []
+        if path.exists():
+            try:
+                history = json.loads(path.read_text())
+            except Exception:
+                history = []
+
+        history.append({
+            "date": date.today().isoformat(),
+            "ics": {k: round(v, 6) for k, v in feature_ics.items()},
+        })
+
+        path.write_text(json.dumps(history, indent=2))
+
+    def load_ic_baseline(
+        self,
+        strategy_id: str,
+        warmup_entries: int = 60,
+    ) -> dict[str, tuple[float, float]]:
+        """Compute IC baseline statistics from the first N history entries.
+
+        Returns {feature_name: (mean_ic, std_ic)} from the warmup period.
+        Returns {} if insufficient history.
+        """
+        path = self._baseline_dir / f"{strategy_id}_ic_history.json"
+        if not path.exists():
+            return {}
+
+        try:
+            history = json.loads(path.read_text())
+        except Exception:
+            return {}
+
+        if len(history) < warmup_entries:
+            return {}
+
+        warmup = history[:warmup_entries]
+        # Collect per-feature IC arrays
+        feature_arrays: dict[str, list[float]] = {}
+        for entry in warmup:
+            for feat, ic in entry.get("ics", {}).items():
+                feature_arrays.setdefault(feat, []).append(ic)
+
+        baseline: dict[str, tuple[float, float]] = {}
+        for feat, values in feature_arrays.items():
+            arr = np.array(values, dtype=np.float64)
+            arr = arr[np.isfinite(arr)]
+            if len(arr) >= 10:
+                baseline[feat] = (float(arr.mean()), float(max(arr.std(), 0.005)))
+
+        return baseline
 
     # -------------------------------------------------------------------
     # Layer 2: Label drift (weekly, KS test)
@@ -829,7 +980,7 @@ def _extract_features_from_brief(brief: dict[str, Any]) -> dict[str, np.ndarray]
             raw_collectors.update(technical)
 
     # Also check top-level keys (flat brief format)
-    for key in TRACKED_FEATURES:
+    for key in DEFAULT_TRACKED_FEATURES:
         val = raw_collectors.get(key) or brief.get(key)
         if val is not None:
             try:

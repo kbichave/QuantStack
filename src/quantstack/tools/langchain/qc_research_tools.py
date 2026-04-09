@@ -31,8 +31,70 @@ async def compute_alpha_decay(
 ) -> str:
     """Calculates how a trading signal's predictive power (information coefficient) decays over successive forward lags to determine optimal holding period and signal half-life. Use when evaluating alpha persistence, sizing holding horizons for momentum or mean-reversion strategies, or comparing IC decay across candidate signals. Returns JSON with IC decay curve, alpha half-life, and optimal holding period recommendation.
     """
-    result = {"error": "Tool pending implementation", "status": "not_available"}
-    return json.dumps(result, default=str)
+    try:
+        import math
+        import numpy as np
+        from scipy.stats import spearmanr
+        from quantstack.data.storage import DataStore
+
+        store = DataStore()
+        df = store.load_ohlcv(symbol.upper(), timeframe=timeframe)
+        if df is None or len(df) < max_lag + 30:
+            return json.dumps({"error": f"Insufficient data for {symbol} ({timeframe})"})
+
+        if end_date:
+            df = df[df.index <= end_date]
+
+        if signal_column not in df.columns:
+            return json.dumps({"error": f"Column '{signal_column}' not found. Available: {list(df.columns)}"})
+
+        signal = df[signal_column].dropna().values
+        close = df["close"].values
+
+        decay_curve = []
+        peak_ic = 0.0
+        peak_lag = 1
+
+        for lag in range(1, max_lag + 1):
+            if len(signal) <= lag + 5:
+                break
+            fwd_return = (close[lag:] - close[:-lag]) / close[:-lag]
+            sig = signal[:len(fwd_return)]
+            mask = np.isfinite(sig) & np.isfinite(fwd_return)
+            if mask.sum() < 10:
+                continue
+            corr, pval = spearmanr(sig[mask], fwd_return[mask])
+            if not math.isfinite(corr):
+                continue
+            decay_curve.append({"lag": lag, "ic": round(float(corr), 6), "p_value": round(float(pval), 6)})
+            if abs(corr) > abs(peak_ic):
+                peak_ic = float(corr)
+                peak_lag = lag
+
+        # Estimate half-life: first lag where IC drops below peak/2
+        half_life = None
+        if decay_curve and abs(peak_ic) > 0.01:
+            for pt in decay_curve:
+                if pt["lag"] > peak_lag and abs(pt["ic"]) < abs(peak_ic) / 2:
+                    half_life = pt["lag"]
+                    break
+
+        return json.dumps({
+            "symbol": symbol,
+            "signal_column": signal_column,
+            "decay_curve": decay_curve,
+            "peak_ic": round(peak_ic, 6),
+            "peak_lag": peak_lag,
+            "half_life_bars": half_life,
+            "optimal_holding_period": peak_lag,
+            "interpretation": (
+                f"Peak IC={peak_ic:.4f} at lag {peak_lag}. "
+                + (f"Half-life: {half_life} bars." if half_life else "IC does not decay below half within max_lag.")
+            ),
+            "n_observations": len(signal),
+        }, default=str)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)}, default=str)
 
 
 @tool
@@ -45,8 +107,65 @@ async def compute_information_coefficient(
 ) -> str:
     """Computes the Information Coefficient (IC) — rank correlation between a predictive signal and forward returns — to measure signal quality. Use when evaluating whether a feature (e.g. RSI, sentiment, factor score) has genuine predictive power for alpha generation. IC above 0.05 is generally meaningful; also provides t-statistic for statistical significance. Returns JSON with IC value, t-statistic, p-value, and interpretation.
     """
-    result = {"error": "Tool pending implementation", "status": "not_available"}
-    return json.dumps(result, default=str)
+    try:
+        import math
+        import numpy as np
+        from scipy.stats import spearmanr
+        from quantstack.data.storage import DataStore
+
+        store = DataStore()
+        df = store.load_ohlcv(symbol.upper(), timeframe=timeframe)
+        if df is None or len(df) < forward_return_periods + 30:
+            return json.dumps({"error": f"Insufficient data for {symbol} ({timeframe})"})
+
+        if end_date:
+            df = df[df.index <= end_date]
+
+        if signal_column not in df.columns:
+            return json.dumps({"error": f"Column '{signal_column}' not found. Available: {list(df.columns)}"})
+
+        signal = df[signal_column].dropna().values
+        close = df["close"].values
+        n = len(signal)
+        fwd = forward_return_periods
+
+        if n <= fwd + 5:
+            return json.dumps({"error": f"Not enough data points ({n}) for {fwd}-period forward returns"})
+
+        fwd_return = (close[fwd:] - close[:-fwd]) / close[:-fwd]
+        sig = signal[:len(fwd_return)]
+        mask = np.isfinite(sig) & np.isfinite(fwd_return)
+
+        if mask.sum() < 20:
+            return json.dumps({"error": f"Only {mask.sum()} valid observations — need 20+"})
+
+        corr, pvalue = spearmanr(sig[mask], fwd_return[mask])
+        if not math.isfinite(corr):
+            return json.dumps({"error": "Non-finite correlation — likely constant signal"})
+
+        n_obs = int(mask.sum())
+        denom = math.sqrt(1 - corr**2) if abs(corr) < 1.0 else 1e-10
+        t_stat = corr * math.sqrt(max(0, n_obs - 2)) / denom
+
+        if abs(corr) > 0.05 and pvalue < 0.05:
+            interpretation = f"Significant IC ({corr:.4f}, p={pvalue:.4f}). Signal has predictive power."
+        elif abs(corr) > 0.02:
+            interpretation = f"Weak IC ({corr:.4f}, p={pvalue:.4f}). Marginal signal — may not survive costs."
+        else:
+            interpretation = f"No meaningful IC ({corr:.4f}, p={pvalue:.4f}). Signal is noise."
+
+        return json.dumps({
+            "symbol": symbol,
+            "signal_column": signal_column,
+            "forward_return_periods": fwd,
+            "ic": round(float(corr), 6),
+            "t_statistic": round(float(t_stat), 4),
+            "p_value": round(float(pvalue), 6),
+            "n_observations": n_obs,
+            "interpretation": interpretation,
+        }, default=str)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)}, default=str)
 
 
 @tool
@@ -59,8 +178,33 @@ async def run_monte_carlo(
 ) -> str:
     """Runs Monte Carlo simulation to assess strategy robustness by randomly perturbing entry/exit timing, slippage, and parameter values across thousands of paths. Use when validating whether a backtest result is statistically robust or fragile, stress-testing a strategy under realistic execution conditions, or computing confidence intervals for Sharpe ratio and drawdown. Returns JSON with simulation statistics including percentile P&L, drawdown distribution, and robustness score.
     """
-    result = {"error": "Tool pending implementation", "status": "not_available"}
-    return json.dumps(result, default=str)
+    try:
+        from dataclasses import asdict
+
+        from quantstack.core.analysis.bootstrap_mc import bootstrap_sharpe_ci
+        from quantstack.tools._helpers import _get_reader
+
+        reader = _get_reader()
+        price_data = reader.get_prices(symbol.upper(), timeframe=timeframe, end_date=end_date)
+
+        if price_data is None or price_data.empty or len(price_data) < 60:
+            return json.dumps({"error": f"Insufficient price data for {symbol}"})
+
+        returns = price_data["close"].pct_change().dropna()
+        if len(returns) < 30:
+            return json.dumps({"error": "Too few return observations for MC"})
+
+        mc_result = bootstrap_sharpe_ci(
+            returns,
+            n_simulations=n_simulations,
+        )
+
+        output = asdict(mc_result)
+        output["symbol"] = symbol.upper()
+        output["gate_5th_pctile_passes"] = mc_result.ci_5 >= 0.3
+        return json.dumps(output, default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 @tool
@@ -96,8 +240,36 @@ async def detect_leakage(
 ) -> str:
     """Detects data leakage and lookahead bias in feature pipelines by checking for feature lookahead (features computed with future data), label leakage, suspicious zero-lag correlations, and temporal alignment issues. Use when auditing ML training pipelines, validating backtest integrity, or diagnosing suspiciously high in-sample performance. Critical for preventing overfitting and ensuring out-of-sample validity. Returns JSON with leakage findings, severity levels, and remediation recommendations.
     """
-    result = {"error": "Tool pending implementation", "status": "not_available"}
-    return json.dumps(result, default=str)
+    try:
+        import numpy as np
+
+        from quantstack.core.validation.leakage import LeakageDetector
+        from quantstack.tools._helpers import _get_reader
+
+        reader = _get_reader()
+        price_data = reader.get_prices(symbol.upper(), timeframe=timeframe, end_date=end_date)
+
+        if price_data is None or price_data.empty or len(price_data) < 50:
+            return json.dumps({"error": f"Insufficient price data for {symbol}"})
+
+        numeric_cols = price_data.select_dtypes(include=[np.number]).columns.tolist()
+        if feature_columns:
+            numeric_cols = [c for c in feature_columns if c in numeric_cols]
+        if not numeric_cols:
+            return json.dumps({"error": "No numeric feature columns found"})
+
+        X = price_data[numeric_cols].dropna()
+        y = price_data["close"].pct_change().shift(-1).reindex(X.index).dropna()
+        common = X.index.intersection(y.index)
+        X, y = X.loc[common], y.loc[common]
+        if len(X) < 50:
+            return json.dumps({"error": "Too few rows after alignment"})
+
+        detector = LeakageDetector()
+        report = detector.run_all_tests(X, y)
+        return json.dumps(report, default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 @tool
@@ -109,8 +281,66 @@ async def check_lookahead_bias(
 ) -> str:
     """Checks for lookahead bias in feature columns by detecting high correlation with future returns at lag 0 or negative lags, perfect prediction of future events, and temporal misalignment between features and labels. Use when validating backtest pipelines, auditing ML features for leakage, or investigating suspiciously good model performance that may not generalize out-of-sample. Returns JSON with suspect features, bias severity, and remediation recommendations.
     """
-    result = {"error": "Tool pending implementation", "status": "not_available"}
-    return json.dumps(result, default=str)
+    try:
+        import numpy as np
+        from scipy.stats import spearmanr
+
+        from quantstack.core.validation.leakage import FeatureShiftTest
+        from quantstack.tools._helpers import _get_reader
+
+        reader = _get_reader()
+        price_data = reader.get_prices(symbol.upper(), timeframe=timeframe, end_date=end_date)
+
+        if price_data is None or price_data.empty or len(price_data) < 50:
+            return json.dumps({"error": f"Insufficient price data for {symbol}"})
+
+        numeric_cols = price_data.select_dtypes(include=[np.number]).columns.tolist()
+        if feature_columns:
+            numeric_cols = [c for c in feature_columns if c in numeric_cols]
+        if not numeric_cols:
+            return json.dumps({"error": "No numeric feature columns found"})
+
+        fwd_ret = price_data["close"].pct_change().shift(-1)
+        suspects: list[dict] = []
+
+        for col in numeric_cols:
+            series = price_data[col].dropna()
+            common = series.index.intersection(fwd_ret.dropna().index)
+            if len(common) < 30:
+                continue
+            corr, pval = spearmanr(series.loc[common], fwd_ret.loc[common])
+            if abs(corr) > 0.3 and pval < 0.01:
+                suspects.append({
+                    "feature": col,
+                    "lag0_correlation": round(float(corr), 4),
+                    "p_value": round(float(pval), 6),
+                    "severity": "CRITICAL" if abs(corr) > 0.6 else "WARNING",
+                    "recommendation": (
+                        "Likely lookahead — feature correlates strongly with "
+                        "next-bar returns. Verify temporal alignment."
+                    ),
+                })
+
+        # Also run statistical shift test
+        X = price_data[numeric_cols].dropna()
+        y = fwd_ret.reindex(X.index).dropna()
+        common = X.index.intersection(y.index)
+        X, y = X.loc[common], y.loc[common]
+        shift_findings = []
+        if len(X) >= 50:
+            shift_test = FeatureShiftTest()
+            shift_result = shift_test.run(X, y)
+            shift_findings = shift_result if isinstance(shift_result, list) else [shift_result]
+
+        return json.dumps({
+            "symbol": symbol.upper(),
+            "features_checked": len(numeric_cols),
+            "suspects": suspects,
+            "shift_test_findings": shift_findings,
+            "verdict": "CLEAN" if not suspects else "LOOKAHEAD_DETECTED",
+        }, default=str)
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 @tool

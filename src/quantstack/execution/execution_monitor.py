@@ -18,6 +18,7 @@ import asyncio
 import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 import pytz
@@ -284,10 +285,25 @@ class ExecutionMonitor:
         # Options monitoring rules (override via _options_rules attr for testing)
         self._options_rules: dict[str, OptionsMonitorRule] = dict(DEFAULT_OPTIONS_RULES)
 
-        # Circuit breaker state
+        # Circuit breaker state — feed / DB health
         self._feed_last_update: datetime | None = None
         self._db_last_success: datetime | None = None
         self._feed_disconnected = False
+
+        # Circuit breaker — unrealized P&L (QS-E5)
+        # Graduated thresholds (% of equity, negative = loss)
+        self._pnl_halt_pct = float(os.getenv("CB_PNL_HALT_PCT", "-0.015"))
+        self._pnl_exit_pct = float(os.getenv("CB_PNL_EXIT_PCT", "-0.025"))
+        self._pnl_emergency_pct = float(os.getenv("CB_PNL_EMERGENCY_PCT", "-0.05"))
+        # Velocity: max drawdown over a rolling window
+        self._pnl_velocity_pct = float(os.getenv("CB_PNL_VELOCITY_PCT", "-0.01"))
+        self._pnl_velocity_window = int(os.getenv("CB_PNL_VELOCITY_WINDOW", "60"))
+        # State
+        self._pnl_halted = False
+        self._pnl_history: list[tuple[datetime, float]] = []
+        self._pnl_sentinel = Path(
+            os.getenv("DAILY_HALT_SENTINEL", "~/.quantstack/DAILY_HALT_ACTIVE")
+        ).expanduser()
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -746,10 +762,122 @@ class ExecutionMonitor:
             f"[ExecMonitor] Reconciliation: {cached_count} positions in cache"
         )
 
-    # ── Circuit breaker ───────────────────────────────────────────────────
+    # ── Unrealized P&L circuit breaker (QS-E5) ─────────────────────────
+
+    async def _check_unrealized_pnl(self, now: datetime) -> None:
+        """Evaluate portfolio unrealized P&L against graduated thresholds.
+
+        Thresholds (configurable via env):
+          -1.5%  → HALT new entries (write halt sentinel for RiskGate)
+          -2.5%  → SYSTEMATIC EXIT of all positions
+          -5.0%  → EMERGENCY LIQUIDATION via kill switch
+          -1% in 60s → VELOCITY HALT → systematic exit
+        """
+        try:
+            positions = self._portfolio.get_positions()
+        except Exception:
+            return  # DB issue handled by _poll_positions CB
+
+        if not positions:
+            return
+
+        snapshot = self._portfolio.get_snapshot()
+        total_equity = getattr(snapshot, "total_equity", 0) if snapshot else 0
+        if total_equity <= 0:
+            return
+
+        unrealized_total = sum(
+            getattr(p, "unrealized_pnl", 0) for p in positions
+        )
+        unrealized_pct = unrealized_total / total_equity
+
+        # Velocity tracking — sliding window of (timestamp, pnl_pct)
+        self._pnl_history.append((now, unrealized_pct))
+        cutoff = now - timedelta(seconds=self._pnl_velocity_window)
+        self._pnl_history = [
+            (t, v) for t, v in self._pnl_history if t >= cutoff
+        ]
+
+        # Velocity check: rate of change over window
+        if len(self._pnl_history) >= 2:
+            delta = unrealized_pct - self._pnl_history[0][1]
+            if delta <= self._pnl_velocity_pct:
+                logger.critical(
+                    f"[ExecMonitor] P&L velocity breach: {delta:.2%} in "
+                    f"{self._pnl_velocity_window}s — triggering systematic exit"
+                )
+                await self._trigger_systematic_exit(
+                    f"pnl_velocity_{delta:.2%}_in_{self._pnl_velocity_window}s"
+                )
+                return
+
+        # Graduated absolute thresholds (most severe first)
+        if unrealized_pct <= self._pnl_emergency_pct:
+            logger.critical(
+                f"[ExecMonitor] EMERGENCY: unrealized P&L {unrealized_pct:.2%} "
+                f"breached {self._pnl_emergency_pct:.1%} — activating kill switch"
+            )
+            from quantstack.execution.kill_switch import get_kill_switch
+
+            get_kill_switch().trigger(
+                f"emergency_unrealized_pnl_{unrealized_pct:.2%}"
+            )
+
+        elif unrealized_pct <= self._pnl_exit_pct:
+            logger.critical(
+                f"[ExecMonitor] Systematic exit: unrealized P&L {unrealized_pct:.2%} "
+                f"breached {self._pnl_exit_pct:.1%}"
+            )
+            await self._trigger_systematic_exit(
+                f"unrealized_pnl_{unrealized_pct:.2%}"
+            )
+
+        elif unrealized_pct <= self._pnl_halt_pct:
+            if not self._pnl_halted:
+                self._pnl_halted = True
+                self._write_pnl_halt_sentinel(
+                    f"unrealized_pnl_{unrealized_pct:.2%}"
+                )
+                logger.warning(
+                    f"[ExecMonitor] HALT: unrealized P&L {unrealized_pct:.2%} "
+                    f"breached {self._pnl_halt_pct:.1%} — pausing new entries"
+                )
+
+    async def _trigger_systematic_exit(self, reason: str) -> None:
+        """Submit market exit orders for all open positions."""
+        self._pnl_halted = True
+        self._write_pnl_halt_sentinel(reason)
+
+        for symbol, position in list(self._positions.items()):
+            if position.exit_pending:
+                continue
+            try:
+                current_price = getattr(position, "current_price", 0) or 0
+                await self._submit_exit(position, f"systematic_exit:{reason}", current_price)
+            except Exception as exc:
+                logger.error(
+                    f"[ExecMonitor] Systematic exit failed for {symbol}: {exc}"
+                )
+
+    def _write_pnl_halt_sentinel(self, reason: str) -> None:
+        """Write halt sentinel so RiskGate blocks new entries.
+
+        Reuses the same sentinel file that RiskGate._load_halt_sentinel() reads,
+        so no new wiring is needed — RiskGate checks this on every check() call.
+        """
+        try:
+            self._pnl_sentinel.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._pnl_sentinel, "w") as f:
+                f.write(f"halted_date={date.today().isoformat()}\n")
+                f.write(f"written_at={datetime.now().isoformat()}\n")
+                f.write(f"reason={reason}\n")
+        except Exception as exc:
+            logger.error(f"[ExecMonitor] Failed to write halt sentinel: {exc}")
+
+    # ── Circuit breaker — feed / DB health ───────────────────────────────
 
     async def _circuit_breaker_loop(self) -> None:
-        """Monitor feed and DB health every 5s."""
+        """Monitor feed health, DB health, and unrealized P&L every 5s."""
         while self._running:
             try:
                 await asyncio.sleep(5.0)
@@ -779,6 +907,9 @@ class ExecutionMonitor:
                     from quantstack.execution.kill_switch import get_kill_switch
 
                     get_kill_switch().trigger("execution_monitor_db_unreachable")
+
+                # Unrealized P&L circuit breaker (QS-E5)
+                await self._check_unrealized_pnl(now)
 
             except asyncio.CancelledError:
                 break

@@ -124,9 +124,13 @@ class FeatureImportanceProtocol:
         mdi: dict[str, float],
         mda: dict[str, float],
         sfi: dict[str, float],
+        shap: dict[str, float] | None = None,
         top_pct: float = 0.5,
     ) -> list[str]:
-        """Select features that rank in top_pct by at least 2 of 3 methods.
+        """Select features that rank in top_pct by at least 2 methods.
+
+        With 3 methods (MDI/MDA/SFI): requires 2-of-3 agreement.
+        With 4 methods (+ SHAP): requires 2-of-4 agreement.
 
         Returns list of selected feature names.
         """
@@ -138,22 +142,23 @@ class FeatureImportanceProtocol:
             ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
             return {name for name, _ in ranked[:n_top]}
 
-        top_mdi = _top_set(mdi)
-        top_mda = _top_set(mda)
-        top_sfi = _top_set(sfi)
+        method_sets = [_top_set(mdi), _top_set(mda), _top_set(sfi)]
+        if shap is not None:
+            method_sets.append(_top_set(shap))
+
+        n_methods = len(method_sets)
 
         selected = []
         for feat in all_features:
-            votes = sum([
-                feat in top_mdi,
-                feat in top_mda,
-                feat in top_sfi,
-            ])
+            votes = sum(feat in s for s in method_sets)
             if votes >= 2:
                 selected.append(feat)
 
         if not selected:
-            logger.warning("consensus_filter: no features passed 2-of-3 filter, returning top MDI features")
-            selected = list(top_mdi)
+            logger.warning(
+                f"consensus_filter: no features passed 2-of-{n_methods} filter, "
+                "returning top MDI features"
+            )
+            selected = list(method_sets[0])  # MDI fallback
 
         return selected

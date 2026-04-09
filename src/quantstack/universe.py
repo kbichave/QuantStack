@@ -11,7 +11,9 @@ Do NOT add any ``from quantstack.*`` imports here.
 """
 
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
+from typing import Any
 
 
 class Sector(Enum):
@@ -223,3 +225,37 @@ SPECULATIVE_SYMBOLS: tuple[str, ...] = (
     "MSTR", "MARA", "RIOT",
     "HOOD", "SOFI", "RDDT",
 )
+
+
+# ---------------------------------------------------------------------------
+# Point-in-time universe filter (survivorship-bias guard)
+# ---------------------------------------------------------------------------
+
+def universe_as_of(dt: date, conn: Any) -> list[str]:
+    """Return symbols that were active (not delisted, not pre-IPO) at *dt*.
+
+    Uses the ``universe`` + ``company_overview`` tables.  Symbols with NULL
+    ``ipo_date`` are conservatively included (assumed to have always existed).
+
+    Args:
+        dt: Reference date for the point-in-time snapshot.
+        conn: A DB connection supporting ``conn.execute(sql, params).fetchall()``.
+              Accepts the ``PgConnection`` wrapper from ``quantstack.db`` —
+              no quantstack imports are added here to preserve the dependency rule.
+
+    Returns:
+        Sorted list of ticker symbols active at *dt*.
+    """
+    rows = conn.execute(
+        """
+        SELECT u.symbol
+        FROM universe u
+        JOIN company_overview co ON u.symbol = co.symbol
+        WHERE u.is_active = TRUE
+          AND (co.ipo_date IS NULL OR co.ipo_date <= %s)
+          AND (co.delisted_at IS NULL OR co.delisted_at > %s)
+        ORDER BY u.symbol
+        """,
+        [dt, dt],
+    ).fetchall()
+    return [r[0] for r in rows]

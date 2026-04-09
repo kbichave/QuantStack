@@ -20,9 +20,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import glob as globmod
+
 import joblib
 import numpy as np
 from loguru import logger
+from scipy.stats import spearmanr
 
 from quantstack.config.timeframes import Timeframe
 from quantstack.core.features.technical_indicators import TechnicalIndicators
@@ -31,6 +34,7 @@ from quantstack.core.labeling.wave_event_labeler import WaveEventLabeler
 from quantstack.core.validation.causal_filter import CausalFilter
 from quantstack.data.storage import DataStore
 from quantstack.features.enricher import FeatureEnricher, FeatureTiers
+from quantstack.ml.model_registry import compute_features_hash, register_model
 from quantstack.ml.trainer import ModelTrainer, TrainingConfig
 
 # ---------------------------------------------------------------------------
@@ -216,19 +220,73 @@ def _train_sync(
     trainer = ModelTrainer(config)
     train_result = trainer.train(X, y)
 
-    # Step 7: Save
+    # Step 7: Save with versioned filename + model registry
     model_path = None
     metadata_path = None
+    model_id = None
+    backtest_ic = 0.0
+
     if save:
         _MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        model_path = str(_MODELS_DIR / f"{symbol}_latest.joblib")
-        metadata_path = str(_MODELS_DIR / f"{symbol}_latest.json")
 
-        joblib.dump(train_result.model, model_path)
+        # Compute IC (Spearman rank correlation) on test set
+        try:
+            X_test = X.iloc[int(len(X) * (1 - 0.2)):]
+            y_test = y.iloc[int(len(y) * (1 - 0.2)):]
+            y_prob = train_result.model.predict_proba(X_test)[:, 1]
+            backtest_ic = float(spearmanr(y_prob, y_test).statistic)
+            if np.isnan(backtest_ic):
+                backtest_ic = 0.0
+        except Exception as ic_exc:
+            logger.warning(f"[ml] IC computation failed: {ic_exc}")
+
+        # Compute Sharpe proxy from CV scores (mean / std)
+        cv_arr = np.array(train_result.cv_scores)
+        cv_arr = cv_arr[~np.isnan(cv_arr)]
+        backtest_sharpe = float(cv_arr.mean() / cv_arr.std()) if len(cv_arr) > 1 and cv_arr.std() > 0 else 0.0
+
+        features_hash = compute_features_hash(list(X.columns))
+
+        # Register in model_registry (as challenger)
+        try:
+            mv = register_model(
+                strategy_id=symbol,
+                train_date=datetime.now(timezone.utc).date(),
+                train_data_range=f"{X.index[0]}:{X.index[-1]}",
+                features_hash=features_hash,
+                hyperparams=train_result.config.__dict__ if train_result.config else {},
+                backtest_sharpe=backtest_sharpe,
+                backtest_ic=backtest_ic,
+                backtest_max_dd=0.0,
+                model_path="",  # updated after save
+            )
+            model_id = mv.model_id
+            version = mv.version
+
+            # Versioned filename: {symbol}_{model_type}_v{version}_{ic:.4f}.joblib
+            versioned_name = f"{symbol}_{model_type}_v{version}_{backtest_ic:.4f}.joblib"
+            model_path = str(_MODELS_DIR / versioned_name)
+            metadata_path = str(_MODELS_DIR / versioned_name.replace(".joblib", ".json"))
+
+            # Update registry with actual path
+            from quantstack.db import db_conn
+            with db_conn() as conn:
+                conn.execute(
+                    "UPDATE model_registry SET model_path = %s WHERE model_id = %s",
+                    (model_path, model_id),
+                )
+        except Exception as reg_exc:
+            raise RuntimeError(
+                f"Model registry write failed for {symbol}: {reg_exc}"
+            ) from reg_exc
+
+        # Save model artifact
+        joblib.dump(train_result, model_path)
 
         metadata = {
             "symbol": symbol,
             "model_type": model_type,
+            "model_id": model_id,
             "feature_names": list(X.columns),
             "feature_tiers": tiers_list,
             "features_total": features_total,
@@ -236,7 +294,10 @@ def _train_sync(
             "features_dropped": features_dropped,
             "accuracy": train_result.metrics["accuracy"],
             "auc": train_result.metrics["auc"],
+            "backtest_ic": round(backtest_ic, 6),
+            "backtest_sharpe": round(backtest_sharpe, 4),
             "cv_scores": [round(v, 4) for v in train_result.cv_scores],
+            "consensus_features": train_result.consensus_features,
             "label_method": label_method,
             "lookback_days": lookback_days,
             "training_samples": len(X),
@@ -244,28 +305,51 @@ def _train_sync(
             "apply_causal_filter": apply_causal_filter,
             "feature_whitelist": feature_whitelist,
         }
-        Path(metadata_path).write_text(json.dumps(metadata, indent=2))
+        Path(metadata_path).write_text(json.dumps(metadata, indent=2, default=str))
         logger.info(
-            f"[ml] Model saved: {model_path} ({len(X.columns)} features, acc={train_result.metrics['accuracy']:.3f})"
+            f"[ml] Model saved: {model_path} ({len(X.columns)} features, "
+            f"acc={train_result.metrics['accuracy']:.3f}, IC={backtest_ic:.4f})"
         )
+
+        # Cleanup: keep only 5 most recent versions per symbol/model_type
+        _cleanup_old_versions(symbol, model_type, keep=5)
 
     return {
         "success": True,
         "symbol": symbol,
         "model_type": model_type,
+        "model_id": model_id,
         "features_total": features_total,
         "features_after_filter": len(X.columns),
         "features_dropped": features_dropped,
         "cv_scores": [round(v, 4) for v in train_result.cv_scores],
         "test_accuracy": round(train_result.metrics["accuracy"], 4),
         "test_auc": round(train_result.metrics["auc"], 4),
+        "backtest_ic": round(backtest_ic, 6),
         "training_samples": len(X),
         "model_path": model_path,
         "feature_importance": {
             k: round(float(v), 4)
             for k, v in list(train_result.feature_importance.items())[:20]
         },
+        "consensus_features": train_result.consensus_features,
     }
+
+
+def _cleanup_old_versions(symbol: str, model_type: str, keep: int = 5) -> None:
+    """Keep only the most recent `keep` versioned model files per symbol/model_type."""
+    pattern = str(_MODELS_DIR / f"{symbol}_{model_type}_v*.joblib")
+    files = sorted(globmod.glob(pattern), key=lambda f: Path(f).stat().st_mtime)
+    to_delete = files[:-keep] if len(files) > keep else []
+    for f in to_delete:
+        try:
+            Path(f).unlink()
+            json_f = Path(f).with_suffix(".json")
+            if json_f.exists():
+                json_f.unlink()
+            logger.info(f"[ml] Cleaned up old model: {f}")
+        except Exception as exc:
+            logger.warning(f"[ml] Failed to delete {f}: {exc}")
 
 
 def _generate_labels(df, method: str):

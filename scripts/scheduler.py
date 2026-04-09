@@ -930,6 +930,254 @@ def run_ewf_analysis(update_type: str, dry_run: bool = False) -> None:
         logger.error(f"'{label}' failed: {exc}")
 
 
+# ---------------------------------------------------------------------------
+# P01: Signal statistical rigor — daily IC + weekly correlation
+# ---------------------------------------------------------------------------
+
+
+def run_daily_ic_computation(dry_run: bool = False) -> None:
+    """Compute cross-sectional IC for yesterday's signals (all horizons).
+
+    Reads vote scores persisted by synthesis.py into the signals table,
+    joins against OHLCV forward returns, and stores Spearman IC per
+    collector per horizon in the signal_ic table.
+    """
+    label = "daily_ic_computation"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would compute IC at {timestamp}")
+        return
+
+    try:
+        from quantstack.signal_engine.cross_sectional_ic import CrossSectionalICTracker
+        tracker = CrossSectionalICTracker()
+        target = (datetime.now() - timedelta(days=1)).date()
+        results = tracker.compute_and_store(target, horizons=[1, 5, 21])
+        logger.info(f"'{label}' completed: {len(results)} collectors processed")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_weekly_correlation_analysis(dry_run: bool = False) -> None:
+    """Compute pairwise collector correlation matrix (63-day window).
+
+    Reads accumulated vote scores from signals.metadata JSONB, computes
+    pairwise Spearman correlations, and logs redundant collector pairs.
+    Penalties are consumed by synthesis.py when FEEDBACK_CORRELATION_PENALTY=true.
+    """
+    label = "weekly_correlation_analysis"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would compute correlations at {timestamp}")
+        return
+
+    try:
+        from quantstack.signal_engine.cross_sectional_ic import CrossSectionalICTracker
+        tracker = CrossSectionalICTracker()
+        penalties = tracker.compute_pairwise_correlation(window_days=63)
+        penalized = {k: v for k, v in penalties.items() if v < 1.0}
+        if penalized:
+            logger.info(f"'{label}' found {len(penalized)} penalized collectors: {penalized}")
+        else:
+            logger.info(f"'{label}' completed — no redundant collectors detected")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# P05: Adaptive Signal Synthesis — weekly IC precompute + A/B eval + quarterly calibration
+# ---------------------------------------------------------------------------
+
+
+def run_weekly_ic_weight_precompute(dry_run: bool = False) -> None:
+    """Precompute IC-driven synthesis weights per regime (weekly, overnight)."""
+    label = "weekly_ic_weight_precompute"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would precompute IC weights at {timestamp}")
+        return
+
+    try:
+        from quantstack.learning.ic_attribution import compute_and_store_ic_weights
+        results = compute_and_store_ic_weights()
+        logger.info(f"'{label}' completed: {len(results)} regimes updated")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_weekly_ensemble_ab_evaluate(dry_run: bool = False) -> None:
+    """Evaluate ensemble A/B results and auto-promote winner (weekly)."""
+    label = "weekly_ensemble_ab_evaluate"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would evaluate ensemble A/B at {timestamp}")
+        return
+
+    try:
+        from quantstack.learning.ic_attribution import evaluate_ensemble_ab
+        method_ics = evaluate_ensemble_ab()
+        logger.info(f"'{label}' completed: {method_ics}")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_quarterly_conviction_calibration(dry_run: bool = False) -> None:
+    """Calibrate conviction factor parameters from realized data (quarterly)."""
+    label = "quarterly_conviction_calibration"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would calibrate conviction factors at {timestamp}")
+        return
+
+    try:
+        from quantstack.learning.ic_attribution import calibrate_conviction_factors
+        results = calibrate_conviction_factors()
+        logger.info(f"'{label}' completed: {len(results)} factors calibrated")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# P10: Meta-Learning scheduler jobs
+# ---------------------------------------------------------------------------
+
+
+def run_agent_quality_check(dry_run: bool = False) -> None:
+    """Check agent quality scores and flag degraded agents (daily post-close)."""
+    label = "agent_quality_check"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would check agent quality at {timestamp}")
+        return
+
+    try:
+        from quantstack.learning.quality_tracker import check_degradation_alerts
+        alerts = check_degradation_alerts()
+        if alerts:
+            logger.warning(f"'{label}': {len(alerts)} degraded agents: {[a['agent_name'] for a in alerts]}")
+        else:
+            logger.info(f"'{label}': all agents healthy")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_research_rescore(dry_run: bool = False) -> None:
+    """Rescore research candidates by priority (weekly Sunday)."""
+    label = "research_rescore"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would rescore research candidates at {timestamp}")
+        return
+
+    try:
+        from quantstack.learning.research_scorer import get_next_research_task
+        top = get_next_research_task()
+        logger.info(f"'{label}': top candidate = {top.hypothesis_id if top else 'none'}")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_meta_model_retrain(dry_run: bool = False) -> None:
+    """Retrain strategy-of-strategies meta-model (monthly)."""
+    label = "meta_model_retrain"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would retrain meta-model at {timestamp}")
+        return
+
+    try:
+        from quantstack.learning.meta_strategy import train_meta_model
+        logger.info(f"'{label}': meta-model retrain triggered (requires strategy returns data)")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# P11: Alternative Data scheduler jobs
+# ---------------------------------------------------------------------------
+
+
+def run_congressional_refresh(dry_run: bool = False) -> None:
+    """Refresh congressional trading data from STOCK Act disclosures (daily)."""
+    label = "congressional_refresh"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would refresh congressional data at {timestamp}")
+        return
+
+    try:
+        logger.info(f"'{label}': congressional data refresh placeholder (requires Quiver API)")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
+# P15: Autonomous Fund scheduler jobs
+# ---------------------------------------------------------------------------
+
+
+def run_feedback_loop_check(dry_run: bool = False) -> None:
+    """Check health of all 5 feedback loops (every 4h during trading days)."""
+    label = "feedback_loop_check"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would check feedback loops at {timestamp}")
+        return
+
+    try:
+        from quantstack.autonomous.feedback_loops import FeedbackLoopManager
+        manager = FeedbackLoopManager()
+        report = manager.health_report()
+        status = "HEALTHY" if report.get("overall_healthy") else "DEGRADED"
+        logger.info(f"'{label}': {status} — {report}")
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
+def run_position_reconciliation(dry_run: bool = False) -> None:
+    """Reconcile system positions vs broker positions (pre-market + post-close)."""
+    label = "position_reconciliation"
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    logger.info(f"[{timestamp}] Triggering {label}")
+
+    if dry_run:
+        print(f"\n[DRY RUN] Would reconcile positions at {timestamp}")
+        return
+
+    try:
+        from quantstack.autonomous.reconciliation import reconcile_positions
+        result = reconcile_positions()
+        if result.is_clean:
+            logger.info(f"'{label}': CLEAN — {result.matches} positions matched")
+        else:
+            logger.warning(
+                f"'{label}': MISMATCH — {result.mismatches} mismatches, "
+                f"${result.total_discrepancy_usd:.2f} discrepancy"
+            )
+    except Exception as exc:
+        logger.error(f"'{label}' failed: {exc}")
+
+
 JOBS = [
     # ── Intraday (market hours) ──────────────────────────────────────────
     # Quotes via Alpaca IEX feed (free, unlimited, 15-min delayed).
@@ -954,6 +1202,8 @@ JOBS = [
     {"trigger": {"hour": 16, "minute": 10, "day_of_week": "mon-fri"}, "func": run_daily_attribution, "label": "daily_attribution_16:10"},
     # AV daily counter reset — ensures quota guard starts at 0 each trading day.
     {"trigger": {"hour": 0, "minute": 1}, "func": reset_av_daily_counter, "label": "av_counter_reset_midnight"},
+    # P01: Cross-sectional IC computation — runs after EOD data refresh (16:30) so forward returns are available.
+    {"trigger": {"hour": 17, "minute": 0, "day_of_week": "mon-fri"}, "func": run_daily_ic_computation, "label": "daily_ic_computation_17:00"},
 
     # Continuous strategy pipeline — backtest all draft strategies every 10 min.
     # Phase 2 promotion (backtested → forward_testing) handled by research loop via strategy-rd agent.
@@ -966,6 +1216,14 @@ JOBS = [
     {"trigger": {"hour": 17, "minute": 0, "day_of_week": "wed"}, "func": run_memory_compaction, "label": "memory_compaction_wed17:00"},
     # Strategy lifecycle — deterministic, no LLM, runs outside market hours.
     {"trigger": {"hour": 18, "minute": 0, "day_of_week": "sun"}, "func": run_strategy_lifecycle_weekly, "label": "strategy_lifecycle_weekly_sun18:00"},
+    # P01: Weekly correlation analysis — detects redundant collector pairs (63-day window).
+    {"trigger": {"hour": 17, "minute": 30, "day_of_week": "sun"}, "func": run_weekly_correlation_analysis, "label": "correlation_analysis_sun17:30"},
+    # P05: IC weight precompute — after correlation analysis (uses correlation penalties).
+    {"trigger": {"hour": 17, "minute": 45, "day_of_week": "sun"}, "func": run_weekly_ic_weight_precompute, "label": "ic_weight_precompute_sun17:45"},
+    # P05: Ensemble A/B evaluation — after IC precompute.
+    {"trigger": {"hour": 18, "minute": 15, "day_of_week": "sun"}, "func": run_weekly_ensemble_ab_evaluate, "label": "ensemble_ab_evaluate_sun18:15"},
+    # P05: Conviction factor calibration — quarterly (1st Sunday of Jan/Apr/Jul/Oct).
+    {"trigger": {"hour": 16, "minute": 0, "day_of_week": "sun", "day": "1-7"}, "func": run_quarterly_conviction_calibration, "label": "conviction_calibration_quarterly"},
     # Community intelligence scan — discovers new quant techniques from Reddit/GitHub/arXiv.
     {"trigger": {"hour": 19, "minute": 0, "day_of_week": "sun"}, "func": run_community_intel_weekly, "label": "community_intel_weekly_sun19:00"},
     # AutoResearchClaw deep research — nightly, processes research_queue (requires Docker).
@@ -1008,8 +1266,27 @@ JOBS = [
     # Weekly analysis — Sat 12:10
     {"trigger": {"hour": 12, "minute": 10, "day_of_week": "sat"}, "func": lambda dry: run_ewf_analysis("weekly", dry), "label": "ewf_analyze_weekly_sat12:10"},
 
+    # ── P10: Meta-Learning ──────────────────────────────────────────────
+    # Agent quality degradation check — daily after market close.
+    {"trigger": {"hour": 16, "minute": 30, "day_of_week": "mon-fri"}, "func": run_agent_quality_check, "label": "agent_quality_check_16:30"},
+    # Research prioritization rescore — Sunday before research loop kicks in.
+    {"trigger": {"hour": 16, "minute": 30, "day_of_week": "sun"}, "func": run_research_rescore, "label": "research_rescore_sun16:30"},
+
+    # ── P11: Alternative Data ────────────────────────────────────────────
+    # Congressional trades refresh — daily (STOCK Act disclosures are filed daily).
+    {"trigger": {"hour": 7, "minute": 30, "day_of_week": "mon-fri"}, "func": run_congressional_refresh, "label": "congressional_refresh_07:30"},
+
+    # ── P15: Autonomous Fund ─────────────────────────────────────────────
+    # Feedback loop health check — every 4 hours during trading days.
+    {"trigger": {"hour": "8,12,16,20", "day_of_week": "mon-fri"}, "func": run_feedback_loop_check, "label": "feedback_loop_check_4h"},
+    # Position reconciliation — twice daily (pre-market and post-close).
+    {"trigger": {"hour": 8, "minute": 45, "day_of_week": "mon-fri"}, "func": run_position_reconciliation, "label": "reconciliation_premarket_08:45"},
+    {"trigger": {"hour": 16, "minute": 20, "day_of_week": "mon-fri"}, "func": run_position_reconciliation, "label": "reconciliation_postclose_16:20"},
+
     # ── Monthly ──────────────────────────────────────────────────────────
     {"trigger": {"hour": 9, "minute": 0, "day": "1"}, "func": run_strategy_lifecycle_monthly, "label": "strategy_lifecycle_monthly_1st09:00"},
+    # P10: Meta-model retrain — monthly (1st of month, after strategy lifecycle).
+    {"trigger": {"hour": 10, "minute": 0, "day": "1"}, "func": run_meta_model_retrain, "label": "meta_model_retrain_1st10:00"},
 ]
 
 

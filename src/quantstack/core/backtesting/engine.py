@@ -27,13 +27,19 @@ class BacktestConfig:
     max_concurrent_trades is reserved for a future multi-position extension.
     stop_loss and take_profit ATR multiples are not currently enforced by
     BacktestEngine.run(); use run_backtest_with_params() for z-score-based stops.
+
+    Cost model:
+        ``all_in_cost_bps`` (default 30) is applied as a symmetric percentage
+        of trade value on both entry and exit.
+
+        Breakdown: ~5 bps commission + ~10 bps spread + ~15 bps market impact.
     """
 
     initial_capital: float = 100000.0
     # Reserved — BacktestEngine.run() only supports one open position at a time.
     max_concurrent_trades: int = 1
-    commission_per_trade: float = 1.0
-    slippage_pct: float = 0.001
+    # All-in transaction cost in basis points (applied per leg).
+    all_in_cost_bps: float = 30.0
     position_size_pct: float = 0.1
     # trading_periods_per_year: set to 252 for daily bars, 252*24 for hourly, etc.
     # Used for Sharpe ratio annualization; defaults to 252 (daily).
@@ -100,6 +106,8 @@ class BacktestEngine:
         trades = []
         equity_curve = [capital]
 
+        cost_frac = self.config.all_in_cost_bps / 10_000
+
         # Align data
         common_idx = signals.index.intersection(price_data.index)
         if len(common_idx) == 0:
@@ -120,17 +128,15 @@ class BacktestEngine:
             if position == 0 and signal == 1:
                 if direction == "LONG":
                     position = 1
-                    entry_price = current_price * (1 + self.config.slippage_pct)
+                    entry_price = current_price * (1 + cost_frac)
                     entry_date = idx
-                    capital -= self.config.commission_per_trade
                     position_shares = (
                         capital * self.config.position_size_pct
                     ) / entry_price
                 elif direction == "SHORT":
                     position = -1
-                    entry_price = current_price * (1 - self.config.slippage_pct)
+                    entry_price = current_price * (1 - cost_frac)
                     entry_date = idx
-                    capital -= self.config.commission_per_trade
                     position_shares = (
                         capital * self.config.position_size_pct
                     ) / entry_price
@@ -146,15 +152,13 @@ class BacktestEngine:
                     should_exit = True
 
                 if should_exit:
-                    exit_price = current_price * (
-                        1 - self.config.slippage_pct * position
-                    )
+                    exit_price = current_price * (1 - cost_frac * position)
                     if position == 1:
                         pnl = (exit_price - entry_price) * position_shares
                     else:
                         pnl = (entry_price - exit_price) * position_shares
 
-                    capital += pnl - self.config.commission_per_trade
+                    capital += pnl
                     trades.append(
                         {
                             "entry_price": entry_price,

@@ -21,6 +21,10 @@ EarningsMomentumComposite – weighted SUE signal + price momentum (dual confirm
 import numpy as np
 import pandas as pd
 
+# PIT source tag used by all factor classes in this module.
+# Financial-statement factors rely on SEC 10-Q filings (~45 day delay).
+_DEFAULT_PIT_SOURCE = "fundamental_quarterly"
+
 
 class SloanAccruals:
     """
@@ -32,6 +36,8 @@ class SloanAccruals:
     accounting adjustments rather than real cash generation. High-accrual
     firms systematically underperform (mean reversion in earnings quality).
     """
+
+    pit_source: str = _DEFAULT_PIT_SOURCE
 
     def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -78,6 +84,8 @@ class NovyMarxGP:
     persistently outperform despite being expensive on traditional value metrics.
     Often used to augment value strategies (value × quality composite).
     """
+
+    pit_source: str = _DEFAULT_PIT_SOURCE
 
     def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -127,6 +135,8 @@ class AssetGrowthAnomaly:
     poor capital allocation discipline.
     """
 
+    pit_source: str = _DEFAULT_PIT_SOURCE
+
     def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
         """
         Parameters
@@ -168,6 +178,8 @@ class FCFYield:
     Higher FCF yield → cheaper on a cash-generation basis. More robust
     than earnings yield because FCF is harder to inflate via accruals.
     """
+
+    pit_source: str = _DEFAULT_PIT_SOURCE
 
     def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -215,6 +227,8 @@ class RevenueAcceleration:
     accelerating. Positive acceleration + positive growth = high conviction
     momentum setup.
     """
+
+    pit_source: str = _DEFAULT_PIT_SOURCE
 
     def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -270,6 +284,8 @@ class OperatingLeverage:
     downside). High DOL + revenue acceleration = earnings beat setup.
     """
 
+    pit_source: str = _DEFAULT_PIT_SOURCE
+
     def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
         """
         Parameters
@@ -324,6 +340,8 @@ class PiotroskiFScore:
     Score 8-9 = strong long candidate; 0-2 = short candidate.
     Particularly effective for value screens (high B/M universe).
     """
+
+    pit_source: str = _DEFAULT_PIT_SOURCE
 
     def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -434,6 +452,8 @@ class BeneishMScore:
     TATA = Total Accruals to Total Assets
     LVGI = Leverage Index
     """
+
+    pit_source: str = _DEFAULT_PIT_SOURCE
 
     def compute(self, financials_df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -572,6 +592,8 @@ class QualityMomentumComposite:
     qm_short_signal   : int       — 1 if piotroski_score <= 2 AND momentum_rank <= 0.4
     """
 
+    pit_source: str = _DEFAULT_PIT_SOURCE
+
     def __init__(
         self,
         quality_long_threshold: int = 7,
@@ -679,6 +701,8 @@ class EarningsMomentumComposite:
     em_long          : int    — 1 when em_composite > long_threshold
     em_short         : int    — 1 when em_composite < -long_threshold
     """
+
+    pit_source: str = "earnings_surprise"
 
     def __init__(
         self,

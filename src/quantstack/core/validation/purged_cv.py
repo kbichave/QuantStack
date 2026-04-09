@@ -11,6 +11,7 @@ from itertools import combinations
 
 import numpy as np
 import pandas as pd
+from loguru import logger
 
 
 @dataclass
@@ -59,6 +60,7 @@ class PurgedKFoldCV:
         X: pd.DataFrame,
         y: pd.Series | None = None,
         label_end_times: pd.Series | None = None,
+        regime_labels: pd.Series | None = None,
     ) -> Generator[CVSplit, None, None]:
         """
         Generate train/test indices for each fold.
@@ -67,10 +69,26 @@ class PurgedKFoldCV:
             X: Feature DataFrame with DatetimeIndex
             y: Target series (optional)
             label_end_times: End time for each label (for purging)
+            regime_labels: Optional regime label per sample (e.g. "trending_up",
+                "ranging"). When provided, each fold contains proportional
+                representation of all regimes.
 
         Yields:
             CVSplit for each fold
         """
+        if regime_labels is not None:
+            yield from self._split_regime_stratified(
+                X, label_end_times, regime_labels
+            )
+        else:
+            yield from self._split_standard(X, label_end_times)
+
+    def _split_standard(
+        self,
+        X: pd.DataFrame,
+        label_end_times: pd.Series | None = None,
+    ) -> Generator[CVSplit, None, None]:
+        """Standard purged k-fold (no regime stratification)."""
         n_samples = len(X)
         indices = np.arange(n_samples)
 
@@ -106,6 +124,97 @@ class PurgedKFoldCV:
                 test_start_time = X.index[test_start_idx]
 
                 for i in range(test_start_idx):
+                    if train_mask[i]:
+                        label_end = label_end_times.iloc[i]
+                        if pd.notna(label_end) and label_end >= test_start_time:
+                            train_mask[i] = False
+
+            train_indices = indices[train_mask]
+
+            yield CVSplit(
+                train_indices=train_indices,
+                test_indices=test_indices,
+                train_start=(
+                    X.index[train_indices[0]] if len(train_indices) > 0 else None
+                ),
+                train_end=(
+                    X.index[train_indices[-1]] if len(train_indices) > 0 else None
+                ),
+                test_start=X.index[test_indices[0]],
+                test_end=X.index[test_indices[-1]],
+            )
+
+    def _split_regime_stratified(
+        self,
+        X: pd.DataFrame,
+        label_end_times: pd.Series | None,
+        regime_labels: pd.Series,
+    ) -> Generator[CVSplit, None, None]:
+        """Regime-stratified purged k-fold.
+
+        Groups samples by regime, divides each group into n_splits sub-groups
+        chronologically, then builds each fold's test set as the union of the
+        k-th sub-group from each regime. This ensures proportional regime
+        representation in every fold.
+
+        Regimes with fewer samples than n_splits are assigned entirely to
+        the train set in every fold (with a warning).
+        """
+        n_samples = len(X)
+        indices = np.arange(n_samples)
+        embargo_size = int(n_samples * self.embargo_pct)
+
+        # Group sample indices by regime (preserving chronological order)
+        unique_regimes = regime_labels.unique()
+        regime_groups: dict[str, np.ndarray] = {}
+        small_regime_indices: list[int] = []
+
+        for regime in unique_regimes:
+            mask = regime_labels.values == regime
+            group_idx = indices[mask]
+            if len(group_idx) < self.n_splits:
+                logger.warning(
+                    f"[PurgedKFoldCV] Regime '{regime}' has only {len(group_idx)} "
+                    f"samples (< {self.n_splits} splits), assigning all to train"
+                )
+                small_regime_indices.extend(group_idx.tolist())
+            else:
+                regime_groups[regime] = group_idx
+
+        # Divide each regime group into n_splits sub-groups chronologically
+        regime_subgroups: dict[str, list[np.ndarray]] = {}
+        for regime, group_idx in regime_groups.items():
+            splits = np.array_split(group_idx, self.n_splits)
+            regime_subgroups[regime] = splits
+
+        for fold_idx in range(self.n_splits):
+            # Test set: union of fold_idx-th sub-group from each regime
+            test_parts = [
+                regime_subgroups[r][fold_idx] for r in regime_subgroups
+            ]
+            test_indices = np.sort(np.concatenate(test_parts)) if test_parts else np.array([], dtype=int)
+
+            if len(test_indices) == 0:
+                continue
+
+            # Train set: everything not in test, plus small regime indices
+            train_mask = np.ones(n_samples, dtype=bool)
+            train_mask[test_indices] = False
+
+            # Apply embargo around each contiguous test block
+            test_min, test_max = int(test_indices.min()), int(test_indices.max())
+            embargo_start = max(0, test_min - embargo_size)
+            embargo_end = min(n_samples, test_max + embargo_size + 1)
+
+            # Only embargo the gap between train and test, not within test
+            for idx in range(embargo_start, embargo_end):
+                if idx not in test_indices:
+                    train_mask[idx] = False
+
+            # Apply purge if label_end_times provided
+            if label_end_times is not None:
+                test_start_time = X.index[test_indices[0]]
+                for i in range(int(test_indices[0])):
                     if train_mask[i]:
                         label_end = label_end_times.iloc[i]
                         if pd.notna(label_end) and label_end >= test_start_time:

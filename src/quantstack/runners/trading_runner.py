@@ -177,7 +177,7 @@ async def async_main() -> None:
 
     yaml_path = Path(__file__).resolve().parent.parent / "graphs" / "trading" / "config" / "agents.yaml"
     config_watcher = ConfigWatcher(yaml_path)
-    checkpointer = create_checkpointer()
+    checkpointer = await create_checkpointer()
 
     def graph_builder():
         return build_trading_graph(config_watcher, checkpointer)

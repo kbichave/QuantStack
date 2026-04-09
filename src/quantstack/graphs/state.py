@@ -16,13 +16,28 @@ from __future__ import annotations
 import operator
 from typing import Annotated
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 _VALID_VOL_STATES = {"", "low", "normal", "high", "extreme"}
 _VALID_REGIMES = {"", "trending_up", "trending_down", "ranging", "unknown"}
 
 
-class ResearchState(BaseModel):
+class _DictCompatMixin:
+    """Provides dict-like access for Pydantic models used as LangGraph state."""
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key)
+
+
+class ResearchState(_DictCompatMixin, BaseModel):
     """State for a single research pipeline cycle."""
 
     model_config = ConfigDict(extra="forbid")
@@ -82,7 +97,7 @@ class SymbolValidationState(BaseModel):
     errors: Annotated[list[str], operator.add] = []
 
 
-class TradingState(BaseModel):
+class TradingState(_DictCompatMixin, BaseModel):
     """State for a single trading pipeline cycle."""
 
     model_config = ConfigDict(extra="forbid")
@@ -169,7 +184,7 @@ class TradingState(BaseModel):
         return self
 
 
-class SupervisorState(BaseModel):
+class SupervisorState(_DictCompatMixin, BaseModel):
     """State for a single supervisor pipeline cycle."""
 
     model_config = ConfigDict(extra="forbid")

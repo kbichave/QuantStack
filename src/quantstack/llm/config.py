@@ -31,14 +31,13 @@ CACHE_CONTROL_EPHEMERAL = {"type": "ephemeral"}
 
 # --- Budget discipline (AR-9) ---
 # Per-million-token cost rates (blended input/output average) for budget tracking.
-# Costs vary by provider. These reflect the bedrock_groq hybrid defaults:
-# heavy=Sonnet, medium=Groq 70B, light/bulk=Groq 8B.
-# bedrock-only rates: heavy=9.00, medium=0.75, light=0.75, bulk=0.75.
+# Costs vary by provider. These reflect the groq/openai hybrid defaults:
+# heavy=gpt-oss-120b (OpenAI), medium/light/bulk=Qwen3-32B (Groq).
 MODEL_COST_PER_MTOK: dict[str, float] = {
-    "light": 0.10,    # Groq 8B-instant ($0.05 in / $0.08 out)
-    "medium": 0.64,   # Groq 70B ($0.59 in / $0.79 out)
-    "heavy": 9.00,    # Sonnet (Bedrock)
-    "bulk": 0.10,     # Groq 8B-instant
+    "light": 0.10,    # Groq Qwen3-32B (~$0.10 blended)
+    "medium": 0.10,   # Groq Qwen3-32B (~$0.10 blended)
+    "heavy": 20.00,   # OpenAI gpt-oss-120b (est.)
+    "bulk": 0.10,     # Groq Qwen3-32B
 }
 
 # Estimated token costs per node complexity for budget_check routing
@@ -102,19 +101,19 @@ PROVIDER_CONFIGS: dict[str, ProviderConfig] = {
         embedding="ollama/mxbai-embed-large",
     ),
     "groq": ProviderConfig(
-        heavy="groq/llama-3.3-70b-versatile",
-        medium="groq/llama-3.3-70b-versatile",
-        light="groq/llama-3.1-8b-instant",
-        bulk="groq/llama-3.1-8b-instant",
+        heavy="groq/qwen/qwen3-32b",
+        medium="groq/qwen/qwen3-32b",
+        light="groq/qwen/qwen3-32b",
+        bulk="groq/qwen/qwen3-32b",
         embedding="ollama/mxbai-embed-large",
     ),
-    # Hybrid: Bedrock Sonnet for heavy reasoning, Groq Llama for operational agents.
+    # Hybrid: OpenAI gpt-oss-120b for heavy reasoning, Groq Qwen3-32B for operational agents.
     # Use LLM_PROVIDER=bedrock_groq to activate.
     "bedrock_groq": ProviderConfig(
-        heavy="bedrock/us.anthropic.claude-sonnet-4-6",
-        medium="groq/llama-3.3-70b-versatile",
-        light="groq/llama-3.1-8b-instant",
-        bulk="groq/llama-3.1-8b-instant",
+        heavy="openai/gpt-oss-120b",
+        medium="groq/qwen/qwen3-32b",
+        light="groq/qwen/qwen3-32b",
+        bulk="groq/qwen/qwen3-32b",
         embedding="ollama/mxbai-embed-large",
     ),
 }

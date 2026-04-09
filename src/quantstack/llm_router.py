@@ -115,7 +115,7 @@ def router_completion(model: str, messages: list[dict], **kwargs: Any) -> Any:
 
     Args:
         model: Logical model name ("reasoning", "bulk") or a full LiteLLM model
-               string ("groq/llama-3.3-70b-versatile"). If the Router is active,
+               string ("groq/qwen/qwen3-32b"). If the Router is active,
                named aliases are resolved by it; full strings are passed through.
         messages: Chat message list.
         **kwargs: Forwarded to litellm.completion / router.completion.

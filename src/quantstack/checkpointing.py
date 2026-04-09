@@ -1,8 +1,8 @@
 """Durable checkpoint management for LangGraph StateGraphs.
 
-Provides a PostgresSaver-backed checkpointer factory that enables crash
+Provides an AsyncPostgresSaver-backed checkpointer factory that enables crash
 recovery. Each graph runner gets a shared checkpointer backed by a dedicated
-psycopg3 connection pool (separate from the application pool in db.py).
+psycopg3 async connection pool (separate from the application pool in db.py).
 
 Connection budget:
   Main pool (db.py):      max 20
@@ -18,33 +18,71 @@ import os
 logger = logging.getLogger(__name__)
 
 
-def create_checkpointer():
-    """Create a PostgresSaver backed by a dedicated psycopg3 connection pool.
+def _get_pg_url() -> str:
+    return os.getenv("TRADER_PG_URL", "postgresql://localhost/quantstack")
+
+
+def _run_checkpoint_setup() -> None:
+    """Create checkpoint tables using a sync autocommit connection.
+
+    Uses the sync PostgresSaver.MIGRATIONS list directly since
+    CREATE INDEX CONCURRENTLY requires autocommit mode.
+    """
+    import psycopg
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from psycopg.rows import dict_row
+
+    pg_url = _get_pg_url()
+    migrations = PostgresSaver.MIGRATIONS
+
+    with psycopg.connect(pg_url, autocommit=True, row_factory=dict_row) as conn:
+        with conn.cursor() as cur:
+            cur.execute(migrations[0])
+            results = cur.execute(
+                "SELECT v FROM checkpoint_migrations ORDER BY v DESC LIMIT 1"
+            )
+            row = results.fetchone()
+            version = -1 if row is None else row["v"]
+            for v, migration in zip(
+                range(version + 1, len(migrations)),
+                migrations[version + 1:],
+                strict=False,
+            ):
+                cur.execute(migration)
+                cur.execute(
+                    "INSERT INTO checkpoint_migrations (v) VALUES (%s)", (v,)
+                )
+    logger.info("PostgresSaver checkpoint tables ready")
+
+
+async def create_checkpointer():
+    """Create an AsyncPostgresSaver backed by a dedicated async connection pool.
 
     Pool is sized for checkpoint operations: min_size=2, max_size=6.
-    This is intentionally smaller than the main application pool (max_size=20)
-    because checkpoint writes are less frequent than application queries.
-
-    setup() is NOT called here. Table creation is a deployment step,
-    not a per-startup step. See setup_checkpoint_tables().
+    Tables are created synchronously before the async pool is opened.
     """
-    from langgraph.checkpoint.postgres import PostgresSaver
-    from psycopg_pool import ConnectionPool
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg_pool import AsyncConnectionPool
 
-    pg_url = os.getenv(
-        "TRADER_PG_URL",
-        f"postgresql://localhost/quantstack",
-    )
+    pg_url = _get_pg_url()
 
-    pool = ConnectionPool(
+    # Ensure tables exist (sync, autocommit — safe for CREATE INDEX CONCURRENTLY)
+    try:
+        _run_checkpoint_setup()
+    except Exception as exc:
+        logger.warning("Checkpoint table setup failed (may already exist): %s", exc)
+
+    pool = AsyncConnectionPool(
         conninfo=pg_url,
         min_size=2,
         max_size=6,
         max_lifetime=3600,
         max_idle=600,
+        open=False,
     )
+    await pool.open()
 
-    return PostgresSaver(pool)
+    return AsyncPostgresSaver(pool)
 
 
 def setup_checkpoint_tables() -> None:
@@ -53,9 +91,7 @@ def setup_checkpoint_tables() -> None:
     Run once as a deployment/migration step, not on every startup.
     Safe to call multiple times (idempotent CREATE IF NOT EXISTS).
     """
-    checkpointer = create_checkpointer()
-    checkpointer.setup()
-    logger.info("PostgresSaver checkpoint tables created/verified")
+    _run_checkpoint_setup()
 
 
 def prune_old_checkpoints(retention_hours: int = 48) -> int:

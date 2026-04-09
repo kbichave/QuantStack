@@ -15,7 +15,7 @@ Design invariants:
 - Never raises. All errors are caught and logged at debug level.
 - If no headlines: returns safe defaults immediately, no LLM call.
 - LLM call capped at 5 headlines × 120 chars to control token cost.
-- Uses groq/llama-3.3-70b-versatile via LiteLLM — same model as GroqPM.
+- Uses groq/qwen/qwen3-32b via LiteLLM for fast sentiment inference.
 """
 
 import asyncio

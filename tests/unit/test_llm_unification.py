@@ -161,11 +161,11 @@ class TestGetLlmConfig:
     def test_env_var_format_provider_slash_model(self):
         from quantstack.llm.provider import get_llm_config
 
-        with patch.dict(os.environ, {"LLM_TIER_LIGHT": "groq/llama-3.3-70b-versatile"}):
+        with patch.dict(os.environ, {"LLM_TIER_LIGHT": "groq/qwen/qwen3-32b"}):
             with patch("quantstack.llm.provider._read_llm_config_from_db", return_value=None):
                 result = get_llm_config("light")
         assert result["provider"] == "groq"
-        assert result["model"] == "llama-3.3-70b-versatile"
+        assert result["model"] == "qwen/qwen3-32b"
 
 
 class TestCheckProviderHealth:

@@ -68,10 +68,10 @@ class TestLegacyEnvVarOverrides:
     def test_llm_model_ic_overrides_light(self, monkeypatch):
         monkeypatch.setenv("LLM_PROVIDER", "anthropic")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-        monkeypatch.setenv("LLM_MODEL_IC", "groq/llama-3.3-70b-versatile")
+        monkeypatch.setenv("LLM_MODEL_IC", "groq/qwen/qwen3-32b")
         from quantstack.llm.provider import get_model_for_role
         result = get_model_for_role("ic")
-        assert result == "groq/llama-3.3-70b-versatile"
+        assert result == "groq/qwen/qwen3-32b"
 
     def test_llm_model_pod_overrides_heavy(self, monkeypatch):
         monkeypatch.setenv("LLM_PROVIDER", "anthropic")

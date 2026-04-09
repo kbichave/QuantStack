@@ -43,11 +43,11 @@ Cost-tier defaults (Bedrock)
     Workshop     → Sonnet 4.6  (cloud model for deep strategy research)
 
 Override any tier via env:
-    LLM_MODEL_IC=groq/llama-3.3-70b-versatile
-    LLM_MODEL_POD=bedrock/us.anthropic.claude-sonnet-4-6
-    LLM_MODEL_ASSISTANT=anthropic/claude-sonnet-4-20250514
-    LLM_MODEL_DECODER=gemini/gemini-2.5-flash
-    LLM_MODEL_WORKSHOP=bedrock/us.anthropic.claude-sonnet-4-20250514
+    LLM_MODEL_IC=groq/qwen/qwen3-32b
+    LLM_MODEL_POD=openai/gpt-oss-120b
+    LLM_MODEL_ASSISTANT=openai/gpt-oss-120b
+    LLM_MODEL_DECODER=groq/qwen/qwen3-32b
+    LLM_MODEL_WORKSHOP=openai/gpt-oss-120b
 
 Ollama / thinking-mode note
 ----------------------------
@@ -112,13 +112,13 @@ _TIER_ENV_OVERRIDE = {
     # by the /workshop skill for deep strategy research (always routes to cloud model).
     "workshop": "LLM_MODEL_WORKSHOP",
     # autonomous_pm: PM synthesis in the AutonomousRunner for non-routine decisions.
-    # Defaults to groq/llama-3.3-70b-versatile (fast, free tier, good reasoning).
+    # Defaults to groq/qwen/qwen3-32b (fast inference via Groq).
     # Override with LLM_MODEL_AUTONOMOUS_PM env var.
     "autonomous_pm": "LLM_MODEL_AUTONOMOUS_PM",
     # Multi-LLM routing tiers (Phase 4 / LITELLM_ROUTER_CONFIG)
     # "research": high-stakes reasoning (hypothesis generation, research planning)
     #   → resolves to best available cloud model (same as workshop tier)
-    #   → override: LLM_MODEL_RESEARCH=groq/llama-3.3-70b-versatile
+    #   → override: LLM_MODEL_RESEARCH=openai/gpt-oss-120b
     "research": "LLM_MODEL_RESEARCH",
     # "bulk": high-volume structured work (JSON extraction, feature analysis, sentiment)
     #   → prefers Groq (fast, cheap) if GROQ_API_KEY set, else falls back to IC tier
@@ -308,7 +308,7 @@ def _model_azure(_tier: str) -> str:
 
 
 def _model_groq(_tier: str) -> str:
-    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    model = os.getenv("GROQ_MODEL", "qwen/qwen3-32b")
     return f"groq/{model}"
 
 

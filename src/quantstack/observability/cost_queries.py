@@ -22,8 +22,8 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
     # OpenAI
     "gpt-4o": (2.50, 10.0),
     "gpt-4o-mini": (0.15, 0.60),
-    # Groq (free tier, but track for comparison)
-    "llama-3.3-70b-versatile": (0.59, 0.79),
+    # Groq
+    "qwen/qwen3-32b": (0.10, 0.10),
     # Google
     "gemini-2.5-pro": (1.25, 10.0),
     "gemini-2.0-flash": (0.10, 0.40),

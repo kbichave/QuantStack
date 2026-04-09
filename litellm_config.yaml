@@ -1,76 +1,52 @@
 # LiteLLM Proxy Configuration
 # Model groups match tier names used by get_chat_model() — no translation needed.
+# Provider strategy: Groq Qwen3-32B for all operational tiers,
+# OpenAI gpt-oss-120b for heavy reasoning. No AWS Bedrock.
 
 model_list:
-  # --- heavy: Sonnet-class, complex reasoning ---
+  # --- heavy: complex reasoning (fund-manager, trade-debater, quant-researcher) ---
   - model_name: heavy
     litellm_params:
-      model: bedrock/us.anthropic.claude-sonnet-4-6
-      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
-      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
-      aws_region_name: os.environ/AWS_DEFAULT_REGION
+      model: openai/gpt-oss-120b
+      api_key: os.environ/OPENAI_API_KEY
     model_info:
       priority: 1
   - model_name: heavy
     litellm_params:
-      model: anthropic/claude-sonnet-4-6
-      api_key: os.environ/ANTHROPIC_API_KEY
-    model_info:
-      priority: 2
-  - model_name: heavy
-    litellm_params:
-      model: groq/llama-3.3-70b-versatile
+      model: groq/qwen/qwen3-32b
       api_key: os.environ/GROQ_API_KEY
     model_info:
-      priority: 3
+      priority: 2
 
-  # --- medium: Haiku-class, structured extraction ---
+  # --- medium: structured extraction (earnings-analyst, position-monitor, daily-planner) ---
   - model_name: medium
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
-      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
-      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
-      aws_region_name: os.environ/AWS_DEFAULT_REGION
+      model: groq/qwen/qwen3-32b
+      api_key: os.environ/GROQ_API_KEY
     model_info:
       priority: 1
   - model_name: medium
     litellm_params:
-      model: anthropic/claude-haiku-4-5
-      api_key: os.environ/ANTHROPIC_API_KEY
+      model: openai/gpt-oss-120b
+      api_key: os.environ/OPENAI_API_KEY
     model_info:
       priority: 2
 
-  # --- light: cheapest Haiku, simple coordination ---
+  # --- light: simple coordination (supervisor, health-monitor) ---
   - model_name: light
     litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
-      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
-      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
-      aws_region_name: os.environ/AWS_DEFAULT_REGION
+      model: groq/qwen/qwen3-32b
+      api_key: os.environ/GROQ_API_KEY
     model_info:
       priority: 1
-  - model_name: light
-    litellm_params:
-      model: anthropic/claude-haiku-4-5
-      api_key: os.environ/ANTHROPIC_API_KEY
-    model_info:
-      priority: 2
 
   # --- bulk: OPRO/TextGrad loops, cost-sensitive ---
   - model_name: bulk
     litellm_params:
-      model: groq/llama-3.3-70b-versatile
+      model: groq/qwen/qwen3-32b
       api_key: os.environ/GROQ_API_KEY
     model_info:
       priority: 1
-  - model_name: bulk
-    litellm_params:
-      model: bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
-      aws_access_key_id: os.environ/AWS_ACCESS_KEY_ID
-      aws_secret_access_key: os.environ/AWS_SECRET_ACCESS_KEY
-      aws_region_name: os.environ/AWS_DEFAULT_REGION
-    model_info:
-      priority: 2
 
   # --- embedding: local ---
   - model_name: embedding

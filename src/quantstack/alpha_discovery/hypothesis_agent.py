@@ -13,7 +13,7 @@ Design invariants:
 - Returns [] on timeout, Groq failure, or JSON parse failure — never raises.
 - All returned candidates pass schema validation before being returned.
   Malformed rules are dropped silently, not propagated to CandidateFilter.
-- Uses groq/llama-3.3-70b-versatile via LiteLLM — same model as GroqPM/SentimentCollector.
+- Uses groq/qwen/qwen3-32b via LiteLLM for hypothesis generation.
 - Temperature=0 for deterministic structured output.
 - max_hypotheses=5 caps token cost per call regardless of prompt response.
 

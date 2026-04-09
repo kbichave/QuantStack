@@ -605,81 +605,81 @@ def run_migrations_pg(conn: PgConnection) -> None:
 
             # Each _migrate_* call runs in autocommit mode — every DDL
             # statement commits immediately, no transaction to orphan.
-            _migrate_portfolio_pg(conn)
-            _migrate_broker_pg(conn)
-            _migrate_audit_pg(conn)
-            _migrate_learning_pg(conn)
-            _migrate_memory_pg(conn)
-            _migrate_signals_pg(conn)
-            _migrate_system_pg(conn)
-            _migrate_strategies_pg(conn)
-            _migrate_regime_matrix_pg(conn)
-            _migrate_strategy_outcomes_pg(conn)
-            _migrate_universe_pg(conn)
-            _migrate_screener_pg(conn)
-            _migrate_coordination_pg(conn)
-            _migrate_research_wip_pg(conn)
-            _migrate_conversations_pg(conn)
-            _migrate_attribution_pg(conn)
-            _migrate_equity_alerts_pg(conn)
-            _migrate_market_data_pg(conn)
-            _migrate_analytics_pg(conn)
-            _migrate_research_queue_pg(conn)
-            _migrate_loop_context_pg(conn)
-            _migrate_bugs_pg(conn)
-            _migrate_ml_pipeline_pg(conn)
-            _migrate_capital_allocation_pg(conn)
-            _migrate_risk_monitoring_pg(conn)
-            _migrate_stat_arb_pg(conn)
-            _migrate_tool_search_metrics_pg(conn)
-            _migrate_trade_quality_pg(conn)
-            _migrate_market_holidays_pg(conn)
-            _migrate_signal_history_pg(conn)
-            _migrate_signal_ic_pg(conn)
-            _migrate_pnl_attribution_pg(conn)
-            _migrate_regime_state_pg(conn)
-            _migrate_institutional_gaps_pg(conn)
-            _migrate_ewf_pg(conn)
-            _migrate_hnsw_index_pg(conn)
-            _migrate_phase4_coordination_pg(conn)
-            _migrate_execution_layer_pg(conn)
-            _migrate_strategy_breaker_pg(conn)
-            _migrate_ic_attribution_pg(conn)
-            _migrate_model_registry_pg(conn)
-            _migrate_loss_aggregation_pg(conn)
-            # Phase 9: Missing Roles & Scale
-            _migrate_corporate_actions_pg(conn)
-            _migrate_system_alerts_pg(conn)
-            _migrate_eventbus_ack_pg(conn)
-            _migrate_factor_exposure_pg(conn)
-            _migrate_cycle_attribution_pg(conn)
-            _migrate_llm_config_pg(conn)
-            # Phase 10: Advanced Research
-            _migrate_phase10_pg(conn)
-            # P05: Adaptive Signal Synthesis
-            _migrate_p05_adaptive_synthesis_pg(conn)
-            # P06: Options Desk Upgrade
-            _migrate_p06_options_desk_pg(conn)
-            # P07: Data Architecture Evolution
-            _migrate_p07_data_architecture_pg(conn)
-            # P08: Options Market-Making
-            _migrate_p08_options_market_making_pg(conn)
-            # P10: Meta-Learning & Self-Improvement
-            _migrate_p10_meta_learning_pg(conn)
-            # P11: Alternative Data Sources
-            _migrate_p11_alternative_data_pg(conn)
-            # P12: Multi-Asset Expansion
-            _migrate_p12_multi_asset_pg(conn)
-            # P13: Causal Alpha Discovery
-            _migrate_p13_causal_alpha_pg(conn)
-            # P15: Autonomous Fund Integration
-            _migrate_p15_autonomous_fund_pg(conn)
+            # Migrations are best-effort: schema mismatches between
+            # old tables and new DDL are logged but non-fatal so graphs
+            # can start even when the DB has legacy schemas.
+            _migration_steps = [
+                _migrate_portfolio_pg,
+                _migrate_broker_pg,
+                _migrate_audit_pg,
+                _migrate_learning_pg,
+                _migrate_memory_pg,
+                _migrate_signals_pg,
+                _migrate_system_pg,
+                _migrate_strategies_pg,
+                _migrate_regime_matrix_pg,
+                _migrate_strategy_outcomes_pg,
+                _migrate_universe_pg,
+                _migrate_screener_pg,
+                _migrate_coordination_pg,
+                _migrate_research_wip_pg,
+                _migrate_conversations_pg,
+                _migrate_attribution_pg,
+                _migrate_equity_alerts_pg,
+                _migrate_market_data_pg,
+                _migrate_analytics_pg,
+                _migrate_research_queue_pg,
+                _migrate_loop_context_pg,
+                _migrate_bugs_pg,
+                _migrate_ml_pipeline_pg,
+                _migrate_capital_allocation_pg,
+                _migrate_risk_monitoring_pg,
+                _migrate_stat_arb_pg,
+                _migrate_tool_search_metrics_pg,
+                _migrate_trade_quality_pg,
+                _migrate_market_holidays_pg,
+                _migrate_signal_history_pg,
+                _migrate_signal_ic_pg,
+                _migrate_pnl_attribution_pg,
+                _migrate_regime_state_pg,
+                _migrate_institutional_gaps_pg,
+                _migrate_ewf_pg,
+                _migrate_hnsw_index_pg,
+                _migrate_phase4_coordination_pg,
+                _migrate_execution_layer_pg,
+                _migrate_strategy_breaker_pg,
+                _migrate_ic_attribution_pg,
+                _migrate_model_registry_pg,
+                _migrate_loss_aggregation_pg,
+                _migrate_corporate_actions_pg,
+                _migrate_system_alerts_pg,
+                _migrate_eventbus_ack_pg,
+                _migrate_factor_exposure_pg,
+                _migrate_cycle_attribution_pg,
+                _migrate_llm_config_pg,
+                _migrate_phase10_pg,
+                _migrate_p05_adaptive_synthesis_pg,
+                _migrate_p06_options_desk_pg,
+                _migrate_p07_data_architecture_pg,
+                _migrate_p08_options_market_making_pg,
+                _migrate_p10_meta_learning_pg,
+                _migrate_p11_alternative_data_pg,
+                _migrate_p12_multi_asset_pg,
+                _migrate_p13_causal_alpha_pg,
+                _migrate_p15_autonomous_fund_pg,
+            ]
+            failed = []
+            for step in _migration_steps:
+                try:
+                    step(conn)
+                except Exception as exc:
+                    failed.append(step.__name__)
+                    logger.warning("[DB] Migration %s failed (non-fatal): %s", step.__name__, exc)
 
+            if failed:
+                logger.warning("[DB] %d migration(s) had non-fatal errors: %s", len(failed), ", ".join(failed))
             logger.info("[DB] PostgreSQL migrations complete")
             _migrations_done = True
-        except Exception:
-            logger.exception("[DB] Migration failed")
-            raise
         finally:
             cur.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_ADVISORY_LOCK,))
     finally:
@@ -2589,13 +2589,20 @@ def _migrate_hnsw_index_pg(conn: PgConnection) -> None:
     ef_construction=100 (above default 64 for better recall at negligible build cost).
     Operator class vector_cosine_ops matches the <=> operator used in rag/query.py.
     """
-    conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
-            ON embeddings USING hnsw (embedding vector_cosine_ops)
-            WITH (m = 16, ef_construction = 100)
-    """)
-    logger.debug("[DB] HNSW index on embeddings.embedding migrated")
+    try:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    except Exception as exc:
+        logger.warning("[DB] pgvector extension not available — HNSW index skipped: %s", exc)
+        return
+    try:
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
+                ON embeddings USING hnsw (embedding vector_cosine_ops)
+                WITH (m = 16, ef_construction = 100)
+        """)
+        logger.debug("[DB] HNSW index on embeddings.embedding migrated")
+    except Exception as exc:
+        logger.warning("[DB] HNSW index creation failed (non-fatal): %s", exc)
 
 
 def _migrate_phase4_coordination_pg(conn: PgConnection) -> None:
@@ -2933,26 +2940,17 @@ def _migrate_execution_layer_pg(conn: PgConnection) -> None:
         )
     """))
     # Evolve pre-existing tables: add missing columns, relax ratio NOT NULL.
-    # Each ALTER wrapped in a savepoint to avoid deadlocks when multiple
-    # connections run migrations concurrently (e.g. test fixtures).
-    conn._ensure_raw()
-    raw = conn._raw
+    # Each ALTER runs independently in autocommit mode — failures are non-fatal.
     for stmt in [
         "ALTER TABLE slippage_accuracy ADD COLUMN IF NOT EXISTS time_bucket TEXT DEFAULT ''",
         "ALTER TABLE slippage_accuracy ADD COLUMN IF NOT EXISTS fill_timestamp TIMESTAMPTZ DEFAULT NOW()",
         "ALTER TABLE slippage_accuracy ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()",
         "ALTER TABLE slippage_accuracy ALTER COLUMN ratio DROP NOT NULL",
     ]:
-        sp_name = f"slip_evolve_{hash(stmt) & 0xFFFF:04x}"
-        raw.execute(f"SAVEPOINT {sp_name}")
         try:
-            cur = raw.cursor()
-            cur.execute(stmt)
-            cur.close()
+            conn.execute(stmt)
         except Exception:
-            raw.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
-        else:
-            raw.execute(f"RELEASE SAVEPOINT {sp_name}")
+            pass
     conn.execute(
         "CREATE INDEX IF NOT EXISTS slippage_accuracy_symbol_created_idx "
         "ON slippage_accuracy (symbol, created_at)"
@@ -2965,21 +2963,12 @@ def _migrate_execution_layer_pg(conn: PgConnection) -> None:
     # -- fills: ensure PK exists for ON CONFLICT upsert (section 02) --
     # The fills table may pre-date the PRIMARY KEY in the migration DDL.
     # Adding it idempotently so dual-write upsert works.
-    # Uses raw connection + savepoint to avoid PgConnection's auto-rollback
-    # on duplicate constraint error destroying the outer transaction.
-    conn._ensure_raw()
-    raw = conn._raw
-    raw.execute("SAVEPOINT fills_pk_check")
     try:
-        cur = raw.cursor()
-        cur.execute(
+        conn.execute(
             "ALTER TABLE fills ADD CONSTRAINT fills_pkey PRIMARY KEY (order_id)"
         )
-        cur.close()
     except Exception:
-        raw.execute("ROLLBACK TO SAVEPOINT fills_pk_check")
-    else:
-        raw.execute("RELEASE SAVEPOINT fills_pk_check")
+        pass
 
     logger.debug("[DB] execution_layer tables migrated")
 
@@ -3053,6 +3042,18 @@ def _migrate_model_registry_pg(conn: PgConnection) -> None:
             UNIQUE (strategy_id, version)
         )
     """))
+    # Evolve legacy schema: add strategy_id if missing (old table had different columns)
+    _alter_safe(conn, "model_registry", "strategy_id", "TEXT DEFAULT ''")
+    _alter_safe(conn, "model_registry", "version", "INTEGER DEFAULT 0")
+    _alter_safe(conn, "model_registry", "train_date", "DATE DEFAULT CURRENT_DATE")
+    _alter_safe(conn, "model_registry", "train_data_range", "TEXT")
+    _alter_safe(conn, "model_registry", "features_hash", "TEXT")
+    _alter_safe(conn, "model_registry", "backtest_sharpe", "DOUBLE PRECISION")
+    _alter_safe(conn, "model_registry", "backtest_ic", "DOUBLE PRECISION")
+    _alter_safe(conn, "model_registry", "backtest_max_dd", "DOUBLE PRECISION")
+    _alter_safe(conn, "model_registry", "shadow_start", "DATE")
+    _alter_safe(conn, "model_registry", "shadow_ic", "DOUBLE PRECISION")
+    _alter_safe(conn, "model_registry", "shadow_sharpe", "DOUBLE PRECISION")
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_model_registry_strategy_status "
         "ON model_registry (strategy_id, status)"

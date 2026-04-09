@@ -179,7 +179,7 @@ def get_model_for_role(role: str) -> str:
               ("bulk", "research").
 
     Returns:
-        LiteLLM model string (e.g. "groq/llama-3.3-70b-versatile").
+        LiteLLM model string (e.g. "groq/qwen/qwen3-32b").
 
     Raises:
         ValueError: If role is not recognized.
